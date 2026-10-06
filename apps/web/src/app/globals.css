@@ -1,0 +1,203 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark;
+  
+  /* Modern Neutral Palette - Light Mode */
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --surface: #ffffff;
+  --surface-base: #f8fafc;
+  --surface-sidebar: #f1f5f9;
+  --surface-card: #ffffff;
+  --surface-elevated: #e2e8f0;
+  --surface-highlight: #cbd5e1;
+  --surface-subnav: #f1f5f9;
+  --surface-border: #e2e8f0;
+  --surface-border-subtle: #f1f5f9;
+  --elevated: #f1f5f9;
+  --overlay: #e2e8f0;
+  --muted: #64748b;
+  --muted-foreground: #64748b;
+  --border: #e2e8f0;
+  --border-line: rgba(0, 0, 0, 0.08);
+
+  /* Modern Rocket Brand Accents - Stitch Design */
+  --brand: #fe5825;
+  --brand-hover: #ea4c1d;
+  --primary: #fe5825;
+  --primary-hover: #ea4c1d;
+  --primary-dim: rgba(254, 88, 37, 0.12);
+  --cyan: #0284c7;
+  --accent: #fe5825;
+
+  /* Diff & Status */
+  --diff-add: #16a34a;
+  --diff-add-bg: rgba(22, 163, 74, 0.08);
+  --diff-del: #dc2626;
+  --diff-del-bg: rgba(220, 38, 38, 0.08);
+  --status-live: #16a34a;
+  --status-idle: #94a3b8;
+}
+
+.dark {
+  /* Modern Neutral Palette - Dark Mode (Stitch Flat AI Theme) */
+  --background: #0d1017;
+  --foreground: #f4f4f5;
+  --surface: #131722;
+  --surface-base: #0d1017;
+  --surface-sidebar: #0a0c12;
+  --surface-card: #131722;
+  --surface-elevated: #181d2a;
+  --surface-highlight: #1e2434;
+  --surface-subnav: #10141f;
+  --surface-border: #202534;
+  --surface-border-subtle: #181d28;
+  --elevated: #181d2a;
+  --overlay: #202534;
+  --muted: #71717a;
+  --muted-foreground: #9ca3af;
+  --border: #202534;
+  --border-line: rgba(255, 255, 255, 0.08);
+
+  /* Modern Rocket Brand Accents - Stitch Design */
+  --brand: #fe5825;
+  --brand-hover: #ea4c1d;
+  --primary: #fe5825;
+  --primary-hover: #ea4c1d;
+  --primary-dim: rgba(254, 88, 37, 0.12);
+  --cyan: #38bdf8;
+  --accent: #fe5825;
+
+  /* Diff & Status */
+  --diff-add: #10b981;
+  --diff-add-bg: rgba(16, 185, 129, 0.1);
+  --diff-del: #ef4444;
+  --diff-del-bg: rgba(239, 68, 68, 0.1);
+  --status-live: #10b981;
+  --status-idle: #64748b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
+  overflow: hidden;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* Modern Clean Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--overlay) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--overlay);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+/* Subtle Rocket Brand Glow */
+.rocket-thrust-glow {
+  box-shadow: 0 0 16px -2px rgba(249, 115, 22, 0.35);
+}
+
+.rocket-card-shadow {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+}
+
+.dark .rocket-card-shadow {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.4), 0 1px 2px -1px rgba(0, 0, 0, 0.3);
+}
+
+/* Keyframe Animations */
+@keyframes rocket-launch {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  30% {
+    transform: translateY(-8px) scale(1.08);
+  }
+  100% {
+    transform: translateY(-64px) scale(0.5);
+    opacity: 0;
+  }
+}
+
+@keyframes rocket-liftoff {
+  0% {
+    transform: translateY(180px) scale(0.7);
+    opacity: 0;
+  }
+  25% {
+    transform: translateY(0px) scale(1.1);
+    opacity: 1;
+  }
+  70% {
+    transform: translateY(-80px) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-380px) scale(0.5);
+    opacity: 0;
+  }
+}
+
+@keyframes rocket-exhaust {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.8;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+@keyframes thrust-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.96);
+  }
+}
+
+.animate-rocket-launch {
+  animation: rocket-launch 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-rocket-liftoff {
+  animation: rocket-liftoff 1.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-thrust-pulse {
+  animation: thrust-pulse 0.2s ease-in-out;
+}
