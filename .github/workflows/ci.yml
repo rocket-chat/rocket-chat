@@ -1,0 +1,138 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend Lint, Type-Check & Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install dependencies
+        run: uv sync --dev
+
+      - name: Run Ruff Linter
+        run: uv run ruff check .
+
+      - name: Run Ruff Formatter Check
+        run: uv run ruff format --check .
+
+      - name: Run Mypy Type Checker
+        run: uv run mypy packages apps/api
+
+      - name: Run Pytest Test Suite
+        env:
+          DEFAULT_SANDBOX_DRIVER: docker
+        run: uv run pytest tests/
+
+  frontend:
+    name: Frontend Lint, Type-Check, Build & E2E
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Install backend dependencies
+        run: uv sync --dev
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run ESLint
+        run: pnpm --filter web lint
+
+      - name: Run TypeScript Compile Check
+        run: pnpm --filter web type-check
+
+      - name: Build Next.js Production Bundle
+        run: pnpm --filter web build
+
+      - name: Install Playwright Browsers
+        run: pnpm --filter web exec playwright install --with-deps chromium
+
+      - name: Run Playwright E2E Tests
+        run: pnpm --filter web test:e2e
+
+  docs:
+    name: Documentation Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Mintlify Documentation Site
+        run: pnpm run docs:check
+
+  packaging:
+    name: Helm & Docker Compose Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: "v3.15.0"
+
+      - name: Lint Helm Chart
+        run: helm lint deploy/helm/platform
+
+      - name: Template Helm Chart
+        run: helm template test-release deploy/helm/platform > /dev/null
+
+      - name: Validate Docker Compose Configuration
+        run: docker compose -f deploy/docker-compose.prod.yml config
