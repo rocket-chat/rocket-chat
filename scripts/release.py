@@ -36,13 +36,13 @@ SEMVER_REGEX = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$")
 UNRELEASED_TEMPLATE = """## [Unreleased]
 
 ### Added
-- `orchestrator`: 
-- `sandboxes`: 
-- `api`: 
-- `web`: 
-- `settings`: 
-- `git`: 
-- `helm`: 
+- `orchestrator`:
+- `sandboxes`:
+- `api`:
+- `web`:
+- `settings`:
+- `git`:
+- `helm`:
 
 ### Changed
 
@@ -134,13 +134,17 @@ def update_file_versions(version: str) -> None:
     # 5. Root pyproject.toml
     if ROOT_PYPROJECT.exists():
         content = ROOT_PYPROJECT.read_text(encoding="utf-8")
-        content = re.sub(r'^version\s*=\s*"[^"]+"', f'version = "{version}"', content, flags=re.MULTILINE)
+        content = re.sub(
+            r'^version\s*=\s*"[^"]+"', f'version = "{version}"', content, flags=re.MULTILINE
+        )
         ROOT_PYPROJECT.write_text(content, encoding="utf-8")
 
     # 6. apps/api/pyproject.toml and main.py
     if API_PYPROJECT.exists():
         content = API_PYPROJECT.read_text(encoding="utf-8")
-        content = re.sub(r'^version\s*=\s*"[^"]+"', f'version = "{version}"', content, flags=re.MULTILINE)
+        content = re.sub(
+            r'^version\s*=\s*"[^"]+"', f'version = "{version}"', content, flags=re.MULTILINE
+        )
         API_PYPROJECT.write_text(content, encoding="utf-8")
 
     if API_MAIN_PY.exists():
@@ -152,14 +156,19 @@ def update_file_versions(version: str) -> None:
     if PACKAGES_DIR.exists():
         for pkg_pyproj in PACKAGES_DIR.glob("*/pyproject.toml"):
             content = pkg_pyproj.read_text(encoding="utf-8")
-            content = re.sub(r'^version\s*=\s*"[^"]+"', f'version = "{version}"', content, flags=re.MULTILINE)
+            content = re.sub(
+                r'^version\s*=\s*"[^"]+"', f'version = "{version}"', content, flags=re.MULTILINE
+            )
             pkg_pyproj.write_text(content, encoding="utf-8")
-
 
 
 def extract_version_notes(changelog_text: str, target_version: str) -> str:
     """Extract changelog notes for a specific version or unreleased."""
-    target_clean = normalize_version(target_version) if target_version.lower() != "unreleased" else "unreleased"
+    target_clean = (
+        normalize_version(target_version)
+        if target_version.lower() != "unreleased"
+        else "unreleased"
+    )
 
     if target_clean == "unreleased":
         pattern = r"##\s*\[Unreleased\](.*?)(?=\n##\s*\[|\Z)"
@@ -266,7 +275,9 @@ def cmd_notes(version_arg: str, output_path: str | None = None) -> None:
     except ValueError as e:
         sys.exit(f"Error: {e}")
 
-    version_clean = normalize_version(version_arg) if version_arg.lower() != "unreleased" else "unreleased"
+    version_clean = (
+        normalize_version(version_arg) if version_arg.lower() != "unreleased" else "unreleased"
+    )
     body = build_release_body(version_clean, notes) if version_clean != "unreleased" else notes
 
     if output_path:
