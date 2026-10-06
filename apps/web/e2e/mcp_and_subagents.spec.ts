@@ -86,8 +86,8 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await expect(mainContent.getByText(/Subagents inherit the session workspace but are strictly prohibited/i)).toBeVisible();
 
     // Select QA Verifier
-    await mainContent.getByRole("button", { name: /QA/i }).click();
-    await expect(mainContent.getByRole("heading", { name: /QA/i })).toBeVisible();
+    await mainContent.getByRole("button", { name: "QA Verifier" }).click();
+    await expect(mainContent.getByRole("heading", { name: "QA Verifier" })).toBeVisible({ timeout: 10000 });
 
     // Verify form inputs populated
     const roleInput = mainContent.locator("input[type='text']").first();
