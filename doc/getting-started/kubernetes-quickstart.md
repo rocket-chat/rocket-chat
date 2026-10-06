@@ -20,16 +20,21 @@ kubectl cluster-info --context kind-rocket-local
 
 ## 2. Deploying Rocket Chat via Helm
 
-The official Helm chart is located in `deploy/helm/platform/`.
+Rocket Chat is distributed as an official OCI Helm chart via GitHub Container Registry (`ghcr.io/rocket-chat/charts/rocket-chat`).
 
-### Step 1: Verify Helm Chart Templates
+### Option A: Install via Official OCI Chart (Recommended)
+Install directly from the public registry without needing to clone the repository:
+
 ```bash
-helm lint deploy/helm/platform
-helm template test-release deploy/helm/platform > /dev/null
+helm install rocket-chat oci://ghcr.io/rocket-chat/charts/rocket-chat \
+  --namespace rocket-chat \
+  --create-namespace \
+  --set sandbox.storageClass="standard" \
+  --set global.domain="rocket.local"
 ```
 
-### Step 2: Install Platform Chart
-Install into a dedicated release namespace (e.g. `rocket-chat`):
+### Option B: Install from Local Clone
+If you have cloned the repository (see [Setup from Source](/getting-started/from-source)), install using the local chart path:
 
 ```bash
 helm install rocket-chat deploy/helm/platform \

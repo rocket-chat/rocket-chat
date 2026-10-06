@@ -1,6 +1,5 @@
 # Default values for Rocket Chat Helm chart.
 # Declare variables to be passed into your templates.
-
 global:
   domain: "rocket.example.com"
 
