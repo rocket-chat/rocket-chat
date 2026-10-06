@@ -194,6 +194,7 @@ export default function SubagentsSettingsPage() {
               return (
                 <button
                   key={sub.id}
+                  data-testid={`subagent-item-${sub.id}`}
                   onClick={() => handleSelectSubagent(sub)}
                   className={`w-full text-left p-3.5 rounded-xl border transition-all flex items-start gap-3.5 ${
                     isSelected
