@@ -1,13 +1,12 @@
 # Default values for Rocket Chat Helm chart.
 # Declare variables to be passed into your templates.
-
 global:
   domain: "rocket.example.com"
 
 backend:
   image:
     repository: ghcr.io/rocket-chat/backend
-    tag: "0.1.0"
+    tag: "0.1.1"
     pullPolicy: IfNotPresent
   replicas: 2
   env:
@@ -37,7 +36,7 @@ backend:
 frontend:
   image:
     repository: ghcr.io/rocket-chat/frontend
-    tag: "0.1.0"
+    tag: "0.1.1"
     pullPolicy: IfNotPresent
   replicas: 2
   service:

@@ -1,6 +1,11 @@
 # Rocket Chat Platform Helm Chart
 
-Production Helm chart for deploying the **Rocket Chat** autonomous AI pair-programming platform on Kubernetes.
+[![Artifact Hub](https://img.shields.io/endpoint?url=https%3A%2F%2Fartifacthub.io%2Fbadge%2Frepository%2Frocket-chat&style=flat-square)](https://artifacthub.io/packages/helm/rocket-chat/rocket-chat)
+[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-green?style=flat-square)](https://github.com/rocket-chat/rocket-chat/blob/main/LICENSE)
+
+Production-grade Helm chart for deploying the **Rocket Chat** autonomous AI pair-programming platform on Kubernetes.
+
+Rocket Chat enables engineering organizations to safely execute autonomous AI coding agents inside isolated multi-tenant Kubernetes Pods, complete with real-time WebSocket mission telemetry, full-duplex streaming terminals, and Bring-Your-Own-Key (BYOK) LLM gateway routing.
 
 ## Prerequisites
 

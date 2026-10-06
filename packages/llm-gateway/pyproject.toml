@@ -1,6 +1,6 @@
 [project]
 name = "llm-gateway"
-version = "0.1.0"
+version = "0.1.1"
 description = "Universal LLM routing and BYOK gateway for Rocket Chat"
 readme = "README.md"
 requires-python = ">=3.12"

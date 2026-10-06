@@ -24,6 +24,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [0.1.1] - 2026-10-06
+
+### Added
+- `helm`: Added Artifact Hub repository verification metadata (`artifacthub-repo.yml`) with verified publisher ID `26c5b29e-9eec-4118-bf94-0ec72d17470e`.
+- `helm`: Added Artifact Hub badge, comprehensive chart description, metadata annotations, and ORAS OCI metadata layer push to release workflow.
+- `web`: Added Artifact Hub badge and Helm deployment guide to root README.
+
+### Fixed
+- `docker`: Fixed frontend Dockerfile multi-arch container build failure by pinning builder to `pnpm@10` to avoid `ERR_PNPM_IGNORED_BUILDS` in pnpm 11.
+
 ## [0.1.0] - 2026-10-06
 
 ### Added
