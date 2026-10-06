@@ -77,17 +77,17 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await expect(mainContent.getByText(/Configure autonomous specialists that execute focused/i)).toBeVisible();
 
     // Verify specialist list
-    await expect(mainContent.getByRole("button", { name: /Security Auditor/i })).toBeVisible();
-    await expect(mainContent.getByRole("button", { name: /QA Verifier/i })).toBeVisible();
-    await expect(mainContent.getByRole("button", { name: /Codebase Researcher/i })).toBeVisible();
+    await expect(mainContent.getByRole("button", { name: /Security/i })).toBeVisible();
+    await expect(mainContent.getByRole("button", { name: /QA/i })).toBeVisible();
+    await expect(mainContent.getByRole("button", { name: /Researcher/i })).toBeVisible();
 
     // Verify recursion safeguard notice
     await expect(mainContent.getByText("Recursion Safeguard")).toBeVisible();
     await expect(mainContent.getByText(/Subagents inherit the session workspace but are strictly prohibited/i)).toBeVisible();
 
     // Select QA Verifier
-    await mainContent.getByRole("button", { name: "QA Verifier" }).click();
-    await expect(page.getByTestId("selected-subagent-title")).toHaveText(/QA Verifier/i, { timeout: 10000 });
+    await mainContent.getByRole("button", { name: /QA/i }).click();
+    await expect(page.getByTestId("selected-subagent-title")).toHaveText(/QA/i, { timeout: 10000 });
 
     // Verify form inputs populated
     const roleInput = mainContent.locator("input[type='text']").first();

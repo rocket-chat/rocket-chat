@@ -15,8 +15,8 @@ import {
 const DEFAULT_SUBAGENTS: SubagentConfig[] = [
   {
     id: "security_auditor",
-    name: "Security Auditor",
-    role_title: "Autonomous Security Specialist",
+    name: "Security & Penetration Auditor",
+    role_title: "Application Security Specialist",
     description: "Performs static vulnerability audits, credential leak scans, and OWASP checks.",
     system_prompt: `You are an autonomous Security Auditor specialist subagent.
 Your goal is to inspect code, dependency manifests, and configurations for vulnerabilities, hardcoded secrets, injection vectors, and authorization flaws.
@@ -29,8 +29,8 @@ Be concise, surgical, and provide actionable remediation patches or suggestions.
   },
   {
     id: "qa_verifier",
-    name: "QA Verifier",
-    role_title: "Automated QA & Test Synthesis Specialist",
+    name: "QA & Test Verifier",
+    role_title: "Automated Test Specialist",
     description: "Runs test suites, analyzes failures, and synthesizes missing regression tests.",
     system_prompt: `You are an autonomous QA & Verification specialist subagent.
 Your goal is to execute test suites, analyze error traces, and verify that changes satisfy functional contracts without regressions.
@@ -43,7 +43,7 @@ Run targeted test runners and report pass/fail verdicts clearly.`,
   },
   {
     id: "researcher",
-    name: "Codebase Researcher",
+    name: "Codebase & Web Researcher",
     role_title: "Codebase Architecture & Doc Researcher",
     description: "Explores symbol hierarchies, traces call paths, and reviews online API documentation.",
     system_prompt: `You are an autonomous Codebase & Web Researcher specialist subagent.
