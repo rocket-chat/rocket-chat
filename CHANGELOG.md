@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+
+### Security
+
+## [0.1.2] - 2026-10-06
+
+### Added
+
+### Changed
+
+### Fixed
 - `helm`: Release workflow no longer pushes Artifact Hub metadata to a stray `ghcr.io/rocket-chat/charts` package; it is pushed only to `charts/rocket-chat`.
 - `helm`: Use the valid Artifact Hub category `ai-machine-learning` in `Chart.yaml` (`developer-tools` was rejected).
 
