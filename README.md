@@ -11,6 +11,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js" alt="Next.js">
   <img src="https://img.shields.io/badge/Python-3.12+-blue?style=flat-square&logo=python" alt="Python">
+  <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fartifacthub.io%2Fbadge%2Frepository%2Frocket-chat&style=flat-square" alt="Artifact Hub">
   <img src="https://img.shields.io/badge/License-GPL--3.0-green?style=flat-square" alt="License: GPL-3.0">
   <img src="https://img.shields.io/badge/Theme-Rocket_Dark%2FLight-f97316?style=flat-square" alt="Theme">
   <img src="https://img.shields.io/badge/Sandboxes-Docker_%7C_K8s-ff5722?style=flat-square" alt="Sandboxes">
@@ -172,6 +173,25 @@ To test the Kubernetes sandbox driver and full multi-tenant isolation locally:
    ```bash
    make cluster-down
    ```
+
+---
+
+### Option D: Production Helm Deployment (Artifact Hub / GHCR OCI)
+
+Deploy directly using the published OCI chart listed on [Artifact Hub](https://artifacthub.io/packages/helm/rocket-chat/rocket-chat):
+
+```bash
+# Log in to GitHub Container Registry (if private or rate-limited)
+helm registry login ghcr.io -u <YOUR_GITHUB_USERNAME>
+
+# Install or upgrade Rocket Chat from GHCR OCI
+helm upgrade --install rocket-chat oci://ghcr.io/rocket-chat/charts/rocket-chat \
+  --version 0.1.1 \
+  --namespace rocket-chat \
+  --create-namespace \
+  --set backend.openrouterApiKey="$OPENROUTER_API_KEY" \
+  --set sandbox.storageClass="gp3"
+```
 
 ---
 

@@ -17,4 +17,4 @@ Rocket Chat is packaged for enterprise production deployment across both lightwe
 
 1. **Backend Container:** `ghcr.io/rocket-chat/backend:latest` (Multi-arch `linux/amd64`, `linux/arm64`)
 2. **Frontend Container:** `ghcr.io/rocket-chat/frontend:latest` (Multi-arch `linux/amd64`, `linux/arm64`)
-3. **Helm OCI Chart:** `oci://ghcr.io/rocket-chat/charts/rocket-chat:0.0.0`
+3. **Helm OCI Chart:** `oci://ghcr.io/rocket-chat/charts/rocket-chat:0.1.1`

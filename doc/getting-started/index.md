@@ -6,19 +6,20 @@ Welcome to **Rocket Chat**, your autonomous pair-programming workspace. Rocket C
 
 ## 1. Fast-Track: Launch Your Local Workspace
 
-Launch the complete Rocket Chat platform using single-command Docker Compose:
+Launch the complete Rocket Chat platform using the published multi-arch container images (`ghcr.io/rocket-chat/frontend:latest` and `ghcr.io/rocket-chat/backend:latest`):
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/rocket-chat/rocket-chat.git
-cd rocket-chat
+# 1. Download official compose file
+curl -sSL https://raw.githubusercontent.com/rocket-chat/rocket-chat/main/deploy/docker-compose.prod.yml -o docker-compose.yml
 
 # 2. Launch production stack in background
-docker compose -f deploy/docker-compose.prod.yml up -d
+docker compose up -d
 ```
 
 Once running, navigate to:
 👉 **[http://localhost:3000](http://localhost:3000)** to access your Cockpit.
+
+> **Developing from source?** If you prefer to clone the repository, run local hot-reloading dev servers, or modify code, visit our dedicated [Source Code & Local Setup Guide](/getting-started/from-source).
 
 ---
 

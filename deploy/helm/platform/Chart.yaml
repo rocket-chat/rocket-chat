@@ -1,9 +1,9 @@
 apiVersion: v2
 name: rocket-chat
-description: Production Helm chart for Rocket Chat - Autonomous AI Pair Programming Platform
+description: Production-grade Helm chart for Rocket Chat - Autonomous AI pair-programming platform with isolated Kubernetes sandboxes, WebSocket flight telemetry, and BYOK LLM gateway
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.1.1
+appVersion: "0.1.1"
 home: https://github.com/rocket-chat/rocket-chat
 sources:
   - https://github.com/rocket-chat/rocket-chat
@@ -11,7 +11,24 @@ icon: https://raw.githubusercontent.com/rocket-chat/rocket-chat/main/apps/web/pu
 keywords:
   - ai
   - pair-programming
+  - coding-assistant
   - react-agent
   - kubernetes-sandboxes
+  - developer-tools
 maintainers:
   - name: Rocket Chat Team
+    email: contact@nathp.fr
+annotations:
+  artifacthub.io/category: developer-tools
+  artifacthub.io/displayName: Rocket Chat
+  artifacthub.io/license: GPL-3.0-or-later
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://rocket-chat.mintlify.site
+    - name: Source
+      url: https://github.com/rocket-chat/rocket-chat
+  artifacthub.io/changes: |
+    - kind: added
+      description: Production Helm chart for Kubernetes deployment
+    - kind: fixed
+      description: Frontend multi-arch container build compatibility in release pipeline
