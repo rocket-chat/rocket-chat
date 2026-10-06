@@ -87,7 +87,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
 
     // Select QA Verifier
     await mainContent.getByRole("button", { name: "QA Verifier" }).click();
-    await expect(mainContent.getByRole("heading", { name: "QA Verifier" })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByTestId("selected-subagent-title")).toHaveText(/QA Verifier/i, { timeout: 10000 });
 
     // Verify form inputs populated
     const roleInput = mainContent.locator("input[type='text']").first();
