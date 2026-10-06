@@ -254,7 +254,7 @@ export default function SubagentsSettingsPage() {
                 {getSubagentIcon(formData.id)}
               </div>
               <div>
-                <h2 className="text-lg font-bold text-white">{formData.name}</h2>
+                <h2 data-testid="selected-subagent-title" className="text-lg font-bold text-white">{formData.name}</h2>
                 <span className="text-xs font-mono text-brand">{formData.role_title}</span>
               </div>
             </div>
