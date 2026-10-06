@@ -1,0 +1,141 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Rocket Chat",
+  "colors": {
+    "primary": "#fe5825",
+    "light": "#ff7448",
+    "dark": "#d94212"
+  },
+  "favicon": "/assets/icon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "index"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Guides",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "getting-started/index",
+              "getting-started/use-cases",
+              "getting-started/user-settings",
+              "getting-started/kubernetes-quickstart",
+              "getting-started/slack-setup",
+              "getting-started/github-app-setup",
+              "getting-started/configuration-reference"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Architecture",
+        "groups": [
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/index",
+              "architecture/agent-engine",
+              "architecture/sandbox-runtimes",
+              "architecture/custom-sandboxes",
+              "architecture/llm-gateway",
+              "architecture/multi-tenancy",
+              "architecture/configuration-engine",
+              "architecture/git-engine",
+              "architecture/slack-assistant",
+              "architecture/mission-control-ui",
+              "architecture/extensibility-and-tools",
+              "architecture/route-permissions"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API & Protocols",
+        "groups": [
+          {
+            "group": "API & Protocols",
+            "pages": [
+              "api-reference/index",
+              "api-reference/rest-endpoints",
+              "api-reference/websocket-protocol",
+              "api-reference/python-protocols"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Deployment & Ops",
+        "groups": [
+          {
+            "group": "Deployment & Operations",
+            "pages": [
+              "deployment-and-ops/index",
+              "deployment-and-ops/docker-compose",
+              "deployment-and-ops/helm-chart",
+              "deployment-and-ops/cloud-storage-csi",
+              "deployment-and-ops/public-release",
+              "deployment-and-ops/security-and-compliance",
+              "deployment-and-ops/production-hardening",
+              "deployment-and-ops/troubleshooting"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "AI & Agents",
+        "groups": [
+          {
+            "group": "AI & Agents",
+            "pages": [
+              "ai/index",
+              "ai/llms-index"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/assets/logo.svg",
+    "dark": "/assets/logo.svg"
+  },
+  "background": {
+    "color": {
+      "light": "#ffffff",
+      "dark": "#0d1017"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Cockpit",
+        "href": "http://localhost:3000"
+      },
+      {
+        "label": "GitHub",
+        "href": "https://github.com/rocket-chat/rocket-chat"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Launch App",
+      "href": "http://localhost:3000"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/rocket-chat/rocket-chat"
+    }
+  }
+}

@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 160" width="100%" height="100%" shape-rendering="geometricPrecision">
+  <defs>
+    <!-- Background Vignette Gradient -->
+    <radialGradient id="logo-bg-grad" cx="50%" cy="38%" r="62%">
+      <stop offset="0%" stop-color="#141923" />
+      <stop offset="100%" stop-color="#07090e" />
+    </radialGradient>
+
+    <!-- Badge Rim Metallic Gradient -->
+    <linearGradient id="logo-rim-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2a354b" />
+      <stop offset="100%" stop-color="#131926" />
+    </linearGradient>
+
+    <!-- Neon Glow Filter -->
+    <filter id="logo-neon-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3" result="blur1" />
+      <feGaussianBlur stdDeviation="1" result="blur2" />
+      <feMerge>
+        <feMergeNode in="blur1" />
+        <feMergeNode in="blur2" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- Drop Shadow Filter for Rocket Elevation -->
+    <filter id="logo-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000000" flood-opacity="0.6" />
+    </filter>
+
+    <!-- Typography Gradients -->
+    <linearGradient id="logo-text-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#e2e8f0" />
+    </linearGradient>
+
+    <linearGradient id="logo-flame-text" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ff7043" />
+      <stop offset="100%" stop-color="#ff5722" />
+    </linearGradient>
+  </defs>
+
+  <!-- Left Icon Squircle (136x136) -->
+  <g transform="translate(12, 12)">
+    <rect x="0" y="0" width="136" height="136" rx="34" fill="url(#logo-bg-grad)" stroke="url(#logo-rim-grad)" stroke-width="2.5" />
+
+    <!-- Scaled Rocket Group (Mapped from 512x512 to 136x136 center: origin at 68, 68) -->
+    <g transform="translate(68, 68) scale(0.27) translate(-256, -256)">
+      <g transform="rotate(45 256 256)" filter="url(#logo-shadow)">
+        <!-- 1. PROPULSION FLAME -->
+        <path d="M 230 330 C 216 358 226 394 256 422 C 286 394 296 358 282 330 C 272 344 266 350 256 350 C 246 350 240 344 230 330 Z" fill="#ff5722" />
+        <path d="M 242 342 C 236 360 244 380 256 394 C 268 380 276 360 270 342 C 264 350 260 354 256 354 C 252 354 248 350 242 342 Z" fill="#0b0d13" />
+
+        <!-- 2. WINGS & FINS -->
+        <polygon points="214,242 142,284 154,324 216,280" fill="#222b3d" />
+        <polygon points="142,284 214,242 208,238 136,278" fill="#00e5ff" filter="url(#logo-neon-glow)" />
+
+        <polygon points="298,242 370,284 358,324 296,280" fill="#222b3d" />
+        <polygon points="370,284 358,324 352,320 364,282" fill="#00e5ff" filter="url(#logo-neon-glow)" />
+
+        <!-- 3. ENGINE THRUSTER COLLAR -->
+        <polygon points="234,302 278,302 272,334 240,334" fill="#182030" stroke="#0e131d" stroke-width="2" />
+        <line x1="256" y1="302" x2="256" y2="334" stroke="#0b0d13" stroke-width="3" />
+
+        <!-- 4. MAIN FUSELAGE -->
+        <path d="M 256 86 C 214 150 210 240 212 308 L 226 308 L 236 280 L 246 294 L 256 264 L 266 294 L 276 280 L 286 308 L 300 308 C 302 240 298 150 256 86 Z" fill="#ffffff" />
+        <path d="M 256 86 C 278 140 286 216 286 308 L 300 308 C 302 240 298 150 256 86 Z" fill="#dce3ec" />
+        <polygon points="246,294 256,264 266,294 256,282" fill="#bac7d5" />
+        <path d="M 256 86 C 246 114 238 138 234 162 L 278 162 C 274 138 266 114 256 86 Z" fill="#3b4861" />
+
+        <!-- 5. COCKPIT TELEMETRY SENSOR -->
+        <circle cx="256" cy="204" r="22" fill="#0b0d13" />
+        <circle cx="256" cy="204" r="14" fill="#20293a" />
+        <circle cx="256" cy="204" r="7.5" fill="#00e5ff" filter="url(#logo-neon-glow)" />
+      </g>
+    </g>
+  </g>
+
+  <!-- Typography / Brand Lockup -->
+  <g transform="translate(175, 0)">
+    <!-- Primary Title: ROCKET CHAT -->
+    <text x="0" y="82"
+          font-family="'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+          font-size="52"
+          font-weight="800"
+          letter-spacing="2"
+          fill="url(#logo-text-grad)">ROCKET</text>
+
+    <text x="236" y="82"
+          font-family="'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+          font-size="52"
+          font-weight="800"
+          letter-spacing="2"
+          fill="url(#logo-flame-text)">CHAT</text>
+
+    <!-- Version / Status Avionics Pill -->
+    <g transform="translate(400, 48)">
+      <rect x="0" y="0" width="86" height="24" rx="6" fill="#131823" stroke="#1e2638" stroke-width="1.5" />
+      <circle cx="12" cy="12" r="3.5" fill="#00e5ff" filter="url(#logo-neon-glow)">
+        <animate attributeName="opacity" values="1;0.4;1" dur="2s" repeatCount="indefinite" />
+      </circle>
+      <text x="24" y="16.5"
+            font-family="'JetBrains Mono', 'Courier New', monospace"
+            font-size="11"
+            font-weight="600"
+            letter-spacing="1"
+            fill="#00e5ff">AVIONICS</text>
+    </g>
+
+    <!-- Subtitle: Autonomous Mission Control Telemetry -->
+    <text x="2" y="118"
+          font-family="'JetBrains Mono', 'Courier New', monospace"
+          font-size="15"
+          font-weight="500"
+          letter-spacing="3.5"
+          fill="#94a3b8">AUTONOMOUS AI PAIR-PROGRAMMING</text>
+
+    <!-- Telemetry Horizon Accent Line -->
+    <line x1="2" y1="134" x2="480" y2="134" stroke="#1e2638" stroke-width="1.5" />
+    <line x1="2" y1="134" x2="110" y2="134" stroke="#00e5ff" stroke-width="2" opacity="0.85" />
+    <circle cx="110" cy="134" r="2.5" fill="#00e5ff" />
+  </g>
+</svg>
