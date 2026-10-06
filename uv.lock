@@ -21,7 +21,7 @@ members = [
 
 [[package]]
 name = "agent-core"
-version = "0.0.0"
+version = "0.1.0"
 source = { editable = "packages/agent-core" }
 dependencies = [
     { name = "beautifulsoup4" },
@@ -225,7 +225,7 @@ wheels = [
 
 [[package]]
 name = "api"
-version = "0.0.0"
+version = "0.1.0"
 source = { editable = "apps/api" }
 dependencies = [
     { name = "agent-core" },
@@ -730,7 +730,7 @@ wheels = [
 
 [[package]]
 name = "config-engine"
-version = "0.0.0"
+version = "0.1.0"
 source = { editable = "packages/config-engine" }
 dependencies = [
     { name = "cryptography" },
@@ -1120,7 +1120,7 @@ wheels = [
 
 [[package]]
 name = "git-engine"
-version = "0.0.0"
+version = "0.1.0"
 source = { editable = "packages/git-engine" }
 dependencies = [
     { name = "httpx" },
@@ -1820,7 +1820,7 @@ wheels = [
 
 [[package]]
 name = "llm-gateway"
-version = "0.0.0"
+version = "0.1.0"
 source = { editable = "packages/llm-gateway" }
 dependencies = [
     { name = "litellm" },
@@ -2858,7 +2858,7 @@ wheels = [
 
 [[package]]
 name = "rocket-chat"
-version = "0.0.0"
+version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "agent-core" },
@@ -3044,7 +3044,7 @@ wheels = [
 
 [[package]]
 name = "sandbox-driver"
-version = "0.0.0"
+version = "0.1.0"
 source = { editable = "packages/sandbox-driver" }
 dependencies = [
     { name = "docker" },
@@ -3081,7 +3081,7 @@ wheels = [
 
 [[package]]
 name = "slack-assistant"
-version = "0.0.0"
+version = "0.1.0"
 source = { editable = "packages/slack-assistant" }
 dependencies = [
     { name = "agent-core" },
