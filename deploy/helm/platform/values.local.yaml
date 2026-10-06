@@ -1,0 +1,56 @@
+# Local values for Kind / Minikube development and testing
+global:
+  domain: "localhost"
+
+backend:
+  image:
+    repository: ghcr.io/rocket-chat/backend
+    tag: latest
+    pullPolicy: Never
+  replicas: 1
+  env:
+    DEFAULT_SANDBOX_DRIVER: "k8s"
+    ROCKET_DEFAULT_MODEL: "openrouter/deepseek/deepseek-v4.1-flash"
+    SANDBOX_CPU_REQUEST: "50m"
+    SANDBOX_CPU_LIMIT: "500m"
+    SANDBOX_MEMORY_REQUEST: "128Mi"
+    SANDBOX_MEMORY_LIMIT: "512Mi"
+  service:
+    type: NodePort
+    port: 8000
+    nodePort: 30080
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+frontend:
+  image:
+    repository: ghcr.io/rocket-chat/frontend
+    tag: latest
+    pullPolicy: Never
+  replicas: 1
+  service:
+    type: NodePort
+    port: 3000
+    nodePort: 30000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+ingress:
+  enabled: false
+
+sandbox:
+  namespace: "agent-sandboxes"
+  storageClass: "standard"
+
+postgresql:
+  enabled: true

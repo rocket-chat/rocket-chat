@@ -1,0 +1,25 @@
+name: rocket-chat-dev
+
+# Lightweight local development stack running PostgreSQL with pgvector and RLS
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: rocket_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rocket_chat
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./docker/init-rls.sql:/docker-entrypoint-initdb.d/init-rls.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rocket_chat"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_dev_data:
