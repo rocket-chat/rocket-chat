@@ -85,8 +85,10 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await expect(mainContent.getByText("Recursion Safeguard")).toBeVisible();
     await expect(mainContent.getByText(/Subagents inherit the session workspace but are strictly prohibited/i)).toBeVisible();
 
-    // Select QA Verifier
-    await mainContent.getByRole("button", { name: /QA/i }).click();
+    // Ensure list is hydrated and select QA Verifier
+    const qaButton = page.getByTestId("subagent-item-qa_verifier");
+    await expect(qaButton).toBeVisible({ timeout: 10000 });
+    await qaButton.click();
     await expect(page.getByTestId("selected-subagent-title")).toHaveText(/QA/i, { timeout: 10000 });
 
     // Verify form inputs populated

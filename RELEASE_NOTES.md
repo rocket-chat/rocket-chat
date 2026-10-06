@@ -1,30 +1,4 @@
-# Changelog
-
-All notable changes to **Rocket Chat** will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
----
-
-## [Unreleased]
-
-### Added
-- `orchestrator`:
-- `sandboxes`:
-- `api`:
-- `web`:
-- `settings`:
-- `git`:
-- `helm`:
-
-### Changed
-
-### Fixed
-
-### Security
-
-## [0.1.0] - 2026-10-06
+# Rocket Chat v0.1.0 (2026-10-06)
 
 ### Added
   - 3-tier context hygiene with bounded head/tail clamping (`clamp_output`) and automatic 70% threshold receipt compaction.
@@ -57,3 +31,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 ### Security
+
+---
+
+### Deployment Artifacts & Container Images
+
+* **Backend Image (Multi-Arch `linux/amd64`, `linux/arm64`)**:
+  ```bash
+  docker pull ghcr.io/rocket-chat/backend:v0.1.0
+  ```
+
+* **Frontend Web Cockpit (`linux/amd64`, `linux/arm64`)**:
+  ```bash
+  docker pull ghcr.io/rocket-chat/frontend:v0.1.0
+  ```
+
+* **Kubernetes Helm Chart (OCI Registry)**:
+  ```bash
+  helm install rocket-chat oci://ghcr.io/rocket-chat/charts/rocket-chat --version 0.1.0
+  ```
