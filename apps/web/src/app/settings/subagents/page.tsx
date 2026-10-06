@@ -79,11 +79,15 @@ export default function SubagentsSettingsPage() {
       .then((data) => {
         if (Array.isArray(data) && data.length > 0) {
           setSubagents(data);
-          const found = data[0];
-          if (found) {
-            setSelectedId(found.id);
-            setFormData(found);
-          }
+          // Preserve currently selected subagent if user already clicked, otherwise use first item
+          setSelectedId((currentId) => {
+            const matched = data.find((s) => s.id === currentId) || data[0];
+            if (matched) {
+              setFormData(matched);
+              return matched.id;
+            }
+            return currentId;
+          });
         }
       })
       .catch(() => {
