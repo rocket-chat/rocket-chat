@@ -1,0 +1,14 @@
+[project]
+name = "git-engine"
+version = "0.0.0"
+description = "Git operations, Co-Authoring, cryptographic commit signing, and GitHub webhook ingress"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0.0",
+    "httpx>=0.27.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
