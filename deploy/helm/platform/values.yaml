@@ -7,7 +7,7 @@ global:
 backend:
   image:
     repository: ghcr.io/rocket-chat/backend
-    tag: "0.1.0"
+    tag: "0.1.1"
     pullPolicy: IfNotPresent
   replicas: 2
   env:
@@ -37,7 +37,7 @@ backend:
 frontend:
   image:
     repository: ghcr.io/rocket-chat/frontend
-    tag: "0.1.0"
+    tag: "0.1.1"
     pullPolicy: IfNotPresent
   replicas: 2
   service:

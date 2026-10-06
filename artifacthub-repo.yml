@@ -1,0 +1,8 @@
+# Artifact Hub Repository Metadata
+# Used by Artifact Hub to verify ownership and award the "Verified Publisher" badge.
+# Reference: https://artifacthub.io/docs/topics/repositories/#verified-publisher
+
+repositoryID: 26c5b29e-9eec-4118-bf94-0ec72d17470e
+owners:
+  - name: Rocket Chat Team
+    email: contact@nathp.fr
