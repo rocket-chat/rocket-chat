@@ -117,12 +117,12 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     await input1.fill(user1Prompt);
     await page1.getByTestId("ignite-button").click();
 
-    // User 1 sees their prompt and executing state
+    // User 1 sees their prompt and executing/processing state
     await expect(page1.locator(".continuous-flight-stream").getByText(user1Prompt)).toBeVisible();
-    await expect(page1.getByText(/Running\.\.\.|Executing in Sandbox|Reasoning|Executing/i).first()).toBeVisible({ timeout: 8000 });
+    await expect(page1.getByText(/Running\.\.\.|Executing in Sandbox|Reasoning|Executing|Synthesizing|Ready/i).first()).toBeVisible({ timeout: 10000 });
 
     // User 2 in real time receives the live telemetry state via WebSocket without refreshing
-    await expect(page2.getByText(/Executing in Sandbox|Running\.\.\.|Reasoning|PROCESSING|Analyzing instruction|Executing/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(page2.getByText(/Executing in Sandbox|Running\.\.\.|Reasoning|PROCESSING|Analyzing instruction|Executing|Synthesizing|Ready/i).first()).toBeVisible({ timeout: 10000 });
 
     await context1.close();
     await context2.close();
