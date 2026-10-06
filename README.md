@@ -276,6 +276,15 @@ pnpm run docs:check
 
 ---
 
+## Documentation
+
+Comprehensive architecture, API protocols, deployment guides, and tutorials are available at our living documentation site:
+
+- **Official Documentation:** **[https://rocket-chat.mintlify.site/](https://rocket-chat.mintlify.site/)**
+- **Local Documentation:** Maintained directly in `doc/` via Mintlify. Run `pnpm run docs:dev` locally to preview changes.
+
+---
+
 ## Contributing
 
 We welcome community contributions! Please review **[CONTRIBUTING.md](CONTRIBUTING.md)** for instructions on our development workflow, strict typing guidelines, commit conventions, and architectural standards.
