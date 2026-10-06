@@ -1,0 +1,109 @@
+# Default values for Rocket Chat Helm chart.
+# Declare variables to be passed into your templates.
+
+global:
+  domain: "rocket.example.com"
+
+backend:
+  image:
+    repository: ghcr.io/rocket-chat/backend
+    tag: "0.0.0"
+    pullPolicy: IfNotPresent
+  replicas: 2
+  env:
+    DEFAULT_SANDBOX_DRIVER: "k8s"
+    ROCKET_DEFAULT_MODEL: "openrouter/anthropic/claude-3.7-sonnet"
+  database:
+    # PostgreSQL connection string for application user (RLS enforced)
+    url: "postgresql+asyncpg://rocket_app:postgres_prod_password@rocket-chat-postgres:5432/rocket_chat"
+  encryption:
+    masterKey: "0123456789abcdef0123456789abcdef"
+  openrouterApiKey: ""
+  slack:
+    # Slack Bolt operates 100% via outbound Socket Mode; NO public ingress required.
+    botToken: ""
+    appToken: ""
+  service:
+    type: ClusterIP
+    port: 8000
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 250m
+      memory: 512Mi
+
+frontend:
+  image:
+    repository: ghcr.io/rocket-chat/frontend
+    tag: "0.0.0"
+    pullPolicy: IfNotPresent
+  replicas: 2
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 100m
+      memory: 256Mi
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/websocket-services: "rocket-chat-backend"
+  hosts:
+    - host: "rocket.example.com"
+      paths:
+        - path: /api
+          pathType: Prefix
+          service: backend
+        - path: /ws
+          pathType: Prefix
+          service: backend
+        - path: /health
+          pathType: Prefix
+          service: backend
+        - path: /
+          pathType: Prefix
+          service: frontend
+  tls: []
+
+sandbox:
+  namespace: "agent-sandboxes"
+  # Cloud storage class mapping:
+  # - AWS EKS: "gp3"
+  # - Azure AKS: "managed-csi"
+  # - GCP GKE: "pd-balanced"
+  # - Local / Kind: "standard" or "local-path"
+  # Default is empty ("") to dynamically use the cluster's default StorageClass
+  storageClass: ""
+  quota:
+    enabled: true
+    pods: "50"
+    requestsStorage: "500Gi"
+  networkPolicy:
+    enabled: true
+    # Mitigate SSRF by blocking access to cloud instance metadata (169.254.169.254/32)
+    blockCloudMetadata: true
+
+serviceAccount:
+  create: true
+  name: "rocket-chat-backend"
+
+postgresql:
+  enabled: true
+  image:
+    repository: pgvector/pgvector
+    tag: pg16
+  database: rocket_chat
+  username: postgres
+  password: postgres_prod_password
+  appUsername: rocket_app

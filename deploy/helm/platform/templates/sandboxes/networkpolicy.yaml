@@ -1,0 +1,24 @@
+{{- if .Values.sandbox.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-network-policy
+  namespace: {{ .Values.sandbox.namespace | default "agent-sandboxes" }}
+  labels:
+    {{- include "rocket-chat.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    {{- if .Values.sandbox.networkPolicy.blockCloudMetadata }}
+    # Allow all egress except the cloud metadata IP 169.254.169.254/32 (mitigates SSRF credential exfiltration)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+    {{- else }}
+    - {}
+    {{- end }}
+{{- end }}

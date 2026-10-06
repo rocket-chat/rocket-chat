@@ -1,0 +1,32 @@
+{{- if .Values.serviceAccount.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "rocket-chat.fullname" . }}-sandbox-controller
+  namespace: {{ .Values.sandbox.namespace | default "agent-sandboxes" }}
+  labels:
+    {{- include "rocket-chat.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create", "get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "rocket-chat.fullname" . }}-sandbox-controller-binding
+  namespace: {{ .Values.sandbox.namespace | default "agent-sandboxes" }}
+  labels:
+    {{- include "rocket-chat.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "rocket-chat.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "rocket-chat.fullname" . }}-sandbox-controller
+{{- end }}

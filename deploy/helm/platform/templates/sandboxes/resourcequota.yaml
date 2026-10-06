@@ -1,0 +1,14 @@
+{{- if .Values.sandbox.quota.enabled }}
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: sandbox-quota
+  namespace: {{ .Values.sandbox.namespace | default "agent-sandboxes" }}
+  labels:
+    {{- include "rocket-chat.labels" . | nindent 4 }}
+spec:
+  hard:
+    pods: {{ .Values.sandbox.quota.pods | quote }}
+    requests.storage: {{ .Values.sandbox.quota.requestsStorage | quote }}
+    persistentvolumeclaims: {{ .Values.sandbox.quota.pods | quote }}
+{{- end }}

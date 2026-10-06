@@ -1,0 +1,17 @@
+apiVersion: v2
+name: rocket-chat
+description: Production Helm chart for Rocket Chat - Autonomous AI Pair Programming Platform
+type: application
+version: 0.0.0
+appVersion: "0.0.0"
+home: https://github.com/rocket-chat/rocket-chat
+sources:
+  - https://github.com/rocket-chat/rocket-chat
+icon: https://raw.githubusercontent.com/rocket-chat/rocket-chat/main/apps/web/public/favicon.svg
+keywords:
+  - ai
+  - pair-programming
+  - react-agent
+  - kubernetes-sandboxes
+maintainers:
+  - name: Rocket Chat Team
