@@ -1,0 +1,1 @@
+"""Interface contracts for subsystems."""

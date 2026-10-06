@@ -1,0 +1,73 @@
+[project]
+name = "rocket-chat"
+version = "0.0.0"
+description = "Autonomous AI pair-programming platform"
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.12"
+dependencies = [
+    "sandbox-driver",
+    "llm-gateway",
+    "agent-core",
+    "slack-assistant",
+    "git-engine",
+    "config-engine",
+    "api",
+]
+
+[tool.uv.workspace]
+members = [
+    "packages/*",
+    "apps/api",
+]
+
+[tool.uv.sources]
+sandbox-driver = { workspace = true }
+llm-gateway = { workspace = true }
+agent-core = { workspace = true }
+slack-assistant = { workspace = true }
+git-engine = { workspace = true }
+config-engine = { workspace = true }
+api = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10.0",
+    "types-docker>=7.0.0.0",
+    "sqlalchemy>=2.0.0",
+    "asyncpg>=0.29.0",
+    "alembic>=1.13.0",
+    "cryptography>=43.0.0",
+    "pyjwt[crypto]>=2.9.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = [
+    ".",
+    "packages/sandbox-driver/src",
+    "packages/llm-gateway/src",
+    "packages/agent-core/src",
+    "packages/slack-assistant/src",
+    "packages/git-engine/src",
+    "packages/config-engine/src",
+    "apps/api/src",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+mypy_path = ".:packages/sandbox-driver/src:packages/llm-gateway/src:packages/agent-core/src:packages/slack-assistant/src:packages/git-engine/src:packages/config-engine/src:apps/api/src"
+namespace_packages = true
+explicit_package_bases = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
