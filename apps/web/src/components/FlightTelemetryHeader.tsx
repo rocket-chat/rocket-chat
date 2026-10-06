@@ -35,15 +35,24 @@ export const FlightTelemetryHeader: React.FC = () => {
     <header className="sticky top-0 z-30 h-13 px-4 sm:px-6 bg-surface-base/90 backdrop-blur-md border-b border-surface-border flex items-center justify-between select-none transition-colors">
       {/* Left: Sidebar toggle, Thread Title & Model Tag */}
       <div className="flex items-center gap-3">
-        {!isLeftSidebarOpen && (
-          <button
-            type="button"
-            onClick={() => setIsLeftSidebarOpen(true)}
-            className="p-1.5 rounded-lg border border-surface-border hover:border-brand/40 bg-surface-card hover:bg-surface-elevated text-neutral-400 hover:text-white transition-colors cursor-pointer"
-            title="Expand Sessions Sidebar"
-          >
-            <PanelLeftOpen className="w-4 h-4" />
-          </button>
+        {!isLeftSidebarOpen ? (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsLeftSidebarOpen(true)}
+              className="p-1.5 rounded-lg border border-surface-border hover:border-brand/40 bg-surface-card hover:bg-surface-elevated text-neutral-400 hover:text-white transition-colors cursor-pointer"
+              title="Expand Sessions Sidebar"
+            >
+              <PanelLeftOpen className="w-4 h-4" />
+            </button>
+            <Link href="/" className="flex items-center gap-2">
+              <span className="font-display font-semibold text-sm tracking-tight text-white">
+                Rocket Chat
+              </span>
+            </Link>
+          </div>
+        ) : (
+          <span className="sr-only">Rocket Chat</span>
         )}
 
         {/* Thread Title */}
@@ -66,7 +75,7 @@ export const FlightTelemetryHeader: React.FC = () => {
       <div className="flex items-center gap-2 text-xs">
         {/* Dynamic Execution / Token Rate Tag */}
         {isExecuting ? (
-          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-card border border-brand/30 text-[11px] font-mono text-brand animate-pulse">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-card border border-brand/30 text-[11px] font-mono text-brand animate-pulse">
             <Zap className="w-3.5 h-3.5 text-brand" />
             <span>Executing</span>
             {tokenRate > 0 && (
@@ -77,7 +86,7 @@ export const FlightTelemetryHeader: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-card border border-surface-border text-[11px] font-mono text-neutral-400">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-card border border-surface-border text-[11px] font-mono text-neutral-400">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
             <span>Ready</span>
           </div>

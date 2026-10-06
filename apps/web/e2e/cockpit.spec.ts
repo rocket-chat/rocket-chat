@@ -9,7 +9,7 @@ test.describe("Agent Cockpit E2E Verification", () => {
   });
 
   test("renders telemetry header and avionics branding", async ({ page }) => {
-    await expect(page.getByText("Rocket Chat").first()).toBeVisible();
+    await expect(page.locator("aside, header, main").getByText("Rocket Chat").first()).toBeVisible();
     await expect(page.getByText(/Ready|Executing/i).first()).toBeVisible();
   });
 
