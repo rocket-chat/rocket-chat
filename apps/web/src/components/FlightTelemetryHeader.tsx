@@ -35,7 +35,7 @@ export const FlightTelemetryHeader: React.FC = () => {
     <header className="sticky top-0 z-30 h-13 px-4 sm:px-6 bg-surface-base/90 backdrop-blur-md border-b border-surface-border flex items-center justify-between select-none transition-colors">
       {/* Left: Sidebar toggle, Thread Title & Model Tag */}
       <div className="flex items-center gap-3">
-        {!isLeftSidebarOpen ? (
+        {!isLeftSidebarOpen && (
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -51,8 +51,6 @@ export const FlightTelemetryHeader: React.FC = () => {
               </span>
             </Link>
           </div>
-        ) : (
-          <span className="sr-only">Rocket Chat</span>
         )}
 
         {/* Thread Title */}

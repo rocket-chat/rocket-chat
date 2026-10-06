@@ -9,8 +9,9 @@ test.describe("Agent Cockpit E2E Verification", () => {
   });
 
   test("renders telemetry header and avionics branding", async ({ page }) => {
-    await expect(page.locator("aside, header, main").getByText("Rocket Chat").first()).toBeVisible();
-    await expect(page.getByText(/Ready|Executing/i).first()).toBeVisible();
+    await expect(page).toHaveURL(/\/chat\/.+/, { timeout: 15000 });
+    await expect(page.locator("aside, header, main").getByText("Rocket Chat").first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/Ready|Executing/i).first()).toBeVisible({ timeout: 10000 });
   });
 
   test("allows selecting model or agent from dynamic dropdown", async ({ page }) => {
