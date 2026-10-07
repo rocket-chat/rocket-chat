@@ -128,14 +128,19 @@ backend:
 ```
 
 ### GitHub App & Slack Integrations
+Depending on your setup, you can configure GitHub App automation, a personal GitHub Token (PAT), and/or Slack Socket Mode. All keys are optional:
+
 ```yaml
+# If using GitHub App automation or live PR creation:
+github:
+  existingSecret: "github-credentials"
+  # Set only the keys you use:
+  appIdKey: "GITHUB_APP_ID"                     # Optional: GitHub App ID
+  privateKeyKey: "GITHUB_APP_PRIVATE_KEY"       # Optional: RSA private key PEM
+  webhookSecretKey: "GITHUB_WEBHOOK_SECRET"     # Optional: Webhook HMAC secret
+  tokenKey: "GITHUB_TOKEN"                     # Optional: Personal Access Token (PAT)
+
 backend:
-  github:
-    existingSecret: "github-app-credentials"
-    appIdKey: "GITHUB_APP_ID"
-    privateKeyKey: "GITHUB_APP_PRIVATE_KEY"
-    webhookSecretKey: "GITHUB_WEBHOOK_SECRET"
-    tokenKey: "GITHUB_TOKEN"
   slack:
     existingSecret: "slack-credentials"
     botTokenKey: "SLACK_BOT_TOKEN"
