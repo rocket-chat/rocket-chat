@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `helm`: Added `auth.nextauthUrl` value to Helm chart, automatically resolving `https://` scheme when `ingress.tls` is configured and allowing custom canonical NextAuth URL overrides.
+- `helm`: Enhanced `NEXTAUTH_SECRET` handling to prioritize `auth.existingSecret` over default values, allowing seamless integration with External Secrets Operator and HashiCorp Vault.
 
 ### Changed
 
