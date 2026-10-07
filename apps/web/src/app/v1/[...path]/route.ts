@@ -47,9 +47,10 @@ async function handleProxy(
     token = null;
   }
 
-  // Public exceptions for health and models discovery if applicable
+  // Public exceptions for health or explicit test bypass mode
+  const isTestBypass = process.env.PLAYWRIGHT_TEST === "true" || process.env.DISABLE_AUTH === "true";
   const isPublicRoute = subPath === "health" || subPath.startsWith("health/");
-  if (!token && !isPublicRoute) {
+  if (!token && !isPublicRoute && !isTestBypass) {
     return NextResponse.json(
       { error: "Unauthorized", detail: "Authentication required to access API" },
       { status: 401 }
@@ -73,6 +74,10 @@ async function handleProxy(
     } else {
       headers.set("X-User-Role", "user");
     }
+  } else if (isTestBypass) {
+    headers.set("X-Tenant-User-Id", "test_user");
+    headers.set("X-Tenant-Org-Id", "default_org");
+    headers.set("X-User-Role", "developer,admin");
   }
 
   const method = request.method;
