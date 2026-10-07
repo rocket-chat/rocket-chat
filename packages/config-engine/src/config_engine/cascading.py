@@ -68,6 +68,8 @@ SYSTEM_DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         "thrust_animation_enabled": True,
         "require_signed_commits": True,
         "suggest_next_questions": True,
+        "sso_allowed_domains": "",  # Comma-separated domains e.g. "company.com,birota.io" or empty for all
+        "sso_enforce_domain_match": False,  # If true, block sign-in from emails outside allowed domains
     },
     "user_preferences": {
         "full_name": "",

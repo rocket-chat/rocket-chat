@@ -10,6 +10,18 @@ import {
   Building2,
 } from "lucide-react";
 
+interface OrgGeneralState {
+  company_name: string;
+  compliance_tier: string;
+  session_privacy_default: string;
+  telemetry_level: string;
+  thrust_animation_enabled: boolean;
+  require_signed_commits: boolean;
+  suggest_next_questions: boolean;
+  sso_allowed_domains?: string;
+  sso_enforce_domain_match?: boolean;
+}
+
 export default function OrgSettingsPage() {
   const [keys, setKeys] = useState({
     openrouter: "",
@@ -18,7 +30,7 @@ export default function OrgSettingsPage() {
     github_pat: "",
   });
 
-  const [orgGeneral, setOrgGeneral] = useState({
+  const [orgGeneral, setOrgGeneral] = useState<OrgGeneralState>({
     company_name: "Engineering Org",
     compliance_tier: "SOC2",
     session_privacy_default: "private",
@@ -26,6 +38,8 @@ export default function OrgSettingsPage() {
     thrust_animation_enabled: true,
     require_signed_commits: true,
     suggest_next_questions: true,
+    sso_allowed_domains: "",
+    sso_enforce_domain_match: false,
   });
 
   const [visibleKey, setVisibleKey] = useState<string | null>(null);
@@ -151,6 +165,46 @@ export default function OrgSettingsPage() {
                   <option value="HIPAA">HIPAA (BAA Enforced)</option>
                   <option value="ISO27001">ISO 27001 (ISMS Validated)</option>
                 </select>
+              </div>
+            </div>
+
+            {/* SSO & Domain Restriction Policy */}
+            <div className="bg-surface-card rounded-xl border border-surface-border p-5 space-y-4 mt-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <span className="text-sm font-medium text-foreground block">
+                    SSO & Corporate Email Domain Allowlist
+                  </span>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+                    Restrict Single Sign-On (Google Workspace, OIDC) strictly to users with specific email domains (e.g. <code>company.com, birota.io</code>).
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(orgGeneral.sso_enforce_domain_match)}
+                    onChange={(e) =>
+                      setOrgGeneral({ ...orgGeneral, sso_enforce_domain_match: e.target.checked })
+                    }
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-surface-highlight peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand" />
+                </label>
+              </div>
+
+              <div>
+                <label className="block text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-1">
+                  Allowed Domains (Comma-Separated)
+                </label>
+                <input
+                  type="text"
+                  value={orgGeneral.sso_allowed_domains || ""}
+                  onChange={(e) =>
+                    setOrgGeneral({ ...orgGeneral, sso_allowed_domains: e.target.value })
+                  }
+                  placeholder="e.g. birota.io, acme.com (leave empty to allow all organization members)"
+                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand"
+                />
               </div>
             </div>
 
