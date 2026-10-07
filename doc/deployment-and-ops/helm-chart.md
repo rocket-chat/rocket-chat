@@ -71,8 +71,6 @@ helm install rocket-chat oci://ghcr.io/rocket-chat/charts/rocket-chat \
   -f prod-values.yaml
 ```
 
-```
-
 ---
 
 ## 3. External Kubernetes Secrets & Production Hardening
