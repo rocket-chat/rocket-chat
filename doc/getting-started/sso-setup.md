@@ -73,7 +73,47 @@ DEV_AUTH_BYPASS="false"
 
 ---
 
-## 3. Setting Up GitHub OAuth
+## 3. Setting Up Google Workspace SSO & Domain Restriction
+
+Rocket Chat supports native Google Workspace authentication with domain verification directly configurable from the UI.
+
+### Step 1: Create OAuth Credentials in Google Cloud Console
+1. Navigate to **Google Cloud Console** > **APIs & Services** > **OAuth consent screen**.
+2. Select **User Type: Internal** (this ensures only accounts within your Google Workspace organization can authenticate).
+3. Under **Credentials** > **Create Credentials** > **OAuth client ID**:
+   - **Application type:** `Web application`
+   - **Authorized redirect URI:** `https://<your-rocket-domain>/api/auth/callback/google`
+4. Copy the generated **Client ID** and **Client Secret**.
+
+### Step 2: Configure Environment Variables
+```bash
+# Frontend (apps/web)
+NEXTAUTH_URL="https://rocket.company.com"
+NEXTAUTH_SECRET="generate-a-strong-32-char-secret"
+GOOGLE_CLIENT_ID="<your-client-id>.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET="<your-client-secret>"
+
+# Optional: Host Domain hint to pre-filter Google account chooser
+GOOGLE_ALLOWED_DOMAIN="company.com"
+
+# Backend (apps/api)
+OIDC_ISSUER="https://accounts.google.com"
+OIDC_AUDIENCE="<your-client-id>.apps.googleusercontent.com"
+OIDC_JWKS_URL="https://www.googleapis.com/oauth2/v3/certs"
+DEV_AUTH_BYPASS="false"
+```
+
+### Step 3: Configure Domain Restriction in Organization Settings UI
+Administrators can enforce and adjust domain restrictions at runtime without redeploying:
+1. Navigate to **Settings** > **Organization** > **General & Compliance** (`/settings/org`).
+2. Locate the **SSO & Corporate Email Domain Allowlist** card.
+3. Toggle **Enforce Domain Matching**.
+4. Enter your permitted corporate email domains (e.g. `company.com, birota.io`).
+5. Click **Save Policies**. Any attempt to sign in with an email from an unlisted domain will be rejected by the NextAuth sign-in callback.
+
+---
+
+## 4. Setting Up GitHub OAuth
 
 If your organization standardizes on GitHub Organization memberships:
 
@@ -92,13 +132,12 @@ GITHUB_CLIENT_ID="gh-client-id"
 GITHUB_CLIENT_SECRET="gh-client-secret"
 
 # Backend
-# If using GitHub App token validation or direct JWT bearer verification
 DEV_AUTH_BYPASS="false"
 ```
 
 ---
 
-## 4. Deploying SSO via Kubernetes Helm Chart
+## 5. Deploying SSO via Kubernetes Helm Chart
 
 In production Kubernetes deployments, configure SSO directly in your Helm values (`prod-values.yaml`) or link them to external secrets:
 
