@@ -45,6 +45,8 @@ class ExecutionContext:
     session_id: str
     event_queue: asyncio.Queue[AgentEvent | None]
     parent_model: str
+    tenant_org_id: str = "default_org"
+    tenant_user_id: str = "dev_user"
 
 
 current_execution_ctx: contextvars.ContextVar[ExecutionContext | None] = contextvars.ContextVar(

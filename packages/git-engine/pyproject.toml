@@ -1,6 +1,6 @@
 [project]
 name = "git-engine"
-version = "0.1.3"
+version = "0.1.4"
 description = "Git operations, Co-Authoring, cryptographic commit signing, and GitHub webhook ingress"
 readme = "README.md"
 requires-python = ">=3.12"

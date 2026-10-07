@@ -30,6 +30,7 @@ Admin users can access organization tabs to govern global runtime behavior:
 * **Commit Authorship Policy:** Choose whether agent-generated commits use `co_authored` (standard `Co-authored-by:` human attribution), `user_only`, or `bot_only`.
 * **Commit Signing Mode:** Standardize on `github_app` or `gpg_key` for verified badges on GitHub PRs.
 * **Default Branch:** Target branch (e.g. `main` or `develop`).
+* **GitHub App Token Scopes:** Configure the granular permission scopes (`contents:read`, `pull_requests:read`, `issues:read`, etc.) for dynamic installation tokens generated for unauthenticated sessions.
 
 ### C. Slack Integration
 * **Default Agent Persona:** Choose which agent persona responds to Slack `@Rocket` mentions by default.
@@ -49,7 +50,7 @@ Admin users can access organization tabs to govern global runtime behavior:
 Developers can customize their individual environment without altering organization defaults:
 
 ### A. Profile & Display
-* **Display Name & Role:** Your name and engineering title (e.g., *Alex Turner*, *Senior Systems Engineer*).
+* **Display Name & Role:** Your name and engineering title (e.g., *Lead Engineer*, *Senior Systems Engineer*).
 * **Suggest Next Questions:** Toggle the predictive `[Tab ⇥]` follow-up autocomplete inside your composer.
 
 ### B. Personal Git Authorship

@@ -52,8 +52,11 @@ def test_get_current_versions():
     assert "web_package_json" in versions
     assert "helm_chart" in versions
     assert "root_pyproject" in versions
-    assert versions["root_package_json"] == "0.1.3"
-    assert versions["helm_chart"] == "0.1.3"
+    # All manifests must be synchronized to the same valid semver version
+    root_ver = versions["root_package_json"]
+    assert len(root_ver.split(".")) == 3
+    for k, v in versions.items():
+        assert v == root_ver, f"Manifest {k} version {v} does not match root version {root_ver}"
 
 
 def test_update_file_versions_dry_run(tmp_path: Path, monkeypatch):

@@ -59,3 +59,13 @@ Any modification to the stored ciphertext or tag causes decryption to raise an a
 The gateway supports dynamic fallback cascades:
 - If a primary vendor (e.g. Anthropic direct) experiences an outage (`503 Service Unavailable` or rate limit `429`), the request automatically fails over to a secondary provider (e.g. OpenRouter or AWS Bedrock) with zero interrupted agent turns.
 - Real-time token usage and cost accounting are captured for every request.
+
+---
+
+## 4. Real-Time Token & Credit Usage Ledger
+
+Rocket Chat tracks granular prompt and completion token metrics at both the organization and individual user levels:
+- **Ledger Ingestion:** During agent orchestration (`_stream_model_step` and subagent executions), completion token usage reported by upstream providers is captured immediately or accurately estimated.
+- **Cost Calculation:** Token metrics are converted to real-time USD costs based on LiteLLM provider rate cards.
+- **Budget Enforcements:** Organizations can set monthly budget caps via `set_budget_cap(tenant_org_id, cap)` to prevent cost overruns.
+- **Telemetry Endpoints:** Live telemetry is exposed to the Mission Control Cockpit through `GET /v1/settings/org/usage` and `GET /v1/settings/user/usage`.

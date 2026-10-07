@@ -53,9 +53,9 @@ export default function OrgUsagePage() {
     setTimeout(() => setIsSaved(false), 3000);
   };
 
-  const totalCost = usage?.total_cost_usd ?? 0.428;
+  const totalCost = usage?.total_cost_usd ?? 0.0;
   const budgetCap = parseFloat(budgetInput) || 250;
-  const percentUsed = Math.min(100, Math.round((totalCost / budgetCap) * 100));
+  const percentUsed = budgetCap > 0 ? Math.min(100, Math.round((totalCost / budgetCap) * 100)) : 0;
 
   return (
     <div className="flex flex-col min-h-full">
