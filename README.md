@@ -186,7 +186,7 @@ helm registry login ghcr.io -u <YOUR_GITHUB_USERNAME>
 
 # Install or upgrade Rocket Chat from GHCR OCI
 helm upgrade --install rocket-chat oci://ghcr.io/rocket-chat/charts/rocket-chat \
-  --version 0.1.2 \
+  --version 0.1.3 \
   --namespace rocket-chat \
   --create-namespace \
   --set backend.openrouterApiKey="$OPENROUTER_API_KEY" \
