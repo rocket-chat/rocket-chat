@@ -65,7 +65,7 @@ helm-install:
 		--namespace rocket-chat \
 		--create-namespace \
 		-f deploy/helm/platform/values.local.yaml \
-		--set backend.openrouterApiKey="$$OPENROUTER_KEY" \
+		--set models.openrouter.apiKey="$$OPENROUTER_KEY" \
 		--set backend.env.ROCKET_DEFAULT_MODEL="$$DEFAULT_MODEL"
 
 helm-uninstall:

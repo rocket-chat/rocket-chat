@@ -27,7 +27,7 @@ helm upgrade --install rocket-chat deploy/helm/platform \
   --namespace rocket-chat \
   --create-namespace \
   -f deploy/helm/platform/values.local.yaml \
-  --set backend.openrouterApiKey="$OPENROUTER_API_KEY"
+  --set models.openrouter.apiKey="$OPENROUTER_API_KEY"
 ```
 
 ### 2. Production Cloud Deployment (EKS, AKS, GKE)

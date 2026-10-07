@@ -26,8 +26,6 @@ backend:
     # External Secret reference for master key
     existingSecret: ""
     existingSecretKey: "ENCRYPTION_MASTER_KEY"
-  # Legacy inline key (kept for backwards-compatibility; prefer models.openrouter)
-  openrouterApiKey: ""
   slack:
     # Slack Bolt operates 100% via outbound Socket Mode; NO public ingress required.
     botToken: ""
