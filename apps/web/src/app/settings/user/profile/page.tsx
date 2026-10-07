@@ -53,17 +53,17 @@ export default function UserProfileSettingsPage() {
       {/* Header */}
       <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
         <div className="max-w-5xl mx-auto">
-          <div className="flex items-center gap-2 text-xs font-mono text-neutral-400 mb-2">
+          <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
             <span>Settings</span>
             <span>/</span>
             <span>User Preferences</span>
             <span>/</span>
-            <span className="text-white font-medium">Profile & Account</span>
+            <span className="text-foreground font-medium">Profile & Account</span>
           </div>
-          <h1 className="text-xl md:text-2xl font-display font-bold text-white tracking-tight">
+          <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
             Profile & Developer Account
           </h1>
-          <p className="text-xs text-neutral-400 mt-1.5 font-sans">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
             Configure your personal operator identification and session signature.
           </p>
         </div>
@@ -80,30 +80,30 @@ export default function UserProfileSettingsPage() {
 
           <div className="bg-surface-card rounded-xl border border-surface-border p-6 space-y-5">
             <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-surface-elevated border-2 border-brand flex items-center justify-center text-white font-mono font-bold text-lg">
+              <div className="w-16 h-16 rounded-full bg-surface-elevated border-2 border-brand flex items-center justify-center text-foreground font-mono font-bold text-lg">
                 AT
               </div>
               <div>
-                <h3 className="text-base font-semibold text-white">{profile.full_name}</h3>
-                <span className="text-xs font-mono text-neutral-400">{profile.default_role}</span>
+                <h3 className="text-base font-semibold text-foreground">{profile.full_name}</h3>
+                <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400">{profile.default_role}</span>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-surface-borderSubtle">
               <div>
-                <label className="block text-xs font-medium text-neutral-300 mb-1.5">
+                <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
                   Full Name
                 </label>
                 <input
                   type="text"
                   value={profile.full_name}
                   onChange={(e) => setProfile({ ...profile, full_name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-white focus:outline-none focus:border-brand"
+                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-neutral-300 mb-1.5">
+                <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
                   Corporate Email
                 </label>
                 <input
@@ -112,12 +112,12 @@ export default function UserProfileSettingsPage() {
                   onChange={(e) =>
                     setProfile({ ...profile, git_author_email: e.target.value })
                   }
-                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-white focus:outline-none focus:border-brand"
+                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-neutral-300 mb-1.5">
+                <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
                   Default Role Designation
                 </label>
                 <input
@@ -126,17 +126,17 @@ export default function UserProfileSettingsPage() {
                   onChange={(e) =>
                     setProfile({ ...profile, default_role: e.target.value })
                   }
-                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-white focus:outline-none focus:border-brand"
+                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand"
                 />
               </div>
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-surface-borderSubtle">
               <div className="space-y-1">
-                <span className="text-sm font-medium text-white">
+                <span className="text-sm font-medium text-foreground">
                   Suggest Probable Next Questions
                 </span>
-                <p className="text-xs text-neutral-400">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   Propose intelligent, context-aware follow-up prompts as semi-transparent clickable text at the end of each chat turn.
                 </p>
               </div>

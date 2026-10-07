@@ -110,7 +110,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
               <RocketChatIcon className="w-4 h-4" />
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="font-display font-semibold text-sm tracking-tight text-white">
+              <span className="font-display font-semibold text-sm tracking-tight text-foreground">
                 Rocket Chat
               </span>
             </div>
@@ -120,7 +120,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
             type="button"
             onClick={() => setIsLeftSidebarOpen(false)}
             aria-label="Collapse sidebar"
-            className="p-1.5 text-neutral-400 hover:text-white hover:bg-surface-elevated rounded-md transition-colors cursor-pointer"
+            className="p-1.5 text-neutral-500 hover:text-foreground dark:text-neutral-400 dark:hover:text-white hover:bg-surface-elevated rounded-md transition-colors cursor-pointer"
             title="Collapse Sidebar"
           >
             <PanelLeftClose className="w-4 h-4" />
@@ -134,13 +134,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
             data-testid="new-conversation-btn"
             onClick={handleCreateNewSession}
             disabled={isCreatingSession}
-            className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-neutral-200 bg-surface-card hover:bg-surface-elevated border border-surface-border hover:border-neutral-600 rounded-lg transition-all group cursor-pointer disabled:opacity-50"
+            className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-foreground bg-surface-card hover:bg-surface-elevated border border-surface-border hover:border-neutral-400 dark:hover:border-neutral-600 rounded-lg transition-all group cursor-pointer disabled:opacity-50"
           >
             <span className="flex items-center gap-2">
               <Edit className="w-3.5 h-3.5 text-brand" />
               <span>{isCreatingSession ? "Creating..." : "New conversation"}</span>
             </span>
-            <kbd className="text-[10px] font-mono text-neutral-500 bg-surface-base px-1.5 py-0.5 rounded border border-surface-border">
+            <kbd className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400 bg-surface-base px-1.5 py-0.5 rounded border border-surface-border">
               ⌘K
             </kbd>
           </button>
@@ -150,7 +150,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
         <div className="flex-1 overflow-y-auto px-2 py-2 space-y-4">
           {/* Active / Assigned Persona Header */}
           <div className="px-2" ref={agentMenuRef}>
-            <div className="flex items-center justify-between pb-1.5 text-[11px] font-mono font-medium tracking-wider uppercase text-neutral-500">
+            <div className="flex items-center justify-between pb-1.5 text-[11px] font-mono font-medium tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
               <span>SPECIALIZED AGENT</span>
               <span className="text-brand font-mono text-[10px]">ACTIVE</span>
             </div>
@@ -163,10 +163,10 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                 className="w-full flex items-center justify-between p-2 rounded-lg border border-surface-border bg-surface-card hover:bg-surface-elevated text-left transition-colors"
               >
                 <div className="truncate">
-                  <div className="text-xs font-semibold text-white truncate">
+                  <div className="text-xs font-semibold text-foreground truncate">
                     {activeAgent?.name || "Full-Stack Engineer"}
                   </div>
-                  <div className="text-[10px] font-mono text-neutral-400 truncate">
+                  <div className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400 truncate">
                     {activeAgent?.role_title || "Senior Systems Engineer"}
                   </div>
                 </div>
@@ -186,7 +186,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                           setIsAgentMenuOpen(false);
                         }}
                         className={`w-full flex items-center justify-between px-3 py-2 text-left text-xs hover:bg-surface-elevated transition-colors ${
-                          isSelected ? "bg-surface-elevated text-brand font-semibold" : "text-neutral-300"
+                          isSelected ? "bg-surface-elevated text-brand font-semibold" : "text-neutral-700 dark:text-neutral-300"
                         }`}
                       >
                         <span className="truncate">{agent.name}</span>
@@ -201,7 +201,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
 
           {/* Sessions List */}
           <div>
-            <div className="px-2 pb-1.5 flex items-center justify-between text-[11px] font-mono font-medium tracking-wider uppercase text-neutral-500">
+            <div className="px-2 pb-1.5 flex items-center justify-between text-[11px] font-mono font-medium tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
               <span>Sessions ({sessions.length})</span>
               {sessions.length > 0 && (
                 <button
@@ -234,8 +234,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                     }}
                     className={`group flex items-center justify-between px-2.5 py-1.5 text-xs rounded-md transition-colors ${
                       isSelected
-                        ? "bg-surface-elevated text-white font-medium border-l-2 border-brand"
-                        : "text-neutral-400 hover:text-neutral-200 hover:bg-surface-card"
+                        ? "bg-surface-elevated text-foreground font-semibold border-l-2 border-brand"
+                        : "text-neutral-600 hover:text-foreground dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-surface-card"
                     }`}
                   >
                     <span className="truncate flex-1 mr-1">
@@ -244,7 +244,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                     <button
                       type="button"
                       onClick={(e) => handleDeleteSession(e, s.session_id)}
-                      className="opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-rose-400 transition-opacity p-0.5"
+                      className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-rose-400 transition-opacity p-0.5"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -260,7 +260,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
           <Link
             href="/settings/github"
             data-testid="sidebar-settings-link"
-            className="flex items-center gap-2 text-xs font-mono text-neutral-400 hover:text-white transition-colors"
+            className="flex items-center gap-2 text-xs font-mono text-neutral-600 hover:text-foreground dark:text-neutral-400 dark:hover:text-white transition-colors"
           >
             <Settings className="w-4 h-4 text-brand" />
             <span>Settings</span>

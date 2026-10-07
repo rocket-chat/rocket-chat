@@ -63,15 +63,15 @@ export default function OrgUsagePage() {
       <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs font-mono text-neutral-400 mb-2">
+            <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
               <span>Settings</span>
               <span>/</span>
               <span>Organization</span>
               <span>/</span>
-              <span className="text-white font-medium">Token Usage & Spend Ledger</span>
+              <span className="text-foreground font-medium">Token Usage & Spend Ledger</span>
             </div>
             <div className="flex items-center gap-3">
-              <h1 className="text-xl md:text-2xl font-display font-bold text-white tracking-tight">
+              <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
                 Organization Token Usage & Budgeting
               </h1>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono bg-brand/10 text-brand border border-brand/20">
@@ -79,7 +79,7 @@ export default function OrgUsagePage() {
                 Live Spend Telemetry
               </span>
             </div>
-            <p className="text-xs text-neutral-400 mt-1.5 font-sans">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
               Track multi-tenant token consumption across frontier models, enforce hard dollar spend caps, and review cost accounting.
             </p>
           </div>
@@ -90,56 +90,56 @@ export default function OrgUsagePage() {
         {/* KPI Metric Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="p-4 rounded-xl bg-surface-card border border-surface-border flex flex-col justify-between">
-            <div className="flex items-center justify-between text-neutral-400 text-xs font-mono">
+            <div className="flex items-center justify-between text-neutral-500 dark:text-neutral-400 text-xs font-mono">
               <span>MONTHLY SPEND</span>
               <DollarSign className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="mt-3">
-              <span className="text-2xl font-display font-bold text-white">
+              <span className="text-2xl font-display font-bold text-foreground">
                 ${totalCost.toFixed(3)}
               </span>
-              <span className="text-[11px] text-neutral-400 font-mono ml-1.5">
+              <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-mono ml-1.5">
                 / ${budgetCap} cap
               </span>
             </div>
           </div>
 
           <div className="p-4 rounded-xl bg-surface-card border border-surface-border flex flex-col justify-between">
-            <div className="flex items-center justify-between text-neutral-400 text-xs font-mono">
+            <div className="flex items-center justify-between text-neutral-500 dark:text-neutral-400 text-xs font-mono">
               <span>TOTAL TOKENS</span>
               <Cpu className="w-4 h-4 text-cyan" />
             </div>
             <div className="mt-3">
-              <span className="text-2xl font-display font-bold text-white">
+              <span className="text-2xl font-display font-bold text-foreground">
                 {(usage?.total_tokens ?? 128400).toLocaleString()}
               </span>
-              <span className="text-[11px] text-neutral-400 font-mono ml-1.5">tokens</span>
+              <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-mono ml-1.5">tokens</span>
             </div>
           </div>
 
           <div className="p-4 rounded-xl bg-surface-card border border-surface-border flex flex-col justify-between">
-            <div className="flex items-center justify-between text-neutral-400 text-xs font-mono">
+            <div className="flex items-center justify-between text-neutral-500 dark:text-neutral-400 text-xs font-mono">
               <span>PROMPT INPUT</span>
               <Layers className="w-4 h-4 text-purple-400" />
             </div>
             <div className="mt-3">
-              <span className="text-2xl font-display font-bold text-white">
+              <span className="text-2xl font-display font-bold text-foreground">
                 {(usage?.prompt_tokens ?? 92100).toLocaleString()}
               </span>
-              <span className="text-[11px] text-neutral-400 font-mono ml-1.5">tokens</span>
+              <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-mono ml-1.5">tokens</span>
             </div>
           </div>
 
           <div className="p-4 rounded-xl bg-surface-card border border-surface-border flex flex-col justify-between">
-            <div className="flex items-center justify-between text-neutral-400 text-xs font-mono">
+            <div className="flex items-center justify-between text-neutral-500 dark:text-neutral-400 text-xs font-mono">
               <span>COMPLETION / COT</span>
               <TrendingUp className="w-4 h-4 text-amber-400" />
             </div>
             <div className="mt-3">
-              <span className="text-2xl font-display font-bold text-white">
+              <span className="text-2xl font-display font-bold text-foreground">
                 {(usage?.completion_tokens ?? 36300).toLocaleString()}
               </span>
-              <span className="text-[11px] text-neutral-400 font-mono ml-1.5">tokens</span>
+              <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-mono ml-1.5">tokens</span>
             </div>
           </div>
         </div>
@@ -148,8 +148,8 @@ export default function OrgUsagePage() {
         <div className="p-6 rounded-xl bg-surface-card border border-surface-border space-y-4">
           <div className="flex items-center justify-between">
             <div className="space-y-0.5">
-              <h2 className="text-sm font-semibold text-white">Monthly Spending Quota</h2>
-              <p className="text-xs text-neutral-400">
+              <h2 className="text-sm font-semibold text-foreground">Monthly Spending Quota</h2>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
                 Hard gatekeeper prevents API calls once monthly threshold is surpassed.
               </p>
             </div>
@@ -173,12 +173,12 @@ export default function OrgUsagePage() {
 
           <div className="pt-2 flex items-center justify-between gap-4">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-mono text-neutral-300">Set Monthly Spend Cap ($):</span>
+              <span className="text-xs font-mono text-neutral-700 dark:text-neutral-300">Set Monthly Spend Cap ($):</span>
               <input
                 type="number"
                 value={budgetInput}
                 onChange={(e) => setBudgetInput(e.target.value)}
-                className="w-24 px-2.5 py-1 text-xs font-mono bg-surface-subnav border border-surface-border rounded text-white focus:outline-none focus:border-brand"
+                className="w-24 px-2.5 py-1 text-xs font-mono bg-surface-subnav border border-surface-border rounded text-foreground focus:outline-none focus:border-brand"
               />
             </div>
             <button
@@ -195,20 +195,20 @@ export default function OrgUsagePage() {
         <div className="p-6 rounded-xl bg-surface-card border border-surface-border space-y-4">
           <div className="flex items-center gap-2">
             <BarChart3 className="w-4 h-4 text-brand" />
-            <h2 className="text-sm font-semibold text-white">Spend Breakdown by Model Family</h2>
+            <h2 className="text-sm font-semibold text-foreground">Spend Breakdown by Model Family</h2>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs font-mono">
               <thead>
-                <tr className="border-b border-surface-border text-neutral-400 uppercase text-[10px]">
+                <tr className="border-b border-surface-border text-neutral-500 dark:text-neutral-400 uppercase text-[10px]">
                   <th className="pb-2">Model Family</th>
                   <th className="pb-2">Prompt Tokens</th>
                   <th className="pb-2">Completion Tokens</th>
                   <th className="pb-2 text-right">Cost (USD)</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-surface-border/50 text-neutral-200">
+              <tbody className="divide-y divide-surface-border/50 text-neutral-700 dark:text-neutral-200">
                 {Object.entries(
                   usage?.models || {
                     "claude-3.7-sonnet": { prompt_tokens: 70000, completion_tokens: 25000, cost_usd: 0.385 },
@@ -216,9 +216,9 @@ export default function OrgUsagePage() {
                   }
                 ).map(([model, m]) => (
                   <tr key={model} className="hover:bg-surface-elevated/40 transition-colors">
-                    <td className="py-2.5 font-medium text-white">{model}</td>
-                    <td className="py-2.5 text-neutral-400">{m.prompt_tokens.toLocaleString()}</td>
-                    <td className="py-2.5 text-neutral-400">{m.completion_tokens.toLocaleString()}</td>
+                    <td className="py-2.5 font-medium text-foreground">{model}</td>
+                    <td className="py-2.5 text-neutral-500 dark:text-neutral-400">{m.prompt_tokens.toLocaleString()}</td>
+                    <td className="py-2.5 text-neutral-500 dark:text-neutral-400">{m.completion_tokens.toLocaleString()}</td>
                     <td className="py-2.5 text-right font-bold text-emerald-400">
                       ${m.cost_usd.toFixed(4)}
                     </td>

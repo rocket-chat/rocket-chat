@@ -43,17 +43,17 @@ export default function UserNotificationsSettingsPage() {
     <div className="flex flex-col min-h-full">
       <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
         <div className="max-w-5xl mx-auto">
-          <div className="flex items-center gap-2 text-xs font-mono text-neutral-400 mb-2">
+          <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
             <span>Settings</span>
             <span>/</span>
             <span>User Preferences</span>
             <span>/</span>
-            <span className="text-white font-medium">Notification Channels</span>
+            <span className="text-foreground font-medium">Notification Channels</span>
           </div>
-          <h1 className="text-xl md:text-2xl font-display font-bold text-white tracking-tight">
+          <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
             Notification Channels & Audio Alerts
           </h1>
-          <p className="text-xs text-neutral-400 mt-1.5 font-sans">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
             Manage audio chime triggers and cockpit telemetry alert sounds.
           </p>
         </div>
@@ -71,8 +71,8 @@ export default function UserNotificationsSettingsPage() {
           <div className="bg-surface-card rounded-xl border border-surface-border p-6 space-y-5">
             <div className="flex items-center justify-between">
               <div className="space-y-1">
-                <span className="text-sm font-medium text-white">Cockpit Chime & Sound Effects</span>
-                <p className="text-xs text-neutral-400">
+                <span className="text-sm font-medium text-foreground">Cockpit Chime & Sound Effects</span>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   Play subtle telemetry chimes when reasoning phases complete and user clarification is requested.
                 </p>
               </div>

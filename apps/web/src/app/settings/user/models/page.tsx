@@ -69,17 +69,17 @@ export default function UserModelsSettingsPage() {
     <div className="flex flex-col min-h-full">
       <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
         <div className="max-w-5xl mx-auto">
-          <div className="flex items-center gap-2 text-xs font-mono text-neutral-400 mb-2">
+          <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
             <span>Settings</span>
             <span>/</span>
             <span>User Preferences</span>
             <span>/</span>
-            <span className="text-white font-medium">Model Defaults & Turbomode</span>
+            <span className="text-foreground font-medium">Model Defaults & Turbomode</span>
           </div>
-          <h1 className="text-xl md:text-2xl font-display font-bold text-white tracking-tight">
+          <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
             Model Defaults & Turbomode Acceleration
           </h1>
-          <p className="text-xs text-neutral-400 mt-1.5 font-sans">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
             Customize default LLM engine selection, temperature sensitivity, and speculative execution speed.
           </p>
         </div>
@@ -97,11 +97,11 @@ export default function UserModelsSettingsPage() {
           <div className="bg-surface-card rounded-xl border border-surface-border p-6 space-y-6">
             <div>
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-medium text-white flex items-center gap-1.5">
+                <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
                   <Cpu className="w-3.5 h-3.5 text-brand" />
                   <span>Default LLM Selection</span>
                 </label>
-                <span className="text-[10px] font-mono text-neutral-400">
+                <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
                   {availableModels.length} models available
                 </span>
               </div>
@@ -115,7 +115,7 @@ export default function UserModelsSettingsPage() {
                     value={modelFilter}
                     onChange={(e) => setModelFilter(e.target.value)}
                     placeholder="Search models by name or provider..."
-                    className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-white placeholder:text-neutral-500 focus:outline-none focus:border-brand"
+                    className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:border-brand"
                   />
                 </div>
               )}
@@ -125,7 +125,7 @@ export default function UserModelsSettingsPage() {
                 onChange={(e) =>
                   setModelPrefs({ ...modelPrefs, preferred_model: e.target.value })
                 }
-                className="w-full max-w-md px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-white focus:outline-none focus:border-brand cursor-pointer"
+                className="w-full max-w-md px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand cursor-pointer"
               >
                 {/* If the current preferred model isn't in filtered list, still show it at the top */}
                 {!availableModels.some((m) => m.id === modelPrefs.preferred_model) && (
@@ -135,12 +135,12 @@ export default function UserModelsSettingsPage() {
                 )}
 
                 {Object.entries(modelsByProvider).map(([provider, models]) => (
-                  <optgroup key={provider} label={provider} className="bg-surface-sidebar font-sans font-semibold text-neutral-300">
+                  <optgroup key={provider} label={provider} className="bg-surface-sidebar font-sans font-semibold text-neutral-700 dark:text-neutral-300">
                     {models.map((m) => (
                       <option
                         key={m.id}
                         value={m.id}
-                        className="bg-surface-subnav font-mono font-normal text-white text-xs"
+                        className="bg-surface-subnav font-mono font-normal text-foreground text-xs"
                       >
                         {m.name} ({formatContextK(m.context_window)})
                       </option>
@@ -148,8 +148,8 @@ export default function UserModelsSettingsPage() {
                   </optgroup>
                 ))}
               </select>
-              <p className="text-[11px] text-neutral-400 mt-1.5 font-sans">
-                Active ID: <span className="font-mono text-neutral-300">{modelPrefs.preferred_model}</span>
+              <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
+                Active ID: <span className="font-mono text-neutral-700 dark:text-neutral-300">{modelPrefs.preferred_model}</span>
               </p>
             </div>
 
@@ -157,9 +157,9 @@ export default function UserModelsSettingsPage() {
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <Zap className="w-4 h-4 text-brand" />
-                  <span className="text-sm font-medium text-white">Turbomode Acceleration</span>
+                  <span className="text-sm font-medium text-foreground">Turbomode Acceleration</span>
                 </div>
-                <p className="text-xs text-neutral-400">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   Enables parallel speculative reasoning tokens and hardware prefetching (~62 tok/s).
                 </p>
               </div>
