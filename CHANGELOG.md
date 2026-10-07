@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `orchestrator`:
+- `sandboxes`:
+- `api`:
+- `web`:
+- `settings`:
+- `git`:
+- `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.1.5] - 2026-10-07
+
+### Added
 - `auth`: Native Google Workspace NextAuth provider support with direct sign-in button on `/login`.
 - `auth`: Organization-level email domain allowlist enforcement in NextAuth `signIn` callback, rejecting accounts with email domains outside authorized bounds.
 - `settings`: UI-configurable SSO domain allowlist and enforcement toggle in Organization Settings (`/settings/org`).

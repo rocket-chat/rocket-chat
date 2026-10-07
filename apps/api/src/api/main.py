@@ -179,7 +179,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="Rocket Chat Control Plane",
     description="FastAPI service hosting the ReAct agent engine and embedded Slack Assistant.",
-    version="0.1.4",
+    version="0.1.5",
     lifespan=lifespan,
 )
 
