@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { useMissionStore } from "../lib/store";
 import { ThemeToggle } from "./Theme/ThemeToggle";
+import { UserHeaderCapsule } from "./UserHeaderCapsule";
 import {
   Zap,
   Settings2,
@@ -110,6 +111,9 @@ export const FlightTelemetryHeader: React.FC = () => {
             <PanelRightOpen className="w-4 h-4" />
           )}
         </button>
+
+        {/* User Capsule */}
+        <UserHeaderCapsule />
 
         {/* Settings Suite Entrypoint */}
         <Link

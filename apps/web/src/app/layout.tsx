@@ -16,6 +16,8 @@ export const metadata: Metadata = {
   },
 };
 
+import { AuthProvider } from "../components/AuthProvider";
+
 export default function RootLayout({
   children,
 }: {
@@ -56,8 +58,9 @@ export default function RootLayout({
         />
       </head>
       <body className="bg-void text-foreground antialiased selection:bg-flame/20 selection:text-flame">
-        {children}
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );
 }
+

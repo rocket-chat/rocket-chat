@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useSession, signIn } from "next-auth/react";
 import {
   RefreshCw,
   ExternalLink,
@@ -8,7 +9,6 @@ import {
   User,
   Lock,
   Plus,
-  Trash2,
   Save,
   CheckCircle2,
 } from "lucide-react";
@@ -56,12 +56,14 @@ export default function GitHubSettingsPage() {
   const [tokenPermIssues, setTokenPermIssues] = useState<"read" | "write" | "none">("none");
   const [tokenTargetRepos, setTokenTargetRepos] = useState<string>("all");
 
+  const { data: authSession } = useSession();
+
   // User-specific Git overrides
   const [userPrefs, setUserPrefs] = useState<UserPreferencesData>({
-    git_branch_prefix: "alex/rocket-",
-    git_personal_pat: "ghp_live_pat_finegrained",
-    git_author_name: "Alex Turner",
-    git_author_email: "alex.turner@acme.internal",
+    git_branch_prefix: "feat/rocket-",
+    git_personal_pat: "",
+    git_author_name: "",
+    git_author_email: "",
   });
 
   const [prCreatorIdentity, setPrCreatorIdentity] = useState<"bot" | "user">("bot");
@@ -509,48 +511,42 @@ export default function GitHubSettingsPage() {
             {/* Linked Personal Account Card */}
             <div className="bg-surface-card rounded-xl border border-surface-border p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-full bg-surface-elevated border border-surface-border flex items-center justify-center text-foreground font-mono font-bold text-sm">
-                  AT
+                <div className="w-10 h-10 rounded-full bg-brand/10 border border-brand/30 flex items-center justify-center text-brand font-mono font-bold text-sm">
+                  {((authSession?.user?.name || authSession?.user?.email || "Dev").slice(0, 2)).toUpperCase()}
                 </div>
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-foreground">
-                      @alex-turner
+                      {authSession?.user?.name ? `@${authSession.user.name.toLowerCase().replace(/\s+/g, "-")}` : "No GitHub Account Linked"}
                     </span>
                     <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-elevated text-neutral-600 dark:text-neutral-300 border border-surface-border">
-                      Fine-grained PAT
+                      {authSession?.user ? "OAuth Linked" : "Unconnected"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 font-mono">
-                    <span className="flex items-center gap-1 text-emerald-400">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                      Authorized
-                    </span>
-                    <span>·</span>
-                    <span className="text-neutral-500 dark:text-neutral-400">
-                      Expiration: 68 days remaining
-                    </span>
+                    {authSession?.user ? (
+                      <>
+                        <span className="flex items-center gap-1 text-emerald-400">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          Authenticated ({authSession.user.email})
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-neutral-500 dark:text-neutral-400">
+                        Link personal account to sign PRs and commit with your verified signature
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setSuccessBanner("GitHub token refreshed");
-                    setTimeout(() => setSuccessBanner(null), 3000);
-                  }}
+                  onClick={() => signIn("github", { callbackUrl: "/settings/github" })}
                   className="px-3.5 py-1.5 rounded-lg bg-surface-elevated hover:bg-surface-highlight text-xs font-mono text-foreground border border-surface-border flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-brand" />
-                  <span>Re-authenticate</span>
-                </button>
-                <button
-                  type="button"
-                  className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-colors cursor-pointer"
-                  title="Revoke PAT"
-                >
-                  <Trash2 className="w-4 h-4" />
+                  <span>{authSession?.user ? "Re-authenticate GitHub" : "Connect GitHub Account"}</span>
                 </button>
               </div>
             </div>

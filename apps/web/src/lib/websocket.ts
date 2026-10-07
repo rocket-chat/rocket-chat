@@ -34,10 +34,11 @@ export class MissionWebSocket {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private isExplicitlyClosed = false;
 
-  constructor(sessionId: string, baseUrl?: string) {
+  constructor(sessionId: string, baseUrl?: string, token?: string) {
     this.sessionId = sessionId;
     const base = baseUrl || getDefaultWsBaseUrl();
-    this.url = `${base}/v1/sessions/${sessionId}/ws?token=dev_token`;
+    const tokenQuery = token ? `&token=${encodeURIComponent(token)}` : "";
+    this.url = `${base}/v1/sessions/${sessionId}/ws?session_id=${sessionId}${tokenQuery}`;
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     activeMissionWebSocket = this;
   }

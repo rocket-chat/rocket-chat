@@ -3,6 +3,29 @@
 global:
   domain: "rocket.example.com"
 
+# Enterprise Identity & Authentication Configuration
+auth:
+  enabled: false # Set true to enforce OIDC / OAuth in production
+  nextauthSecret: "rocket-chat-production-nextauth-secret-key-32-chars-min"
+  existingSecret: ""
+  existingSecretNextAuthKey: "NEXTAUTH_SECRET"
+  # OIDC / Corporate SSO Provider (Keycloak, Okta, Google Workspace, Azure AD)
+  oidc:
+    issuer: ""
+    jwksUrl: ""
+    audience: ""
+    clientId: ""
+    clientSecret: ""
+    existingSecret: ""
+    existingSecretClientSecretKey: "OIDC_CLIENT_SECRET"
+  # Personal GitHub OAuth App (for one-click user authorization)
+  github:
+    clientId: ""
+    clientSecret: ""
+    existingSecret: ""
+    existingSecretClientSecretKey: "GITHUB_CLIENT_SECRET"
+
+
 backend:
   image:
     repository: ghcr.io/rocket-chat/backend

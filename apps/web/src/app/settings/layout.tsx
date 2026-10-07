@@ -2,6 +2,7 @@ import React from "react";
 import Link from "next/link";
 import { SettingsNav } from "../../components/settings/SettingsNav";
 import { ThemeToggle } from "../../components/Theme/ThemeToggle";
+import { UserHeaderCapsule } from "../../components/UserHeaderCapsule";
 import { RocketChatIcon } from "../../components/RocketChatLogo";
 import { Terminal, Settings } from "lucide-react";
 
@@ -58,19 +59,7 @@ export default function SettingsLayout({
           <div className="h-4 w-px bg-surface-border" />
 
           {/* User profile capsule */}
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-surface-elevated border border-surface-border flex items-center justify-center text-foreground font-mono font-bold text-xs">
-              AT
-            </div>
-            <div className="hidden md:flex flex-col text-left">
-              <span className="text-xs font-medium text-foreground leading-tight">
-                Alex Turner
-              </span>
-              <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
-                Flight Director
-              </span>
-            </div>
-          </div>
+          <UserHeaderCapsule />
         </div>
       </header>
 

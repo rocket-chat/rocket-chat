@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from "react";
 import { Save, CheckCircle2 } from "lucide-react";
 
+import { useSession } from "next-auth/react";
+
 interface ProfileState {
   full_name: string;
   default_role: string;
@@ -11,10 +13,11 @@ interface ProfileState {
 }
 
 export default function UserProfileSettingsPage() {
+  const { data: session } = useSession();
   const [profile, setProfile] = useState<ProfileState>({
-    full_name: "Alex Turner",
-    default_role: "Flight Director",
-    git_author_email: "alex.turner@acme.internal",
+    full_name: "",
+    default_role: "Software Engineer",
+    git_author_email: "",
     suggest_next_questions: true,
   });
   const [saving, setSaving] = useState(false);
@@ -25,11 +28,22 @@ export default function UserProfileSettingsPage() {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.effective) {
-          setProfile((prev) => ({ ...prev, ...data.effective }));
+          setProfile((prev) => ({
+            ...prev,
+            ...data.effective,
+            full_name: data.effective.full_name || session?.user?.name || prev.full_name,
+            git_author_email: data.effective.git_author_email || session?.user?.email || prev.git_author_email,
+          }));
+        } else if (session?.user) {
+          setProfile((prev) => ({
+            ...prev,
+            full_name: session.user?.name || prev.full_name,
+            git_author_email: session.user?.email || prev.git_author_email,
+          }));
         }
       })
       .catch(() => {});
-  }, []);
+  }, [session]);
 
   const handleSave = async () => {
     setSaving(true);
