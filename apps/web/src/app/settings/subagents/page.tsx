@@ -154,10 +154,10 @@ export default function SubagentsSettingsPage() {
             <Cpu className="w-3.5 h-3.5" />
             <span>Autonomous Specialist Subagents</span>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
             Subagents & Task Delegation
           </h1>
-          <p className="text-sm text-neutral-400 mt-1">
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
             Configure autonomous specialists that execute focused, bounded investigation tasks inside the session container.
           </p>
         </div>
@@ -188,7 +188,7 @@ export default function SubagentsSettingsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left: Subagents Navigation List */}
         <div className="lg:col-span-4 space-y-3">
-          <span className="text-xs font-mono font-semibold text-neutral-400 uppercase tracking-wider block">
+          <span className="text-xs font-mono font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider block">
             Specialist Fleet ({subagents.length})
           </span>
 
@@ -212,7 +212,7 @@ export default function SubagentsSettingsPage() {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-semibold text-neutral-200 truncate">
+                      <span className="text-sm font-semibold text-foreground truncate">
                         {sub.name}
                       </span>
                       {sub.enabled ? (
@@ -220,12 +220,12 @@ export default function SubagentsSettingsPage() {
                           Active
                         </span>
                       ) : (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-neutral-800 text-neutral-400 border border-surface-border">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border border-surface-border">
                           Disabled
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-neutral-400 mt-1 line-clamp-2 leading-relaxed">
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 line-clamp-2 leading-relaxed">
                       {sub.description}
                     </p>
                     <div className="flex items-center gap-2 mt-2 text-[10px] font-mono text-neutral-500">
@@ -240,8 +240,8 @@ export default function SubagentsSettingsPage() {
           </div>
 
           {/* Anti-recursion Safety Notice */}
-          <div className="p-3.5 rounded-xl border border-surface-border bg-surface-card/40 space-y-2 text-xs text-neutral-400">
-            <div className="flex items-center gap-1.5 text-neutral-300 font-medium">
+          <div className="p-3.5 rounded-xl border border-surface-border bg-surface-card/40 space-y-2 text-xs text-neutral-500 dark:text-neutral-400">
+            <div className="flex items-center gap-1.5 text-neutral-700 dark:text-neutral-300 font-medium">
               <Lock className="w-3.5 h-3.5 text-brand" />
               <span>Recursion Safeguard</span>
             </div>
@@ -259,12 +259,12 @@ export default function SubagentsSettingsPage() {
                 {getSubagentIcon(formData.id)}
               </div>
               <div>
-                <h2 data-testid="selected-subagent-title" className="text-lg font-bold text-white">{formData.name}</h2>
+                <h2 data-testid="selected-subagent-title" className="text-lg font-bold text-foreground">{formData.name}</h2>
                 <span className="text-xs font-mono text-brand">{formData.role_title}</span>
               </div>
             </div>
 
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-neutral-300">
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-neutral-700 dark:text-neutral-300">
               <input
                 type="checkbox"
                 checked={formData.enabled}

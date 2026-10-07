@@ -47,22 +47,22 @@ export default function UserGitSettingsPage() {
       {/* Scope Summary Banner */}
       <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
         <div className="max-w-5xl mx-auto">
-          <div className="flex items-center gap-2 text-xs font-mono text-neutral-400 mb-2">
+          <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
             <span>Settings</span>
             <span>/</span>
             <span>User Preferences</span>
             <span>/</span>
-            <span className="text-white font-medium">Personal Git Credentials</span>
+            <span className="text-foreground font-medium">Personal Git Credentials</span>
           </div>
           <div className="flex items-center gap-3">
-            <h1 className="text-xl md:text-2xl font-display font-bold text-white tracking-tight">
+            <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
               Personal Git Credentials & Author Overrides
             </h1>
             <span className="text-[11px] font-mono text-brand bg-brand/10 px-2 py-0.5 rounded border border-brand/20">
               USER LAYER: ACTIVE
             </span>
           </div>
-          <p className="text-xs text-neutral-400 mt-1.5 font-sans">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
             Configure fine-grained personal access tokens and custom branch namespaces for automated workflows.
           </p>
         </div>
@@ -80,23 +80,23 @@ export default function UserGitSettingsPage() {
           {/* Linked Personal Account Card */}
           <div className="bg-surface-card rounded-xl border border-surface-border p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
-              <div className="w-10 h-10 rounded-full bg-surface-elevated border border-surface-border flex items-center justify-center text-white font-mono font-bold text-sm">
+              <div className="w-10 h-10 rounded-full bg-surface-elevated border border-surface-border flex items-center justify-center text-foreground font-mono font-bold text-sm">
                 AT
               </div>
               <div className="space-y-0.5">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-white">@alex-turner</span>
-                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-elevated text-neutral-300 border border-surface-border">
+                  <span className="text-sm font-semibold text-foreground">@alex-turner</span>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-elevated text-neutral-600 dark:text-neutral-300 border border-surface-border">
                     Fine-grained PAT
                   </span>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-neutral-400 font-mono">
+                <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 font-mono">
                   <span className="flex items-center gap-1 text-emerald-400">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                     Authorized
                   </span>
                   <span>·</span>
-                  <span className="text-neutral-400">Expiration: 68 days remaining</span>
+                  <span className="text-neutral-500 dark:text-neutral-400">Expiration: 68 days remaining</span>
                 </div>
               </div>
             </div>
@@ -107,14 +107,14 @@ export default function UserGitSettingsPage() {
                   setSuccessBanner("PAT token re-validated");
                   setTimeout(() => setSuccessBanner(null), 3000);
                 }}
-                className="px-3.5 py-1.5 rounded-lg bg-surface-elevated hover:bg-surface-highlight text-xs font-mono text-white border border-surface-border flex items-center gap-1.5 transition-colors cursor-pointer"
+                className="px-3.5 py-1.5 rounded-lg bg-surface-elevated hover:bg-surface-highlight text-xs font-mono text-foreground border border-surface-border flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5 text-brand" />
                 <span>Re-authenticate</span>
               </button>
               <button
                 type="button"
-                className="p-1.5 rounded-lg text-neutral-500 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-colors cursor-pointer"
+                className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-colors cursor-pointer"
                 title="Revoke PAT"
               >
                 <Trash2 className="w-4 h-4" />
@@ -125,12 +125,12 @@ export default function UserGitSettingsPage() {
           {/* Target Branch Namespace Field */}
           <div className="bg-surface-card rounded-xl border border-surface-border p-5 space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-sm font-medium text-white block">
+              <label className="text-sm font-medium text-foreground block">
                 Target Branch Namespace Prefix
               </label>
-              <span className="text-[10px] font-mono text-neutral-500">GIT REF PATTERN</span>
+              <span className="text-[10px] font-mono text-neutral-400 dark:text-neutral-500">GIT REF PATTERN</span>
             </div>
-            <p className="text-xs text-neutral-400">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
               When Rocket automatically creates feature or fix branches on your behalf, this prefix enforces individual developer ownership.
             </p>
             <div className="pt-1.5 flex items-center max-w-xl">
@@ -150,7 +150,7 @@ export default function UserGitSettingsPage() {
                   type="text"
                   value={branchSuffix}
                   onChange={(e) => setBranchSuffix(e.target.value)}
-                  className="bg-transparent text-xs font-mono text-white placeholder-neutral-600 focus:outline-none flex-1 ml-1"
+                  className="bg-transparent text-xs font-mono text-foreground placeholder-neutral-400 dark:placeholder-neutral-600 focus:outline-none flex-1 ml-1"
                 />
               </div>
             </div>

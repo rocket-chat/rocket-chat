@@ -46,7 +46,7 @@ export const FlightTelemetryHeader: React.FC = () => {
               <PanelLeftOpen className="w-4 h-4" />
             </button>
             <Link href="/" className="flex items-center gap-2">
-              <span className="font-display font-semibold text-sm tracking-tight text-white">
+              <span className="font-display font-semibold text-sm tracking-tight text-foreground">
                 Rocket Chat
               </span>
             </Link>
@@ -54,16 +54,16 @@ export const FlightTelemetryHeader: React.FC = () => {
         )}
 
         {/* Thread Title */}
-        <h1 className="text-sm font-medium text-white flex items-center gap-2 truncate max-w-xs sm:max-w-md">
+        <h1 className="text-sm font-semibold text-foreground flex items-center gap-2 truncate max-w-xs sm:max-w-md">
           <span className="truncate">{session?.title || "New Session"}</span>
         </h1>
 
         <div className="h-3.5 w-px bg-surface-border hidden sm:block" />
 
         {/* Real Model / Persona Tag */}
-        <div className="hidden sm:flex items-center gap-1.5 text-xs text-neutral-400 bg-surface-card hover:bg-surface-elevated px-2 py-0.5 rounded border border-surface-border transition-colors">
+        <div className="hidden sm:flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 bg-surface-card hover:bg-surface-elevated px-2 py-0.5 rounded border border-surface-border transition-colors">
           <span className="w-1.5 h-1.5 rounded-full bg-brand" />
-          <span className="font-mono text-[11px] text-neutral-300">
+          <span className="font-mono text-[11px] text-neutral-700 dark:text-neutral-300">
             {activeModelDisplayName}
           </span>
         </div>
@@ -78,13 +78,13 @@ export const FlightTelemetryHeader: React.FC = () => {
             <span>Executing</span>
             {tokenRate > 0 && (
               <>
-                <span className="text-neutral-600">·</span>
-                <span className="text-neutral-300">{tokenRate} tok/s</span>
+                <span className="text-neutral-400 dark:text-neutral-600">·</span>
+                <span className="text-neutral-700 dark:text-neutral-300">{tokenRate} tok/s</span>
               </>
             )}
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-card border border-surface-border text-[11px] font-mono text-neutral-400">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-card border border-surface-border text-[11px] font-mono text-neutral-500 dark:text-neutral-400">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
             <span>Ready</span>
           </div>
@@ -99,8 +99,8 @@ export const FlightTelemetryHeader: React.FC = () => {
           onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
           className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
             isRightPanelOpen
-              ? "bg-surface-elevated border-surface-border text-white"
-              : "bg-surface-card hover:bg-surface-elevated border-surface-border text-neutral-400 hover:text-white"
+              ? "bg-surface-elevated border-surface-border text-foreground"
+              : "bg-surface-card hover:bg-surface-elevated border-surface-border text-neutral-500 hover:text-foreground dark:text-neutral-400 dark:hover:text-white"
           }`}
           title={isRightPanelOpen ? "Collapse Right Panel" : "Expand Right Panel (Inspector / Terminal)"}
         >
@@ -114,7 +114,7 @@ export const FlightTelemetryHeader: React.FC = () => {
         {/* Settings Suite Entrypoint */}
         <Link
           href="/settings/github"
-          className="p-1.5 rounded-lg bg-surface-card hover:bg-surface-elevated border border-surface-border text-neutral-400 hover:text-white transition-colors cursor-pointer"
+          className="p-1.5 rounded-lg bg-surface-card hover:bg-surface-elevated border border-surface-border text-neutral-500 hover:text-foreground dark:text-neutral-400 dark:hover:text-white transition-colors cursor-pointer"
           title="Settings Console"
         >
           <Settings2 className="w-4 h-4" />

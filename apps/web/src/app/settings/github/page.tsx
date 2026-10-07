@@ -20,6 +20,8 @@ interface GitHubSettingsData {
   bot_author_name: string;
   bot_author_email: string;
   default_branch: string;
+  app_token_permissions?: Record<string, string>;
+  app_token_target_repositories?: string;
 }
 
 interface UserPreferencesData {
@@ -41,7 +43,18 @@ export default function GitHubSettingsPage() {
     bot_author_name: "RocketChat Bot",
     bot_author_email: "bot@rocketchat.internal",
     default_branch: "main",
+    app_token_permissions: {
+      contents: "read",
+      pull_requests: "read",
+    },
+    app_token_target_repositories: "all",
   });
+
+  // App Installation Token Scopes
+  const [tokenPermContents, setTokenPermContents] = useState<"read" | "write" | "none">("read");
+  const [tokenPermPullRequests, setTokenPermPullRequests] = useState<"read" | "write" | "none">("read");
+  const [tokenPermIssues, setTokenPermIssues] = useState<"read" | "write" | "none">("none");
+  const [tokenTargetRepos, setTokenTargetRepos] = useState<string>("all");
 
   // User-specific Git overrides
   const [userPrefs, setUserPrefs] = useState<UserPreferencesData>({
@@ -75,6 +88,17 @@ export default function GitHubSettingsPage() {
           } else {
             setCommitSigningEnforced(true);
           }
+
+          // Hydrate dynamic token permissions
+          if (data.effective.app_token_permissions) {
+            const perms = data.effective.app_token_permissions;
+            setTokenPermContents(perms.contents === "write" ? "write" : perms.contents === "read" ? "read" : "none");
+            setTokenPermPullRequests(perms.pull_requests === "write" ? "write" : perms.pull_requests === "read" ? "read" : "none");
+            setTokenPermIssues(perms.issues === "write" ? "write" : perms.issues === "read" ? "read" : "none");
+          }
+          if (data.effective.app_token_target_repositories) {
+            setTokenTargetRepos(data.effective.app_token_target_repositories);
+          }
         }
       }
 
@@ -98,12 +122,20 @@ export default function GitHubSettingsPage() {
   const handleSaveAll = async () => {
     setSaving(true);
     try {
+      // Build permission dictionary
+      const permissionsMap: Record<string, string> = {};
+      if (tokenPermContents !== "none") permissionsMap.contents = tokenPermContents;
+      if (tokenPermPullRequests !== "none") permissionsMap.pull_requests = tokenPermPullRequests;
+      if (tokenPermIssues !== "none") permissionsMap.issues = tokenPermIssues;
+
       // 1. Save Org Settings
       const orgPayload = {
         config: {
           ...orgConfig,
           pr_creation_policy: prCreatorIdentity === "bot" ? "as_bot" : "as_user",
           commit_signing_mode: commitSigningEnforced ? "github_app" : "none",
+          app_token_permissions: permissionsMap,
+          app_token_target_repositories: tokenTargetRepos.trim() || "all",
         },
         locked_keys: ["commit_signing_mode"],
       };
@@ -150,15 +182,15 @@ export default function GitHubSettingsPage() {
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             {/* Breadcrumb */}
-            <div className="flex items-center gap-2 text-xs font-mono text-neutral-400 mb-2">
+            <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
               <span>Settings</span>
               <span>/</span>
               <span>Organization</span>
               <span>/</span>
-              <span className="text-white font-medium">GitHub Integration</span>
+              <span className="text-foreground font-medium">GitHub Integration</span>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-xl md:text-2xl font-display font-bold text-white tracking-tight">
+              <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
                 GitHub & Code Collaboration
               </h1>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono bg-emerald-950/80 text-emerald-400 border border-emerald-800/50">
@@ -166,7 +198,7 @@ export default function GitHubSettingsPage() {
                 Connected: @acme-corp · 24 Repositories
               </span>
             </div>
-            <p className="text-xs text-neutral-400 mt-1.5 font-sans">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
               Manage repository access policies, automated pull request workflows, and developer authorship attribution.
             </p>
           </div>
@@ -174,7 +206,7 @@ export default function GitHubSettingsPage() {
             <button
               type="button"
               onClick={fetchSettings}
-              className="px-3.5 py-2 rounded-lg bg-surface-card hover:bg-surface-elevated text-xs font-mono text-neutral-200 border border-surface-border flex items-center gap-2 transition-colors cursor-pointer"
+              className="px-3.5 py-2 rounded-lg bg-surface-card hover:bg-surface-elevated text-xs font-mono text-foreground border border-surface-border flex items-center gap-2 transition-colors cursor-pointer"
             >
               <RefreshCw className="w-4 h-4 text-neutral-400" />
               <span>Sync Repositories</span>
@@ -183,7 +215,7 @@ export default function GitHubSettingsPage() {
               href="https://github.com"
               target="_blank"
               rel="noopener noreferrer"
-              className="p-2 rounded-lg bg-surface-card hover:bg-surface-elevated text-neutral-400 hover:text-white border border-surface-border transition-colors"
+              className="p-2 rounded-lg bg-surface-card hover:bg-surface-elevated text-neutral-500 hover:text-foreground dark:text-neutral-400 dark:hover:text-white border border-surface-border transition-colors"
               title="Open GitHub"
             >
               <ExternalLink className="w-4 h-4" />
@@ -209,11 +241,11 @@ export default function GitHubSettingsPage() {
                 <div className="w-6 h-6 rounded bg-brand/10 border border-brand/20 flex items-center justify-center text-brand">
                   <Building2 className="w-3.5 h-3.5" />
                 </div>
-                <h2 className="text-base font-display font-semibold text-white">
+                <h2 className="text-base font-display font-semibold text-foreground">
                   Organization Repository Policies
                 </h2>
               </div>
-              <span className="text-[11px] font-mono text-neutral-400 bg-surface-card px-2 py-0.5 rounded border border-surface-border">
+              <span className="text-[11px] font-mono text-neutral-500 dark:text-neutral-400 bg-surface-card px-2 py-0.5 rounded border border-surface-border">
                 POLICY: ACME-TIER-1
               </span>
             </div>
@@ -221,10 +253,10 @@ export default function GitHubSettingsPage() {
             {/* Default PR Creator Identity */}
             <div className="bg-surface-card rounded-xl border border-surface-border p-5 space-y-4">
               <div>
-                <label className="text-sm font-medium text-white block">
+                <label className="text-sm font-medium text-foreground block">
                   Default PR Creator Identity
                 </label>
-                <p className="text-xs text-neutral-400 mt-0.5">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
                   Determine which author identity creates pull requests generated during automated Mission Terminal workflows.
                 </p>
               </div>
@@ -236,7 +268,7 @@ export default function GitHubSettingsPage() {
                   className={`relative flex items-start gap-3.5 p-4 rounded-lg cursor-pointer transition-all ${
                     prCreatorIdentity === "bot"
                       ? "border-2 border-brand bg-surface-elevated/70"
-                      : "border border-surface-border hover:border-neutral-600 bg-surface-subnav"
+                      : "border border-surface-border hover:border-neutral-400 dark:hover:border-neutral-600 bg-surface-subnav"
                   }`}
                 >
                   <input
@@ -249,14 +281,14 @@ export default function GitHubSettingsPage() {
                   />
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-semibold text-white">
+                      <span className="text-xs font-mono font-semibold text-foreground">
                         Org Service Bot (`rocket-bot[bot]`)
                       </span>
                       <span className="text-[9px] font-mono px-1.5 py-0.5 uppercase rounded bg-brand/20 text-brand">
                         Recommended
                       </span>
                     </div>
-                    <p className="text-xs text-neutral-400 leading-relaxed">
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                       Uses verified company bot credentials with unified automated service tokens. Individual developer is credited in the PR footer description.
                     </p>
                   </div>
@@ -268,7 +300,7 @@ export default function GitHubSettingsPage() {
                   className={`relative flex items-start gap-3.5 p-4 rounded-lg cursor-pointer transition-all ${
                     prCreatorIdentity === "user"
                       ? "border-2 border-brand bg-surface-elevated/70"
-                      : "border border-surface-border hover:border-neutral-600 bg-surface-subnav"
+                      : "border border-surface-border hover:border-neutral-400 dark:hover:border-neutral-600 bg-surface-subnav"
                   }`}
                 >
                   <input
@@ -281,11 +313,11 @@ export default function GitHubSettingsPage() {
                   />
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-semibold text-neutral-200">
+                      <span className="text-xs font-mono font-semibold text-foreground">
                         Individual Author Attribution
                       </span>
                     </div>
-                    <p className="text-xs text-neutral-400 leading-relaxed">
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                       Opens PRs directly under each developer&apos;s personal linked GitHub account via OAuth/PAT token delegation.
                     </p>
                   </div>
@@ -293,18 +325,106 @@ export default function GitHubSettingsPage() {
               </div>
             </div>
 
+            {/* GitHub App Temporary Token Permissions (UI Configured Scopes) */}
+            <div className="bg-surface-card rounded-xl border border-surface-border p-5 space-y-4">
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-foreground block">
+                    GitHub App Temporary Installation Token Scopes
+                  </label>
+                  <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-brand/10 text-brand border border-brand/20">
+                    ORG DEFAULT
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+                  When users are not logged in or PAT is unavailable, Rocket dynamically mints GitHub App installation access tokens with these minimum scoped privileges.
+                </p>
+              </div>
+
+              {/* Scopes Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1">
+                {/* Contents Scope */}
+                <div className="p-3.5 rounded-lg border border-surface-border bg-surface-subnav space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-semibold text-foreground">contents</span>
+                    <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">code & commits</span>
+                  </div>
+                  <select
+                    value={tokenPermContents}
+                    onChange={(e) => setTokenPermContents(e.target.value as "read" | "write" | "none")}
+                    className="w-full px-2.5 py-1.5 rounded-md bg-surface-card border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand cursor-pointer"
+                  >
+                    <option value="read">Read (Default)</option>
+                    <option value="write">Read & Write</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+
+                {/* Pull Requests Scope */}
+                <div className="p-3.5 rounded-lg border border-surface-border bg-surface-subnav space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-semibold text-foreground">pull_requests</span>
+                    <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">PRs & reviews</span>
+                  </div>
+                  <select
+                    value={tokenPermPullRequests}
+                    onChange={(e) => setTokenPermPullRequests(e.target.value as "read" | "write" | "none")}
+                    className="w-full px-2.5 py-1.5 rounded-md bg-surface-card border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand cursor-pointer"
+                  >
+                    <option value="read">Read (Default)</option>
+                    <option value="write">Read & Write</option>
+                    <option value="none">None</option>
+                  </select>
+                </div>
+
+                {/* Issues Scope */}
+                <div className="p-3.5 rounded-lg border border-surface-border bg-surface-subnav space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-mono font-semibold text-foreground">issues</span>
+                    <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">comments & labels</span>
+                  </div>
+                  <select
+                    value={tokenPermIssues}
+                    onChange={(e) => setTokenPermIssues(e.target.value as "read" | "write" | "none")}
+                    className="w-full px-2.5 py-1.5 rounded-md bg-surface-card border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand cursor-pointer"
+                  >
+                    <option value="none">None (Default)</option>
+                    <option value="read">Read</option>
+                    <option value="write">Read & Write</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Target Repositories */}
+              <div className="pt-2">
+                <label className="text-xs font-mono text-neutral-500 dark:text-neutral-400 block mb-1">
+                  Target Repositories Scope
+                </label>
+                <input
+                  type="text"
+                  value={tokenTargetRepos}
+                  onChange={(e) => setTokenTargetRepos(e.target.value)}
+                  placeholder="all or comma-separated list of repository names"
+                  className="w-full max-w-lg px-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground placeholder-neutral-400 dark:placeholder-neutral-500 focus:outline-none focus:border-brand"
+                />
+                <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400 block mt-1">
+                  Use <code>all</code> for all installed repositories or comma-separated names (e.g. <code>backend,web</code>).
+                </span>
+              </div>
+            </div>
+
             {/* Cryptographic Commit Signing */}
             <div className="bg-surface-card rounded-xl border border-surface-border p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1 max-w-2xl">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-white">
+                  <span className="text-sm font-medium text-foreground">
                     Cryptographic Commit Signing
                   </span>
                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
                     GPG / SSH ENFORCED
                   </span>
                 </div>
-                <p className="text-xs text-neutral-400 leading-relaxed">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                   Sign all terminal-generated Git commits via Acme&apos;s corporate hardware security module (HSM) root key before pushing to upstream remotes.
                 </p>
               </div>
@@ -324,14 +444,14 @@ export default function GitHubSettingsPage() {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="space-y-1 max-w-2xl">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-white">
+                    <span className="text-sm font-medium text-foreground">
                       Automated Reviewer Assignment
                     </span>
-                    <span className="text-[10px] font-mono text-neutral-400">
+                    <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
                       RULES: `main`, `staging`
                     </span>
                   </div>
-                  <p className="text-xs text-neutral-400 leading-relaxed">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                     Automatically request reviews from Rocket AI Agent and designated security code-owners on critical branches.
                   </p>
                 </div>
@@ -348,15 +468,15 @@ export default function GitHubSettingsPage() {
 
               {/* Branch Rule Badges */}
               <div className="pt-2 flex flex-wrap items-center gap-2 border-t border-surface-borderSubtle">
-                <span className="text-[11px] font-mono text-neutral-400">
+                <span className="text-[11px] font-mono text-neutral-500 dark:text-neutral-400">
                   Protected Branches:
                 </span>
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-subnav text-[11px] font-mono text-neutral-300 border border-surface-border">
-                  <Lock className="w-3 h-3 text-amber-400" />
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-subnav text-[11px] font-mono text-neutral-700 dark:text-neutral-300 border border-surface-border">
+                  <Lock className="w-3 h-3 text-amber-500 dark:text-amber-400" />
                   main
                 </span>
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-subnav text-[11px] font-mono text-neutral-300 border border-surface-border">
-                  <Lock className="w-3 h-3 text-amber-400" />
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-surface-subnav text-[11px] font-mono text-neutral-700 dark:text-neutral-300 border border-surface-border">
+                  <Lock className="w-3 h-3 text-amber-500 dark:text-amber-400" />
                   staging
                 </span>
                 <button
@@ -374,10 +494,10 @@ export default function GitHubSettingsPage() {
           <section className="space-y-4 pt-2">
             <div className="flex items-center justify-between pb-2 border-b border-surface-border">
               <div className="flex items-center gap-2.5">
-                <div className="w-6 h-6 rounded bg-neutral-800 border border-surface-border flex items-center justify-center text-neutral-300">
+                <div className="w-6 h-6 rounded bg-neutral-200 dark:bg-neutral-800 border border-surface-border flex items-center justify-center text-foreground dark:text-neutral-300">
                   <User className="w-3.5 h-3.5" />
                 </div>
-                <h2 className="text-base font-display font-semibold text-white">
+                <h2 className="text-base font-display font-semibold text-foreground">
                   Personal Git Credentials & Author Overrides
                 </h2>
               </div>
@@ -389,25 +509,25 @@ export default function GitHubSettingsPage() {
             {/* Linked Personal Account Card */}
             <div className="bg-surface-card rounded-xl border border-surface-border p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div className="flex items-center gap-3.5">
-                <div className="w-10 h-10 rounded-full bg-surface-elevated border border-surface-border flex items-center justify-center text-white font-mono font-bold text-sm">
+                <div className="w-10 h-10 rounded-full bg-surface-elevated border border-surface-border flex items-center justify-center text-foreground font-mono font-bold text-sm">
                   AT
                 </div>
                 <div className="space-y-0.5">
                   <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-white">
+                    <span className="text-sm font-semibold text-foreground">
                       @alex-turner
                     </span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-elevated text-neutral-300 border border-surface-border">
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-elevated text-neutral-600 dark:text-neutral-300 border border-surface-border">
                       Fine-grained PAT
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-neutral-400 font-mono">
+                  <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 font-mono">
                     <span className="flex items-center gap-1 text-emerald-400">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
                       Authorized
                     </span>
                     <span>·</span>
-                    <span className="text-neutral-400">
+                    <span className="text-neutral-500 dark:text-neutral-400">
                       Expiration: 68 days remaining
                     </span>
                   </div>
@@ -420,14 +540,14 @@ export default function GitHubSettingsPage() {
                     setSuccessBanner("GitHub token refreshed");
                     setTimeout(() => setSuccessBanner(null), 3000);
                   }}
-                  className="px-3.5 py-1.5 rounded-lg bg-surface-elevated hover:bg-surface-highlight text-xs font-mono text-white border border-surface-border flex items-center gap-1.5 transition-colors cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg bg-surface-elevated hover:bg-surface-highlight text-xs font-mono text-foreground border border-surface-border flex items-center gap-1.5 transition-colors cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-brand" />
                   <span>Re-authenticate</span>
                 </button>
                 <button
                   type="button"
-                  className="p-1.5 rounded-lg text-neutral-500 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-colors cursor-pointer"
+                  className="p-1.5 rounded-lg text-neutral-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-colors cursor-pointer"
                   title="Revoke PAT"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -438,14 +558,14 @@ export default function GitHubSettingsPage() {
             {/* Target Branch Namespace Field */}
             <div className="bg-surface-card rounded-xl border border-surface-border p-5 space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-white block">
+                <label className="text-sm font-medium text-foreground block">
                   Target Branch Namespace Prefix
                 </label>
-                <span className="text-[10px] font-mono text-neutral-500">
+                <span className="text-[10px] font-mono text-neutral-400 dark:text-neutral-500">
                   GIT REF PATTERN
                 </span>
               </div>
-              <p className="text-xs text-neutral-400">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
                 When Rocket automatically creates feature or fix branches on your behalf, this prefix enforces individual developer ownership.
               </p>
               <div className="pt-1.5 flex items-center max-w-xl">
@@ -465,7 +585,7 @@ export default function GitHubSettingsPage() {
                     type="text"
                     value={branchSuffix}
                     onChange={(e) => setBranchSuffix(e.target.value)}
-                    className="bg-transparent text-xs font-mono text-white placeholder-neutral-600 focus:outline-none flex-1 ml-1"
+                    className="bg-transparent text-xs font-mono text-foreground placeholder-neutral-400 dark:placeholder-neutral-600 focus:outline-none flex-1 ml-1"
                   />
                 </div>
               </div>
@@ -475,14 +595,14 @@ export default function GitHubSettingsPage() {
             <div className="bg-surface-card rounded-xl border border-surface-border p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1 max-w-2xl">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-white">
+                  <span className="text-sm font-medium text-foreground">
                     Mandatory Merge Gate
                   </span>
                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-950/60 text-amber-400 border border-amber-800/40">
                     HUMAN APPROVAL REQUIRED
                   </span>
                 </div>
-                <p className="text-xs text-neutral-400 leading-relaxed">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                   Require interactive biometric/passkey approval before Rocket agent can merge pull requests or deploy code to protected target branches.
                 </p>
               </div>
@@ -504,9 +624,9 @@ export default function GitHubSettingsPage() {
       <div className="sticky bottom-0 z-20 bg-surface-sidebar/95 backdrop-blur-md border-t border-surface-border px-8 py-3.5 flex flex-wrap items-center justify-between gap-4 flex-shrink-0">
         <div className="flex items-center gap-2.5">
           <span className="w-2 h-2 rounded-full bg-emerald-400" />
-          <div className="flex items-center gap-2 text-xs font-mono text-neutral-400">
+          <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400">
             <span>Synced with Acme Propulsion Cloud</span>
-            <span className="text-neutral-600">·</span>
+            <span className="text-neutral-400 dark:text-neutral-600">·</span>
             <span className="text-neutral-500">Live Cascading Resolver</span>
           </div>
         </div>
@@ -515,7 +635,7 @@ export default function GitHubSettingsPage() {
           <button
             type="button"
             onClick={handleDiscard}
-            className="px-4 py-2 rounded-lg text-xs font-mono text-neutral-400 hover:text-white hover:bg-surface-elevated transition-colors border border-transparent hover:border-surface-border cursor-pointer"
+            className="px-4 py-2 rounded-lg text-xs font-mono text-neutral-500 hover:text-foreground dark:text-neutral-400 dark:hover:text-white hover:bg-surface-elevated transition-colors border border-transparent hover:border-surface-border cursor-pointer"
           >
             Discard
           </button>

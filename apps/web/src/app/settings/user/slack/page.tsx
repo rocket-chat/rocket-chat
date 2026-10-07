@@ -43,17 +43,17 @@ export default function UserSlackSettingsPage() {
     <div className="flex flex-col min-h-full">
       <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
         <div className="max-w-5xl mx-auto">
-          <div className="flex items-center gap-2 text-xs font-mono text-neutral-400 mb-2">
+          <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
             <span>Settings</span>
             <span>/</span>
             <span>User Preferences</span>
             <span>/</span>
-            <span className="text-white font-medium">Slack Routing & Mentions</span>
+            <span className="text-foreground font-medium">Slack Routing & Mentions</span>
           </div>
-          <h1 className="text-xl md:text-2xl font-display font-bold text-white tracking-tight">
+          <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
             Slack Identity & Mention Routing
           </h1>
-          <p className="text-xs text-neutral-400 mt-1.5 font-sans">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
             Connect your personal workspace Slack handle for interactive mentions, approval pings, and thread handoffs.
           </p>
         </div>
@@ -70,7 +70,7 @@ export default function UserSlackSettingsPage() {
 
           <div className="bg-surface-card rounded-xl border border-surface-border p-6 space-y-5">
             <div>
-              <label className="block text-xs font-medium text-neutral-300 mb-1.5">
+              <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
                 Personal Slack Member Handle
               </label>
               <div className="flex items-center max-w-sm rounded-lg bg-surface-subnav border border-surface-border focus-within:border-brand px-3 py-2">
@@ -81,15 +81,15 @@ export default function UserSlackSettingsPage() {
                   onChange={(e) =>
                     setSlackPrefs({ ...slackPrefs, slack_user_handle: e.target.value })
                   }
-                  className="bg-transparent text-xs font-mono text-white focus:outline-none flex-1"
+                  className="bg-transparent text-xs font-mono text-foreground focus:outline-none flex-1"
                 />
               </div>
             </div>
 
             <div className="flex items-center justify-between pt-4 border-t border-surface-borderSubtle">
               <div className="space-y-1">
-                <span className="text-sm font-medium text-white">Direct Approval Notifications</span>
-                <p className="text-xs text-neutral-400">
+                <span className="text-sm font-medium text-foreground">Direct Approval Notifications</span>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   Receive Slack DMs when high-risk actions require interactive passkey verification.
                 </p>
               </div>

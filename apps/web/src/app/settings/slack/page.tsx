@@ -79,15 +79,15 @@ export default function SlackSettingsPage() {
       <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs font-mono text-neutral-400 mb-2">
+            <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
               <span>Settings</span>
               <span>/</span>
               <span>Organization</span>
               <span>/</span>
-              <span className="text-white font-medium">Slack & Chat Ops</span>
+              <span className="text-foreground font-medium">Slack & Chat Ops</span>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-xl md:text-2xl font-display font-bold text-white tracking-tight">
+              <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
                 Slack Assistant & Chat Ops
               </h1>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono bg-emerald-950/80 text-emerald-400 border border-emerald-800/50">
@@ -95,7 +95,7 @@ export default function SlackSettingsPage() {
                 Socket Mode Active · 2 Channels Linked
               </span>
             </div>
-            <p className="text-xs text-neutral-400 mt-1.5 font-sans">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
               Manage Slack main thread message rendering, invisible thought synthesis, and automated approval gates.
             </p>
           </div>
@@ -104,7 +104,7 @@ export default function SlackSettingsPage() {
             <button
               type="button"
               onClick={fetchSettings}
-              className="px-3.5 py-2 rounded-lg bg-surface-card hover:bg-surface-elevated text-xs font-mono text-neutral-200 border border-surface-border flex items-center gap-2 transition-colors cursor-pointer"
+              className="px-3.5 py-2 rounded-lg bg-surface-card hover:bg-surface-elevated text-xs font-mono text-foreground border border-surface-border flex items-center gap-2 transition-colors cursor-pointer"
             >
               <RefreshCw className="w-4 h-4 text-neutral-400" />
               <span>Test Socket Mode</span>
@@ -113,7 +113,7 @@ export default function SlackSettingsPage() {
               href="https://api.slack.com/apps"
               target="_blank"
               rel="noopener noreferrer"
-              className="p-2 rounded-lg bg-surface-card hover:bg-surface-elevated text-neutral-400 hover:text-white border border-surface-border transition-colors"
+              className="p-2 rounded-lg bg-surface-card hover:bg-surface-elevated text-neutral-500 hover:text-foreground dark:text-neutral-400 dark:hover:text-white border border-surface-border transition-colors"
               title="Slack App Console"
             >
               <ExternalLink className="w-4 h-4" />
@@ -138,7 +138,7 @@ export default function SlackSettingsPage() {
                 <div className="w-6 h-6 rounded bg-brand/10 border border-brand/20 flex items-center justify-center text-brand">
                   <Sparkles className="w-3.5 h-3.5" />
                 </div>
-                <h2 className="text-base font-display font-semibold text-white">
+                <h2 className="text-base font-display font-semibold text-foreground">
                   Main Thread Presentation & Thought Process
                 </h2>
               </div>
@@ -149,10 +149,10 @@ export default function SlackSettingsPage() {
 
             <div className="bg-surface-card rounded-xl border border-surface-border p-5 space-y-4">
               <div>
-                <label className="text-sm font-medium text-white block">
+                <label className="text-sm font-medium text-foreground block">
                   Slack Thread Thought & Reasoning Visibility
                 </label>
-                <p className="text-xs text-neutral-400 mt-0.5">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
                   The Stitch design standard calls for clean main thread responses with minimal friction. Thought processes are kept invisible in main chat responses, surfaced only via ephemeral spinner status or discreet sub-thread accordions.
                 </p>
               </div>
@@ -164,7 +164,7 @@ export default function SlackSettingsPage() {
                   className={`relative flex items-start gap-3.5 p-4 rounded-lg cursor-pointer transition-all ${
                     thoughtDisplayMode === "invisible"
                       ? "border-2 border-brand bg-surface-elevated/70"
-                      : "border border-surface-border hover:border-neutral-600 bg-surface-subnav"
+                      : "border border-surface-border hover:border-neutral-400 dark:hover:border-neutral-600 bg-surface-subnav"
                   }`}
                 >
                   <input
@@ -177,14 +177,14 @@ export default function SlackSettingsPage() {
                   />
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-semibold text-white">
+                      <span className="text-xs font-mono font-semibold text-foreground">
                         Invisible Thought (Pure Synthesis)
                       </span>
                       <span className="text-[9px] font-mono px-1.5 py-0.5 uppercase rounded bg-brand/20 text-brand">
                         Stitch Standard
                       </span>
                     </div>
-                    <p className="text-xs text-neutral-400 leading-relaxed">
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                       Reasoning occurs silently in the background with ephemeral status updates (e.g. <code>Running test suite...</code>). Only the final verified response and clean Block Kit diffs appear in the thread.
                     </p>
                   </div>
@@ -196,7 +196,7 @@ export default function SlackSettingsPage() {
                   className={`relative flex items-start gap-3.5 p-4 rounded-lg cursor-pointer transition-all ${
                     thoughtDisplayMode === "discreet"
                       ? "border-2 border-brand bg-surface-elevated/70"
-                      : "border border-surface-border hover:border-neutral-600 bg-surface-subnav"
+                      : "border border-surface-border hover:border-neutral-400 dark:hover:border-neutral-600 bg-surface-subnav"
                   }`}
                 >
                   <input
@@ -209,11 +209,11 @@ export default function SlackSettingsPage() {
                   />
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-semibold text-neutral-200">
+                      <span className="text-xs font-mono font-semibold text-foreground">
                         Discreet Context Pill
                       </span>
                     </div>
-                    <p className="text-xs text-neutral-400 leading-relaxed">
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                       Includes a minimal <code>Thought for 1.4s · 3 tools executed</code> context indicator in the footer without cluttering the chat flow.
                     </p>
                   </div>
@@ -226,10 +226,10 @@ export default function SlackSettingsPage() {
           <section className="space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-surface-border">
               <div className="flex items-center gap-2.5">
-                <div className="w-6 h-6 rounded bg-neutral-800 border border-surface-border flex items-center justify-center text-neutral-300">
+                <div className="w-6 h-6 rounded bg-neutral-200 dark:bg-neutral-800 border border-surface-border flex items-center justify-center text-foreground dark:text-neutral-300">
                   <Link2 className="w-3.5 h-3.5" />
                 </div>
-                <h2 className="text-base font-display font-semibold text-white">
+                <h2 className="text-base font-display font-semibold text-foreground">
                   Slack Account & Session Federation
                 </h2>
               </div>
@@ -238,10 +238,10 @@ export default function SlackSettingsPage() {
             <div className="bg-surface-card rounded-xl border border-surface-border p-5 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="space-y-1">
-                  <span className="text-sm font-medium text-white">
+                  <span className="text-sm font-medium text-foreground">
                     Auto-Link by Verified Corporate Email
                   </span>
-                  <p className="text-xs text-neutral-400 leading-relaxed">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                     Automatically federate incoming Slack requests with developer identities matching the corporate email domain.
                   </p>
                 </div>
@@ -263,10 +263,10 @@ export default function SlackSettingsPage() {
 
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-surface-borderSubtle">
                 <div className="space-y-1">
-                  <span className="text-sm font-medium text-white">
+                  <span className="text-sm font-medium text-foreground">
                     Interactive Thread Session Switcher
                   </span>
-                  <p className="text-xs text-neutral-400 leading-relaxed">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                     Allows developers to switch active sandbox branches and agent personas directly inside Slack threads.
                   </p>
                 </div>

@@ -32,6 +32,12 @@ class GitEngineSettings:
                     k, v = item.strip().split(":", 1)
                     perms_dict[k.strip()] = v.strip()
 
+        if not perms_dict:
+            perms_dict = {
+                "contents": "read",
+                "pull_requests": "read",
+            }
+
         return cls(
             github_app_id=os.getenv("GITHUB_APP_ID"),
             github_app_private_key=os.getenv("GITHUB_APP_PRIVATE_KEY"),

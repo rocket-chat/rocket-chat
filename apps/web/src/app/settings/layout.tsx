@@ -26,7 +26,7 @@ export default function SettingsLayout({
               <RocketChatIcon className="w-5 h-5" />
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="font-display font-semibold text-sm tracking-tight text-white">
+              <span className="font-display font-semibold text-sm tracking-tight text-foreground">
                 Rocket
               </span>
             </div>
@@ -38,13 +38,13 @@ export default function SettingsLayout({
           <nav className="flex items-center gap-2 text-xs">
             <Link
               href="/"
-              className="text-neutral-400 hover:text-neutral-200 transition-colors flex items-center gap-1.5"
+              className="text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-200 transition-colors flex items-center gap-1.5"
             >
               <Terminal className="w-3.5 h-3.5 text-neutral-400" />
               <span>Cockpit</span>
             </Link>
-            <span className="text-neutral-600">/</span>
-            <span className="text-white font-medium flex items-center gap-1.5 text-brand">
+            <span className="text-neutral-400 dark:text-neutral-600">/</span>
+            <span className="font-medium flex items-center gap-1.5 text-brand">
               <Settings className="w-3.5 h-3.5 text-brand" />
               <span>Settings Console</span>
             </span>
@@ -59,14 +59,14 @@ export default function SettingsLayout({
 
           {/* User profile capsule */}
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-surface-elevated border border-surface-border flex items-center justify-center text-white font-mono font-bold text-xs">
+            <div className="w-7 h-7 rounded-full bg-surface-elevated border border-surface-border flex items-center justify-center text-foreground font-mono font-bold text-xs">
               AT
             </div>
             <div className="hidden md:flex flex-col text-left">
-              <span className="text-xs font-medium text-neutral-200 leading-tight">
+              <span className="text-xs font-medium text-foreground leading-tight">
                 Alex Turner
               </span>
-              <span className="text-[10px] font-mono text-neutral-500">
+              <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
                 Flight Director
               </span>
             </div>

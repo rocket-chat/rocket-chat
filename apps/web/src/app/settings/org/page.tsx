@@ -74,15 +74,15 @@ export default function OrgSettingsPage() {
       <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs font-mono text-neutral-400 mb-2">
+            <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
               <span>Settings</span>
               <span>/</span>
               <span>Organization</span>
               <span>/</span>
-              <span className="text-white font-medium">General & Compliance</span>
+              <span className="text-foreground font-medium">General & Compliance</span>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-xl md:text-2xl font-display font-bold text-white tracking-tight">
+              <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
                 General & Compliance Policies
               </h1>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono bg-emerald-950/80 text-emerald-400 border border-emerald-800/50">
@@ -90,7 +90,7 @@ export default function OrgSettingsPage() {
                 SOC2 Type II Enforced
               </span>
             </div>
-            <p className="text-xs text-neutral-400 mt-1.5 font-sans">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
               Manage enterprise tenant compliance constraints, cryptographic secrets, and system telemetry rules.
             </p>
           </div>
@@ -113,31 +113,31 @@ export default function OrgSettingsPage() {
                 <div className="w-6 h-6 rounded bg-brand/10 border border-brand/20 flex items-center justify-center text-brand">
                   <Building2 className="w-3.5 h-3.5" />
                 </div>
-                <h2 className="text-base font-display font-semibold text-white">
+                <h2 className="text-base font-display font-semibold text-foreground">
                   Tenant Governance
                 </h2>
               </div>
-              <span className="text-[11px] font-mono text-neutral-400 bg-surface-card px-2 py-0.5 rounded border border-surface-border">
+              <span className="text-[11px] font-mono text-neutral-500 dark:text-neutral-400 bg-surface-card px-2 py-0.5 rounded border border-surface-border">
                 ORG-ID: default_org
               </span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="bg-surface-card rounded-xl border border-surface-border p-5 space-y-2">
-                <label className="text-xs font-medium text-white block">Organization Name</label>
+                <label className="text-xs font-medium text-foreground block">Organization Name</label>
                 <input
                   type="text"
                   value={orgGeneral.company_name}
                   onChange={(e) =>
                     setOrgGeneral({ ...orgGeneral, company_name: e.target.value })
                   }
-                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-white focus:outline-none focus:border-brand"
+                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand"
                 />
               </div>
 
               <div className="bg-surface-card rounded-xl border border-surface-border p-5 space-y-2">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-white block">Compliance Standard</label>
+                  <label className="text-xs font-medium text-foreground block">Compliance Standard</label>
                   <span className="text-[10px] font-mono text-brand bg-brand/10 px-1.5 py-0.5 rounded border border-brand/20">
                     LOCKED
                   </span>
@@ -145,7 +145,7 @@ export default function OrgSettingsPage() {
                 <select
                   value={orgGeneral.compliance_tier}
                   disabled
-                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-neutral-400 focus:outline-none cursor-not-allowed opacity-80"
+                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-neutral-500 dark:text-neutral-400 focus:outline-none cursor-not-allowed opacity-80"
                 >
                   <option value="SOC2">SOC2 Type II (Continuous Auditing)</option>
                   <option value="HIPAA">HIPAA (BAA Enforced)</option>
@@ -157,10 +157,10 @@ export default function OrgSettingsPage() {
             {/* Suggestion Toggle Row */}
             <div className="bg-surface-card rounded-xl border border-surface-border p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-4">
               <div className="space-y-1 max-w-2xl">
-                <span className="text-sm font-medium text-white">
+                <span className="text-sm font-medium text-foreground">
                   Suggest Probable Next Questions
                 </span>
-                <p className="text-xs text-neutral-400 leading-relaxed">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                   Propose intelligent, context-aware follow-up prompts at the end of agent turns as discreet clickable text.
                 </p>
               </div>
@@ -182,10 +182,10 @@ export default function OrgSettingsPage() {
           <section className="space-y-4">
             <div className="flex items-center justify-between pb-2 border-b border-surface-border">
               <div className="flex items-center gap-2.5">
-                <div className="w-6 h-6 rounded bg-neutral-800 border border-surface-border flex items-center justify-center text-neutral-300">
+                <div className="w-6 h-6 rounded bg-neutral-200 dark:bg-neutral-800 border border-surface-border flex items-center justify-center text-neutral-700 dark:text-neutral-300">
                   <Key className="w-3.5 h-3.5" />
                 </div>
-                <h2 className="text-base font-display font-semibold text-white">
+                <h2 className="text-base font-display font-semibold text-foreground">
                   Encrypted BYOK Vault
                 </h2>
               </div>
@@ -196,7 +196,7 @@ export default function OrgSettingsPage() {
 
             <div className="bg-surface-card rounded-xl border border-surface-border p-5 space-y-4">
               <div>
-                <label className="block text-xs font-mono text-neutral-300 mb-1">
+                <label className="block text-xs font-mono text-neutral-700 dark:text-neutral-300 mb-1">
                   OpenRouter Primary API Key
                 </label>
                 <div className="relative">
@@ -204,12 +204,12 @@ export default function OrgSettingsPage() {
                     type={visibleKey === "openrouter" ? "text" : "password"}
                     value={keys.openrouter}
                     onChange={(e) => setKeys({ ...keys, openrouter: e.target.value })}
-                    className="w-full pl-3 pr-10 py-2 rounded-lg border border-surface-border bg-surface-subnav text-xs font-mono text-white focus:outline-none focus:border-brand"
+                    className="w-full pl-3 pr-10 py-2 rounded-lg border border-surface-border bg-surface-subnav text-xs font-mono text-foreground focus:outline-none focus:border-brand"
                   />
                   <button
                     type="button"
                     onClick={() => toggleVisibility("openrouter")}
-                    className="absolute right-3 top-2.5 text-neutral-400 hover:text-white"
+                    className="absolute right-3 top-2.5 text-neutral-400 hover:text-foreground"
                   >
                     {visibleKey === "openrouter" ? (
                       <EyeOff className="w-3.5 h-3.5" />
@@ -221,7 +221,7 @@ export default function OrgSettingsPage() {
               </div>
 
               <div>
-                <label className="block text-xs font-mono text-neutral-300 mb-1">
+                <label className="block text-xs font-mono text-neutral-700 dark:text-neutral-300 mb-1">
                   Anthropic API Key (Direct Fallback)
                 </label>
                 <div className="relative">
@@ -230,12 +230,12 @@ export default function OrgSettingsPage() {
                     value={keys.anthropic}
                     placeholder="sk-ant-api03-..."
                     onChange={(e) => setKeys({ ...keys, anthropic: e.target.value })}
-                    className="w-full pl-3 pr-10 py-2 rounded-lg border border-surface-border bg-surface-subnav text-xs font-mono text-white focus:outline-none focus:border-brand"
+                    className="w-full pl-3 pr-10 py-2 rounded-lg border border-surface-border bg-surface-subnav text-xs font-mono text-foreground focus:outline-none focus:border-brand"
                   />
                   <button
                     type="button"
                     onClick={() => toggleVisibility("anthropic")}
-                    className="absolute right-3 top-2.5 text-neutral-400 hover:text-white"
+                    className="absolute right-3 top-2.5 text-neutral-400 hover:text-foreground"
                   >
                     {visibleKey === "anthropic" ? (
                       <EyeOff className="w-3.5 h-3.5" />

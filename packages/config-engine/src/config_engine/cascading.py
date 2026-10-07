@@ -13,6 +13,11 @@ SYSTEM_DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         "bot_author_name": "RocketChat Bot",
         "bot_author_email": "bot@rocketchat.internal",
         "default_branch": "main",
+        "app_token_permissions": {
+            "contents": "read",
+            "pull_requests": "read",
+        },
+        "app_token_target_repositories": "all",  # "all" or specific comma-separated list
     },
     "mcp": {
         "allowed_transports": ["sse", "http", "stdio"],

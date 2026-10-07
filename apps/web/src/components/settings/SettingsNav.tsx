@@ -143,7 +143,7 @@ export const SettingsNav: React.FC = () => {
         {/* Back to Cockpit button */}
         <Link
           href="/"
-          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-border hover:border-brand/40 bg-surface-card/60 hover:bg-surface-elevated text-xs font-mono text-neutral-300 hover:text-white transition-all shadow-sm group"
+          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-border hover:border-brand/40 bg-surface-card/60 hover:bg-surface-elevated text-xs font-mono text-neutral-600 hover:text-foreground dark:text-neutral-300 dark:hover:text-white transition-all shadow-sm group"
         >
           <ArrowLeft className="w-4 h-4 text-brand group-hover:-translate-x-0.5 transition-transform" />
           <span>RETURN TO COCKPIT</span>
@@ -154,10 +154,10 @@ export const SettingsNav: React.FC = () => {
           <div className="flex items-center gap-2">
             <Building2 className="w-4 h-4 text-brand" />
             <div className="flex flex-col">
-              <span className="text-xs font-display font-medium text-white leading-tight">
+              <span className="text-xs font-display font-medium text-foreground leading-tight">
                 Acme Labs
               </span>
-              <span className="text-[10px] font-mono text-neutral-400">
+              <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
                 Enterprise Tenant
               </span>
             </div>
@@ -169,9 +169,9 @@ export const SettingsNav: React.FC = () => {
 
         {/* SECTION A: ORGANIZATION */}
         <div>
-          <div className="px-2.5 pb-2 flex items-center justify-between text-[11px] font-mono font-semibold tracking-wider uppercase text-neutral-400">
+          <div className="px-2.5 pb-2 flex items-center justify-between text-[11px] font-mono font-semibold tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
             <span>Organization (Acme Labs)</span>
-            <span className="text-[10px] text-neutral-500 font-mono">ORG</span>
+            <span className="text-[10px] text-neutral-400 dark:text-neutral-500 font-mono">ORG</span>
           </div>
           <nav className="space-y-0.5">
             {ORG_NAV_ITEMS.map((item) => {
@@ -183,14 +183,14 @@ export const SettingsNav: React.FC = () => {
                   href={item.href}
                   className={`flex items-center justify-between px-2.5 py-2 text-xs rounded-lg transition-colors group ${
                     isActive
-                      ? "bg-surface-elevated text-white font-medium border-l-2 border-brand shadow-sm"
-                      : "text-neutral-400 hover:text-white hover:bg-surface-elevated/60"
+                      ? "bg-surface-elevated text-foreground font-semibold border-l-2 border-brand shadow-sm"
+                      : "text-neutral-600 hover:text-foreground hover:bg-surface-elevated/60 dark:text-neutral-400 dark:hover:text-white"
                   }`}
                 >
                   <span className="flex items-center gap-2.5">
                     <Icon
                       className={`w-4 h-4 ${
-                        isActive ? "text-brand" : "text-neutral-500 group-hover:text-neutral-300"
+                        isActive ? "text-brand" : "text-neutral-400 dark:text-neutral-500 group-hover:text-brand"
                       }`}
                     />
                     <span>{item.label}</span>
@@ -198,7 +198,7 @@ export const SettingsNav: React.FC = () => {
                   {item.badge && (
                     <span
                       className={`text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-elevated border border-surface-border ${
-                        item.badgeColor || "text-neutral-400"
+                        item.badgeColor || "text-neutral-500 dark:text-neutral-400"
                       }`}
                     >
                       {item.badge}
@@ -212,9 +212,9 @@ export const SettingsNav: React.FC = () => {
 
         {/* SECTION B: USER PREFERENCES */}
         <div>
-          <div className="px-2.5 pb-2 flex items-center justify-between text-[11px] font-mono font-semibold tracking-wider uppercase text-neutral-400">
+          <div className="px-2.5 pb-2 flex items-center justify-between text-[11px] font-mono font-semibold tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
             <span>User Preferences</span>
-            <span className="text-[10px] text-neutral-500 font-mono">ALEX</span>
+            <span className="text-[10px] text-neutral-400 dark:text-neutral-500 font-mono">ALEX</span>
           </div>
           <nav className="space-y-0.5">
             {USER_NAV_ITEMS.map((item) => {
@@ -226,8 +226,8 @@ export const SettingsNav: React.FC = () => {
                   href={item.href}
                   className={`flex items-center justify-between px-2.5 py-2 text-xs rounded-lg transition-colors group ${
                     isActive
-                      ? "bg-surface-elevated text-white font-medium border-l-2 border-brand shadow-sm"
-                      : "text-neutral-400 hover:text-white hover:bg-surface-elevated/60"
+                      ? "bg-surface-elevated text-foreground font-semibold border-l-2 border-brand shadow-sm"
+                      : "text-neutral-600 hover:text-foreground hover:bg-surface-elevated/60 dark:text-neutral-400 dark:hover:text-white"
                   }`}
                 >
                   <span className="flex items-center gap-2.5">
