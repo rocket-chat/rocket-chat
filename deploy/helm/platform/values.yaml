@@ -161,6 +161,11 @@ postgresql:
   username: postgres
   password: postgres_prod_password
   appUsername: rocket_app
+  # Persistence configuration for PostgreSQL data (StatefulSet PVC)
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 10Gi
   # External Secret reference for PostgreSQL password
   existingSecret: ""
   existingSecretPasswordKey: "POSTGRES_PASSWORD"

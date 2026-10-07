@@ -6,9 +6,11 @@ import json
 import logging
 import re
 import shlex
+import time
 from typing import Any
 
 import httpx
+import jwt
 
 from git_engine.config import GitEngineSettings
 from git_engine.trailers import format_commit_message
@@ -114,6 +116,117 @@ class GitEngine(GitEngineProtocol):
         sha_res = await self.driver.exec_command(session_id, "git rev-parse HEAD")
         return sha_res.stdout.strip()
 
+    def generate_app_jwt(self) -> str:
+        """Generates an RS256 JWT for GitHub App authentication valid for 10 minutes."""
+        if not self.settings.github_app_id or not self.settings.github_app_private_key:
+            raise ValueError("github_app_id and github_app_private_key must be configured")
+
+        now = int(time.time())
+        payload = {
+            "iat": now - 60,  # 60s in the past to prevent clock drift issues
+            "exp": now + (10 * 60),  # 10 minutes max expiration
+            "iss": self.settings.github_app_id,
+        }
+        pem_key = self.settings.github_app_private_key
+        # Handle cases where PEM was escaped with newlines in env vars
+        if "\\n" in pem_key:
+            pem_key = pem_key.replace("\\n", "\n")
+
+        return jwt.encode(payload, pem_key, algorithm="RS256")
+
+    async def get_github_access_token(
+        self,
+        repo: str | None = None,
+        permissions: dict[str, str] | None = None,
+    ) -> str | None:
+        """
+        Retrieves a valid GitHub access token.
+        1. Returns user/PAT token if explicitly set (GITHUB_TOKEN / GITHUB_PAT).
+        2. Otherwise, if GitHub App credentials are configured (GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY),
+           dynamically creates a scoped installation access token.
+        """
+        # If explicit user token is provided, prioritize it
+        if self.settings.github_token:
+            return self.settings.github_token
+
+        # Fallback to dynamic GitHub App installation token
+        if not (self.settings.github_app_id and self.settings.github_app_private_key):
+            return None
+
+        try:
+            app_jwt = self.generate_app_jwt()
+            headers = {
+                "Authorization": f"Bearer {app_jwt}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            }
+
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                installation_id: int | None = None
+                # If specific repo provided, find installation for that repo
+                if repo and "/" in repo:
+                    owner_repo = repo.strip()
+                    res = await client.get(
+                        f"{self.settings.github_api_url.rstrip('/')}/repos/{owner_repo}/installation",
+                        headers=headers,
+                    )
+                    if res.status_code == 200:
+                        installation_id = res.json().get("id")
+
+                # If no specific repo or repo installation lookup failed, query all app installations
+                if not installation_id:
+                    res = await client.get(
+                        f"{self.settings.github_api_url.rstrip('/')}/app/installations",
+                        headers=headers,
+                    )
+                    if res.status_code == 200:
+                        installations = res.json()
+                        if installations and isinstance(installations, list):
+                            installation_id = installations[0].get("id")
+
+                if not installation_id:
+                    logger.warning(
+                        "No installations found for GitHub App %s", self.settings.github_app_id
+                    )
+                    return None
+
+                # Mint an installation access token with requested or default scopes
+                token_perms = (
+                    permissions
+                    or self.settings.github_app_permissions
+                    or {
+                        "contents": "read",
+                        "pull_requests": "read",
+                    }
+                )
+                payload: dict[str, Any] = {"permissions": token_perms}
+
+                token_res = await client.post(
+                    f"{self.settings.github_api_url.rstrip('/')}/app/installations/{installation_id}/access_tokens",
+                    headers=headers,
+                    json=payload,
+                )
+                if token_res.status_code in (200, 201):
+                    token_data = token_res.json()
+                    token = str(token_data["token"]) if "token" in token_data else None
+                    if token:
+                        logger.info(
+                            "Generated dynamic GitHub App token for installation %d with scopes: %s",
+                            installation_id,
+                            token_perms,
+                        )
+                    return token
+                else:
+                    logger.warning(
+                        "Failed to create GitHub App installation token (%d): %s",
+                        token_res.status_code,
+                        token_res.text,
+                    )
+        except Exception as ex:
+            logger.warning("Error generating dynamic GitHub App access token: %s", ex)
+
+        return None
+
     async def push_and_open_pr(
         self,
         session_id: str,
@@ -147,11 +260,15 @@ class GitEngine(GitEngineProtocol):
             if match:
                 owner_repo = f"{match.group(1)}/{match.group(2)}"
 
-        # If live GitHub token is configured, call GitHub REST API
-        if self.settings.github_token:
+        # Resolve GitHub token: either user PAT or dynamically generated GitHub App token
+        # For opening PRs, request pull_requests:write and contents:write
+        pr_perms = {"pull_requests": "write", "contents": "write"}
+        token = await self.get_github_access_token(repo=owner_repo, permissions=pr_perms)
+
+        if token:
             try:
                 headers = {
-                    "Authorization": f"Bearer {self.settings.github_token}",
+                    "Authorization": f"Bearer {token}",
                     "Accept": "application/vnd.github+json",
                     "X-GitHub-Api-Version": "2022-11-28",
                 }
