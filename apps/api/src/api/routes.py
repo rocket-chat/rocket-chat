@@ -1667,10 +1667,11 @@ async def list_available_models(request: Request) -> dict[str, Any]:
 
     if not models or (now - _models_cache.get("timestamp", 0.0) > _MODELS_CACHE_TTL):
         try:
-            api_key = os.getenv("OPENROUTER_API_KEY", "")
+            api_key = os.getenv("OPENROUTER_API_KEY", "").strip()
             headers = {}
             if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
+                clean_key = "".join(ch for ch in api_key if ch not in "\r\n\x00").strip()
+                headers["Authorization"] = f"Bearer {clean_key}"
             async with httpx.AsyncClient(timeout=6.0) as client:
                 resp = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
                 if resp.status_code == 200:

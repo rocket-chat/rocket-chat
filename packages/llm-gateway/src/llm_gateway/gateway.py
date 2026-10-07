@@ -1,5 +1,6 @@
 """LiteLLM Gateway implementing LLMGatewayProtocol with BYOK routing and reasoning extraction."""
 
+import os
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -21,6 +22,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
 
     def __init__(self) -> None:
         self._usage_ledger: list[dict[str, Any]] = []
+        self._sanitize_environment_keys()
 
     def _format_request_messages(self, messages: list[ChatMessage]) -> list[dict[str, Any]]:
         formatted: list[dict[str, Any]] = []
@@ -52,23 +54,57 @@ class LiteLLMGateway(LLMGatewayProtocol):
             for t in tools
         ]
 
+    @staticmethod
+    def _sanitize_header_value(val: str) -> str:
+        """Strip control characters and newlines that cause HTTP header injection errors."""
+        return "".join(ch for ch in str(val) if ch not in "\r\n\x00").strip()
+
+    def _sanitize_environment_keys(self) -> None:
+        """Ensure standard LLM provider API keys in os.environ have no trailing newlines or control chars."""
+        key_names = [
+            "OPENROUTER_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "GEMINI_API_KEY",
+            "AZURE_API_KEY",
+            "MISTRAL_API_KEY",
+            "GROQ_API_KEY",
+        ]
+        for key in key_names:
+            val = os.getenv(key)
+            if val is not None:
+                cleaned = self._sanitize_header_value(val)
+                os.environ[key] = cleaned
+                if key == "OPENROUTER_API_KEY":
+                    litellm.openrouter_key = cleaned
+                elif key == "ANTHROPIC_API_KEY":
+                    litellm.anthropic_key = cleaned
+                elif key == "OPENAI_API_KEY":
+                    litellm.openai_key = cleaned
+
     def _apply_credentials(
         self, kwargs: dict[str, Any], credentials: BYOKCredentials | None
     ) -> None:
         if not credentials:
             return
-        kwargs["api_key"] = credentials.api_key
+        if credentials.api_key:
+            kwargs["api_key"] = self._sanitize_header_value(credentials.api_key)
         if credentials.api_base:
-            kwargs["api_base"] = credentials.api_base
+            kwargs["api_base"] = self._sanitize_header_value(credentials.api_base)
         if credentials.custom_headers:
-            kwargs["extra_headers"] = credentials.custom_headers
+            kwargs["extra_headers"] = {
+                self._sanitize_header_value(k): self._sanitize_header_value(v)
+                for k, v in credentials.custom_headers.items()
+            }
 
     async def chat_stream(
         self,
         request: ModelRequest,
     ) -> AsyncIterator[StreamChunk]:
+        self._sanitize_environment_keys()
         kwargs: dict[str, Any] = {
-            "model": request.model,
+            "model": request.model.strip() if request.model else request.model,
             "messages": self._format_request_messages(request.messages),
             "temperature": request.temperature,
             "stream": True,

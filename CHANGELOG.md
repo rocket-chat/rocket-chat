@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - `auth`: Denied unauthenticated API access to `/v1/sessions` and turn creation for `guest` identity.
+- `llm-gateway`: Sanitized LLM provider API keys and custom headers by stripping control characters and trailing newlines (`\r\n\x00`), preventing `httpcore`/`httpx` header injection errors (`Forbidden control character detected in headers`).
+- `helm`: Trimmed LLM API key values in Helm secret templates before quoting.
 
 ## [0.1.5] - 2026-10-07
 

@@ -163,3 +163,55 @@ async def test_gateway_reasoning_and_tool_streaming(monkeypatch: pytest.MonkeyPa
     assert tool_calls[0]["function"]["name"] == "web_fetch"
     assert "https://httpbin.org/json" in tool_calls[0]["function"]["arguments"]
     assert finished is True
+
+
+@pytest.mark.asyncio
+async def test_gateway_credential_and_header_sanitization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured_kwargs: dict[str, Any] = {}
+
+    async def mock_acompletion(**kwargs: Any) -> AsyncIterator[Any]:
+        nonlocal captured_kwargs
+        captured_kwargs = kwargs
+
+        async def _gen() -> AsyncIterator[Any]:
+            mock_chunk = MagicMock()
+            mock_choice = MagicMock()
+            mock_choice.delta.content = "sanitized response"
+            mock_choice.delta.reasoning_content = None
+            mock_choice.delta.thinking = None
+            mock_choice.delta.tool_calls = None
+            mock_choice.finish_reason = "stop"
+            mock_chunk.choices = [mock_choice]
+            mock_chunk.usage = None
+            yield mock_chunk
+
+        return _gen()
+
+    import litellm
+
+    monkeypatch.setattr(litellm, "acompletion", mock_acompletion)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-dirty-key\r\n")
+
+    gateway = LiteLLMGateway()
+
+    creds = BYOKCredentials(
+        provider="openrouter",
+        api_key="sk-or-byok-key\n",
+        api_base="https://openrouter.ai/api/v1\r",
+        custom_headers={"X-Custom-Header\r": "value-with-newline\n"},
+    )
+    request = ModelRequest(
+        model="  openrouter/deepseek/deepseek-chat  \n",
+        messages=[ChatMessage(role="user", content="hello")],
+        credentials=creds,
+    )
+
+    async for _ in gateway.chat_stream(request):
+        pass
+
+    assert captured_kwargs["model"] == "openrouter/deepseek/deepseek-chat"
+    assert captured_kwargs["api_key"] == "sk-or-byok-key"
+    assert captured_kwargs["api_base"] == "https://openrouter.ai/api/v1"
+    assert captured_kwargs["extra_headers"] == {"X-Custom-Header": "value-with-newline"}
