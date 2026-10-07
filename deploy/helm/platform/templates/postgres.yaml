@@ -24,16 +24,15 @@ data:
     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {{ .Values.postgresql.appUsername | default "rocket_app" }};
 ---
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "rocket-chat.fullname" . }}-postgres
   labels:
     {{- include "rocket-chat.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgres
 spec:
+  serviceName: {{ include "rocket-chat.fullname" . }}-postgres
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: {{ include "rocket-chat.name" . }}-postgres
@@ -99,8 +98,27 @@ spec:
         - name: init-script
           configMap:
             name: {{ include "rocket-chat.fullname" . }}-postgres-init
+        {{- if not .Values.postgresql.persistence.enabled }}
         - name: data
           emptyDir: {}
+        {{- end }}
+  {{- if .Values.postgresql.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "rocket-chat.labels" . | nindent 10 }}
+          app.kubernetes.io/component: postgres
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- if .Values.postgresql.persistence.storageClass }}
+        storageClassName: {{ .Values.postgresql.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgresql.persistence.size | default "10Gi" }}
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service

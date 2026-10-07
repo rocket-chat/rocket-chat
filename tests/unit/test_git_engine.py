@@ -216,3 +216,43 @@ async def test_push_and_open_pr_synthetic_fallback() -> None:
         target_branch="main",
     )
     assert "https://github.com/myorg/custom-repo/pull/" in pr_url
+
+
+def test_generate_app_jwt_validity() -> None:
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    # Generate an ephemeral RSA key pair for testing
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=2048,
+        backend=default_backend(),
+    )
+    pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    ).decode("utf-8")
+
+    settings = GitEngineSettings(
+        github_app_id="123456",
+        github_app_private_key=pem,
+    )
+    engine = GitEngine(settings=settings)
+    token = engine.generate_app_jwt()
+
+    assert token is not None
+    # Validate payload
+    import jwt
+
+    public_key = private_key.public_key()
+    pub_pem = public_key.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode("utf-8")
+
+    decoded = jwt.decode(token, pub_pem, algorithms=["RS256"])
+    assert decoded["iss"] == "123456"
+    assert "exp" in decoded
+    assert "iat" in decoded
