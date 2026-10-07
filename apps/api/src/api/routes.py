@@ -282,6 +282,8 @@ async def execute_turn_background(
             model=effective_model,
             system_prompt=system_prompt,
             whitelisted_tools=whitelisted_tools,
+            tenant_org_id=session.tenant_org_id,
+            tenant_user_id=session.tenant_user_id,
         ):
             if event.event_type == "thought":
                 delta = event.payload.get("delta", "")
@@ -1560,16 +1562,14 @@ async def get_user_usage_telemetry(request: Request) -> dict[str, Any]:
     orchestrator: AsyncReActOrchestrator = request.app.state.orchestrator
     gateway = orchestrator.gateway
     if hasattr(gateway, "get_user_usage_summary"):
-        summary = gateway.get_user_usage_summary(user_id)
-        if summary.get("total_tokens", 0) > 0:
-            return dict(summary)
+        return dict(gateway.get_user_usage_summary(user_id))
     return {
         "tenant_user_id": user_id,
-        "total_tokens": 42_300,
-        "prompt_tokens": 31_200,
-        "completion_tokens": 11_100,
-        "total_cost_usd": 0.142,
-        "recent_turns_count": 8,
+        "total_tokens": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_cost_usd": 0.0,
+        "recent_turns_count": 0,
     }
 
 

@@ -9,6 +9,7 @@ import time
 import uuid
 from typing import Any
 
+from agent_core.context import current_execution_ctx
 from agent_core.tools.registry import ToolRegistry
 from specifications.interfaces.agent import (
     AgentEvent,
@@ -154,8 +155,11 @@ class SubagentRunner:
             assistant_text = ""
             tool_calls_raw: dict[int, dict[str, Any]] = {}
 
+            reported_usage: dict[str, int] | None = None
             try:
                 async for chunk in self.gateway.chat_stream(model_req):
+                    if chunk.token_usage:
+                        reported_usage = chunk.token_usage
                     if chunk.reasoning_delta:
                         if event_queue:
                             await event_queue.put(
@@ -196,6 +200,29 @@ class SubagentRunner:
                             tool_calls_raw[idx]["name"] = func["name"]
                         if func.get("arguments"):
                             tool_calls_raw[idx]["arguments"] += func["arguments"]
+
+                # Record subagent usage into ledger
+                try:
+                    cur_ctx = current_execution_ctx.get()
+                    t_org = cur_ctx.tenant_org_id if cur_ctx else "default_org"
+                    t_user = cur_ctx.tenant_user_id if cur_ctx else "dev_user"
+                    if reported_usage:
+                        p_toks = reported_usage.get("prompt_tokens", 0)
+                        c_toks = reported_usage.get("completion_tokens", 0)
+                    else:
+                        p_toks = max(50, sum(len(m.content or "") // 4 for m in messages))
+                        c_toks = max(10, len(assistant_text) // 4)
+
+                    if hasattr(self.gateway, "record_usage"):
+                        await self.gateway.record_usage(
+                            tenant_org_id=t_org,
+                            tenant_user_id=t_user,
+                            model=effective_model,
+                            prompt_tokens=p_toks,
+                            completion_tokens=c_toks,
+                        )
+                except Exception:
+                    pass
             except Exception as e:
                 final_summary = f"Subagent error during generation: {e}"
                 break
