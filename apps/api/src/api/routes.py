@@ -1534,24 +1534,13 @@ async def get_org_usage_telemetry(request: Request) -> dict[str, Any]:
         return dict(gateway.get_org_usage_summary(org_id))
     return {
         "tenant_org_id": org_id,
-        "total_tokens": 128_400,
-        "prompt_tokens": 92_100,
-        "completion_tokens": 36_300,
-        "total_cost_usd": 0.428,
+        "total_tokens": 0,
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_cost_usd": 0.0,
         "monthly_budget_cap_usd": 250.0,
-        "budget_used_percent": 0.17,
-        "models": {
-            "claude-3.7-sonnet": {
-                "prompt_tokens": 70_000,
-                "completion_tokens": 25_000,
-                "cost_usd": 0.385,
-            },
-            "deepseek-r1": {
-                "prompt_tokens": 22_100,
-                "completion_tokens": 11_300,
-                "cost_usd": 0.043,
-            },
-        },
+        "budget_used_percent": 0.0,
+        "models": {},
     }
 
 

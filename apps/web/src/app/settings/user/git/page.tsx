@@ -5,10 +5,10 @@ import { RefreshCw, Trash2, Save, CheckCircle2 } from "lucide-react";
 
 export default function UserGitSettingsPage() {
   const [gitPrefs, setGitPrefs] = useState({
-    git_author_name: "Alex Turner",
-    git_author_email: "alex.turner@acme.internal",
-    git_branch_prefix: "alex/rocket-",
-    git_personal_pat: "ghp_live_pat_finegrained",
+    git_author_name: "",
+    git_author_email: "",
+    git_branch_prefix: "rocket/",
+    git_personal_pat: "",
   });
   const [branchSuffix, setBranchSuffix] = useState("feat-*");
   const [saving, setSaving] = useState(false);
