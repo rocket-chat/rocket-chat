@@ -28,4 +28,10 @@ data:
   {{- if .Values.auth.github.clientId }}
   GITHUB_CLIENT_ID: {{ .Values.auth.github.clientId | quote }}
   {{- end }}
+  {{- if and .Values.auth.google .Values.auth.google.clientId }}
+  GOOGLE_CLIENT_ID: {{ .Values.auth.google.clientId | quote }}
+  {{- end }}
+  {{- if and .Values.auth.google .Values.auth.google.allowedDomain }}
+  GOOGLE_ALLOWED_DOMAIN: {{ .Values.auth.google.allowedDomain | quote }}
+  {{- end }}
   {{- end }}

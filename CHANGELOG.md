@@ -10,13 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `orchestrator`:
-- `sandboxes`:
-- `api`:
-- `web`:
-- `settings`:
-- `git`:
-- `helm`:
+- `auth`: Native Google Workspace NextAuth provider support with direct sign-in button on `/login`.
+- `auth`: Organization-level email domain allowlist enforcement in NextAuth `signIn` callback, rejecting accounts with email domains outside authorized bounds.
+- `settings`: UI-configurable SSO domain allowlist and enforcement toggle in Organization Settings (`/settings/org`).
+- `helm`: Added `auth.google` configuration in Helm chart (`values.yaml`, `configmap.yaml`, `frontend/deployment.yaml`) supporting Google Client ID, Client Secret, and allowed domain hints.
 
 ### Changed
 
