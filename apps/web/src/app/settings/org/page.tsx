@@ -12,14 +12,14 @@ import {
 
 export default function OrgSettingsPage() {
   const [keys, setKeys] = useState({
-    openrouter: "sk-or-v1-8419********************************",
+    openrouter: "",
     anthropic: "",
     openai: "",
-    github_pat: "ghp_************************************",
+    github_pat: "",
   });
 
   const [orgGeneral, setOrgGeneral] = useState({
-    company_name: "Acme Labs",
+    company_name: "Engineering Org",
     compliance_tier: "SOC2",
     session_privacy_default: "private",
     telemetry_level: "standard",

@@ -122,3 +122,23 @@ def test_session_reset_clean_slate(client: TestClient) -> None:
     assert s1["session_id"] not in after_ids
     assert s2["session_id"] not in after_ids
     assert new_session["session_id"] in after_ids
+
+
+def test_usage_telemetry_endpoints(client: TestClient) -> None:
+    """Verify GET /v1/settings/org/usage and /v1/settings/user/usage reflect actual gateway data."""
+    headers = {"X-Tenant-Org-Id": "usage_org", "X-Tenant-User-Id": "usage_user"}
+
+    # Initially zero
+    org_res = client.get("/v1/settings/org/usage", headers=headers)
+    assert org_res.status_code == 200
+    org_data = org_res.json()
+    assert org_data["tenant_org_id"] == "usage_org"
+    assert org_data["total_tokens"] >= 0
+    assert org_data["total_cost_usd"] >= 0.0
+
+    user_res = client.get("/v1/settings/user/usage", headers=headers)
+    assert user_res.status_code == 200
+    user_data = user_res.json()
+    assert user_data["tenant_user_id"] == "usage_user"
+    assert user_data["total_tokens"] >= 0
+    assert user_data["total_cost_usd"] >= 0.0
