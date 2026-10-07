@@ -96,6 +96,7 @@ Rocket Chat implements a two-tier hybrid GitHub engine designed for enterprise c
 * **Scope**: Org-wide installation on managed repositories.
 * **Role**: Primary webhook ingress, automated branch triggers (e.g. `ai-fix` label), repo structure indexing, and fallback execution.
 * **Commit Signing**: Cryptographically signed commits using the GitHub App's private key, earning GitHub's green **Verified** badge.
+* **Dynamic Installation Tokens**: When a user is unauthenticated or has not linked a personal OAuth token, the backend dynamically requests an ephemeral installation access token from the GitHub App with granular repository permissions configurable in Organization Settings (defaulting to `contents:read`, `pull_requests:read`).
 
 ### Layer 2: User Personal OAuth & Git Credential Broker
 * **Scope**: Individual developer accounts linked via the Cockpit Settings UI (`/settings/github`).
