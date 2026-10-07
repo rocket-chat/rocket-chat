@@ -24,6 +24,13 @@ auth:
     clientSecret: ""
     existingSecret: ""
     existingSecretClientSecretKey: "GITHUB_CLIENT_SECRET"
+  # Google Workspace / Google OAuth Provider
+  google:
+    clientId: ""
+    clientSecret: ""
+    existingSecret: ""
+    existingSecretClientSecretKey: "GOOGLE_CLIENT_SECRET"
+    allowedDomain: "" # Optional pre-filter (e.g. company.com)
 
 
 backend:

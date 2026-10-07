@@ -147,24 +147,31 @@ backend:
     appTokenKey: "SLACK_APP_TOKEN"
 ```
 
-### Authentication & Single Sign-On (NextAuth & OIDC)
-Rocket Chat supports NextAuth and OIDC JWT validation out of the box. You can configure identity providers via Helm values:
+### Authentication & Single Sign-On (NextAuth, Google & OIDC)
+Rocket Chat supports NextAuth, Google Workspace, GitHub OAuth, and OIDC JWT validation out of the box. You can configure identity providers via Helm values:
 ```yaml
-frontend:
-  auth:
-    provider: "github" # or "google", "oidc", "credentials"
-    nextauthUrl: "https://rocket.company.com"
-    existingSecret: "nextauth-secrets"
-    secretKey: "NEXTAUTH_SECRET"
-    clientIdKey: "AUTH_CLIENT_ID"
-    clientSecretKey: "AUTH_CLIENT_SECRET"
-
-backend:
-  auth:
-    devAuthBypass: false
-    oidcIssuer: "https://auth.company.com"
-    oidcAudience: "rocket-chat"
-    oidcJwksUrl: "https://auth.company.com/.well-known/jwks.json"
+auth:
+  enabled: true
+  nextauthSecret: "strong-random-32-chars"
+  # Optional: Corporate OIDC (Keycloak, Okta, Azure AD)
+  oidc:
+    issuer: "https://auth.company.com"
+    jwksUrl: "https://auth.company.com/.well-known/jwks.json"
+    audience: "rocket-chat"
+    clientId: "my-oidc-client-id"
+    existingSecret: "corporate-auth-secrets"
+    existingSecretClientSecretKey: "OIDC_CLIENT_SECRET"
+  # Optional: Google Workspace SSO with Domain Restriction
+  google:
+    clientId: "12345-xxx.apps.googleusercontent.com"
+    allowedDomain: "company.com" # Pre-filters account chooser to your workspace domain
+    existingSecret: "corporate-auth-secrets"
+    existingSecretClientSecretKey: "GOOGLE_CLIENT_SECRET"
+  # Optional: GitHub OAuth
+  github:
+    clientId: "gh-client-id"
+    existingSecret: "corporate-auth-secrets"
+    existingSecretClientSecretKey: "GITHUB_CLIENT_SECRET"
 ```
 
 ### PostgreSQL Persistence
