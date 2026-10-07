@@ -10,13 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `orchestrator`:
-- `sandboxes`:
-- `api`:
-- `web`:
-- `settings`:
-- `git`:
-- `helm`:
+- `helm`: Added `auth.nextauthUrl` value to Helm chart, automatically resolving `https://` scheme when `ingress.tls` is configured and allowing custom canonical NextAuth URL overrides.
 
 ### Changed
 

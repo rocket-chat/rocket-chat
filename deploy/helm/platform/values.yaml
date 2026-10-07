@@ -6,6 +6,7 @@ global:
 # Enterprise Identity & Authentication Configuration
 auth:
   enabled: false # Set true to enforce OIDC / OAuth in production
+  nextauthUrl: "" # Custom full canonical URL (e.g. https://rocket.example.com). Defaults to https://{{ .Values.global.domain }} if ingress.tls is configured, else http://
   nextauthSecret: "rocket-chat-production-nextauth-secret-key-32-chars-min"
   existingSecret: ""
   existingSecretNextAuthKey: "NEXTAUTH_SECRET"

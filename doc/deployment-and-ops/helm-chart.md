@@ -152,6 +152,7 @@ Rocket Chat supports NextAuth, Google Workspace, GitHub OAuth, and OIDC JWT vali
 ```yaml
 auth:
   enabled: true
+  nextauthUrl: "https://rocket.company.com" # Optional: defaults to https://{{ .Values.global.domain }} if TLS enabled, else http://
   nextauthSecret: "strong-random-32-chars"
   # Optional: Corporate OIDC (Keycloak, Okta, Azure AD)
   oidc:

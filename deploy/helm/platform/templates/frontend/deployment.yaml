@@ -31,7 +31,11 @@ spec:
             - name: HOSTNAME
               value: "0.0.0.0"
             - name: NEXTAUTH_URL
-              value: {{ printf "http://%s" .Values.global.domain | quote }}
+              {{- $scheme := "http" }}
+              {{- if and .Values.ingress (not (empty .Values.ingress.tls)) }}
+                {{- $scheme = "https" }}
+              {{- end }}
+              value: {{ .Values.auth.nextauthUrl | default (printf "%s://%s" $scheme .Values.global.domain) | quote }}
             {{- if and .Values.auth .Values.auth.enabled }}
             {{- if .Values.auth.nextauthSecret }}
             - name: NEXTAUTH_SECRET
