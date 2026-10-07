@@ -68,6 +68,7 @@
         "getting-started/kubernetes-quickstart",
         "getting-started/slack-setup",
         "getting-started/github-app-setup",
+        "getting-started/sso-setup",
         "getting-started/configuration-reference"
       ]
     },
