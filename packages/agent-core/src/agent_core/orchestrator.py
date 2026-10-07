@@ -203,6 +203,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         model: str | None = None,
         system_prompt: str | None = None,
         whitelisted_tools: list[str] | None = None,
+        tenant_org_id: str = "default_org",
+        tenant_user_id: str = "dev_user",
     ) -> AsyncIterator[AgentEvent]:
         event_queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
         effective_model = model or self.default_model
@@ -212,6 +214,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             session_id=session_id,
             event_queue=event_queue,
             parent_model=effective_model,
+            tenant_org_id=tenant_org_id,
+            tenant_user_id=tenant_user_id,
         )
         current_execution_ctx.set(exec_ctx)
 
@@ -272,7 +276,10 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         assistant_text = ""
         tool_calls_raw: dict[int, dict[str, Any]] = {}
 
+        reported_usage: dict[str, int] | None = None
         async for chunk in self._gateway.chat_stream(request):
+            if chunk.token_usage:
+                reported_usage = chunk.token_usage
             if chunk.reasoning_delta:
                 await event_queue.put(
                     AgentEvent(
@@ -305,6 +312,33 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                     tool_calls_raw[idx]["name"] = func["name"]
                 if func.get("arguments"):
                     tool_calls_raw[idx]["arguments"] += func["arguments"]
+
+        # Record usage telemetry into gateway ledger for org and user accounting
+        try:
+            cur_ctx = current_execution_ctx.get()
+            t_org = cur_ctx.tenant_org_id if cur_ctx else "default_org"
+            t_user = cur_ctx.tenant_user_id if cur_ctx else "dev_user"
+            eff_model = model or self.default_model
+
+            if reported_usage:
+                p_toks = reported_usage.get("prompt_tokens", 0)
+                c_toks = reported_usage.get("completion_tokens", 0)
+            else:
+                # Estimate: approximate tokens from messages and assistant text if provider omitted usage
+                p_toks = max(50, sum(len(m.content or "") // 4 for m in messages))
+                c_toks = max(10, len(assistant_text) // 4)
+
+            if hasattr(self._gateway, "record_usage"):
+                await self._gateway.record_usage(
+                    tenant_org_id=t_org,
+                    tenant_user_id=t_user,
+                    model=eff_model,
+                    prompt_tokens=p_toks,
+                    completion_tokens=c_toks,
+                )
+        except Exception:
+            # Telemetry logging failure should not fail agent execution
+            pass
 
         return assistant_text, tool_calls_raw
 

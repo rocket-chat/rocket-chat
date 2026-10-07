@@ -65,7 +65,7 @@ helm install rocket-chat deploy/helm/platform \
 Or install directly from the public GitHub OCI Container Registry:
 ```bash
 helm install rocket-chat oci://ghcr.io/rocket-chat/charts/rocket-chat \
-  --version 0.1.3 \
+  --version 0.1.4 \
   --namespace rocket-chat \
   --create-namespace \
   -f prod-values.yaml
@@ -147,6 +147,37 @@ backend:
     appTokenKey: "SLACK_APP_TOKEN"
 ```
 
+### Authentication & Single Sign-On (NextAuth & OIDC)
+Rocket Chat supports NextAuth and OIDC JWT validation out of the box. You can configure identity providers via Helm values:
+```yaml
+frontend:
+  auth:
+    provider: "github" # or "google", "oidc", "credentials"
+    nextauthUrl: "https://rocket.company.com"
+    existingSecret: "nextauth-secrets"
+    secretKey: "NEXTAUTH_SECRET"
+    clientIdKey: "AUTH_CLIENT_ID"
+    clientSecretKey: "AUTH_CLIENT_SECRET"
+
+backend:
+  auth:
+    devAuthBypass: false
+    oidcIssuer: "https://auth.company.com"
+    oidcAudience: "rocket-chat"
+    oidcJwksUrl: "https://auth.company.com/.well-known/jwks.json"
+```
+
+### PostgreSQL Persistence
+When using the built-in PostgreSQL component (`postgresql.enabled: true`), it is deployed as a Kubernetes `StatefulSet` backed by a persistent volume (`volumeClaimTemplate`) rather than ephemeral storage:
+```yaml
+postgresql:
+  enabled: true
+  persistence:
+    enabled: true
+    storageClass: "gp3" # or your cluster default
+    size: "10Gi"
+```
+
 ### Injecting Custom Extra Secrets or Environment Variables
 ```yaml
 backend:
@@ -161,7 +192,7 @@ backend:
 
 ## 4. Operational & Security Architecture
 
-
-1. **Slack Socket Mode:** The Helm chart creates zero Ingress rules or public ports for Slack. Slack Bolt connects outbound via WebSockets.
-2. **Dedicated Sandbox Namespace:** Sandboxes live in `agent-sandboxes`, completely isolated from the control plane namespace (`rocket-chat`).
-3. **Fine-Grained RBAC:** The backend `ServiceAccount` possesses RBAC permissions to create, delete, and exec pods strictly within `agent-sandboxes`. It has zero permissions in any other namespace.
+1. **Direct Ingress Routing:** Ingress routes `/api` and `/v1` directly to backend service port 8000, and WebSocket `/ws` with upgraded connection headers, while all frontend UI routes target Next.js.
+2. **Slack Socket Mode:** The Helm chart creates zero Ingress rules or public ports for Slack. Slack Bolt connects outbound via WebSockets.
+3. **Dedicated Sandbox Namespace:** Sandboxes live in `agent-sandboxes`, completely isolated from the control plane namespace (`rocket-chat`).
+4. **Fine-Grained RBAC:** The backend `ServiceAccount` possesses RBAC permissions to create, delete, and exec pods strictly within `agent-sandboxes`. It has zero permissions in any other namespace.

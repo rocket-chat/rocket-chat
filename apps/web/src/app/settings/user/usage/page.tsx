@@ -34,11 +34,11 @@ export default function UserUsagePage() {
       .catch(() => {});
   }, []);
 
-  const totalCost = usage?.total_cost_usd ?? 0.142;
-  const totalTokens = usage?.total_tokens ?? 42300;
-  const promptTokens = usage?.prompt_tokens ?? 31200;
-  const completionTokens = usage?.completion_tokens ?? 11100;
-  const recentTurns = usage?.recent_turns_count ?? 8;
+  const totalCost = usage?.total_cost_usd ?? 0.0;
+  const totalTokens = usage?.total_tokens ?? 0;
+  const promptTokens = usage?.prompt_tokens ?? 0;
+  const completionTokens = usage?.completion_tokens ?? 0;
+  const recentTurns = usage?.recent_turns_count ?? 0;
 
   return (
     <div className="max-w-4xl space-y-6">

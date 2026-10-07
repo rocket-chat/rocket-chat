@@ -197,7 +197,7 @@ export default function GitHubSettingsPage() {
               </h1>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono bg-emerald-950/80 text-emerald-400 border border-emerald-800/50">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Connected: @acme-corp · 24 Repositories
+                Connected: @{(authSession?.user as unknown as { orgId?: string })?.orgId || "organization"}
               </span>
             </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">

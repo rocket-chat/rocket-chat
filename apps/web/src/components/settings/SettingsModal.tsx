@@ -708,20 +708,20 @@ export const SettingsModal: React.FC = () => {
                 {/* Team Members */}
                 <div className="rounded-lg border border-border bg-elevated/50 p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-sm">Team Roster (Acme Aerospace)</span>
-                    <span className="text-[11px] text-muted-foreground font-mono">3 Active Members</span>
+                    <span className="font-bold text-sm">Active Organization Roster</span>
+                    <span className="text-[11px] text-muted-foreground font-mono">Managed Identity</span>
                   </div>
 
                   <div className="space-y-2 font-mono text-xs">
                     <div className="flex items-center justify-between p-2 rounded bg-void border border-border">
                       <div className="flex items-center gap-2">
                         <span className="w-6 h-6 rounded-full bg-cyan/20 text-cyan flex items-center justify-center font-bold text-[10px]">
-                          NP
+                          OP
                         </span>
-                        <span>nperriolat@acme.internal</span>
+                        <span>Operator (Current Session)</span>
                       </div>
                       <span className="px-2 py-0.5 rounded bg-flame/15 border border-flame/30 text-flame text-[10px]">
-                        OWNER / ADMIN
+                        AUTHENTICATED
                       </span>
                     </div>
 
@@ -730,7 +730,7 @@ export const SettingsModal: React.FC = () => {
                         <span className="w-6 h-6 rounded-full bg-overlay text-muted-foreground flex items-center justify-center font-bold text-[10px]">
                           AG
                         </span>
-                        <span>agent-service-account@acme.internal</span>
+                        <span>agent-service-account</span>
                       </div>
                       <span className="px-2 py-0.5 rounded bg-cyan/15 border border-cyan/30 text-cyan text-[10px]">
                         AI SERVICE WORKER
