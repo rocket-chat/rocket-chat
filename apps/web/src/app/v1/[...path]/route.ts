@@ -11,6 +11,8 @@ function getBackendUrl(): string {
   return "http://127.0.0.1:8000";
 }
 
+import { getToken } from "next-auth/jwt";
+
 async function handleProxy(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
@@ -33,6 +35,33 @@ async function handleProxy(
       headers.set(key, val);
     }
   });
+
+  // Extract session token from cookies via next-auth/jwt
+  try {
+    const token = await getToken({
+      req: request,
+      secret: process.env.NEXTAUTH_SECRET || "rocket-chat-development-nextauth-secret-key-32-chars-min",
+    });
+
+    if (token) {
+      if (token.idToken) {
+        headers.set("Authorization", `Bearer ${token.idToken}`);
+      } else if (token.accessToken) {
+        headers.set("Authorization", `Bearer ${token.accessToken}`);
+      }
+      if (token.userId) {
+        headers.set("X-Tenant-User-Id", String(token.userId));
+      }
+      if (token.orgId) {
+        headers.set("X-Tenant-Org-Id", String(token.orgId));
+      }
+      if (token.roles && Array.isArray(token.roles)) {
+        headers.set("X-User-Role", token.roles.join(","));
+      }
+    }
+  } catch {
+    // If token extraction fails, request proceeds with standard headers
+  }
 
   const method = request.method;
   const body = ["GET", "HEAD"].includes(method) ? undefined : await request.arrayBuffer();

@@ -12,3 +12,20 @@ data:
   NEXT_PUBLIC_API_URL: {{ printf "http://%s/api" .Values.global.domain | quote }}
   NEXT_PUBLIC_WS_URL: {{ printf "ws://%s/ws" .Values.global.domain | quote }}
   BACKEND_URL: {{ printf "http://%s-backend:%d" (include "rocket-chat.fullname" .) (.Values.backend.service.port | default 8000 | int) | quote }}
+  {{- if and .Values.auth .Values.auth.enabled }}
+  {{- if .Values.auth.oidc.issuer }}
+  OIDC_ISSUER: {{ .Values.auth.oidc.issuer | quote }}
+  {{- end }}
+  {{- if .Values.auth.oidc.jwksUrl }}
+  OIDC_JWKS_URL: {{ .Values.auth.oidc.jwksUrl | quote }}
+  {{- end }}
+  {{- if .Values.auth.oidc.audience }}
+  OIDC_AUDIENCE: {{ .Values.auth.oidc.audience | quote }}
+  {{- end }}
+  {{- if .Values.auth.oidc.clientId }}
+  OIDC_CLIENT_ID: {{ .Values.auth.oidc.clientId | quote }}
+  {{- end }}
+  {{- if .Values.auth.github.clientId }}
+  GITHUB_CLIENT_ID: {{ .Values.auth.github.clientId | quote }}
+  {{- end }}
+  {{- end }}

@@ -17,6 +17,7 @@ from config_engine.crypto import CredentialCipher
 from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
+from api.auth.jwt_validator import JWTValidator
 from api.db.models import OrgSettingModel, UserSettingModel
 from api.models import (
     AgentPersonaModel,
@@ -1828,19 +1829,54 @@ async def session_websocket_endpoint(
     Real-time WebSocket endpoint streaming SessionEvent tokens, tool states, diffs,
     and receiving keyboard/interactive steering messages.
     """
-    await websocket.accept()
-
     store: SessionStoreProtocol = websocket.app.state.session_store
     event_bus: EventBusProtocol = websocket.app.state.event_bus
     orchestrator: AsyncReActOrchestrator = websocket.app.state.orchestrator
     driver: SandboxDriverProtocol | None = getattr(websocket.app.state, "sandbox_driver", None)
     registry: ToolRegistry | None = getattr(websocket.app.state, "tool_registry", None)
 
+    # Determine caller identity: validate JWT if token provided or OIDC is configured
+    is_oidc_configured = bool(os.getenv("OIDC_JWKS_URL") or os.getenv("OIDC_PUBLIC_KEY"))
+    user_id = "dev_user"
+    roles = ["developer"]
+
+    if token:
+        try:
+            validator = getattr(websocket.app.state, "jwt_validator", None) or JWTValidator()
+            ctx = validator.validate_token(token)
+            user_id = ctx.user_id
+            roles = ctx.roles
+        except Exception:
+            if is_oidc_configured:
+                await websocket.close(
+                    code=1008, reason="Unauthorized: invalid or expired WebSocket token"
+                )
+                return
+            # In development fallback mode, accept test identity if provided
+            if token.startswith("user_"):
+                user_id = token
+            elif token == "dev_token":
+                user_id = "dev_user"
+
     # Rehydrate session state on connect
     session = await store.get_session(session_id)
     if not session:
         await websocket.close(code=1008, reason="Session not found")
         return
+
+    # Enforce session ACL
+    if is_oidc_configured and "admin" not in roles and session.tenant_user_id != user_id:
+        is_shared = getattr(session, "is_shared", False) or bool(
+            isinstance(session.metadata, dict) and session.metadata.get("is_shared", False)
+        )
+        collabs = getattr(session, "collaborators", []) or (
+            session.metadata.get("collaborators", []) if isinstance(session.metadata, dict) else []
+        )
+        if not is_shared and user_id not in collabs:
+            await websocket.close(code=1008, reason="Forbidden: Access to session denied")
+            return
+
+    await websocket.accept()
 
     await websocket.send_json(
         {

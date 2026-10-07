@@ -11,6 +11,7 @@ import { SettingsModal } from "./settings/SettingsModal";
 import { SessionSidebar } from "./Sidebar/SessionSidebar";
 import { MissionWebSocket } from "../lib/websocket";
 import { useMissionStore } from "../lib/store";
+import { useSession } from "next-auth/react";
 import { GripVertical } from "lucide-react";
 
 interface CockpitLayoutProps {
@@ -55,6 +56,8 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
       .catch(() => {});
   }, [sessionId, sessions, session?.session_id, setSession]);
 
+  const { data: authSession } = useSession();
+
   // Connect or reconnect WebSocket when active session changes
   useEffect(() => {
     const activeSessionId = sessionId || session?.session_id;
@@ -65,7 +68,8 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
       wsRef.current = null;
     }
 
-    const ws = new MissionWebSocket(activeSessionId);
+    const token = (authSession?.user as unknown as { accessToken?: string })?.accessToken || "";
+    const ws = new MissionWebSocket(activeSessionId, undefined, token);
     ws.connect();
     wsRef.current = ws;
 
@@ -73,7 +77,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
       ws.disconnect();
       wsRef.current = null;
     };
-  }, [sessionId, session?.session_id]);
+  }, [sessionId, session?.session_id, authSession]);
 
   const handleIgnite = (prompt: string, model?: string) => {
     wsRef.current?.sendTurn(prompt, model);
