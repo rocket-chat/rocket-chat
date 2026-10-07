@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- `helm`: Fixed PostgreSQL startup failure on persistent volume mounts containing `lost+found` by configuring `PGDATA=/var/lib/postgresql/data/pgdata` with volume `subPath: pgdata`.
 
 ### Security
 

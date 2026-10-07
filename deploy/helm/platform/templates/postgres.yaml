@@ -53,6 +53,8 @@ spec:
               containerPort: 5432
               protocol: TCP
           env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
             - name: POSTGRES_DB
               value: {{ .Values.postgresql.database | default "rocket_chat" | quote }}
             - name: POSTGRES_USER
@@ -72,6 +74,7 @@ spec:
               mountPath: /docker-entrypoint-initdb.d
             - name: data
               mountPath: /var/lib/postgresql/data
+              subPath: pgdata
           livenessProbe:
             exec:
               command:
