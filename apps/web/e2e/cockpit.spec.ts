@@ -101,4 +101,11 @@ test.describe("Agent Cockpit E2E Verification", () => {
     // Ensure system is alive and processing
     await expect(page.getByText(/Executing|Synthesizing|Ready/i).first()).toBeVisible({ timeout: 5000 });
   });
+
+  test("renders login cockpit with enterprise portal and identity form", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByRole("heading", { name: "Rocket Chat Cockpit" })).toBeVisible();
+    await expect(page.getByPlaceholder("e.g. jdoe")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Enter Flight Deck/i })).toBeVisible();
+  });
 });

@@ -1483,12 +1483,13 @@ async def reset_user_domain_settings(domain: str, request: Request) -> dict[str,
 async def get_org_admin_settings(domain: str, request: Request) -> dict[str, Any]:
     """Retrieve organization-wide policy configuration and locked keys (admin only)."""
     org_id, _, roles = _get_request_identity(request)
-    if "admin" not in roles and os.getenv("DEV_AUTH_BYPASS", "").lower() not in (
+    is_admin = any(r in ("admin", "owner") for r in roles)
+    if not is_admin and os.getenv("DEV_AUTH_BYPASS", "").lower() not in (
         "true",
         "1",
         "yes",
     ):
-        raise HTTPException(status_code=403, detail="Forbidden: Admin role required")
+        raise HTTPException(status_code=403, detail="Forbidden: Admin or owner role required")
     org_conf, locked_keys = await _get_org_settings(request, org_id, domain)
     system_defaults = _settings_resolver.get_system_defaults(domain)
     merged_config = dict(system_defaults)
@@ -1509,12 +1510,13 @@ async def update_org_admin_settings(
 ) -> dict[str, Any]:
     """Update organization-level defaults and locked keys (admin only)."""
     org_id, _, roles = _get_request_identity(request)
-    if "admin" not in roles and os.getenv("DEV_AUTH_BYPASS", "").lower() not in (
+    is_admin = any(r in ("admin", "owner") for r in roles)
+    if not is_admin and os.getenv("DEV_AUTH_BYPASS", "").lower() not in (
         "true",
         "1",
         "yes",
     ):
-        raise HTTPException(status_code=403, detail="Forbidden: Admin role required")
+        raise HTTPException(status_code=403, detail="Forbidden: Admin or owner role required")
     await _save_org_settings(request, org_id, domain, body.config, body.locked_keys)
     return {
         "status": "ok",

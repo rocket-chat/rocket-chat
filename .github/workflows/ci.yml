@@ -90,6 +90,10 @@ jobs:
         run: pnpm --filter web exec playwright install --with-deps chromium
 
       - name: Run Playwright E2E Tests
+        env:
+          PLAYWRIGHT_TEST: "true"
+          NEXTAUTH_URL: "http://localhost:3000"
+          NEXTAUTH_SECRET: "test-secret-at-least-thirty-two-chars-long"
         run: pnpm --filter web test:e2e
 
   docs:

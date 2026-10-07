@@ -11,6 +11,7 @@ import {
   Plus,
   Save,
   CheckCircle2,
+  AlertCircle,
 } from "lucide-react";
 
 interface GitHubSettingsData {
@@ -34,6 +35,7 @@ interface UserPreferencesData {
 export default function GitHubSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   // Org-level GitHub configuration
   const [orgConfig, setOrgConfig] = useState<GitHubSettingsData>({
@@ -142,11 +144,22 @@ export default function GitHubSettingsPage() {
         locked_keys: ["commit_signing_mode"],
       };
 
-      await fetch("/v1/admin/settings/github", {
+      const orgRes = await fetch("/v1/admin/settings/github", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(orgPayload),
-      }).catch(() => {});
+      });
+
+      if (!orgRes.ok) {
+        let errMessage = "";
+        try {
+          const data = await orgRes.json();
+          errMessage = data.detail || data.message || JSON.stringify(data);
+        } catch {
+          errMessage = await orgRes.text();
+        }
+        throw new Error(errMessage || `Failed to update organization GitHub settings (HTTP ${orgRes.status})`);
+      }
 
       // 2. Save User Overrides
       const userPayload = {
@@ -156,16 +169,22 @@ export default function GitHubSettingsPage() {
         },
       };
 
-      await fetch("/v1/settings/user_preferences", {
+      const userRes = await fetch("/v1/settings/user_preferences", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(userPayload),
       });
 
+      if (!userRes.ok) {
+        throw new Error(`Failed to update personal preferences (HTTP ${userRes.status})`);
+      }
+
       setSuccessBanner("GitHub configuration and developer credentials updated");
       setTimeout(() => setSuccessBanner(null), 3000);
-    } catch (err) {
-      console.error("Failed to save settings:", err);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to save settings";
+      setErrorBanner(msg);
+      setTimeout(() => setErrorBanner(null), 6000);
     } finally {
       setSaving(false);
     }
@@ -229,6 +248,13 @@ export default function GitHubSettingsPage() {
       {/* Main Body */}
       <div className="flex-1 p-8">
         <div className="max-w-5xl mx-auto space-y-8">
+          {errorBanner && (
+            <div className="flex items-center gap-2 p-3.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorBanner}</span>
+            </div>
+          )}
+
           {successBanner && (
             <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
               <CheckCircle2 className="w-4 h-4 shrink-0" />

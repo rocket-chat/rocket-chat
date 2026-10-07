@@ -32,10 +32,12 @@ spec:
               value: "0.0.0.0"
             - name: NEXTAUTH_URL
               {{- $scheme := "http" }}
-              {{- if and .Values.ingress (not (empty .Values.ingress.tls)) }}
+              {{- if or (and .Values.ingress (not (empty .Values.ingress.tls))) (hasPrefix "https" (default "" .Values.auth.nextauthUrl)) }}
                 {{- $scheme = "https" }}
               {{- end }}
               value: {{ .Values.auth.nextauthUrl | default (printf "%s://%s" $scheme .Values.global.domain) | quote }}
+            - name: AUTH_TRUST_HOST
+              value: "true"
             {{- if and .Values.auth .Values.auth.enabled }}
             {{- if .Values.auth.existingSecret }}
             - name: NEXTAUTH_SECRET

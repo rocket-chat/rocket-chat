@@ -10,15 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `auth`: Mandatory authentication by default via Next.js Edge Middleware, enforcing login for all cockpit routes (`/`, `/chat/*`, `/settings/*`) and proxy endpoints.
+- `auth`: Minimal role-based authorization system (`guest`, `user`, `admin`, `owner`) enforcing administrative privilege gates on organization policies and preventing unauthenticated turn creation.
+- `auth`: Dynamic login interface (`/api/auth/configured-providers`) rendering only configured SSO and login mechanisms (Google, GitHub, OIDC, Direct Developer).
+- `auth`: Error resolution mapping on `/login` with human-readable error descriptions and NextAuth error routing (`pages.error: "/login"`).
+- `helm`: Added `AUTH_TRUST_HOST: "true"` to frontend deployment for seamless reverse proxy integration.
 - `helm`: Added `auth.nextauthUrl` value to Helm chart, automatically resolving `https://` scheme when `ingress.tls` is configured and allowing custom canonical NextAuth URL overrides.
 - `helm`: Enhanced `NEXTAUTH_SECRET` handling to prioritize `auth.existingSecret` over default values, allowing seamless integration with External Secrets Operator and HashiCorp Vault.
 
 ### Changed
+- `settings`: Comprehensive error banner display across all organization and user settings pages (`org`, `github`, `slack`, `user/git`, `user/models`, `user/notifications`, `user/profile`, `user/slack`) preventing false success notifications on failed requests.
 
 ### Fixed
+- `helm`: Fixed Ingress route shadowing where `/api` redirected frontend NextAuth endpoints (`/api/auth/*`) to the backend service; explicitly routed `/api/auth` to frontend and backend API to `/api/v1`.
 - `helm`: Fixed PostgreSQL startup failure on persistent volume mounts containing `lost+found` by configuring `PGDATA=/var/lib/postgresql/data/pgdata` with volume `subPath: pgdata`.
 
 ### Security
+- `auth`: Denied unauthenticated API access to `/v1/sessions` and turn creation for `guest` identity.
 
 ## [0.1.5] - 2026-10-07
 

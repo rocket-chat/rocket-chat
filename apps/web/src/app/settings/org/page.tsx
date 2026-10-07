@@ -1,13 +1,16 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import {
   Key,
   Eye,
   EyeOff,
   Save,
   CheckCircle2,
+  AlertCircle,
   Building2,
+  Lock,
 } from "lucide-react";
 
 interface OrgGeneralState {
@@ -23,6 +26,11 @@ interface OrgGeneralState {
 }
 
 export default function OrgSettingsPage() {
+  const { data: session } = useSession();
+  const userRoles = (session?.user as unknown as { roles?: string[] })?.roles || [];
+  const isAdmin = userRoles.includes("admin") || userRoles.includes("owner");
+  const tenantOrg = (session?.user as unknown as { orgId?: string })?.orgId || "default_org";
+
   const [keys, setKeys] = useState({
     openrouter: "",
     anthropic: "",
@@ -45,6 +53,7 @@ export default function OrgSettingsPage() {
   const [visibleKey, setVisibleKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/v1/settings/general")
@@ -63,20 +72,35 @@ export default function OrgSettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
+    setErrorBanner(null);
+    setSuccessBanner(null);
     try {
-      await fetch("/v1/admin/settings/general", {
+      const res = await fetch("/v1/admin/settings/general", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           config: orgGeneral,
           locked_keys: ["compliance_tier", "require_signed_commits"],
         }),
-      }).catch(() => {});
+      });
+
+      if (!res.ok) {
+        let errMessage = "";
+        try {
+          const data = await res.json();
+          errMessage = data.detail || data.message || JSON.stringify(data);
+        } catch {
+          errMessage = await res.text();
+        }
+        throw new Error(errMessage || `Request failed with HTTP ${res.status}`);
+      }
 
       setSuccessBanner("Organization policies and credentials updated");
       setTimeout(() => setSuccessBanner(null), 3000);
-    } catch {
-      // ignore
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to update organization settings";
+      setErrorBanner(msg);
+      setTimeout(() => setErrorBanner(null), 6000);
     } finally {
       setSaving(false);
     }
@@ -113,10 +137,29 @@ export default function OrgSettingsPage() {
 
       <div className="flex-1 p-8">
         <div className="max-w-5xl mx-auto space-y-8">
+          {errorBanner && (
+            <div className="flex items-center gap-2 p-3.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorBanner}</span>
+            </div>
+          )}
+
           {successBanner && (
             <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>{successBanner}</span>
+            </div>
+          )}
+
+          {!isAdmin && (
+            <div className="flex items-center justify-between p-3.5 rounded-xl bg-amber-950/30 border border-amber-800/40 text-amber-300 text-xs font-mono">
+              <div className="flex items-center gap-2">
+                <Lock className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Read-Only View: Organization-wide policies require an Administrator or Owner role to modify.</span>
+              </div>
+              <span className="text-[10px] uppercase font-bold bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+                ROLE: {userRoles[0] || "user"}
+              </span>
             </div>
           )}
 
@@ -132,7 +175,7 @@ export default function OrgSettingsPage() {
                 </h2>
               </div>
               <span className="text-[11px] font-mono text-neutral-500 dark:text-neutral-400 bg-surface-card px-2 py-0.5 rounded border border-surface-border">
-                ORG-ID: default_org
+                ORG-ID: {tenantOrg}
               </span>
             </div>
 

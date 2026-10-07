@@ -23,12 +23,15 @@ import {
   Box,
 } from "lucide-react";
 
+import { useSession } from "next-auth/react";
+
 interface NavItem {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
   badgeColor?: string;
+  requiresAdmin?: boolean;
 }
 
 const ORG_NAV_ITEMS: NavItem[] = [
@@ -37,6 +40,7 @@ const ORG_NAV_ITEMS: NavItem[] = [
     label: "General & Compliance",
     icon: ShieldCheck,
     badge: "SOC2",
+    requiresAdmin: true,
   },
   {
     href: "/settings/agents",
@@ -136,6 +140,10 @@ const USER_NAV_ITEMS: NavItem[] = [
 
 export const SettingsNav: React.FC = () => {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const userRoles = (session?.user as unknown as { roles?: string[] })?.roles || [];
+  const isAdmin = userRoles.includes("admin") || userRoles.includes("owner");
+  const tenantOrg = (session?.user as unknown as { orgId?: string })?.orgId || "default_org";
 
   return (
     <aside className="w-72 flex-shrink-0 bg-surface-sidebar border-r border-surface-border flex flex-col justify-between overflow-y-auto select-none">
@@ -155,28 +163,29 @@ export const SettingsNav: React.FC = () => {
             <Building2 className="w-4 h-4 text-brand" />
             <div className="flex flex-col">
               <span className="text-xs font-display font-medium text-foreground leading-tight">
-                Acme Labs
+                {tenantOrg}
               </span>
               <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
-                Enterprise Tenant
+                {isAdmin ? "Admin Access" : "Member"}
               </span>
             </div>
           </div>
           <span className="px-1.5 py-0.5 text-[9px] font-mono uppercase rounded bg-brand/10 text-brand border border-brand/20">
-            LIVE
+            {isAdmin ? "ADMIN" : "USER"}
           </span>
         </div>
 
         {/* SECTION A: ORGANIZATION */}
         <div>
           <div className="px-2.5 pb-2 flex items-center justify-between text-[11px] font-mono font-semibold tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
-            <span>Organization (Acme Labs)</span>
+            <span>Organization ({tenantOrg})</span>
             <span className="text-[10px] text-neutral-400 dark:text-neutral-500 font-mono">ORG</span>
           </div>
           <nav className="space-y-0.5">
             {ORG_NAV_ITEMS.map((item) => {
               const Icon = item.icon;
               const isActive = pathname === item.href;
+              const isLocked = item.requiresAdmin && !isAdmin;
               return (
                 <Link
                   key={item.href}
@@ -184,18 +193,28 @@ export const SettingsNav: React.FC = () => {
                   className={`flex items-center justify-between px-2.5 py-2 text-xs rounded-lg transition-colors group ${
                     isActive
                       ? "bg-surface-elevated text-foreground font-semibold border-l-2 border-brand shadow-sm"
+                      : isLocked
+                      ? "text-neutral-400 dark:text-neutral-600 hover:text-neutral-500 cursor-not-allowed opacity-80"
                       : "text-neutral-600 hover:text-foreground hover:bg-surface-elevated/60 dark:text-neutral-400 dark:hover:text-white"
                   }`}
                 >
                   <span className="flex items-center gap-2.5">
                     <Icon
                       className={`w-4 h-4 ${
-                        isActive ? "text-brand" : "text-neutral-400 dark:text-neutral-500 group-hover:text-brand"
+                        isActive
+                          ? "text-brand"
+                          : isLocked
+                          ? "text-neutral-400 dark:text-neutral-600"
+                          : "text-neutral-400 dark:text-neutral-500 group-hover:text-brand"
                       }`}
                     />
                     <span>{item.label}</span>
                   </span>
-                  {item.badge && (
+                  {isLocked ? (
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-surface-card border border-surface-border text-neutral-500">
+                      ADMIN ONLY
+                    </span>
+                  ) : item.badge ? (
                     <span
                       className={`text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface-elevated border border-surface-border ${
                         item.badgeColor || "text-neutral-500 dark:text-neutral-400"
@@ -203,7 +222,7 @@ export const SettingsNav: React.FC = () => {
                     >
                       {item.badge}
                     </span>
-                  )}
+                  ) : null}
                 </Link>
               );
             })}

@@ -77,3 +77,38 @@ def test_readonly_role_cannot_write() -> None:
         patch = client.patch(f"/v1/sessions/{session_id}", json={"title": "x"}, headers=reader)
         assert patch.status_code == 403
         assert client.post("/v1/sessions", json={}, headers=reader).status_code == 403
+
+
+def test_org_settings_role_permissions() -> None:
+    with TestClient(app) as client:
+        # Owner role can view and update org settings
+        owner_headers = {
+            "X-Tenant-Org-Id": "test_org",
+            "X-Tenant-User-Id": "boss",
+            "X-User-Role": "owner",
+        }
+        get_res = client.get("/v1/admin/settings/general", headers=owner_headers)
+        assert get_res.status_code == 200
+
+        put_res = client.put(
+            "/v1/admin/settings/general",
+            json={"config": {"default_theme": "dark"}, "locked_keys": []},
+            headers=owner_headers,
+        )
+        assert put_res.status_code == 200
+
+        # Regular user role cannot view or update org settings
+        user_headers = {
+            "X-Tenant-Org-Id": "test_org",
+            "X-Tenant-User-Id": "regular",
+            "X-User-Role": "user",
+        }
+        assert client.get("/v1/admin/settings/general", headers=user_headers).status_code == 403
+        assert (
+            client.put(
+                "/v1/admin/settings/general",
+                json={"config": {"default_theme": "light"}, "locked_keys": []},
+                headers=user_headers,
+            ).status_code
+            == 403
+        )

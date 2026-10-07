@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { RefreshCw, Trash2, Save, CheckCircle2 } from "lucide-react";
+import { RefreshCw, Trash2, Save, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function UserGitSettingsPage() {
   const [gitPrefs, setGitPrefs] = useState({
@@ -13,6 +13,7 @@ export default function UserGitSettingsPage() {
   const [branchSuffix, setBranchSuffix] = useState("feat-*");
   const [saving, setSaving] = useState(false);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/v1/settings/user_preferences")
@@ -27,16 +28,30 @@ export default function UserGitSettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
+    setErrorBanner(null);
+    setSuccessBanner(null);
     try {
-      await fetch("/v1/settings/user_preferences", {
+      const res = await fetch("/v1/settings/user_preferences", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ overrides: gitPrefs }),
       });
+      if (!res.ok) {
+        let errMessage = "";
+        try {
+          const data = await res.json();
+          errMessage = data.detail || data.message || JSON.stringify(data);
+        } catch {
+          errMessage = await res.text();
+        }
+        throw new Error(errMessage || `Failed to save git preferences (HTTP ${res.status})`);
+      }
       setSuccessBanner("Personal Git credentials saved");
       setTimeout(() => setSuccessBanner(null), 3000);
-    } catch {
-      // ignore
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to save git preferences";
+      setErrorBanner(msg);
+      setTimeout(() => setErrorBanner(null), 6000);
     } finally {
       setSaving(false);
     }
@@ -70,6 +85,13 @@ export default function UserGitSettingsPage() {
 
       <div className="flex-1 p-8">
         <div className="max-w-5xl mx-auto space-y-6">
+          {errorBanner && (
+            <div className="flex items-center gap-2 p-3.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorBanner}</span>
+            </div>
+          )}
+
           {successBanner && (
             <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
               <CheckCircle2 className="w-4 h-4 shrink-0" />

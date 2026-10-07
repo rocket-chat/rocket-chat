@@ -32,6 +32,11 @@ export default defineConfig({
           url: "http://localhost:3000",
           reuseExistingServer: true,
           timeout: 60000,
+          env: {
+            PLAYWRIGHT_TEST: "true",
+            NEXTAUTH_URL: "http://localhost:3000",
+            NEXTAUTH_SECRET: "test-secret-at-least-thirty-two-chars-long",
+          },
         },
       ],
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Save, CheckCircle2 } from "lucide-react";
+import { Save, CheckCircle2, AlertCircle } from "lucide-react";
 
 import { useSession } from "next-auth/react";
 
@@ -22,6 +22,7 @@ export default function UserProfileSettingsPage() {
   });
   const [saving, setSaving] = useState(false);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/v1/settings/user_preferences")
@@ -47,16 +48,23 @@ export default function UserProfileSettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
+    setSuccessBanner(null);
+    setErrorBanner(null);
     try {
-      await fetch("/v1/settings/user_preferences", {
+      const res = await fetch("/v1/settings/user_preferences", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ overrides: profile }),
       });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        setErrorBanner(errData.detail || `Failed to save profile (${res.status})`);
+        return;
+      }
       setSuccessBanner("Profile preferences saved successfully");
       setTimeout(() => setSuccessBanner(null), 3000);
     } catch {
-      // ignore
+      setErrorBanner("Network error: failed to connect to server");
     } finally {
       setSaving(false);
     }
@@ -89,6 +97,13 @@ export default function UserProfileSettingsPage() {
             <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>{successBanner}</span>
+            </div>
+          )}
+
+          {errorBanner && (
+            <div className="flex items-center gap-2 p-3.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorBanner}</span>
             </div>
           )}
 

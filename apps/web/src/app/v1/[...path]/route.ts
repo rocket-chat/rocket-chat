@@ -37,30 +37,42 @@ async function handleProxy(
   });
 
   // Extract session token from cookies via next-auth/jwt
+  let token = null;
   try {
-    const token = await getToken({
+    token = await getToken({
       req: request,
       secret: process.env.NEXTAUTH_SECRET || "rocket-chat-development-nextauth-secret-key-32-chars-min",
     });
-
-    if (token) {
-      if (token.idToken) {
-        headers.set("Authorization", `Bearer ${token.idToken}`);
-      } else if (token.accessToken) {
-        headers.set("Authorization", `Bearer ${token.accessToken}`);
-      }
-      if (token.userId) {
-        headers.set("X-Tenant-User-Id", String(token.userId));
-      }
-      if (token.orgId) {
-        headers.set("X-Tenant-Org-Id", String(token.orgId));
-      }
-      if (token.roles && Array.isArray(token.roles)) {
-        headers.set("X-User-Role", token.roles.join(","));
-      }
-    }
   } catch {
-    // If token extraction fails, request proceeds with standard headers
+    token = null;
+  }
+
+  // Public exceptions for health and models discovery if applicable
+  const isPublicRoute = subPath === "health" || subPath.startsWith("health/");
+  if (!token && !isPublicRoute) {
+    return NextResponse.json(
+      { error: "Unauthorized", detail: "Authentication required to access API" },
+      { status: 401 }
+    );
+  }
+
+  if (token) {
+    if (token.idToken) {
+      headers.set("Authorization", `Bearer ${token.idToken}`);
+    } else if (token.accessToken) {
+      headers.set("Authorization", `Bearer ${token.accessToken}`);
+    }
+    if (token.userId) {
+      headers.set("X-Tenant-User-Id", String(token.userId));
+    }
+    if (token.orgId) {
+      headers.set("X-Tenant-Org-Id", String(token.orgId));
+    }
+    if (token.roles && Array.isArray(token.roles)) {
+      headers.set("X-User-Role", token.roles.join(","));
+    } else {
+      headers.set("X-User-Role", "user");
+    }
   }
 
   const method = request.method;

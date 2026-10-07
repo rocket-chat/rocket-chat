@@ -144,7 +144,10 @@ ingress:
   hosts:
     - host: "rocket.example.com"
       paths:
-        - path: /api
+        - path: /api/auth
+          pathType: Prefix
+          service: frontend
+        - path: /api/v1
           pathType: Prefix
           service: backend
         - path: /v1
