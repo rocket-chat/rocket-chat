@@ -146,15 +146,26 @@ All code must be deliverable and packaged for real-world deployment:
 
 ## 5. Agent Operating Protocol & User Alignment
 
-When an AI agent (like Antigravity) works on this codebase, it must adhere to the following protocol:
+When an AI agent (like Antigravity) works on this codebase, it must adhere to the following protocol on **every single task and change**:
 
 1. **Documentation and Interfaces are the Single Source of Truth:**
    - Always refer to `doc/*.md` and `specifications/interfaces/*.py` before designing or writing any implementation.
 2. **Proactive Clarification (Do Not Guess):**
    - If a requirement is ambiguous, if a library introduces unexpected breaking changes, or if an architectural trade-off must be made: **PAUSE AND ASK THE USER**. Never make silent, uncoordinated architectural changes.
-3. **Test-Driven Verification:**
-   - Never declare a feature or phase complete without providing and executing automated tests (`pytest` for backend, unit/type checks for frontend).
+3. **Mandatory Test Suite (Unit, Integration & E2E):**
+   - **Zero Untested Code:** Never declare a feature or phase complete without providing and executing automated tests.
+   - **Coverage Standard:** Every backend route/feature must have unit tests (`tests/unit/`) and end-to-end integration tests (`tests/integration/`).
+   - **Frontend Verification:** Every UI feature or page change must be validated with TypeScript type checking, Next.js build verification, and Playwright E2E tests (`apps/web/e2e/`).
    - Verify changes against both the **Docker driver** (local) and **K8s driver** (cluster) mental models.
-4. **Clean Git Hygiene:**
-   - Atomic, well-scoped commits with conventional commit messages (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`).
+4. **Mandatory Living Documentation:**
+   - Whenever adding or altering features, protocols, authentication flows, or APIs, update the corresponding documentation files under `doc/` immediately.
+   - Ensure `doc/mint.json` navigation is updated if new pages are created, and verify that `pnpm run docs:check` passes without broken links.
+5. **Mandatory Changelog Updates:**
+   - Every user-facing feature, fix, or architectural change must be recorded under the `## [Unreleased]` section of `CHANGELOG.md` in the proper category (`### Added`, `### Changed`, `### Fixed`, `### Security`).
+6. **Mandatory Helm Chart Synchronization:**
+   - If a feature introduces environment variables, secrets, mounts, persistent volumes, or ingress routes, **immediately update the Helm chart** (`deploy/helm/platform/values.yaml`, `templates/`, and `doc/deployment-and-ops/helm-chart.md`).
+   - Always run `helm lint deploy/helm/platform` to confirm template validity.
+7. **Clean Git Hygiene & Rebasing:**
+   - Atomic, well-scoped commits with conventional commit messages (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`).
+   - Prefer linear git history via `git rebase` over cluttering merge commits.
    - Always append proper `Co-authored-by:` trailers as outlined in `doc/architecture/git-engine.md`.
