@@ -1,6 +1,6 @@
 [project]
 name = "rocket-chat"
-version = "0.1.4"
+version = "0.1.5"
 description = "Autonomous AI pair-programming platform"
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
