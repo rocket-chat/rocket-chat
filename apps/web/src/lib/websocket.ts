@@ -3,18 +3,28 @@ import { DecisionQuestion, FileDiffItem } from "../types/mission";
 
 export function getDefaultWsBaseUrl(): string {
   if (typeof window !== "undefined") {
-    if (process.env.NEXT_PUBLIC_WS_URL) {
-      return process.env.NEXT_PUBLIC_WS_URL;
-    }
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const hostname = window.location.hostname;
-    // In local development and testing (port 3000, 3333, etc.), FastAPI runs on 8000
     const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
-    const port =
-      isLocal && (window.location.port === "3000" || window.location.port === "3333")
-        ? "8000"
-        : window.location.port || (protocol === "wss:" ? "443" : "80");
-    return `${protocol}//${hostname}:${port}`;
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+
+    // If explicit custom NEXT_PUBLIC_WS_URL is provided, only honor it if it's not a baked localhost default on a remote domain
+    const configuredWs = process.env.NEXT_PUBLIC_WS_URL;
+    if (configuredWs) {
+      const isConfiguredLocal =
+        configuredWs.includes("localhost") || configuredWs.includes("127.0.0.1");
+      if (!isConfiguredLocal || isLocal) {
+        return configuredWs;
+      }
+    }
+
+    // In local development and testing (e.g. Next.js on port 3000, FastAPI on 8000)
+    if (isLocal && (window.location.port === "3000" || window.location.port === "3333")) {
+      return `ws://${hostname}:8000`;
+    }
+
+    // In all deployed environments (Kubernetes, production, reverse proxy):
+    // Use the current origin host (e.g. wss://rocket-chat.int-tools.fifteen.eu)
+    return `${protocol}//${window.location.host}`;
   }
   return "ws://127.0.0.1:8000";
 }
