@@ -12,7 +12,7 @@ class ModelPolicy:
         default_factory=list
     )  # Wildcards supported e.g. "anthropic/*"
     forbidden_models: list[str] = field(default_factory=list)
-    default_model: str = "openrouter/anthropic/claude-3.7-sonnet"
+    default_model: str = "openrouter/deepseek/deepseek-v4.1-flash"
 
 
 @dataclass

@@ -34,7 +34,7 @@ SYSTEM_DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         ],
     },
     "models": {
-        "default_model": "openrouter/anthropic/claude-3.7-sonnet",
+        "default_model": "openrouter/deepseek/deepseek-v4.1-flash",
         "fallback_models": [
             "openrouter/google/gemini-2.5-pro",
             "openrouter/openai/gpt-4o",
@@ -73,7 +73,7 @@ SYSTEM_DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
         "git_personal_pat": "ghp_live_pat_finegrained",
         "slack_user_handle": "@alex",
         "slack_notifications_enabled": True,
-        "preferred_model": "openrouter/anthropic/claude-3.7-sonnet",
+        "preferred_model": "openrouter/deepseek/deepseek-v4.1-flash",
         "turbo_mode": True,
         "theme_mode": "dark",
         "notification_sound": True,
