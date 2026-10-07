@@ -125,6 +125,22 @@ All code must be deliverable and packaged for real-world deployment:
     helm lint deploy/helm/platform
     pnpm run docs:check
     ```
+* **Release & Version Management Devtool (`scripts/release.py`):**
+  - **Tool Purpose:** Official release orchestration tool across the entire monorepo.
+  - **Commands:**
+    ```bash
+    # Prepare release: bumps all manifests, patches docs, rotates CHANGELOG, syncs lockfiles, runs gates
+    python3 scripts/release.py prepare <version> [--skip-tests] [--create-pr]
+    
+    # Verify version consistency across all manifests and packages
+    python3 scripts/release.py check
+    
+    # Extract release notes for GitHub Releases and container manifests
+    python3 scripts/release.py notes <version> [--output <file>]
+    ```
+  - **Coverage:** Automatically updates versions across Node (`package.json`, `apps/web/package.json`), Helm (`Chart.yaml`, `values.yaml`), Python (`pyproject.toml`, `apps/api/pyproject.toml`, `apps/api/src/api/main.py`, `packages/*/pyproject.toml`), and documentation (`README.md`, `doc/deployment-and-ops/helm-chart.md`, `doc/deployment-and-ops/index.md`).
+  - **Preflight Gates:** Executes all quality gates before release sign-off.
+  - **Pull Request Automation:** When `--create-pr` is passed, automatically provisions a `release/v<version>` branch, commits, pushes, and opens a GitHub Pull Request via `gh`.
 
 ---
 

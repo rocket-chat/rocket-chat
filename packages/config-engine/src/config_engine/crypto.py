@@ -14,8 +14,10 @@ class CredentialCipher:
     """Provides cryptographic protection for third-party API keys using AES-256-GCM."""
 
     def __init__(self, master_key: str | bytes | None = None) -> None:
-        """Initialize cipher with a 256-bit key or read from ROCKET_ENCRYPTION_KEY env var."""
-        raw_key = master_key or os.getenv("ROCKET_ENCRYPTION_KEY")
+        """Initialize cipher with a 256-bit key or read from ENCRYPTION_MASTER_KEY / ROCKET_ENCRYPTION_KEY env var."""
+        raw_key = (
+            master_key or os.getenv("ENCRYPTION_MASTER_KEY") or os.getenv("ROCKET_ENCRYPTION_KEY")
+        )
         if not raw_key:
             # Generate deterministic fallback for development if none configured
             raw_key = "rocket-chat-default-development-encryption-key-32bytes!!"

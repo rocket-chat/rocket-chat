@@ -6,22 +6,40 @@ global:
 backend:
   image:
     repository: ghcr.io/rocket-chat/backend
-    tag: "0.1.2"
+    tag: "0.1.3"
     pullPolicy: IfNotPresent
   replicas: 2
   env:
     DEFAULT_SANDBOX_DRIVER: "k8s"
-    ROCKET_DEFAULT_MODEL: "openrouter/anthropic/claude-3.7-sonnet"
+    ROCKET_DEFAULT_MODEL: "openrouter/deepseek/deepseek-v4.1-flash"
   database:
-    # PostgreSQL connection string for application user (RLS enforced)
+    # Inline database URL (only used if existingSecret is not provided)
     url: "postgresql+asyncpg://rocket_app:postgres_prod_password@rocket-chat-postgres:5432/rocket_chat"
+    adminUrl: ""
+    # External Secret reference for database connection string
+    existingSecret: ""
+    existingSecretKey: "DATABASE_URL"
+    existingSecretAdminKey: "ADMIN_DATABASE_URL"
   encryption:
+    # Inline master key (32 bytes hex string)
     masterKey: "0123456789abcdef0123456789abcdef"
+    # External Secret reference for master key
+    existingSecret: ""
+    existingSecretKey: "ENCRYPTION_MASTER_KEY"
+  # Legacy inline key (kept for backwards-compatibility; prefer models.openrouter)
   openrouterApiKey: ""
   slack:
     # Slack Bolt operates 100% via outbound Socket Mode; NO public ingress required.
     botToken: ""
     appToken: ""
+    # External Secret reference for Slack tokens
+    existingSecret: ""
+    existingSecretBotTokenKey: "SLACK_BOT_TOKEN"
+    existingSecretAppTokenKey: "SLACK_APP_TOKEN"
+  # Additional secret names to mount via envFrom
+  extraSecretRefs: []
+  # Additional custom environment variables
+  extraEnv: []
   service:
     type: ClusterIP
     port: 8000
@@ -33,10 +51,46 @@ backend:
       cpu: 250m
       memory: 512Mi
 
+# AI Model Provider Credentials (all under unified models.* tree)
+models:
+  openrouter:
+    apiKey: ""
+    existingSecret: ""
+    existingSecretKey: "OPENROUTER_API_KEY"
+  anthropic:
+    apiKey: ""
+    existingSecret: ""
+    existingSecretKey: "ANTHROPIC_API_KEY"
+  openai:
+    apiKey: ""
+    existingSecret: ""
+    existingSecretKey: "OPENAI_API_KEY"
+  deepseek:
+    apiKey: ""
+    existingSecret: ""
+    existingSecretKey: "DEEPSEEK_API_KEY"
+  gemini:
+    apiKey: ""
+    existingSecret: ""
+    existingSecretKey: "GEMINI_API_KEY"
+
+# GitHub App integration credentials
+github:
+  appId: ""
+  privateKey: ""
+  webhookSecret: ""
+  token: ""
+  # External Secret reference for GitHub credentials
+  existingSecret: ""
+  existingSecretAppIdKey: "GITHUB_APP_ID"
+  existingSecretPrivateKeyKey: "GITHUB_APP_PRIVATE_KEY"
+  existingSecretWebhookSecretKey: "GITHUB_WEBHOOK_SECRET"
+  existingSecretTokenKey: "GITHUB_TOKEN"
+
 frontend:
   image:
     repository: ghcr.io/rocket-chat/frontend
-    tag: "0.1.2"
+    tag: "0.1.3"
     pullPolicy: IfNotPresent
   replicas: 2
   service:
@@ -106,3 +160,6 @@ postgresql:
   username: postgres
   password: postgres_prod_password
   appUsername: rocket_app
+  # External Secret reference for PostgreSQL password
+  existingSecret: ""
+  existingSecretPasswordKey: "POSTGRES_PASSWORD"

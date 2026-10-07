@@ -54,7 +54,7 @@ async def test_system_defaults_resolution():
         user_id="user_1",
     )
 
-    assert resolved.active_model == "openrouter/anthropic/claude-3.7-sonnet"
+    assert resolved.active_model == "openrouter/deepseek/deepseek-v4.1-flash"
     assert resolved.active_container_image == "ghcr.io/platform/dev-base:latest"
     assert resolved.byok_api_key == ""
     assert resolved.idle_timeout_minutes == 30

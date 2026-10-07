@@ -48,7 +48,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         self,
         gateway: LLMGatewayProtocol,
         registry: ToolRegistry,
-        default_model: str = "openrouter/anthropic/claude-3.7-sonnet",
+        default_model: str = "openrouter/deepseek/deepseek-v4.1-flash",
         max_turns: int = 15,
         subagent_configs: dict[str, SubagentConfig] | None = None,
     ) -> None:

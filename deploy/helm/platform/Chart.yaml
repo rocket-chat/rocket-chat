@@ -2,8 +2,8 @@ apiVersion: v2
 name: rocket-chat
 description: Production-grade Helm chart for Rocket Chat - Autonomous AI pair-programming platform with isolated Kubernetes sandboxes, WebSocket flight telemetry, and BYOK LLM gateway
 type: application
-version: 0.1.2
-appVersion: "0.1.2"
+version: 0.1.3
+appVersion: "0.1.3"
 home: https://github.com/rocket-chat/rocket-chat
 sources:
   - https://github.com/rocket-chat/rocket-chat

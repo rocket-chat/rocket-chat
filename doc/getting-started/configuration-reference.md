@@ -13,7 +13,7 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | Environment Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `DEFAULT_SANDBOX_DRIVER` | string | `docker` | Active sandbox driver: `docker` for local container runtimes, `k8s` for Kubernetes clusters. |
-| `ROCKET_DEFAULT_MODEL` | string | `openrouter/anthropic/claude-3.7-sonnet` | Default model identifier passed to LiteLLM for sessions that do not specify a model. |
+| `ROCKET_DEFAULT_MODEL` | string | `openrouter/deepseek/deepseek-v4.1-flash` | Default model identifier passed to LiteLLM for sessions that do not specify a model. |
 | `ENCRYPTION_MASTER_KEY` | string | *(Required)* | 32-character hex key (256-bit) used by `CredentialCipher` to encrypt BYOK credentials at rest via AES-256-GCM. |
 | `DATABASE_URL` | string | *(Required)* | Async PostgreSQL connection string for application runtime (e.g. `postgresql+asyncpg://rocket_app:pass@host:5432/rocket_chat`). Enforces Row-Level Security. |
 | `ADMIN_DATABASE_URL` | string | `None` | Superuser PostgreSQL connection string used exclusively by Alembic migrations to manage DDL and RLS policies. |

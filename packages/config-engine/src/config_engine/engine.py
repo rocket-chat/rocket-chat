@@ -18,7 +18,7 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_DEFAULT_MODEL = "openrouter/anthropic/claude-3.7-sonnet"
+SYSTEM_DEFAULT_MODEL = "openrouter/deepseek/deepseek-v4.1-flash"
 SYSTEM_DEFAULT_IMAGE = "ghcr.io/platform/dev-base:latest"
 SYSTEM_DEFAULT_IDLE_TIMEOUT = 30
 SYSTEM_DEFAULT_GIT_NAME = "Rocket Agent"

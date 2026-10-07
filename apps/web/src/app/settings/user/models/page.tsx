@@ -7,7 +7,7 @@ import { useMissionStore } from "@/lib/store";
 export default function UserModelsSettingsPage() {
   const { availableModels, fetchModels } = useMissionStore();
   const [modelPrefs, setModelPrefs] = useState({
-    preferred_model: "openrouter/anthropic/claude-3.7-sonnet",
+    preferred_model: "openrouter/deepseek/deepseek-v4.1-flash",
     turbo_mode: true,
   });
   const [modelFilter, setModelFilter] = useState("");

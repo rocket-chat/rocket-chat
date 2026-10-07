@@ -34,6 +34,118 @@ spec:
                 name: {{ include "rocket-chat.fullname" . }}-config
             - secretRef:
                 name: {{ include "rocket-chat.fullname" . }}-secrets
+            {{- if .Values.backend.extraSecretRefs }}
+            {{- range .Values.backend.extraSecretRefs }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+            {{- end }}
+          {{- $hasEnv := false }}
+          {{- if or .Values.backend.database.existingSecret .Values.backend.encryption.existingSecret .Values.backend.slack.existingSecret .Values.github.existingSecret .Values.models.openrouter.existingSecret .Values.models.anthropic.existingSecret .Values.models.openai.existingSecret .Values.models.deepseek.existingSecret .Values.models.gemini.existingSecret .Values.backend.extraEnv }}
+          {{- $hasEnv = true }}
+          {{- end }}
+          {{- if $hasEnv }}
+          env:
+            {{- if .Values.backend.database.existingSecret }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.database.existingSecret }}
+                  key: {{ .Values.backend.database.existingSecretKey | default "DATABASE_URL" }}
+            - name: ADMIN_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.database.existingSecret }}
+                  key: {{ .Values.backend.database.existingSecretAdminKey | default .Values.backend.database.existingSecretKey | default "DATABASE_URL" }}
+            {{- end }}
+            {{- if .Values.backend.encryption.existingSecret }}
+            - name: ENCRYPTION_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.encryption.existingSecret }}
+                  key: {{ .Values.backend.encryption.existingSecretKey | default "ENCRYPTION_MASTER_KEY" }}
+            {{- end }}
+            {{- if .Values.backend.slack.existingSecret }}
+            - name: SLACK_BOT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.slack.existingSecret }}
+                  key: {{ .Values.backend.slack.existingSecretBotTokenKey | default "SLACK_BOT_TOKEN" }}
+            - name: SLACK_APP_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.backend.slack.existingSecret }}
+                  key: {{ .Values.backend.slack.existingSecretAppTokenKey | default "SLACK_APP_TOKEN" }}
+            {{- end }}
+            {{- if .Values.models.openrouter.existingSecret }}
+            - name: OPENROUTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.models.openrouter.existingSecret }}
+                  key: {{ .Values.models.openrouter.existingSecretKey | default "OPENROUTER_API_KEY" }}
+            {{- end }}
+            {{- if .Values.models.anthropic.existingSecret }}
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.models.anthropic.existingSecret }}
+                  key: {{ .Values.models.anthropic.existingSecretKey | default "ANTHROPIC_API_KEY" }}
+            {{- end }}
+            {{- if .Values.models.openai.existingSecret }}
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.models.openai.existingSecret }}
+                  key: {{ .Values.models.openai.existingSecretKey | default "OPENAI_API_KEY" }}
+            {{- end }}
+            {{- if .Values.models.deepseek.existingSecret }}
+            - name: DEEPSEEK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.models.deepseek.existingSecret }}
+                  key: {{ .Values.models.deepseek.existingSecretKey | default "DEEPSEEK_API_KEY" }}
+            {{- end }}
+            {{- if .Values.models.gemini.existingSecret }}
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.models.gemini.existingSecret }}
+                  key: {{ .Values.models.gemini.existingSecretKey | default "GEMINI_API_KEY" }}
+            {{- end }}
+            {{- if .Values.github.existingSecret }}
+              {{- if .Values.github.existingSecretAppIdKey }}
+            - name: GITHUB_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.github.existingSecret }}
+                  key: {{ .Values.github.existingSecretAppIdKey }}
+              {{- end }}
+              {{- if .Values.github.existingSecretPrivateKeyKey }}
+            - name: GITHUB_APP_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.github.existingSecret }}
+                  key: {{ .Values.github.existingSecretPrivateKeyKey }}
+              {{- end }}
+              {{- if .Values.github.existingSecretWebhookSecretKey }}
+            - name: GITHUB_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.github.existingSecret }}
+                  key: {{ .Values.github.existingSecretWebhookSecretKey }}
+              {{- end }}
+              {{- if .Values.github.existingSecretTokenKey }}
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.github.existingSecret }}
+                  key: {{ .Values.github.existingSecretTokenKey }}
+              {{- end }}
+            {{- end }}
+            {{- if .Values.backend.extraEnv }}
+            {{- toYaml .Values.backend.extraEnv | nindent 12 }}
+            {{- end }}
+          {{- end }}
           livenessProbe:
             httpGet:
               path: /health
