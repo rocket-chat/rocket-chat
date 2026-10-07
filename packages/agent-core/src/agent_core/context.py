@@ -32,6 +32,8 @@ DEFAULT_MODEL_CONTEXT_LIMITS: dict[str, int] = {
     "o3-mini": 200_000,
     "deepseek-r1": 64_000,
     "deepseek-v3": 64_000,
+    "deepseek-v4.1": 131_072,
+    "deepseek-v4.1-flash": 131_072,
     "gemini-2.0-flash": 1_000_000,
     "gemini-2.5-pro": 1_000_000,
 }

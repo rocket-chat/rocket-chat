@@ -36,7 +36,7 @@ services:
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN:-}
       SLACK_APP_TOKEN: ${SLACK_APP_TOKEN:-}
       DEFAULT_SANDBOX_DRIVER: docker
-      ROCKET_DEFAULT_MODEL: ${ROCKET_DEFAULT_MODEL:-openrouter/anthropic/claude-3.7-sonnet}
+      ROCKET_DEFAULT_MODEL: ${ROCKET_DEFAULT_MODEL:-openrouter/deepseek/deepseek-v4.1-flash}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:

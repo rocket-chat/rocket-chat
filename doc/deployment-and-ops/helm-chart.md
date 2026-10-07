@@ -71,9 +71,93 @@ helm install rocket-chat oci://ghcr.io/rocket-chat/charts/rocket-chat \
   -f prod-values.yaml
 ```
 
+```
+
 ---
 
-## 3. Important Operational Notes
+## 3. External Kubernetes Secrets & Production Hardening
+
+In production environments, credentials should not be stored in plaintext inside `values.yaml`. Rocket Chat natively supports referencing existing Kubernetes Secrets (e.g. provisioned via **External Secrets Operator**, **Sealed Secrets**, **Vault CSI Provider**, or **AWS/GCP Secrets Manager**).
+
+When an `existingSecret` is configured, Rocket Chat bypasses internal Secret creation and mounts credentials directly into the backend Pod using Kubernetes `secretKeyRef`.
+
+### Database Credentials
+```yaml
+backend:
+  database:
+    existingSecret: "my-db-credentials"
+    existingSecretKey: "DATABASE_URL" # Defaults to DATABASE_URL if omitted
+    # Optional dedicated migrations user:
+    # adminExistingSecret: "my-db-credentials"
+    # adminExistingSecretKey: "ADMIN_DATABASE_URL"
+```
+
+If using the bundled PostgreSQL subchart for staging/testing with an external secret:
+```yaml
+postgresql:
+  existingSecret: "my-pg-secret"
+  existingSecretKey: "postgres-password"
+```
+
+### Encryption Master Key
+```yaml
+backend:
+  encryption:
+    existingSecret: "my-vault-secret"
+    existingSecretKey: "ENCRYPTION_MASTER_KEY" # Defaults to ENCRYPTION_MASTER_KEY
+```
+
+### AI Model Provider API Keys
+Configure provider keys using unified `existingSecret` / `existingSecretKey` parameters:
+```yaml
+backend:
+  models:
+    openrouter:
+      existingSecret: "external-ai-keys"
+      existingSecretKey: "OPENROUTER_API_KEY"
+    anthropic:
+      existingSecret: "external-ai-keys"
+      existingSecretKey: "ANTHROPIC_API_KEY"
+    openai:
+      existingSecret: "external-ai-keys"
+      existingSecretKey: "OPENAI_API_KEY"
+    deepseek:
+      existingSecret: "external-ai-keys"
+      existingSecretKey: "DEEPSEEK_API_KEY"
+    gemini:
+      existingSecret: "external-ai-keys"
+      existingSecretKey: "GEMINI_API_KEY"
+```
+
+### GitHub App & Slack Integrations
+```yaml
+backend:
+  github:
+    existingSecret: "github-app-credentials"
+    appIdKey: "GITHUB_APP_ID"
+    privateKeyKey: "GITHUB_APP_PRIVATE_KEY"
+    webhookSecretKey: "GITHUB_WEBHOOK_SECRET"
+    tokenKey: "GITHUB_TOKEN"
+  slack:
+    existingSecret: "slack-credentials"
+    botTokenKey: "SLACK_BOT_TOKEN"
+    appTokenKey: "SLACK_APP_TOKEN"
+```
+
+### Injecting Custom Extra Secrets or Environment Variables
+```yaml
+backend:
+  extraSecretRefs:
+    - name: "custom-company-secrets"
+  extraEnv:
+    - name: "CUSTOM_LOG_LEVEL"
+      value: "DEBUG"
+```
+
+---
+
+## 4. Operational & Security Architecture
+
 
 1. **Slack Socket Mode:** The Helm chart creates zero Ingress rules or public ports for Slack. Slack Bolt connects outbound via WebSockets.
 2. **Dedicated Sandbox Namespace:** Sandboxes live in `agent-sandboxes`, completely isolated from the control plane namespace (`rocket-chat`).

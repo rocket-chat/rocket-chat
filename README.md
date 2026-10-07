@@ -202,7 +202,7 @@ Key configuration options configurable via `.env` or system environment variable
 | Variable | Default Value | Description |
 | :--- | :--- | :--- |
 | `DEFAULT_SANDBOX_DRIVER` | `docker` | Sandbox engine: `docker` or `k8s` |
-| `ROCKET_DEFAULT_MODEL` | `openrouter/anthropic/claude-3.7-sonnet` | Default LLM model identifier |
+| `ROCKET_DEFAULT_MODEL` | `openrouter/deepseek/deepseek-v4.1-flash` | Default LLM model identifier |
 | `DATABASE_URL` | `postgresql+asyncpg://...` | Application database connection string with RLS |
 | `ADMIN_DATABASE_URL` | `postgresql+asyncpg://...` | Superuser database string used for schema migrations |
 | `ENCRYPTION_MASTER_KEY` | *(32-byte hex string)* | AES-256 master key for BYOK encryption |

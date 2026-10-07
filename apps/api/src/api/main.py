@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     default_model = (
         os.getenv("ROCKET_DEFAULT_MODEL")
         or os.getenv("DEFAULT_MODEL")
-        or "openrouter/anthropic/claude-3.7-sonnet"
+        or "openrouter/deepseek/deepseek-v4.1-flash"
     )
     orchestrator = AsyncReActOrchestrator(
         gateway=llm_gateway,
