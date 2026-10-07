@@ -189,7 +189,7 @@ helm upgrade --install rocket-chat oci://ghcr.io/rocket-chat/charts/rocket-chat 
   --version 0.1.3 \
   --namespace rocket-chat \
   --create-namespace \
-  --set backend.openrouterApiKey="$OPENROUTER_API_KEY" \
+  --set models.openrouter.apiKey="$OPENROUTER_API_KEY" \
   --set sandbox.storageClass="gp3"
 ```
 
