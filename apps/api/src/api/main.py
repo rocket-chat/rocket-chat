@@ -6,10 +6,11 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import httpx
 from agent_core.orchestrator import AsyncReActOrchestrator
 from agent_core.tools.registry import ToolRegistry
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from git_engine.engine import GitEngine
 from llm_gateway.gateway import LiteLLMGateway
@@ -211,3 +212,60 @@ app.include_router(webhooks_router, prefix="/api/v1")
 async def health_check() -> dict[str, str]:
     """Basic health check endpoint."""
     return {"status": "healthy"}
+
+
+@app.api_route(
+    "/api/auth/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"],
+)
+async def proxy_auth_to_frontend(request: Request, path: str) -> Response:
+    """Fallback proxy forwarding /api/auth requests to the Next.js frontend when Ingress routes /api to backend."""
+    frontend_url = os.getenv("FRONTEND_URL") or (
+        "http://rocket-chat-frontend:3000"
+        if os.getenv("KUBERNETES_SERVICE_HOST")
+        else "http://127.0.0.1:3000"
+    )
+    target_url = f"{frontend_url.rstrip('/')}/api/auth/{path}"
+    if request.url.query:
+        target_url = f"{target_url}?{request.url.query}"
+
+    headers = dict(request.headers)
+    headers.pop("host", None)
+    headers.pop("content-length", None)
+
+    body = await request.body()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.request(
+                method=request.method,
+                url=target_url,
+                headers=headers,
+                content=body if body else None,
+                follow_redirects=False,
+            )
+            out_headers = {
+                k: v
+                for k, v in resp.headers.items()
+                if k.lower()
+                not in (
+                    "content-length",
+                    "content-encoding",
+                    "transfer-encoding",
+                    "connection",
+                )
+            }
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                headers=out_headers,
+                media_type=resp.headers.get("content-type"),
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to proxy /api/auth/%s to frontend (%s): %s", path, target_url, exc
+            )
+            return Response(
+                content=f'{{"detail":"Frontend auth proxy error: {exc}"}}',
+                status_code=502,
+                media_type="application/json",
+            )

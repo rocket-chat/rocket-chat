@@ -29,7 +29,15 @@ spec:
     - host: {{ .host | quote }}
       http:
         paths:
+          - path: /api/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ printf "%s-frontend" (include "rocket-chat.fullname" $) }}
+                port:
+                  number: 3000
           {{- range .paths }}
+          {{- if ne .path "/api/auth" }}
           - path: {{ .path }}
             pathType: {{ .pathType | default "Prefix" }}
             backend:
@@ -37,6 +45,7 @@ spec:
                 name: {{ printf "%s-%s" (include "rocket-chat.fullname" $) .service }}
                 port:
                   number: {{ eq .service "backend" | ternary 8000 3000 }}
+          {{- end }}
           {{- end }}
     {{- end }}
 {{- end }}
