@@ -20,6 +20,15 @@ The agent clones with your linked GitHub account, or your organization's GitHub 
 
 Link GitHub under **Settings → Git & version control**. Templates, schedules and GitHub-triggered work can name a repository; it then becomes the first line of the instruction ("Clone it first").
 
+## Sharing a session
+
+Choose **Share** in the session header (owner or administrator):
+
+* **People** - list the email addresses of members of your organization (one per line or comma-separated). They can read the session and send messages in it. Addresses that are not members are reported and not added; nobody is invited by email. Tick **Everyone in the organization** to share with all members.
+* **Public link** - a read-only link anyone can open without signing in. It shows the conversation (what was asked and answered), never tool calls, files, the terminal or the agent's reasoning, expires after 1, 7 or 30 days, and can be revoked at any time (creating a new link also ends the previous one). The link is a secret: anyone who has it can read the conversation, so share it as you would a document. Links exist only if an administrator turned on **Public session links** (*Settings → Organization → General*); turning it off ends every link at once.
+
+Sharing changes are recorded in the audit log.
+
 ## Following a pull request
 
 Ask the agent to wait for CI or a review ("open the PR and tell me when CI is done") and it follows the pull request: CI results, reviews, comments and the merge arrive in the session on their own, and a trusted event wakes the agent to react. A pull request the agent opens is followed automatically. See [Sessions that follow a pull request](/administer/github#sessions-that-follow-a-pull-request) for what an administrator must enable.

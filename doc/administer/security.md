@@ -114,6 +114,10 @@ Verification: unit tests cover quota/rate-limit allow/deny/expire on an injected
 
 ---
 
+## 4b. Public session links
+
+A session owner can create a read-only public link (`/shared/<token>`). It is a bearer capability: anyone holding it can read the conversation's questions and answers (never tool calls, files, the terminal or reasoning) until it expires (1-30 days) or is revoked. The feature is **off by default**; enable it with `general.public_session_links`. Turning it off immediately disables every link already issued, and creating or revoking a link is recorded in the audit log. Responses carry `Cache-Control: no-store`, `X-Robots-Tag: noindex` and `Referrer-Policy: no-referrer`.
+
 ## 5. Audit, Redaction & Data Governance
 
 "Who ran what, when, with what result" is answerable from a durable, tenant-scoped audit

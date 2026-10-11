@@ -45,6 +45,7 @@ from api.routers.session_turns import router as session_turns_router
 from api.routers.session_ws import router as session_ws_router
 from api.routers.sessions_list import router as sessions_list_router
 from api.routers.settings_api import router as settings_api_router
+from api.routers.sharing import router as sharing_router
 from api.routers.skills import router as skills_router
 from api.routers.slack_admin import router as slack_admin_router
 from api.routers.slack_status import router as slack_status_router
@@ -243,6 +244,7 @@ app.include_router(memory_router)
 app.include_router(preview_router)
 app.include_router(processes_router)
 app.include_router(sandboxes_router)
+app.include_router(sharing_router)
 app.include_router(missions_router)
 app.include_router(templates_router)
 app.include_router(tools_router)

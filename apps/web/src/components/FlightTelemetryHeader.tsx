@@ -1,11 +1,12 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { useMissionStore } from "../lib/store";
 import { ThemeToggle } from "./Theme/ThemeToggle";
 import { UserHeaderCapsule } from "./UserHeaderCapsule";
 import { IconButton, iconButtonClass } from "./ui/IconButton";
+import { ShareDialog } from "./ShareDialog";
 import {
   Zap,
   Settings2,
@@ -14,6 +15,7 @@ import {
   PanelLeftOpen,
   History,
   Brain,
+  Share2,
 } from "lucide-react";
 
 export const FlightTelemetryHeader: React.FC = () => {
@@ -33,6 +35,8 @@ export const FlightTelemetryHeader: React.FC = () => {
     isLeftSidebarOpen,
     setIsLeftSidebarOpen,
   } = useMissionStore();
+
+  const [isShareOpen, setIsShareOpen] = useState(false);
 
   const activeModelDisplayName =
     inferenceMode === "agent"
@@ -91,6 +95,11 @@ export const FlightTelemetryHeader: React.FC = () => {
 
         <div className="hidden items-center gap-1.5 sm:flex">
           <ThemeToggle />
+          {session?.session_id && (
+            <IconButton data-testid="share-trigger" label="Share this session" onClick={() => setIsShareOpen(true)}>
+              <Share2 className="h-4 w-4" />
+            </IconButton>
+          )}
           <IconButton
             data-testid="memory-inspector-trigger"
             label="Open memory inspector"
@@ -127,6 +136,9 @@ export const FlightTelemetryHeader: React.FC = () => {
           <Settings2 className="h-4 w-4" />
         </Link>
       </div>
+      {isShareOpen && session?.session_id && (
+        <ShareDialog sessionId={session.session_id} onClose={() => setIsShareOpen(false)} />
+      )}
     </header>
   );
 };

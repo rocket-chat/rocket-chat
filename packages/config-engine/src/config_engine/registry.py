@@ -85,6 +85,7 @@ _TURN_PROMPT = "apps/api/src/api/turns/prompt.py"
 _TURN_FINALISE = "apps/api/src/api/turns/finalise.py"
 _MCP_SERVERS = "apps/api/src/api/routers/mcp_servers.py"
 _SESSION_CRUD = "apps/api/src/api/routers/session_crud.py"
+_SHARING = "apps/api/src/api/routers/sharing.py"
 _ROUTES = "apps/api/src/api/routers/settings_api.py"
 _TURN = "apps/api/src/api/services/turn_service.py"
 _GIT_CREDS = "apps/api/src/api/services/git_credentials.py"
@@ -108,6 +109,15 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             _SESSION_CRUD,
             "Whether new sessions are private to their owner or shared with the organization.",
             choices=("private", "shared_org"),
+        ),
+        _spec(
+            "public_session_links",
+            "bool",
+            False,
+            "org",
+            _SHARING,
+            "Let members create read-only public links to a session's conversation "
+            "(anyone with the link can read it; turning this off disables links already issued).",
         ),
         _spec(
             "max_turns",

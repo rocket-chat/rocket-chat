@@ -144,6 +144,8 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
           <button
             type="button"
             onClick={() => onToggle()}
+            aria-label={isExpanded ? "Collapse server details" : "Expand server details"}
+            aria-expanded={isExpanded}
             className="p-1 rounded hover:bg-surface-elevated text-neutral-400 cursor-pointer"
           >
             {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
