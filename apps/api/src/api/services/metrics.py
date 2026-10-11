@@ -802,6 +802,11 @@ class SessionWriteLocks:
                 del self._locks[key]
                 return
 
+    def is_locked(self, session_id: str) -> bool:
+        """Whether a turn is writing this session right now (never creates an entry)."""
+        lock = self._locks.get(session_id)
+        return lock is not None and lock.locked()
+
     @asynccontextmanager
     async def lock(self, session_id: str) -> AsyncIterator[None]:
         lock = self._lock_for(session_id)

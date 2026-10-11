@@ -193,6 +193,10 @@ class TurnCallbacks:
     # Called with (session id, folder) after the agent cloned a repository; returns a note for
     # the agent (for example the outcome of the repository's own setup script) or None.
     repository_cloned: Callable[[str, str], Awaitable[str | None]] | None = None
+    # Follow a pull request or branch: (repo, pull request, branch, wake) -> a note for the agent.
+    github_watch: Callable[[str, int | None, str | None, bool], Awaitable[str]] | None = None
+    # Stop following: (repo, pull request, branch) -> a note for the agent.
+    github_unwatch: Callable[[str, int | None, str | None], Awaitable[str]] | None = None
     # Called after a background process tool ran so the tracker can mirror the sandbox's
     # processes into the database and announce changes.
     processes_changed: Callable[[str], Awaitable[None]] | None = None

@@ -55,6 +55,51 @@ def register(registry: "ToolRegistry") -> None:
 
     @registry._tool(
         description=(
+            "Follow a pull request (or a branch) so this session hears about it: CI results, "
+            "reviews, comments, merge or close. Use it to wait for CI or a review without "
+            "polling or building a tool. Events reach you in a later turn on their own; a "
+            "pull request you open with git_open_pr is followed automatically. Following "
+            "stops by itself when the pull request is merged or closed."
+        )
+    )
+    async def github_watch(
+        repository: Annotated[str, Field(description="owner/name of the repository.")],
+        pull_request: Annotated[
+            int | None, Field(description="Pull request number to follow.")
+        ] = None,
+        branch: Annotated[
+            str | None, Field(description="Follow CI on this branch instead (no pull request).")
+        ] = None,
+        wake: Annotated[
+            bool,
+            Field(
+                description="Start a turn when something happens (default); false only records "
+                "events for your next turn."
+            ),
+        ] = True,
+    ) -> str:
+        follow = registry._turn_callback("github_watch")
+        if follow is None:
+            return "Error: following GitHub activity is not available in this session."
+        if pull_request is None and not branch:
+            return "Error: give a pull_request number or a branch to follow."
+        return str(await follow(repository, pull_request, branch, wake))
+
+    @registry._tool(
+        description="Stop following a pull request or branch (all of a repository's if neither is given)."
+    )
+    async def github_unwatch(
+        repository: Annotated[str, Field(description="owner/name of the repository.")],
+        pull_request: Annotated[int | None, Field(description="Pull request number.")] = None,
+        branch: Annotated[str | None, Field(description="Branch name.")] = None,
+    ) -> str:
+        unfollow = registry._turn_callback("github_unwatch")
+        if unfollow is None:
+            return "Error: following GitHub activity is not available in this session."
+        return str(await unfollow(repository, pull_request, branch))
+
+    @registry._tool(
+        description=(
             "Find GitHub repositories without a sandbox: by owner/organization (its most "
             "recently active repositories), by search text, or - with neither - those the "
             "user's credential can see. Use it to work out which repository a task refers "

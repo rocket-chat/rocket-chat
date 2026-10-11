@@ -806,6 +806,32 @@ class SandboxCatalogueModel(Base):
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
+class GithubWatchModel(Base):
+    """A session following a repository's pull request (or branch) for GitHub events."""
+
+    __tablename__ = "github_watches"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    repo: Mapped[str] = mapped_column(String(200), nullable=False)
+    pr_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    wake: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    wakes_used: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Events that arrived while the agent was not asked to wake: shown to it on its next turn.
+    pending_events: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
+
+
 class GithubInstallationModel(Base):
     """A GitHub App installation mapped to the organization that may use it.
 

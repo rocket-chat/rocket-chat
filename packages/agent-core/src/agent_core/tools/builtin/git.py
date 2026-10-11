@@ -190,7 +190,7 @@ def _register_git_change_tools(registry: "ToolRegistry") -> None:
             return "Error: Sandbox not initialized for git_open_pr"
         driver, session_id = target
         await registry._ensure_sandbox(session_id)
-        return await git_tools.git_open_pr(
+        result = await git_tools.git_open_pr(
             driver,
             session_id,
             title,
@@ -199,3 +199,9 @@ def _register_git_change_tools(registry: "ToolRegistry") -> None:
             registry._git_engine,
             policy=registry._git_policy(),
         )
+        follow = registry._turn_callback("github_watch")
+        if follow and (pull := git_tools.parse_pull_request_url(result)):
+            repository, number = pull
+            await follow(repository, number, None, True)
+            result += "\nThis session now follows the pull request: CI, reviews and comments will reach you."
+        return result

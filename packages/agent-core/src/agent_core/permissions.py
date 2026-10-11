@@ -36,6 +36,9 @@ READ_TOOLS: frozenset[str] = frozenset(
         "github_find_repositories",
         "github_read_file",
         "github_issues",
+        # Recording that the session follows a pull request; nothing on GitHub changes.
+        "github_watch",
+        "github_unwatch",
         "recall",
         "web_fetch",
         "web_search",

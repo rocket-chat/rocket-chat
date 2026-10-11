@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from api.services.git_credentials import GitCredentialBundle
+from api.services.github_watches import GithubWatchStore, pending_events_notice
 from api.services.process_tracker import (
     REPORTED_METADATA_KEY,
     ProcessTracker,
@@ -145,6 +146,7 @@ async def build_system_prompt(
         f"routing mode: {router.mode if router is not None else 'frontier'}."
     )
     processes_note = await _processes_note(ctx)
+    github_note = await _github_activity_note(ctx)
     return SystemPrompt(
         stable=base
         + "\n"
@@ -152,8 +154,17 @@ async def build_system_prompt(
         + (f"\n{overlay.stable_suffix}" if overlay and overlay.stable_suffix else ""),
         dynamic=routing_notice
         + (f"\n{processes_note}" if processes_note else "")
+        + (f"\n{github_note}" if github_note else "")
         + (f"\n{overlay.dynamic}" if overlay and overlay.dynamic else ""),
     )
+
+
+async def _github_activity_note(ctx: TurnContext) -> str | None:
+    """Pull request activity kept while the agent was busy (shown once, then cleared)."""
+    events = await GithubWatchStore(ctx.req.db_mgr).take_pending(
+        ctx.session.tenant_org_id, ctx.session_id
+    )
+    return pending_events_notice(events) or None
 
 
 async def _processes_note(ctx: TurnContext) -> str | None:

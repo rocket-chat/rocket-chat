@@ -126,7 +126,7 @@ The remaining catalogue uses the same envelope: `token`, `status_changed`,
 `plan_updated`, `post_failure_synthesis`, `subagent_started`,
 `subagent_progress`, `subagent_completed`, `followup_suggestion`,
 `session_updated`, `sandbox_state` (payload: `state`, `message`; `state: "failed"` means the sandbox could not start and `message` says why, for example an image that cannot be pulled), `decision_submitted`, `user_message`, `process_started`,
-`process_exited` (payload: `process_id`, `name`, `command`, `state`, `port`, `exit_code`), and `error`.
+`process_exited` (payload: `process_id`, `name`, `command`, `state`, `port`, `exit_code`), `github_event` (activity on a pull request the session follows; payload: `kind`, `repo`, `pr_number`, `summary`, `outcome`, `url`, `actor`, `at`, `woke`), and `error`.
 
 ### E2. Replay After a Reconnect (`replay`)
 Sent in answer to a client `resume` frame (§3 F). It carries every retained event

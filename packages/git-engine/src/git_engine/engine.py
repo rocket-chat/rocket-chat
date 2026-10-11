@@ -19,6 +19,7 @@ from git_engine.trailers import format_commit_message
 from specifications.interfaces.git import (
     CommitSpec,
     GitEngineProtocol,
+    RepoEvent,
     SigningMode,
     WebhookTrigger,
 )
@@ -387,6 +388,24 @@ class GitEngine(GitEngineProtocol):
             return _pull_request_trigger(payload)
         return None
 
+    def parse_repo_event(self, raw_body: bytes, headers: dict[str, Any]) -> RepoEvent | None:
+        """What a verified webhook reports about a repository, whether or not it triggers a run."""
+        header_map = {k.lower(): v for k, v in headers.items()}
+        self._verify_webhook_signature(raw_body, header_map.get("x-hub-signature-256"))
+        try:
+            payload = json.loads(raw_body.decode("utf-8"))
+        except ValueError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        repo_name = str(payload.get("repository", {}).get("full_name", ""))
+        if self.settings.allowed_repos and not any(
+            fnmatch.fnmatchcase(repo_name, pattern) for pattern in self.settings.allowed_repos
+        ):
+            return None
+        parser = _EVENT_PARSERS.get(header_map.get("x-github-event", ""))
+        return parser(payload) if parser else None
+
     def _verify_webhook_signature(self, raw_body: bytes, signature: str | None) -> None:
         """Verify the HMAC SHA-256 signature.
 
@@ -485,3 +504,93 @@ def _pull_request_trigger(payload: dict[str, Any]) -> WebhookTrigger | None:
         branch_name=pr.get("head", {}).get("ref", f"pr-{pr_number}"),
         prompt_text=f"Pull Request #{pr_number}: {title}\n\n{body}".strip(),
     )
+
+
+def _repo_event(payload: dict[str, Any], **fields: Any) -> RepoEvent:
+    return RepoEvent(
+        repo_full_name=str(payload.get("repository", {}).get("full_name", "")).lower(),
+        actor=str(payload.get("sender", {}).get("login", "")),
+        installation_id=_installation_id(payload),
+        **fields,
+    )
+
+
+def _pull_request_event(payload: dict[str, Any]) -> RepoEvent | None:
+    if payload.get("action") != "closed":
+        return None
+    pr = payload.get("pull_request", {})
+    merged = bool(pr.get("merged"))
+    return _repo_event(
+        payload,
+        kind="pull_request.closed",
+        summary=f"Pull request #{pr.get('number')} was {'merged' if merged else 'closed without merging'}.",
+        pr_numbers=(int(pr.get("number", 0)),),
+        branch=pr.get("head", {}).get("ref"),
+        url=pr.get("html_url", ""),
+        outcome="merged" if merged else "closed",
+        ends_watch=True,
+        trusted=True,
+    )
+
+
+def _check_suite_event(payload: dict[str, Any]) -> RepoEvent | None:
+    suite = payload.get("check_suite", {})
+    if payload.get("action") != "completed" or not suite.get("conclusion"):
+        return None
+    conclusion = str(suite["conclusion"])
+    app = suite.get("app", {}).get("name", "CI")
+    return _repo_event(
+        payload,
+        kind="check_suite.completed",
+        summary=f"{app} checks finished: {conclusion} (commit {str(suite.get('head_sha', ''))[:7]}).",
+        pr_numbers=tuple(int(pr["number"]) for pr in suite.get("pull_requests", [])),
+        branch=suite.get("head_branch"),
+        outcome=conclusion,
+        trusted=True,
+    )
+
+
+def _review_event(payload: dict[str, Any]) -> RepoEvent | None:
+    if payload.get("action") != "submitted":
+        return None
+    review, pr = payload.get("review", {}), payload.get("pull_request", {})
+    state = str(review.get("state", "")).lower()
+    reviewer = review.get("user", {}).get("login", "someone")
+    return _repo_event(
+        payload,
+        kind="review.submitted",
+        summary=f"{reviewer} reviewed pull request #{pr.get('number')}: {state}.\n{review.get('body') or ''}".strip(),
+        pr_numbers=(int(pr.get("number", 0)),),
+        branch=pr.get("head", {}).get("ref"),
+        url=review.get("html_url", ""),
+        outcome=state,
+        trusted=review.get("author_association") in _TRUSTED_ASSOCIATIONS,
+    )
+
+
+def _comment_event(payload: dict[str, Any]) -> RepoEvent | None:
+    """A comment on a pull request (an issue comment on an issue that is a pull request)."""
+    if payload.get("action") != "created":
+        return None
+    comment = payload.get("comment", {})
+    issue = payload.get("issue") or payload.get("pull_request") or {}
+    if "issue" in payload and "pull_request" not in issue:
+        return None
+    author = comment.get("user", {}).get("login", "someone")
+    return _repo_event(
+        payload,
+        kind="comment.created",
+        summary=f"{author} commented on pull request #{issue.get('number')}:\n{comment.get('body') or ''}".strip(),
+        pr_numbers=(int(issue.get("number", 0)),),
+        url=comment.get("html_url", ""),
+        trusted=comment.get("author_association") in _TRUSTED_ASSOCIATIONS,
+    )
+
+
+_EVENT_PARSERS = {
+    "pull_request": _pull_request_event,
+    "check_suite": _check_suite_event,
+    "pull_request_review": _review_event,
+    "issue_comment": _comment_event,
+    "pull_request_review_comment": _comment_event,
+}

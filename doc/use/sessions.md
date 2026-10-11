@@ -20,6 +20,10 @@ The agent clones with your linked GitHub account, or your organization's GitHub 
 
 Link GitHub under **Settings → Git & version control**. Templates, schedules and GitHub-triggered work can name a repository; it then becomes the first line of the instruction ("Clone it first").
 
+## Following a pull request
+
+Ask the agent to wait for CI or a review ("open the PR and tell me when CI is done") and it follows the pull request: CI results, reviews, comments and the merge arrive in the session on their own, and a trusted event wakes the agent to react. A pull request the agent opens is followed automatically. See [Sessions that follow a pull request](/administer/github#sessions-that-follow-a-pull-request) for what an administrator must enable.
+
 ## Supervision
 
 The permission mode decides what waits for you:
