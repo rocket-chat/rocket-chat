@@ -14,6 +14,7 @@ export type EventType =
   | "log_chunk"
   | "sandbox_state"
   | "post_failure_synthesis"
+  | "github_event"
   | "error"
   | "user_message";
 

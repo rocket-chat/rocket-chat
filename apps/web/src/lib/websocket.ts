@@ -411,6 +411,18 @@ export class MissionWebSocket {
         break;
       }
 
+      case "github_event": {
+        const target = payload.pr_number ? `${payload.repo}#${payload.pr_number}` : payload.repo;
+        const headline = String(payload.summary || "").split("\n")[0];
+        store.appendFlightLog({
+          id: `github-${payload.at ?? Date.now()}-${payload.kind}`,
+          role: "SYSTEM",
+          content: `GitHub ${target}: ${headline}${payload.woke ? " — the agent is picking it up" : ""}`,
+          timestamp: new Date().toLocaleTimeString(),
+        });
+        break;
+      }
+
       case "error": {
         const errText = payload.error || payload.message || "An error occurred";
         store.setStatusMessage(`Error: ${errText}`);

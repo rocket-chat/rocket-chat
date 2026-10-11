@@ -381,6 +381,58 @@
     }
   },
   {
+    "description": "Follow a pull request (or a branch) so this session hears about it: CI results, reviews, comments, merge or close. Use it to wait for CI or a review without polling or building a tool. Events reach you in a later turn on their own; a pull request you open with git_open_pr is followed automatically. Following stops by itself when the pull request is merged or closed.",
+    "name": "github_watch",
+    "parameters": {
+      "properties": {
+        "branch": {
+          "description": "Follow CI on this branch instead (no pull request).",
+          "type": "string"
+        },
+        "pull_request": {
+          "description": "Pull request number to follow.",
+          "type": "integer"
+        },
+        "repository": {
+          "description": "owner/name of the repository.",
+          "type": "string"
+        },
+        "wake": {
+          "description": "Start a turn when something happens (default); false only records events for your next turn.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "repository"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Stop following a pull request or branch (all of a repository's if neither is given).",
+    "name": "github_unwatch",
+    "parameters": {
+      "properties": {
+        "branch": {
+          "description": "Branch name.",
+          "type": "string"
+        },
+        "pull_request": {
+          "description": "Pull request number.",
+          "type": "integer"
+        },
+        "repository": {
+          "description": "owner/name of the repository.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "description": "Find GitHub repositories without a sandbox: by owner/organization (its most recently active repositories), by search text, or - with neither - those the user's credential can see. Use it to work out which repository a task refers to before cloning.",
     "name": "github_find_repositories",
     "parameters": {

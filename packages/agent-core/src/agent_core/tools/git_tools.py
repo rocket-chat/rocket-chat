@@ -8,6 +8,7 @@ bound :class:`GitEngine` when one is available.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
@@ -256,3 +257,13 @@ async def git_open_pr(
         return f"Pull request opened: {url}"
     except Exception as err:
         return f"Error: failed to open pull request: {err}"
+
+
+_PULL_REQUEST_URL = re.compile(r"https://[^/\s]+/([\w.-]+/[\w.-]+)/pull/(\d+)")
+
+
+def parse_pull_request_url(text: str) -> tuple[str, int] | None:
+    """``(owner/name, number)`` of the pull request a ``git_open_pr`` result links to."""
+    if not text.startswith("Pull request opened") or not (match := _PULL_REQUEST_URL.search(text)):
+        return None
+    return match.group(1), int(match.group(2))

@@ -36,6 +36,7 @@ class EventType(str, Enum):
     POST_FAILURE_SYNTHESIS = (
         "post_failure_synthesis"  # Final synthesis triggered after turn budget exhaustion or error
     )
+    GITHUB_EVENT = "github_event"  # Something happened on a pull request the session follows
     ERROR = "error"  # Unrecoverable or tool error
 
 

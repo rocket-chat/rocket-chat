@@ -161,6 +161,18 @@ class ProcessPayload(TypedDict):
     ended_at: int | None
 
 
+class GithubEventPayload(TypedDict):
+    kind: str
+    repo: str
+    pr_number: int | None
+    summary: str
+    outcome: str
+    url: str
+    actor: str
+    at: int
+    woke: bool
+
+
 class SandboxStatePayload(TypedDict, total=False):
     # "failed" means the sandbox could not start; ``message`` says why (e.g. the image cannot
     # be pulled). The turn is not over: the agent receives the same error as a tool result.
@@ -191,5 +203,6 @@ PAYLOAD_TYPES: dict[EventType, Any] = {
     EventType.POST_FAILURE_SYNTHESIS: PostFailureSynthesisPayload,
     EventType.PROCESS_STARTED: ProcessPayload,
     EventType.PROCESS_EXITED: ProcessPayload,
+    EventType.GITHUB_EVENT: GithubEventPayload,
     EventType.ERROR: ErrorPayload,
 }

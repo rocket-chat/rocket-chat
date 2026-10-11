@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from api.services.git_credentials import GitCredentialBundle
+from api.services.github_watches import GithubWatchStore, watch_callbacks
 from api.services.knowledge import search_knowledge
 from api.services.mcp_runtime import McpToolProvider
 from api.services.process_tracker import ProcessTracker
@@ -102,6 +103,10 @@ async def build_turn_callbacks(
             return None
         return await run_repository_setup(driver, target_session_id, folder, event_bus)
 
+    github_watch, github_unwatch = watch_callbacks(
+        GithubWatchStore(db_mgr), session.tenant_org_id, ctx.session_id, session.tenant_user_id
+    )
+
     sandbox_settings = await effective_settings(db_mgr, session.tenant_org_id, "sandboxes")
 
     async def processes_changed(target_session_id: str) -> None:
@@ -122,6 +127,8 @@ async def build_turn_callbacks(
         execute_skill=execute_skill,
         external_tools=mcp_tools,
         github_access=github_access,
+        github_watch=github_watch,
+        github_unwatch=github_unwatch,
         repository_cloned=repository_cloned if driver else None,
         processes_changed=processes_changed if driver else None,
         max_background_processes=int(sandbox_settings["max_background_processes"]),

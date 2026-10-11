@@ -222,16 +222,18 @@ def _report_mission_to_slack(app: FastAPI, mission: Mission, session_id: str) ->
     task.add_done_callback(_background_tasks.discard)
 
 
-async def resume_claimed_turn(app: FastAPI, turn: ResumableTurn) -> None:
-    """Start the follow-up turn for an interrupted turn this replica has claimed."""
+async def start_turn_on_session(
+    app: FastAPI, org_id: str, session_id: str, prompt: str, *, resume_attempt: int = 0
+) -> bool:
+    """Start a turn on an existing session that nobody typed into; False when it is gone."""
     state = app.state
-    token = current_tenant_org_id.set(turn.org_id)
+    token = current_tenant_org_id.set(org_id)
     try:
-        if await state.session_store.get_session(turn.session_id) is None:
-            return
+        if await state.session_store.get_session(session_id) is None:
+            return False
         _spawn_background_turn(
-            session_id=turn.session_id,
-            prompt=RESUME_NOTICE,
+            session_id=session_id,
+            prompt=prompt,
             orchestrator=state.orchestrator,
             event_bus=state.event_bus,
             driver=getattr(state, "sandbox_driver", None),
@@ -242,7 +244,15 @@ async def resume_claimed_turn(app: FastAPI, turn: ResumableTurn) -> None:
             attachment_service=getattr(state, "attachment_service", None),
             concurrency_gate=getattr(state, "global_concurrency_gate", None),
             session_locks=getattr(state, "session_write_locks", None),
-            resume_attempt=turn.resume_attempt + 1,
+            resume_attempt=resume_attempt,
         )
     finally:
         current_tenant_org_id.reset(token)
+    return True
+
+
+async def resume_claimed_turn(app: FastAPI, turn: ResumableTurn) -> None:
+    """Start the follow-up turn for an interrupted turn this replica has claimed."""
+    await start_turn_on_session(
+        app, turn.org_id, turn.session_id, RESUME_NOTICE, resume_attempt=turn.resume_attempt + 1
+    )

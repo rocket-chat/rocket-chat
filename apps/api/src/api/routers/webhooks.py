@@ -15,6 +15,7 @@ from api.services.git_credentials import (
     inject_git_credentials_into_sandbox,
     resolve_session_git_credentials,
 )
+from api.services.github_events import deliver_repo_event
 from api.services.github_installations import installation_org
 from api.services.repository_hint import with_repository_hint
 from api.services.settings import effective_settings
@@ -59,6 +60,17 @@ async def _provision_webhook_identity(request: Request, org_id: str, user_id: st
         await ensure_tenant_identity(session, org_id, user_id)
 
 
+async def _deliver_to_followers(
+    request: Request, git_engine: GitEngine, raw_body: bytes, headers: dict[str, Any]
+) -> list[str]:
+    """Pass a repository event on to the sessions that follow that pull request or branch."""
+    event = git_engine.parse_repo_event(raw_body, headers)
+    if event is None:
+        return []
+    org_id, _ = await _webhook_identity(request, event.actor, event.installation_id)
+    return await deliver_repo_event(request.app, org_id, event)
+
+
 @router.post("/github", status_code=status.HTTP_200_OK)
 async def github_webhook_endpoint(
     request: Request,
@@ -85,7 +97,10 @@ async def github_webhook_endpoint(
             detail=f"Webhook authentication failed: {err}",
         ) from err
 
+    delivered = await _deliver_to_followers(request, git_engine, raw_body, headers_dict)
     if not trigger:
+        if delivered:
+            return {"status": "delivered", "sessions": delivered}
         return {"status": "ignored", "reason": "No actionable trigger in webhook event"}
 
     # Derive deterministic session ID mapped to repo and issue/PR

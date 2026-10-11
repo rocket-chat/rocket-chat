@@ -46,7 +46,8 @@ Under **Subscribe to events**, select:
 
 - [x] **Issues** (triggers on `labeled` events when `ai-fix` is applied).
 - [x] **Issue comment** (triggers on `created` events to wake up hibernated sandboxes when engineers post feedback).
-- [x] **Pull request** (optional: enables tracking PR merges and reviews).
+- [x] **Pull request** (optional: lets sessions follow a pull request until it is merged or closed).
+- [x] **Pull request review**, **Pull request review comment** and **Check suite** (optional: lets sessions follow reviews, comments and CI results; see [Sessions that follow a pull request](#sessions-that-follow-a-pull-request)).
 
 ---
 
@@ -144,6 +145,15 @@ One GitHub App serves the whole platform, but an installation belongs to one Git
 3. GitHub sends you back with the installation id; Rocket Chat confirms with GitHub that it is a real installation of this App and maps it to your organization.
 
 Agents of an organization only ever use the installations mapped to it (matched to the repository owner), and GitHub webhook events are attributed to the organization that mapped the installation they came through. An organization with no mapping gets no App token. Single-organization installs that predate mapping can keep the old behaviour with `GITHUB_APP_ALLOW_UNMAPPED_INSTALLATIONS=true` (`github.allowUnmappedInstallations` in the Helm chart) and set `ROCKET_WEBHOOK_ORG_ID` for webhook sessions.
+
+## Sessions that follow a pull request
+
+A session can follow a pull request (or a branch) and hear about it without polling: CI results (check suites), reviews, comments, and the pull request being merged or closed. The agent follows a pull request it opens with `git_open_pr` automatically, and can follow or stop following any other with the `github_watch` / `github_unwatch` tools - for example "wait for CI on #123, then tell me".
+
+* An event reaches a session only if that session follows the pull request or branch, belongs to the organization that mapped the App installation, and is not archived. An archived or deleted session stops following.
+* The event appears as a line in the session. If the session is idle and the event comes from a repository insider (owner, member, collaborator, or CI), it also starts a turn; otherwise it is kept and shown to the agent at its next turn. Text written by anyone else is passed to the agent as information, never as instructions.
+* Each watch wakes the agent at most five times, so a flapping CI cannot keep it busy forever; following ends by itself when the pull request is merged or closed.
+* Needs the webhook events above (Pull request, Pull request review, Pull request review comment, Issue comment, Check suite).
 
 ## How an agent gets the code
 

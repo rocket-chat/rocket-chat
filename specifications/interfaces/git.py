@@ -47,6 +47,28 @@ class WebhookTrigger:
     installation_id: int | None = None
 
 
+@dataclass(frozen=True)
+class RepoEvent:
+    """Something that happened on a repository that a session following it may care about."""
+
+    kind: (
+        str  # "pull_request.closed", "check_suite.completed", "review.submitted", "comment.created"
+    )
+    repo_full_name: str
+    summary: str
+    pr_numbers: tuple[int, ...] = ()
+    branch: str | None = None
+    actor: str = ""
+    url: str = ""
+    # CI outcome ("success", "failure", ...) or review state, when the event has one.
+    outcome: str = ""
+    # The pull request will not change any more (merged or closed).
+    ends_watch: bool = False
+    # The author is a repository insider; only their events may start a turn on their own.
+    trusted: bool = False
+    installation_id: int | None = None
+
+
 class GitEngineProtocol(ABC):
     """Contract for Git operations and automated GitHub session management."""
 
@@ -89,4 +111,9 @@ class GitEngineProtocol(ABC):
         Verifies HMAC signature, extracts event, and returns trigger object
         if action should start or resume an agent session.
         """
+        pass
+
+    @abstractmethod
+    def parse_repo_event(self, raw_body: bytes, headers: dict[str, Any]) -> RepoEvent | None:
+        """The repository event a verified webhook reports, for sessions following that repository."""
         pass

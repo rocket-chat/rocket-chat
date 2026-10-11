@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `git`/`agent-core`/`api`/`web`: **Sessions can follow a pull request.** `github_watch` / `github_unwatch` tools (and an automatic follow after `git_open_pr`) record a per-session subscription (`github_watches`, migration 026, row-level security). CI results, reviews, comments and merge/close events from the GitHub webhook are delivered to the sessions that follow that pull request or branch in the organization that mapped the installation, shown as a `github_event` line, and - for repository insiders on an idle session, at most five times per watch - start a turn; otherwise they are shown to the agent at its next turn. Archived or deleted sessions stop following.
 - `orchestrator`:
 - `sandboxes`:
 - `api`:
