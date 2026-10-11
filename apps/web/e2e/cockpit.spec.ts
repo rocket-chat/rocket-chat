@@ -31,14 +31,14 @@ test.describe("Agent Cockpit E2E Verification", () => {
     // Use live search filter to isolate model among hundreds of live provider models
     const searchFilter = page.getByPlaceholder(/Filter models/i);
     await searchFilter.fill("Sonnet");
-    await expect(page.getByText(/Claude Sonnet/i).first()).toBeVisible();
+    await expect(page.getByText(/Claude.*Sonnet/i).first()).toBeVisible();
 
     // Select Claude Sonnet as direct model
-    await page.locator("button").filter({ hasText: /Claude Sonnet/i }).first().click();
+    await page.locator("button").filter({ hasText: /Claude.*Sonnet/i }).last().click();
 
     // Dropdown closes and mode selector updates to direct model
     await expect(page.getByText("EXECUTION PERSONA OR MODEL")).not.toBeVisible();
-    await expect(modeSelector).toContainText("Claude Sonnet");
+    await expect(modeSelector).toContainText("Sonnet");
 
     // Re-open and select specialized agent persona
     await modeSelector.click();
@@ -74,7 +74,7 @@ test.describe("Agent Cockpit E2E Verification", () => {
     // Navigate to Agents tab
     await page.getByRole("link", { name: /Custom Agents/i }).click();
     await expect(page).toHaveURL(/\/settings\/agents/);
-    await expect(page.getByText("CUSTOM AGENT PERSONAS & CONTEXT")).toBeVisible();
+    await expect(page.getByText("Custom agent personas")).toBeVisible();
     await expect(page.getByText("General Software Engineer").first()).toBeVisible();
 
     // Navigate to MCP tab
@@ -100,5 +100,12 @@ test.describe("Agent Cockpit E2E Verification", () => {
 
     // Ensure system is alive and processing
     await expect(page.getByText(/Executing|Synthesizing|Ready/i).first()).toBeVisible({ timeout: 5000 });
+  });
+
+  test("renders login cockpit with enterprise portal and identity form", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByRole("heading", { name: "Rocket Chat Cockpit" })).toBeVisible();
+    await expect(page.getByPlaceholder("e.g. jdoe")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Enter Flight Deck/i })).toBeVisible();
   });
 });

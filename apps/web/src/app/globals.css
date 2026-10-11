@@ -25,13 +25,15 @@
   --border-line: rgba(0, 0, 0, 0.08);
 
   /* Modern Rocket Brand Accents - Stitch Design */
-  --brand: #fe5825;
-  --brand-hover: #ea4c1d;
-  --primary: #fe5825;
-  --primary-hover: #ea4c1d;
+  --brand: #c2410c;
+  --brand-hover: #9a3412;
+  --primary: #c2410c;
+  --primary-hover: #9a3412;
+  --primary-rgb: 194 65 12;
+  --primary-hover-rgb: 154 52 18;
   --primary-dim: rgba(254, 88, 37, 0.12);
-  --cyan: #0284c7;
-  --accent: #fe5825;
+  --cyan: #0369a1;
+  --accent: #c2410c;
 
   /* Diff & Status */
   --diff-add: #16a34a;
@@ -67,6 +69,8 @@
   --brand-hover: #ea4c1d;
   --primary: #fe5825;
   --primary-hover: #ea4c1d;
+  --primary-rgb: 254 88 37;
+  --primary-hover-rgb: 234 76 29;
   --primary-dim: rgba(254, 88, 37, 0.12);
   --cyan: #38bdf8;
   --accent: #fe5825;
@@ -89,9 +93,16 @@ body {
   color: var(--foreground);
   font-family: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
   overflow: hidden;
-  height: 100vh;
+  /* dvh, not vh: on a phone 100vh is the viewport with the browser toolbar hidden, which makes
+     the document taller than the screen. It then scrolls (to reveal a focused field, or by a
+     drag) and, with overflow hidden, nothing can scroll it back: the top bar is lost. */
+  height: 100dvh;
+  overscroll-behavior: none;
   margin: 0;
   padding: 0;
+  /* Room for the on-screen keyboard, set by ViewportSync only while a text field is focused, so
+     the field being typed in stays visible. The page shells are 100% of this box. */
+  padding-bottom: var(--keyboard-inset, 0px);
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
@@ -200,4 +211,26 @@ body {
 
 .animate-thrust-pulse {
   animation: thrust-pulse 0.2s ease-in-out;
+}
+
+/* Text and fill pairings lifted to 4.5:1 on the light surfaces (WCAG AA). :where() keeps the
+   specificity at one class so hover/dark variants still win. */
+@layer utilities {
+  :where(:root:not(.dark)) .text-neutral-500 { color: #525252; }
+  :where(:root:not(.dark)) .text-neutral-400 { color: #595959; }
+  :where(:root:not(.dark)) .text-neutral-300 { color: #595959; }
+  :where(:root:not(.dark)) .text-emerald-400 { color: #047857; }
+  :where(:root:not(.dark)) .bg-cyan.text-slate-950 { color: #ffffff; }
+  .dark .bg-brand.text-white { color: #1a0a03; }
+  .dark .bg-primary.text-white { color: #1a0a03; }
+}
+
+/* iOS Safari zooms the page when a field under 16px takes focus and stays zoomed, which shifts
+   the whole shell. Touch devices therefore never render a field smaller than 16px. */
+@media (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"]),
+  textarea,
+  select {
+    font-size: max(16px, 1em) !important;
+  }
 }

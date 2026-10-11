@@ -7,6 +7,7 @@ import { useMissionStore } from "../../lib/store";
 import { AgentPersonaConfig, SessionData } from "../../types/mission";
 import { RocketChatIcon } from "../RocketChatLogo";
 import { ThemeToggle } from "../Theme/ThemeToggle";
+import { IconButton } from "../ui/IconButton";
 import {
   Trash2,
   Settings,
@@ -14,6 +15,17 @@ import {
   Check,
   PanelLeftClose,
   Edit,
+  MessageSquare,
+  Pin,
+  PinOff,
+  Archive,
+  ArchiveRestore,
+  GitFork,
+  Eye,
+  EyeOff,
+  CalendarClock,
+  Brain,
+  History,
 } from "lucide-react";
 
 interface SessionSidebarProps {
@@ -24,7 +36,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
   const {
     session,
     sessions,
-    createSession,
+    initDraftSession,
     deleteSession,
     resetAllSessions,
     activeAgent,
@@ -32,11 +44,18 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
     availableAgents,
     isLeftSidebarOpen,
     setIsLeftSidebarOpen,
+    setSessionFlags,
+    fetchSessions,
+    loadMoreSessions,
+    sessionsNextCursor,
+    isLoadingSessions,
+    setIsMemoryInspectorOpen,
+    setIsTurnInspectorOpen,
   } = useMissionStore();
 
   const router = useRouter();
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
-  const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const agentMenuRef = useRef<HTMLDivElement>(null);
 
   // Close agent dropdown when clicking outside
@@ -62,19 +81,15 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, []);
 
-  const handleCreateNewSession = async () => {
-    setIsCreatingSession(true);
-    try {
-      const newSession = await createSession();
-      if (newSession) {
-        if (onSelectSession) {
-          onSelectSession(newSession);
-        }
-        router.push(`/chat/${newSession.session_id}`);
-      }
-    } finally {
-      setIsCreatingSession(false);
+  const handleCreateNewSession = () => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setIsLeftSidebarOpen(false);
     }
+    const draftSession = initDraftSession();
+    if (onSelectSession) {
+      onSelectSession(draftSession);
+    }
+    router.push(`/chat/draft`);
   };
 
   const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
@@ -93,15 +108,50 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
     }
   };
 
+  const handleToggleFlag = async (
+    e: React.MouseEvent,
+    sessionId: string,
+    flags: { is_pinned?: boolean; is_archived?: boolean }
+  ) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const ok = await setSessionFlags(sessionId, flags);
+    if (!ok) {
+      // The server rejected the mutation (offline, permission, stale session): re-fetch
+      // so the sidebar never shows a pin/archive state the backend did not accept.
+      await fetchSessions(showArchived);
+    }
+  };
+
+  const handleToggleArchivedView = async () => {
+    const next = !showArchived;
+    setShowArchived(next);
+    await fetchSessions(next);
+  };
+
+  // Pinned sessions float to the top of the list; the API already returns the rest in
+  // newest-first order and a stable sort keeps that order inside each group.
+  const orderedSessions = [...sessions].sort(
+    (a, b) => Number(Boolean(b.is_pinned)) - Number(Boolean(a.is_pinned))
+  );
+
   if (!isLeftSidebarOpen) {
     return null;
   }
 
   return (
-    <aside
-      data-testid="session-sidebar"
-      className="w-64 flex-shrink-0 bg-surface-sidebar border-r border-surface-border flex flex-col justify-between h-full select-none z-30 transition-all duration-200"
-    >
+    <>
+      {/* Mobile Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 md:hidden"
+        onClick={() => setIsLeftSidebarOpen(false)}
+        aria-hidden="true"
+      />
+
+      <aside
+        data-testid="session-sidebar"
+        className="fixed inset-y-0 left-0 z-50 w-72 max-w-[85vw] md:relative md:w-64 md:inset-auto md:z-30 flex-shrink-0 bg-surface-sidebar border-r border-surface-border flex flex-col justify-between h-full select-none shadow-2xl md:shadow-none transition-all duration-200"
+      >
       <div className="flex flex-col h-full overflow-hidden">
         {/* Brand & Toggle Header */}
         <div className="p-3.5 flex items-center justify-between border-b border-surface-borderSubtle">
@@ -133,12 +183,11 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
             type="button"
             data-testid="new-conversation-btn"
             onClick={handleCreateNewSession}
-            disabled={isCreatingSession}
-            className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-foreground bg-surface-card hover:bg-surface-elevated border border-surface-border hover:border-neutral-400 dark:hover:border-neutral-600 rounded-lg transition-all group cursor-pointer disabled:opacity-50"
+            className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-foreground bg-surface-card hover:bg-surface-elevated border border-surface-border hover:border-neutral-400 dark:hover:border-neutral-600 rounded-lg transition-all group cursor-pointer"
           >
             <span className="flex items-center gap-2">
               <Edit className="w-3.5 h-3.5 text-brand" />
-              <span>{isCreatingSession ? "Creating..." : "New conversation"}</span>
+              <span>New conversation</span>
             </span>
             <kbd className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400 bg-surface-base px-1.5 py-0.5 rounded border border-surface-border">
               ⌘K
@@ -203,71 +252,237 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
           <div>
             <div className="px-2 pb-1.5 flex items-center justify-between text-[11px] font-mono font-medium tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
               <span>Sessions ({sessions.length})</span>
-              {sessions.length > 0 && (
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  data-testid="clear-all-sessions-btn"
-                  onClick={async () => {
-                    if (confirm("Clear all chat sessions?")) {
-                      const newS = await resetAllSessions();
-                      if (newS) {
-                        router.push(`/chat/${newS.session_id}`);
-                      }
-                    }
-                  }}
-                  className="hover:text-rose-400 text-[9px] cursor-pointer"
+                  data-testid="toggle-archived-btn"
+                  aria-pressed={showArchived}
+                  title={showArchived ? "Hide archived sessions" : "Show archived sessions"}
+                  onClick={handleToggleArchivedView}
+                  className={`flex items-center gap-1 text-[9px] cursor-pointer hover:text-foreground ${
+                    showArchived ? "text-brand" : ""
+                  }`}
                 >
-                  CLEAR
+                  {showArchived ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
+                  ARCHIVED
                 </button>
-              )}
+                {sessions.length > 0 && (
+                  <button
+                    type="button"
+                    data-testid="clear-all-sessions-btn"
+                    onClick={async () => {
+                      if (confirm("Clear all chat sessions?")) {
+                        const newS = await resetAllSessions();
+                        if (newS) {
+                          router.push(`/chat/${newS.session_id}`);
+                        }
+                      }
+                    }}
+                    className="hover:text-rose-400 text-[9px] cursor-pointer"
+                  >
+                    CLEAR
+                  </button>
+                )}
+              </div>
             </div>
 
             <nav className="space-y-0.5">
-              {sessions.map((s) => {
-                const isSelected = session?.session_id === s.session_id;
-                return (
-                  <Link
-                    key={s.session_id}
-                    href={`/chat/${s.session_id}`}
-                    onClick={() => {
-                      if (onSelectSession) onSelectSession(s);
-                    }}
-                    className={`group flex items-center justify-between px-2.5 py-1.5 text-xs rounded-md transition-colors ${
-                      isSelected
-                        ? "bg-surface-elevated text-foreground font-semibold border-l-2 border-brand"
-                        : "text-neutral-600 hover:text-foreground dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-surface-card"
-                    }`}
-                  >
-                    <span className="truncate flex-1 mr-1">
-                      {s.title || `Chat ${s.session_id.slice(0, 8)}`}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => handleDeleteSession(e, s.session_id)}
-                      className="opacity-0 group-hover:opacity-100 text-neutral-400 hover:text-rose-400 transition-opacity p-0.5"
+              {orderedSessions
+                .filter((s) => !s.is_draft && s.session_id !== "draft" && s.session_id !== "new")
+                .map((s) => {
+                  const isSelected = session?.session_id === s.session_id;
+                  const fallbackTitle = s.session_id.startsWith("session_")
+                    ? `Chat ${s.session_id.slice(8, 16)}`
+                    : `Chat ${s.session_id.slice(0, 8)}`;
+                  const isSlack =
+                    s.source === "slack" ||
+                    s.session_id.startsWith("slack_") ||
+                    Boolean(s.metadata?.slack_channel_id);
+                  const slackChannel = s.metadata?.slack_channel_id as string | undefined;
+                  const slackThreadTs = s.metadata?.slack_thread_ts as string | undefined;
+                  const slackDeepLink = slackChannel
+                    ? `https://slack.com/app_redirect?channel=${slackChannel}${slackThreadTs ? `&message_ts=${slackThreadTs}` : ""}`
+                    : null;
+                  const forkedFrom =
+                    s.forked_from ??
+                    (s.metadata?.forked_from as { session_id?: string } | undefined);
+
+                  return (
+                    <Link
+                      key={s.session_id}
+                      href={`/chat/${s.session_id}`}
+                      data-testid="session-row"
+                      data-session-id={s.session_id}
+                      data-pinned={s.is_pinned ? "true" : "false"}
+                      data-archived={s.is_archived ? "true" : "false"}
+                      onClick={() => {
+                        if (typeof window !== "undefined" && window.innerWidth < 768) {
+                          setIsLeftSidebarOpen(false);
+                        }
+                        if (onSelectSession) onSelectSession(s);
+                      }}
+                      className={`group flex items-center justify-between px-2.5 py-1.5 text-xs rounded-md transition-colors ${
+                        isSelected
+                          ? "bg-surface-elevated text-foreground font-semibold border-l-2 border-brand"
+                          : "text-neutral-600 hover:text-foreground dark:text-neutral-400 dark:hover:text-neutral-200 hover:bg-surface-card"
+                      }`}
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </Link>
-                );
-              })}
+                      <div className="flex items-center min-w-0 flex-1 mr-1">
+                        {s.is_pinned && (
+                          <span
+                            data-testid="session-pinned-indicator"
+                            title="Pinned"
+                            className="shrink-0 mr-1 text-brand"
+                          >
+                            <Pin className="w-3 h-3" />
+                          </span>
+                        )}
+                        {isSlack && (
+                          <span className="flex items-center gap-1 shrink-0 mr-1.5" title="Slack Thread">
+                            {slackDeepLink ? (
+                              <a
+                                href={slackDeepLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="Open in Slack"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-amber-500 hover:text-rose-500 transition-colors p-0.5"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5" />
+                              </a>
+                            ) : (
+                              <MessageSquare className="w-3.5 h-3.5 text-amber-500" />
+                            )}
+                          </span>
+                        )}
+                        <span className="truncate flex-1">
+                          {s.title || fallbackTitle}
+                        </span>
+                        {forkedFrom?.session_id && (
+                          <span
+                            data-testid="session-fork-indicator"
+                            title={`Forked from ${forkedFrom.session_id}`}
+                            className="shrink-0 ml-1 text-neutral-500"
+                          >
+                            <GitFork className="w-3 h-3" />
+                          </span>
+                        )}
+                        {s.is_archived && (
+                          <span
+                            data-testid="session-archived-indicator"
+                            title="Archived"
+                            className="shrink-0 ml-1 text-[9px] font-mono text-neutral-500"
+                          >
+                            ARCH
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          type="button"
+                          data-testid="pin-session-btn"
+                          aria-label={s.is_pinned ? "Unpin session" : "Pin session"}
+                          title={s.is_pinned ? "Unpin session" : "Pin session"}
+                          onClick={(e) =>
+                            handleToggleFlag(e, s.session_id, { is_pinned: !s.is_pinned })
+                          }
+                          className="text-neutral-400 hover:text-brand p-0.5"
+                        >
+                          {s.is_pinned ? (
+                            <PinOff className="w-3.5 h-3.5" />
+                          ) : (
+                            <Pin className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="archive-session-btn"
+                          aria-label={s.is_archived ? "Unarchive session" : "Archive session"}
+                          title={s.is_archived ? "Unarchive session" : "Archive session"}
+                          onClick={(e) =>
+                            handleToggleFlag(e, s.session_id, { is_archived: !s.is_archived })
+                          }
+                          className="text-neutral-400 hover:text-amber-400 p-0.5"
+                        >
+                          {s.is_archived ? (
+                            <ArchiveRestore className="w-3.5 h-3.5" />
+                          ) : (
+                            <Archive className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          data-testid="delete-session-btn"
+                          onClick={(e) => handleDeleteSession(e, s.session_id)}
+                          className="text-neutral-400 hover:text-rose-400 p-0.5"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </Link>
+                  );
+                })}
             </nav>
+
+            {sessionsNextCursor && (
+              <button
+                type="button"
+                data-testid="load-more-sessions-btn"
+                disabled={isLoadingSessions}
+                onClick={() => void loadMoreSessions()}
+                className="w-full mt-2 px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider text-neutral-500 hover:text-foreground border border-dashed border-surface-border rounded-md transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isLoadingSessions ? "Loading…" : "Load more"}
+              </button>
+            )}
+            </div>
+          </div>
+
+          {/* Navigation footer: the places outside the conversation */}
+          <div className="space-y-1 border-t border-surface-border bg-surface-sidebar/50 p-2">
+            <div className="grid grid-cols-2 gap-1">
+              <Link
+                href="/missions"
+                data-testid="sidebar-missions-link"
+                className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-neutral-600 transition-colors hover:bg-surface-elevated hover:text-foreground dark:text-neutral-400"
+              >
+                <CalendarClock className="h-4 w-4 text-brand" aria-hidden="true" />
+                <span>Missions</span>
+              </Link>
+              <Link
+                href="/settings/github"
+                data-testid="sidebar-settings-link"
+                className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-neutral-600 transition-colors hover:bg-surface-elevated hover:text-foreground dark:text-neutral-400"
+              >
+                <Settings className="h-4 w-4 text-brand" aria-hidden="true" />
+                <span>Settings</span>
+              </Link>
+            </div>
+            {/* The header carries these on wider screens; on a phone they live here. */}
+            <div className="flex items-center gap-1 sm:hidden">
+              <ThemeToggle />
+              <IconButton
+                label="Open memory inspector"
+                onClick={() => {
+                  setIsMemoryInspectorOpen(true);
+                  setIsLeftSidebarOpen(false);
+                }}
+              >
+                <Brain className="h-4 w-4" />
+              </IconButton>
+              <IconButton
+                label="Turn Inspector"
+                onClick={() => {
+                  setIsTurnInspectorOpen(true);
+                  setIsLeftSidebarOpen(false);
+                }}
+              >
+                <History className="h-4 w-4" />
+              </IconButton>
+            </div>
           </div>
         </div>
-
-        {/* Subnav Footer Info & Settings Link */}
-        <div className="p-3 border-t border-surface-border bg-surface-sidebar/50 flex items-center justify-between">
-          <Link
-            href="/settings/github"
-            data-testid="sidebar-settings-link"
-            className="flex items-center gap-2 text-xs font-mono text-neutral-600 hover:text-foreground dark:text-neutral-400 dark:hover:text-white transition-colors"
-          >
-            <Settings className="w-4 h-4 text-brand" />
-            <span>Settings</span>
-          </Link>
-          <ThemeToggle />
-        </div>
-      </div>
-    </aside>
+      </aside>
+    </>
   );
 };

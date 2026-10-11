@@ -12,7 +12,7 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     await expect(sidebar).toBeVisible();
 
     // Verify Brand Logo in sidebar
-    await expect(page.getByText("Rocket Chat").first()).toBeVisible();
+    await expect(sidebar.getByText("Rocket Chat")).toBeVisible();
 
     // Verify Active Agent Selector displays assigned agent
     await expect(page.getByText("SPECIALIZED AGENT")).toBeVisible();
@@ -38,12 +38,11 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     await expect(sessionsLabel).toBeVisible();
 
     // Click to create new mission
-    const currentUrl = page.url();
     await newMissionBtn.click();
-    await expect(page).not.toHaveURL(currentUrl);
+    await expect(page).toHaveURL(/\/chat\/.+/);
 
     // Verify session stream reset
-    await expect(page.getByText(/Ready|Executing|New Session/i).first()).toBeVisible();
+    await expect(page.getByText(/Ready|Executing|New Session|Mission Control/i).first()).toBeVisible();
   });
 
   test("toggles collapsible left sidebar", async ({ page }) => {
@@ -76,7 +75,7 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     // Navigate to Custom Agents page
     await page.getByRole("link", { name: /Custom Agents/i }).click();
     await expect(page).toHaveURL(/\/settings\/agents/);
-    await expect(page.getByText("CUSTOM AGENT PERSONAS & CONTEXT")).toBeVisible();
+    await expect(page.getByText("Custom agent personas")).toBeVisible();
     await expect(page.getByText(/EDIT:/i).first()).toBeVisible();
 
     // Test Markdown Preview toggle for system prompt
@@ -92,12 +91,12 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     // Navigate to Custom Skills page
     await page.getByRole("link", { name: /Skills & Tools/i }).click();
     await expect(page).toHaveURL(/\/settings\/skills/);
-    await expect(page.getByRole("heading", { name: /CUSTOM SKILLS/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Skills & tools/i })).toBeVisible();
 
     // Navigate to Knowledge Bases page
     await page.getByRole("link", { name: /Knowledge Bases/i }).click();
     await expect(page).toHaveURL(/\/settings\/knowledge/);
-    await expect(page.getByRole("heading", { name: /PGVECTOR KNOWLEDGE BASES/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Knowledge bases/i })).toBeVisible();
 
     // Return to Cockpit
     await page.getByRole("link", { name: /Back to Cockpit|Cockpit/i }).first().click();
@@ -108,17 +107,16 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
   test("configures agent tool permissions including Allow All option", async ({ page }) => {
     // Navigate to settings -> agents
     await page.goto("/settings/agents");
-    await expect(page.getByText("CUSTOM AGENT PERSONAS & CONTEXT")).toBeVisible();
+    await expect(page.getByText("Custom agent personas")).toBeVisible();
 
     // Verify Allow All switch is present
     const allowAllBtn = page.getByRole("button", { name: /ALLOW ALL TOOLS/i });
     await expect(allowAllBtn).toBeVisible();
 
-    // Verify category groups are rendered
-    await expect(page.getByText("SANDBOX SYSTEM & FILE TOOLS")).toBeVisible();
-    await expect(page.getByText("MCP SERVERS (MODEL CONTEXT PROTOCOL)")).toBeVisible();
-    await expect(page.getByText("CUSTOM SKILLS & PYTHON EXTENSIONS")).toBeVisible();
-    await expect(page.getByText("KNOWLEDGE BASES (PGVECTOR RAG)")).toBeVisible();
+    // The tool list is driven by the live backend catalog, grouped by category.
+    await expect(page.getByText("AUTHORIZED TOOLS & MCP SERVERS")).toBeVisible();
+    await expect(page.getByText("Sandbox & Repository", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("agent-tool-bash_exec")).toBeVisible();
 
     // Click Allow All
     await allowAllBtn.click();
@@ -139,7 +137,7 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
 
   test("creates, configures, and saves a brand new custom agent persona with 200 OK persistence", async ({ page }) => {
     await page.goto("/settings/agents");
-    await expect(page.getByText("CUSTOM AGENT PERSONAS & CONTEXT")).toBeVisible();
+    await expect(page.getByText("Custom agent personas")).toBeVisible();
 
     // Click New Agent Persona
     const newAgentBtn = page.getByRole("button", { name: /NEW AGENT PERSONA/i });

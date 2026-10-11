@@ -1,6 +1,6 @@
 {
   "name": "rocket-chat-monorepo",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "license": "GPL-3.0-or-later",
   "private": true,
   "scripts": {
@@ -12,7 +12,8 @@
     "docs:check": "cd doc && mintlify broken-links",
     "version:check": "python3 scripts/release.py check",
     "version:prepare": "python3 scripts/release.py prepare",
-    "version:notes": "python3 scripts/release.py notes"
+    "version:notes": "python3 scripts/release.py notes",
+    "docs:screenshots": "pnpm --filter web docs:screenshots"
   },
   "devDependencies": {
     "mintlify": "^4.2.988"

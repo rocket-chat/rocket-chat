@@ -2,11 +2,23 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { useMissionStore } from "../lib/store";
-import { Server, GitBranch, Loader2, Rocket, ChevronDown, Check, Bot, Zap, Shield, Bug, Book, Search } from "lucide-react";
+import { newMessageId } from "../lib/message-id";
+import { loadDraft, saveDraft } from "../lib/draft";
+import { useAuth } from "./AuthProvider";
+import { Server, GitBranch, Rocket, ChevronDown, Check, Bot, Zap, Shield, Bug, Book, Search, Square, ListPlus, X, Paperclip, FileText, AlertTriangle } from "lucide-react";
 import { AgentPersonaConfig, ModelOption } from "../types/mission";
+import { PermissionModePicker } from "./PermissionModePicker";
+import { SandboxPicker } from "./SandboxPicker";
+import { SlashCommandMenu } from "./SlashCommandMenu";
 
 interface IgnitionConsoleProps {
-  onIgnite: (prompt: string, model?: string) => void;
+  onIgnite: (
+    prompt: string,
+    model?: string,
+    messageId?: string,
+    attachmentIds?: string[]
+  ) => void;
+  onCancel?: () => void;
   initialPrompt?: string;
 }
 
@@ -26,6 +38,7 @@ const getAgentIcon = (iconName?: string) => {
 
 export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
   onIgnite,
+  onCancel,
   initialPrompt = "",
 }) => {
   const [prompt, setPrompt] = useState<string>(initialPrompt);
@@ -36,17 +49,36 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
       textareaRef.current?.focus();
     }
   }, [initialPrompt]);
+  const composerSeed = useMissionStore((state) => state.composerSeed);
+  const draftSessionId = useMissionStore((state) => state.session?.session_id);
+  // Restore what was typed but not sent in this conversation, and keep saving it.
+  useEffect(() => {
+    const saved = loadDraft(draftSessionId);
+    if (saved) setPrompt((current) => current || saved);
+  }, [draftSessionId]);
+  useEffect(() => {
+    const timer = setTimeout(() => saveDraft(draftSessionId, prompt), 300);
+    return () => clearTimeout(timer);
+  }, [draftSessionId, prompt]);
+  useEffect(() => {
+    if (composerSeed) {
+      setPrompt(composerSeed.text);
+      textareaRef.current?.focus();
+    }
+  }, [composerSeed]);
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState<boolean>(false);
   const [modelSearchQuery, setModelSearchQuery] = useState<string>("");
   const [isLaunchingRocket, setIsLaunchingRocket] = useState<boolean>(false);
   const [isThrustPulsing, setIsThrustPulsing] = useState<boolean>(false);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     flightLog,
     isExecuting,
-    appendFlightLog,
+    appendOwnUserMessage,
     session,
     clearReasoning,
     setIsExecuting,
@@ -61,7 +93,15 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     selectDirectModel,
     suggestedFollowup,
     setSuggestedFollowup,
+    queuedPrompt,
+    setQueuedPrompt,
+    pendingAttachments,
+    attachmentError,
+    uploadAttachment,
+    removeAttachment,
+    clearAttachments,
   } = useMissionStore();
+  const { user } = useAuth();
 
 
   // Discover models from backend API on mount
@@ -93,9 +133,45 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const stageFiles = (files: FileList | File[] | null | undefined) => {
+    if (!files) return;
+    Array.from(files).forEach((file) => {
+      void uploadAttachment(file);
+    });
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pasted = e.clipboardData?.files;
+    if (pasted && pasted.length > 0) {
+      e.preventDefault();
+      stageFiles(pasted);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    stageFiles(e.dataTransfer?.files);
+  };
+
   const handleIgnite = () => {
     const trimmed = prompt.trim();
-    if (!trimmed || isExecuting) return;
+    if (!trimmed && pendingAttachments.length === 0) return;
+
+    if (isExecuting) {
+      setQueuedPrompt(trimmed);
+      setPrompt("");
+      return;
+    }
+
+    // Never dispatch while a file is still uploading: the turn would start without it.
+    if (pendingAttachments.some((a) => a.status === "uploading")) {
+      setStatusMessage("Waiting for attachments to finish uploading...");
+      return;
+    }
+
+    const readyAttachments = pendingAttachments.filter((a) => a.status === "ready");
+    const attachmentIds = readyAttachments.map((a) => a.attachmentId);
 
     // Trigger cool rocket lift-off on the first user message of a session
     const hasUserMessages = flightLog.some((e) => e.role === "USER");
@@ -113,29 +189,31 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     setIsExecuting(true);
     setStatusMessage("Transmitting instructions to agent sandbox...");
 
-    appendFlightLog({
-      id: `user-${Date.now()}`,
-      role: "USER",
+    const messageId = newMessageId();
+    appendOwnUserMessage({
+      messageId,
       content: trimmed,
-      timestamp: new Date().toLocaleTimeString(),
+      authorUserId: user?.user_id ?? null,
+      attachments: readyAttachments,
     });
 
     const targetModel = inferenceMode === "agent" ? activeAgent?.model || selectedModel : selectedModel;
-    onIgnite(trimmed, targetModel);
+    onIgnite(trimmed, targetModel, messageId, attachmentIds.length ? attachmentIds : undefined);
     setPrompt("");
     setSuggestedFollowup(null);
+    clearAttachments();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Tab key: Autocomplete LLM-suggested follow-up question into composer
-    if (e.key === "Tab" && !prompt && suggestedFollowup) {
+    if (e.key === "Tab" && !prompt && suggestedFollowup && !isExecuting) {
       e.preventDefault();
       setPrompt(suggestedFollowup);
       setSuggestedFollowup(null);
       return;
     }
 
-    // Enter or ⌘⏎ / Ctrl⏎ to run
+    // Enter or ⌘⏎ / Ctrl⏎ to run or queue
     if (e.key === "Enter") {
       if (!e.shiftKey) {
         e.preventDefault();
@@ -167,7 +245,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
   );
 
   return (
-    <div className="relative border-t border-border bg-surface/90 backdrop-blur-md p-3.5 select-none transition-colors">
+    <div className="relative shrink-0 border-t border-border bg-surface/90 backdrop-blur-md p-3.5 select-none transition-colors">
       {/* First Message Rocket Launch Lift-off Animation */}
       {isLaunchingRocket && (
         <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center">
@@ -187,23 +265,122 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
         </div>
       )}
 
-      <div className="bg-surface-card border border-surface-border focus-within:border-brand/60 focus-within:ring-1 focus-within:ring-brand/40 rounded-2xl shadow-xl transition-all p-3">
+      <div
+        data-testid="composer"
+        className={`bg-surface-card border rounded-2xl shadow-xl transition-all p-3 ${
+          isDragging
+            ? "border-brand ring-2 ring-brand/40"
+            : "border-surface-border focus-within:border-brand/60 focus-within:ring-1 focus-within:ring-brand/40"
+        }`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          setIsDragging(true);
+        }}
+        onDragLeave={() => setIsDragging(false)}
+        onDrop={handleDrop}
+      >
+        {/* Attachment staging row */}
+        {(pendingAttachments.length > 0 || attachmentError) && (
+          <div data-testid="attachment-tray" className="mb-2 flex flex-wrap gap-2">
+            {pendingAttachments.map((att) => (
+              <div
+                key={att.attachmentId}
+                data-testid="attachment-chip"
+                data-status={att.status}
+                className={`group flex items-center gap-2 pl-1.5 pr-1 py-1 rounded-xl border text-xs ${
+                  att.status === "error"
+                    ? "border-rose-500/40 bg-rose-500/10 text-rose-300"
+                    : att.status === "uploading"
+                    ? "border-border bg-surface text-muted-foreground"
+                    : "border-border bg-surface text-foreground"
+                }`}
+              >
+                {att.preview ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={att.preview}
+                    alt={att.name}
+                    className="w-7 h-7 rounded-md object-cover border border-border"
+                  />
+                ) : att.status === "error" ? (
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                ) : (
+                  <FileText className="w-4 h-4 shrink-0 text-muted-foreground" />
+                )}
+                <span className="max-w-[160px] truncate font-mono">{att.name}</span>
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  {att.status === "uploading"
+                    ? "uploading…"
+                    : att.status === "error"
+                    ? "failed"
+                    : `${Math.max(1, Math.round(att.size / 1024))} KB`}
+                </span>
+                <button
+                  type="button"
+                  data-testid="attachment-remove"
+                  onClick={() => removeAttachment(att.attachmentId)}
+                  className="p-0.5 rounded hover:bg-elevated text-muted-foreground hover:text-foreground cursor-pointer"
+                  title={`Remove ${att.name}`}
+                  aria-label={`Remove ${att.name}`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+            {attachmentError && pendingAttachments.every((a) => a.status !== "error") && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-xl border border-rose-500/40 bg-rose-500/10 text-rose-300 text-[11px] font-mono">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                <span>{attachmentError}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Queued Prompt Banner */}
+        {queuedPrompt && (
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5 mb-2 rounded-xl bg-primary/10 border border-primary/25 text-xs text-primary font-mono">
+            <div className="flex items-center gap-2 truncate">
+              <span className="font-semibold uppercase tracking-wider text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded">
+                Queued Next
+              </span>
+              <span className="truncate text-foreground/90 font-sans">{queuedPrompt}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setQueuedPrompt(null)}
+              className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+              title="Cancel queued prompt"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* Text Input Area & Ghost Autocomplete Overlay */}
         <div className="relative">
+          <SlashCommandMenu
+            input={prompt}
+            onPick={(completion) => {
+              setPrompt(completion);
+              textareaRef.current?.focus();
+            }}
+          />
           <textarea
             ref={textareaRef}
             data-testid="instruction-input"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={
-              suggestedFollowup
+              isExecuting
+                ? "Agent is running... Type your next instruction to queue it (Enter to queue)"
+                : suggestedFollowup
                 ? ""
-                : "Message Rocket Chat or instruct orbital maneuver... (Enter to run)"
+                : "Describe what you want done… (Enter to run, Shift+Enter for a new line)"
             }
             rows={2}
-            disabled={isExecuting}
-            className="w-full resize-none bg-transparent text-sm font-sans text-neutral-100 placeholder:text-neutral-500 focus:outline-none disabled:opacity-50 leading-relaxed p-1 relative z-10"
+            className="w-full resize-none bg-transparent text-sm font-sans text-foreground placeholder:text-neutral-500 focus:outline-none leading-relaxed p-1 relative z-10"
           />
 
           {/* Ghost text displayed when composer is empty and LLM follow-up exists */}
@@ -222,7 +399,30 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
         {/* Console Parameter Deck & Trigger Button */}
         <div className="mt-2.5 pt-2 border-t border-border/50 flex flex-wrap items-center justify-between gap-2 text-xs">
           {/* Controls: Mode Selector (Agent OR Direct Model) */}
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              data-testid="attachment-input"
+              className="hidden"
+              onChange={(e) => {
+                stageFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <button
+              type="button"
+              data-testid="attach-button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface hover:bg-elevated border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors cursor-pointer"
+              title="Attach a screenshot or log file (or drag / paste)"
+            >
+              <Paperclip className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-xs">Attach</span>
+            </button>
+            <PermissionModePicker disabled={isExecuting} />
+            {!session || session.is_draft ? <SandboxPicker disabled={isExecuting} /> : null}
             <div className="relative" ref={dropdownRef}>
               <button
                 type="button"
@@ -378,26 +578,50 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
             )}
           </div>
 
-          {/* Execution Trigger */}
-          <button
-            data-testid="ignite-button"
-            onClick={handleIgnite}
-            disabled={!prompt.trim() || isExecuting}
-            className={`relative px-4 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 overflow-hidden ${
-              isThrustPulsing ? "animate-thrust-pulse" : ""
-            } ${
-              !prompt.trim() || isExecuting
-                ? "bg-overlay text-muted-foreground cursor-not-allowed opacity-60"
-                : "bg-primary hover:bg-primary-hover text-white cursor-pointer rocket-thrust-glow"
-            }`}
-          >
+          {/* Execution Controls: Stop, Queue, Run */}
+          <div className="flex items-center gap-1.5">
+            {isExecuting && (
+              <button
+                type="button"
+                onClick={onCancel}
+                data-testid="stop-button"
+                className="relative px-3 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 bg-rose-600/90 hover:bg-rose-600 text-white cursor-pointer"
+                title="Interrupt ongoing execution"
+              >
+                <Square className="w-3 h-3 fill-current" />
+                <span>Stop</span>
+              </button>
+            )}
+
             {isExecuting ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Running...</span>
-              </>
+              <button
+                type="button"
+                onClick={handleIgnite}
+                disabled={!prompt.trim()}
+                data-testid="queue-button"
+                className={`relative px-3.5 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 ${
+                  !prompt.trim()
+                    ? "bg-overlay text-muted-foreground cursor-not-allowed opacity-50"
+                    : "bg-primary hover:bg-primary-hover text-white cursor-pointer"
+                }`}
+                title="Queue this prompt to run immediately after current turn"
+              >
+                <ListPlus className="w-3.5 h-3.5" />
+                <span>Queue</span>
+              </button>
             ) : (
-              <>
+              <button
+                data-testid="ignite-button"
+                onClick={handleIgnite}
+                disabled={!prompt.trim() && pendingAttachments.length === 0}
+                className={`relative px-4 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 overflow-hidden ${
+                  isThrustPulsing ? "animate-thrust-pulse" : ""
+                } ${
+                  !prompt.trim() && pendingAttachments.length === 0
+                    ? "bg-overlay text-muted-foreground cursor-not-allowed opacity-60"
+                    : "bg-primary hover:bg-primary-hover text-white cursor-pointer rocket-thrust-glow"
+                }`}
+              >
                 <Rocket
                   className={`w-3.5 h-3.5 -rotate-45 transition-transform ${
                     isThrustPulsing ? "translate-x-0.5 -translate-y-0.5 scale-110" : ""
@@ -408,9 +632,9 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                 {isThrustPulsing && (
                   <span className="absolute -bottom-1 left-2 w-4 h-4 bg-amber rounded-full blur-sm animate-ping" />
                 )}
-              </>
+              </button>
             )}
-          </button>
+          </div>
         </div>
       </div>
     </div>

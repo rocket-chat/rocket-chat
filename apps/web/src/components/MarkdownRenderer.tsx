@@ -34,14 +34,14 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ children, className, inline }) =>
 
   if (inline) {
     return (
-      <code className="px-1.5 py-0.5 mx-0.5 rounded text-[11px] font-mono bg-cyan/10 text-cyan border border-cyan/20">
+      <code className="px-1.5 py-0.5 mx-0.5 rounded text-[11px] font-mono break-words [overflow-wrap:anywhere] bg-cyan/10 text-cyan border border-cyan/20">
         {children}
       </code>
     );
   }
 
   return (
-    <div className="my-2 rounded border border-border/80 bg-void/90 overflow-hidden shadow-inner">
+    <div className="my-2 max-w-full rounded border border-border/80 bg-void/90 overflow-hidden shadow-inner">
       <div className="flex items-center justify-between px-3 py-1.5 bg-surface/60 border-b border-border/60 text-[10px] font-mono text-muted-foreground">
         <span className="uppercase tracking-wider font-semibold text-cyan/80">
           {language || "code"}
@@ -76,7 +76,7 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ children, className, inline }) =>
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className }) => {
   return (
-    <div className={`prose-avionics font-sans text-sm leading-relaxed ${className || ""}`}>
+    <div className={`prose-avionics min-w-0 max-w-full font-sans text-sm leading-relaxed [overflow-wrap:anywhere] ${className || ""}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
@@ -130,7 +130,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           },
           table({ children }) {
             return (
-              <div className="overflow-x-auto my-3 rounded border border-border/70">
+              <div className="my-3 max-w-full overflow-x-auto rounded border border-border/70">
                 <table className="w-full text-xs font-mono text-left border-collapse">
                   {children}
                 </table>
@@ -152,7 +152,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-cyan underline underline-offset-2 hover:text-cyan/80 transition-colors"
+                className="break-all text-cyan underline underline-offset-2 hover:text-cyan/80 transition-colors"
               >
                 {children}
               </a>

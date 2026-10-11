@@ -1,5 +1,6 @@
 "use client";
 
+import { Field, Input } from "../../../components/ui/Field";
 import React, { useState, useEffect } from "react";
 import { SubagentConfig } from "../../../types/mission";
 import {
@@ -277,35 +278,29 @@ export default function SubagentsSettingsPage() {
 
           {/* Form Fields */}
           <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-mono font-semibold text-neutral-400 mb-1.5 uppercase tracking-wider">
-                Specialist Role Title
-              </label>
-              <input
-                type="text"
-                value={formData.role_title}
-                onChange={(e) => setFormData({ ...formData, role_title: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-surface-base border border-surface-border rounded-lg text-neutral-200 focus:outline-none focus:border-brand/70 font-mono"
-              />
-            </div>
+            <Field label="Specialist Role Title">
+              {(control) => (
+                <Input {...control}
+                  value={formData.role_title}
+                  onChange={(e) => setFormData({ ...formData, role_title: e.target.value })}
+                />
+              )}
+            </Field>
 
-            <div>
-              <label className="block text-xs font-mono font-semibold text-neutral-400 mb-1.5 uppercase tracking-wider">
-                Description / Purpose
-              </label>
-              <input
-                type="text"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-surface-base border border-surface-border rounded-lg text-neutral-200 focus:outline-none focus:border-brand/70"
-              />
-            </div>
+            <Field label="Description / Purpose">
+              {(control) => (
+                <Input {...control}
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                />
+              )}
+            </Field>
 
             <div>
               <label className="block text-xs font-mono font-semibold text-neutral-400 mb-1.5 uppercase tracking-wider">
                 Specialist System Prompt & Operational Guidance
               </label>
-              <textarea
+              <textarea aria-label="Specialist System Prompt & Operational Guidance"
                 rows={6}
                 value={formData.system_prompt}
                 onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}

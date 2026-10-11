@@ -1,17 +1,23 @@
 "use client";
 
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMissionStore } from "../lib/store";
+import { useSession } from "./AuthProvider";
 import { DecisionCard } from "./DecisionCard";
+import { ApprovalCard } from "./ApprovalCard";
 import { ActionGroup } from "./ActionGroup";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { TaskChecklist } from "./TaskChecklist";
 import { FlightLogEntry } from "../types/mission";
 import { RocketChatIcon } from "./RocketChatLogo";
-import { Info } from "lucide-react";
+import { CockpitEmptyState } from "./CockpitEmptyState";
+import { Check, Copy, Info, Zap, FileText, GitFork } from "lucide-react";
 
 interface FlightLogStreamProps {
   onAnswerQuestion: (questionId: string, selectedOptions: string[], customText?: string) => void;
+  onApprove?: (actionId: string) => void;
+  onReject?: (actionId: string) => void;
 }
 
 interface ActionGroupData {
@@ -22,21 +28,79 @@ interface ActionGroupData {
 
 export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   onAnswerQuestion,
+  onApprove,
+  onReject,
 }) => {
   const {
     flightLog,
     activeDecision,
+    activeApproval,
     isExecuting,
     statusMessage,
     activeAgent,
+    isStreamContinuous,
+    session,
+    fetchSessions,
   } = useMissionStore();
 
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
+  const { data: authSession } = useSession();
+  const currentUserId =
+    (authSession?.user as unknown as { user_id?: string } | undefined)?.user_id ?? null;
+  // Name the author of each message only when more than one person wrote in this session.
+  const showAuthors =
+    new Set(flightLog.filter((e) => e.role === "USER" && e.authorUserId).map((e) => e.authorUserId))
+      .size > 1;
+  const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
+  const [copiedEntryId, setCopiedEntryId] = useState<string | null>(null);
+  const streamRef = useRef<HTMLDivElement>(null);
+
+  const handleCopy = (entryId: string, text: string) => {
+    void navigator.clipboard.writeText(text);
+    setCopiedEntryId(entryId);
+    setTimeout(() => setCopiedEntryId((current) => (current === entryId ? null : current)), 1500);
+  };
+
+  // Map each entry to how many user turns had started by the time it was rendered, so
+  // "Fork from here" on an assistant answer branches *through* the turn it belongs to.
+  const userTurnsByEntry = new Map<string, number>();
+  let userTurnsSoFar = 0;
+  for (const entry of flightLog) {
+    if (entry.role === "USER") userTurnsSoFar += 1;
+    userTurnsByEntry.set(entry.id, userTurnsSoFar);
+  }
+
+  const handleForkFrom = async (entryId: string) => {
+    if (!session || session.is_draft || session.session_id === "draft") return;
+    const upToTurn = userTurnsByEntry.get(entryId) ?? 0;
+    setForkingEntryId(entryId);
+    try {
+      const res = await fetch(`/v1/sessions/${session.session_id}/fork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(upToTurn > 0 ? { up_to_turn: upToTurn } : {}),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) return;
+      const forked = (await res.json()) as { session_id: string };
+      await fetchSessions();
+      router.push(`/chat/${forked.session_id}`);
+    } catch {
+      // A failed fork leaves the user on the current session so they can retry.
+    } finally {
+      setForkingEntryId(null);
+    }
+  };
 
   // Auto-scroll on new entries
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [flightLog, activeDecision, isExecuting, statusMessage]);
+    // An empty conversation shows its starting points from the top; only follow real content.
+    if (flightLog.length === 0 && !isExecuting) return;
+    // Scroll the stream itself. scrollIntoView would also scroll every ancestor, including the
+    // overflow-hidden page root, which pushes the top bar off screen on a phone.
+    const stream = streamRef.current;
+    stream?.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
+  }, [flightLog, activeDecision, activeApproval, isExecuting, statusMessage]);
 
   // Aggregate consecutive actions into distinct ActionGroups
   const rawStreamItems: Array<
@@ -101,26 +165,67 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
 
   return (
     <div
+      ref={streamRef}
       data-testid="flight-log-stream"
-      className="continuous-flight-stream flex-1 overflow-y-auto px-4 sm:px-6 py-6 space-y-6 font-sans select-text max-w-3xl mx-auto w-full"
+      data-stream-continuous={isStreamContinuous}
+      className="continuous-flight-stream flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [&>*]:shrink-0 px-4 sm:px-6 py-6 space-y-6 font-sans select-text max-w-3xl mx-auto w-full"
     >
       <TaskChecklist />
+
+      {flightLog.length === 0 && !isExecuting && <CockpitEmptyState />}
 
       {rawStreamItems.map((item) => {
         // USER REQUEST: Simple bubble on the right
         if (item.type === "user") {
           return (
             <div key={item.entry.id} className="flex justify-end my-3">
-              <div className="max-w-[85%] bg-surface-card border border-surface-border rounded-2xl rounded-tr-sm px-4 py-3 text-neutral-100 shadow-sm">
+              <div
+                data-testid="user-message"
+                className="min-w-0 max-w-[85%] bg-surface-card border border-surface-border rounded-2xl rounded-tr-sm px-4 py-3 text-foreground shadow-sm [overflow-wrap:anywhere]"
+              >
+                {showAuthors && item.entry.authorUserId && (
+                  <div
+                    data-testid="user-message-author"
+                    className="mb-1 text-[10px] font-mono uppercase tracking-wide text-neutral-500"
+                  >
+                    {item.entry.authorUserId === currentUserId
+                      ? "You"
+                      : item.entry.authorUserId}
+                  </div>
+                )}
                 <div className="text-[14.5px] leading-relaxed">
                   <MarkdownRenderer content={item.entry.content} />
                 </div>
-                <div
-                  suppressHydrationWarning
-                  className="mt-1.5 text-[10px] font-mono text-neutral-500 text-right"
-                >
-                  {item.entry.timestamp || "14:02 UTC"}
-                </div>
+                {item.entry.attachments && item.entry.attachments.length > 0 && (
+                  <div data-testid="user-attachments" className="mt-2 flex flex-wrap gap-1.5">
+                    {item.entry.attachments.map((att) => (
+                      <span
+                        key={att.attachmentId}
+                        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-surface-border bg-surface/60 text-[11px] font-mono text-neutral-300"
+                      >
+                        {att.preview ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={att.preview}
+                            alt={att.name}
+                            className="w-5 h-5 rounded object-cover border border-surface-border"
+                          />
+                        ) : (
+                          <FileText className="w-3.5 h-3.5 text-neutral-400" />
+                        )}
+                        <span className="max-w-[150px] truncate">{att.name}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {item.entry.timestamp && (
+                  <div
+                    suppressHydrationWarning
+                    className="mt-1 text-right text-[11px] text-neutral-500"
+                  >
+                    {item.entry.timestamp}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -128,6 +233,22 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
 
         // SYSTEM MESSAGE: Clean pill
         if (item.type === "system") {
+          const isTurnLimitWarning =
+            item.entry.content.includes("⚡") ||
+            item.entry.content.includes("Turn Budget Exceeded") ||
+            item.entry.content.includes("Synthesizing final answer");
+
+          if (isTurnLimitWarning) {
+            return (
+              <div key={item.entry.id} className="flex justify-center my-3">
+                <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 text-[11px] font-mono shadow-sm">
+                  <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>{item.entry.content.replace(/^⚡\s*/, "")}</span>
+                </div>
+              </div>
+            );
+          }
+
           return (
             <div key={item.entry.id} className="flex justify-center my-2">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-surface-border bg-surface-card/40 text-neutral-400 text-[11px] font-mono">
@@ -141,7 +262,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
         // DISCREET REASONING / TOOL CALLS ACCORDION
         if (item.type === "action_group") {
           return (
-            <div key={item.data.id} className="pl-11">
+            <div key={item.data.id}>
               <ActionGroup
                 id={item.data.id}
                 entries={item.data.entries}
@@ -151,32 +272,52 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
           );
         }
 
-        // ASSISTANT ANSWER: Editorial Claude / Stitch style without surrounding borders
+        // ASSISTANT ANSWER: plain text on the page; actions appear on hover or focus
         return (
-          <div key={item.entry.id} className="flex gap-3.5 items-start my-4">
-            {/* Rocket Brand Pill */}
-            <div className="w-7 h-7 rounded-lg bg-brand/10 border border-brand/25 flex-shrink-0 flex items-center justify-center text-brand mt-0.5">
-              <RocketChatIcon className="w-4 h-4" />
-            </div>
-
-            <div className="flex-1 space-y-2.5 min-w-0">
-              {/* Header Info */}
-              <div className="flex items-center justify-between text-xs text-neutral-400">
-                <span className="font-medium text-neutral-200">
+          <div key={item.entry.id} className="group my-4 min-w-0">
+            <div className="min-w-0 space-y-1.5">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="flex items-center gap-2 font-medium text-neutral-700 dark:text-neutral-200">
+                  <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border border-brand/25 bg-brand/10 text-brand">
+                    <RocketChatIcon className="h-3 w-3" />
+                  </span>
                   {activeAgent?.name || "Rocket Chat"}
                 </span>
-                {item.entry.timestamp && (
-                  <span
-                    suppressHydrationWarning
-                    className="font-mono text-[10px] text-neutral-500"
+                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                  {item.entry.timestamp && (
+                    <span suppressHydrationWarning className="mr-1 text-[11px] text-neutral-500">
+                      {item.entry.timestamp}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    aria-label="Copy answer"
+                    title="Copy answer"
+                    onClick={() => handleCopy(item.entry.id, item.entry.content)}
+                    className="cursor-pointer rounded-md p-1.5 text-neutral-500 hover:bg-surface-elevated hover:text-foreground"
                   >
-                    {item.entry.timestamp}
-                  </span>
-                )}
+                    {copiedEntryId === item.entry.id ? (
+                      <Check className="h-3.5 w-3.5 text-diff-add" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="fork-from-here"
+                    disabled={forkingEntryId === item.entry.id}
+                    aria-label="Fork the conversation from this answer"
+                    title="Fork the conversation from this answer"
+                    onClick={() => void handleForkFrom(item.entry.id)}
+                    className="inline-flex cursor-pointer items-center gap-1 rounded-md p-1.5 text-neutral-500 hover:bg-surface-elevated hover:text-brand disabled:opacity-50"
+                  >
+                    <GitFork className="h-3.5 w-3.5" />
+                    <span className="sr-only">Fork from here</span>
+                  </button>
+                </div>
               </div>
 
-              {/* Message Content: Clean text without any block/border wrapper */}
-              <div className="text-[14.5px] leading-relaxed text-neutral-200 font-sans">
+              <div className="font-sans text-[14.5px] leading-relaxed text-foreground">
                 <MarkdownRenderer content={item.entry.content} />
               </div>
             </div>
@@ -186,11 +327,11 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
 
       {/* Real-time Processing Indicator */}
       {isExecuting && !activeDecision && (
-        <div className="flex gap-3.5 items-start pl-1">
-          <div className="w-7 h-7 rounded-lg bg-brand/10 border border-brand/25 flex-shrink-0 flex items-center justify-center text-brand mt-0.5">
-            <RocketChatIcon className="w-4 h-4 animate-pulse" />
+        <div className="flex items-center gap-2">
+          <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border border-brand/25 bg-brand/10 text-brand">
+            <RocketChatIcon className="h-3 w-3 animate-pulse" />
           </div>
-          <div className="flex items-center gap-2 text-xs text-neutral-400 pt-1 font-sans">
+          <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 font-sans">
             <span className="w-1.5 h-1.5 rounded-full bg-brand animate-ping" />
             <span>{statusMessage || "Synthesizing answer..."}</span>
           </div>
@@ -207,7 +348,15 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
         />
       )}
 
-      <div ref={bottomRef} />
+      {/* Approval Gate */}
+      {activeApproval && (
+        <ApprovalCard
+          approval={activeApproval}
+          onApprove={(actionId) => onApprove?.(actionId)}
+          onReject={(actionId) => onReject?.(actionId)}
+        />
+      )}
+
     </div>
   );
 };

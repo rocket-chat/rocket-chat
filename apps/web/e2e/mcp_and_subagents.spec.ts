@@ -10,10 +10,10 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await expect(page.getByRole("heading", { name: /MODEL CONTEXT PROTOCOL/i })).toBeVisible();
     await expect(page.getByText(/Connect HTTP, SSE, and STDIO tool providers/i)).toBeVisible();
 
-    // Verify built-in MCP servers are rendered
+    // Only servers that really exist are listed - no pre-seeded "connected" built-ins.
     const mainContent = page.getByRole("main");
-    await expect(mainContent.getByText(/Workspace Filesystem/i)).toBeVisible();
-    await expect(mainContent.getByText("GitHub Integration")).toBeVisible();
+    await expect(mainContent.getByText(/Workspace Filesystem/i)).toHaveCount(0);
+    await expect(mainContent.getByText("GitHub Integration")).toHaveCount(0);
 
     // Click to expand "REGISTER MCP SERVER" form
     const registerBtn = page.getByRole("button", { name: /REGISTER MCP SERVER/i });
@@ -31,7 +31,8 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     // Fill HTTP endpoint
     await page.getByPlaceholder("https://api.internal.service/mcp").fill("https://sentry.corp.internal/mcp");
 
-    // Fill custom prompt guidance
+    // Guidance is optional, so it sits behind a disclosure
+    await page.getByTestId("mcp-guidance-toggle").click();
     const guidanceInput = page.getByPlaceholder(/Always check the customer currency/i);
     await guidanceInput.fill("Use this server to fetch exception tracebacks.");
 
@@ -59,7 +60,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await submitBtn.click();
 
     // Verify new server appears in list
-    await expect(mainContent.getByText("E2E Sentry Server")).toBeVisible();
+    await expect(mainContent.getByText("E2E Sentry Server", { exact: true })).toBeVisible();
     await expect(mainContent.getByText("http").first()).toBeVisible();
 
     // Verify cleartext secret is NEVER shown in DOM
@@ -118,7 +119,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await page.goto("/settings/user/models");
 
     const mainContent = page.getByRole("main");
-    await expect(mainContent.getByRole("heading", { name: /Model Defaults & Turbomode/i })).toBeVisible();
+    await expect(mainContent.getByRole("heading", { name: /Model Defaults/i })).toBeVisible();
 
     // Verify select element is present and contains populated models from API
     const select = mainContent.locator("select");

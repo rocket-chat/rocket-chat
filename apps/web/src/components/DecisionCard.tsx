@@ -38,7 +38,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ decision, onSubmit }
   };
 
   return (
-    <div className="my-4 rounded-lg border border-cyan/40 bg-elevated/95 p-4 shadow-xl shadow-cyan/5 font-mono text-sm relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
+    <div data-testid="decision-card" className="my-4 rounded-lg border border-cyan/40 bg-elevated/95 p-4 shadow-xl shadow-cyan/5 font-mono text-sm relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
       {/* Top indicator bar */}
       <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-cyan via-flame to-cyan" />
 

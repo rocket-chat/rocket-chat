@@ -1,0 +1,328 @@
+"use client";
+
+import { CheckpointsPanel } from "./CheckpointsPanel";
+import React, { useCallback, useEffect, useState } from "react";
+import { useMissionStore } from "../lib/store";
+import { TurnTrace, TurnTracePage } from "../types/mission";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  CircleDashed,
+  History,
+  Paperclip,
+  RefreshCw,
+  RotateCcw,
+  ShieldCheck,
+  Wrench,
+  X,
+} from "lucide-react";
+
+interface TurnInspectorProps {
+  /** Re-dispatches an interrupted turn's prompt as a fresh turn. */
+  onRetryTurn: (prompt: string) => void;
+}
+
+const STATUS_STYLES: Record<string, string> = {
+  completed: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+  error: "border-rose-500/40 bg-rose-500/10 text-rose-700 dark:text-rose-300",
+  interrupted: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+  running: "border-brand/40 bg-brand/10 text-brand",
+};
+
+const STATUS_ICONS: Record<string, React.ReactNode> = {
+  completed: <CheckCircle2 className="w-3 h-3" />,
+  error: <AlertTriangle className="w-3 h-3" />,
+  interrupted: <AlertTriangle className="w-3 h-3" />,
+  running: <CircleDashed className="w-3 h-3 animate-spin" />,
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatEpoch(epoch: number | null): string {
+  if (typeof epoch !== "number" || !Number.isFinite(epoch) || epoch <= 0) return "—";
+  return new Date(epoch * 1000).toLocaleTimeString();
+}
+
+function formatDuration(started: number, ended: number | null): string {
+  if (typeof ended !== "number" || ended < started) return "in flight";
+  return `${Math.max(0, ended - started)}s`;
+}
+
+/** One persisted turn row, with its reasoning collapsed by default like the flight stream. */
+const TurnRow: React.FC<{ turn: TurnTrace; retryPrompt: string | null; onRetry: (prompt: string) => void }> = ({
+  turn,
+  retryPrompt,
+  onRetry,
+}) => {
+  const [isReasoningOpen, setIsReasoningOpen] = useState(false);
+  const statusClass = STATUS_STYLES[turn.status] || "border-surface-border bg-surface-card text-neutral-400";
+  const toolCount = turn.tool_calls.length;
+  const approvalCount = turn.approvals.length;
+  const canRetry = turn.status === "interrupted";
+
+  return (
+    <li
+      data-testid="turn-inspector-item"
+      data-turn-status={turn.status}
+      className="rounded-xl border border-surface-border bg-surface-card/60 p-3 space-y-2"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-[11px] font-mono text-neutral-500">
+            #{String(turn.turn_index).padStart(2, "0")}
+          </span>
+          <span
+            data-testid="turn-status"
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase tracking-wide ${statusClass}`}
+          >
+            {STATUS_ICONS[turn.status]}
+            {turn.status}
+          </span>
+          {(turn.resume_attempt ?? 0) > 0 && (
+            <span
+              data-testid="turn-resumed"
+              title="The server restarted mid-task; the agent continued from the saved conversation."
+              className="text-[10px] font-mono uppercase tracking-wide text-sky-300"
+            >
+              resumed
+            </span>
+          )}
+        </div>
+        <span className="text-[10px] font-mono text-neutral-500 shrink-0">
+          {formatEpoch(turn.started_at)} · {formatDuration(turn.started_at, turn.ended_at)}
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono text-neutral-500">
+        <span className="inline-flex items-center gap-1">
+          <Wrench className="w-3 h-3" />
+          {toolCount} {toolCount === 1 ? "tool" : "tools"}
+        </span>
+        <span>{turn.diff_paths.length} files</span>
+        {approvalCount > 0 && (
+          <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
+            <ShieldCheck className="w-3 h-3" />
+            {approvalCount} {approvalCount === 1 ? "approval" : "approvals"}
+          </span>
+        )}
+        {typeof turn.tokens?.total_tokens === "number" && (
+          <span>{turn.tokens.total_tokens} tok</span>
+        )}
+      </div>
+
+      {turn.tool_calls.length > 0 && (
+        <ul className="flex flex-wrap gap-1.5">
+          {turn.tool_calls.map((tool, index) => (
+            <li
+              key={`${turn.id}-tool-${index}`}
+              className="px-2 py-0.5 rounded-md bg-surface-elevated border border-surface-border text-[10px] font-mono text-neutral-400"
+            >
+              {typeof tool?.name === "string" ? tool.name : "tool"}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {turn.attachments && turn.attachments.length > 0 && (
+        <ul data-testid="turn-attachments" className="flex flex-wrap gap-1.5" aria-label="Attached files">
+          {turn.attachments.map((attachment, index) => (
+            <li
+              key={`${turn.id}-att-${attachment.id ?? index}`}
+              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-surface-border bg-surface-elevated px-2 py-0.5 text-[11px] text-neutral-600 dark:text-neutral-300"
+            >
+              <Paperclip className="h-3 w-3 shrink-0" aria-hidden="true" />
+              <span className="truncate">{attachment.name}</span>
+              <span className="shrink-0 text-neutral-500">{formatBytes(attachment.size)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {turn.diff_paths.length > 0 && (
+        <ul className="space-y-0.5">
+          {turn.diff_paths.map((path) => (
+            <li key={`${turn.id}-${path}`} className="text-[10px] font-mono text-neutral-500 truncate">
+              {path}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {turn.error && (
+        <p className="text-[11px] text-rose-700 dark:text-rose-300 font-sans">{turn.error}</p>
+      )}
+
+      {turn.reasoning_summary && (
+        <div>
+          <button
+            type="button"
+            data-testid="turn-reasoning-toggle"
+            aria-expanded={isReasoningOpen}
+            onClick={() => setIsReasoningOpen((open) => !open)}
+            className="inline-flex items-center gap-1.5 text-[11px] text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer"
+          >
+            {isReasoningOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            Reasoning summary
+          </button>
+          {isReasoningOpen && (
+            <p className="mt-1.5 pl-4 border-l-2 border-surface-border/80 text-[11px] text-neutral-400 font-sans leading-relaxed">
+              {turn.reasoning_summary}
+            </p>
+          )}
+        </div>
+      )}
+
+      {canRetry && (
+        <button
+          type="button"
+          data-testid="turn-retry"
+          disabled={!retryPrompt}
+          title={retryPrompt ? "Re-run this interrupted turn" : "No prior prompt available to retry"}
+          onClick={() => retryPrompt && onRetry(retryPrompt)}
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
+            retryPrompt
+              ? "bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-200 cursor-pointer"
+              : "bg-surface-elevated border border-surface-border text-neutral-500 cursor-not-allowed"
+          }`}
+        >
+          <RotateCcw className="w-3 h-3" />
+          Retry turn
+        </button>
+      )}
+    </li>
+  );
+};
+
+/**
+ * Cockpit turn inspector.
+ *
+ * Lists the durable traces persisted for the active session and surfaces an explicit
+ * retry affordance for a turn recovery marked `interrupted` instead of letting
+ * the turn vanish with the socket. The API reports the state; the cockpit only offers
+ * the action.
+ */
+export const TurnInspector: React.FC<TurnInspectorProps> = ({ onRetryTurn }) => {
+  const isOpen = useMissionStore((s) => s.isTurnInspectorOpen);
+  const setIsOpen = useMissionStore((s) => s.setIsTurnInspectorOpen);
+  const session = useMissionStore((s) => s.session);
+  const sessionId = session && !session.is_draft ? session.session_id : null;
+
+  const [turns, setTurns] = useState<TurnTrace[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadTurns = useCallback(async () => {
+    if (!sessionId) {
+      setTurns([]);
+      return;
+    }
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/v1/sessions/${sessionId}/turns?limit=50`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) {
+        setTurns([]);
+        setError(
+          res.status === 503
+            ? "Turn traces require the PostgreSQL-backed session store."
+            : `Failed to load turns (HTTP ${res.status}).`
+        );
+        return;
+      }
+      const page = (await res.json()) as TurnTracePage;
+      setTurns(Array.isArray(page.turns) ? page.turns : []);
+    } catch {
+      setTurns([]);
+      setError("Could not reach the turn-trace API.");
+    } finally {
+      setIsLoading(false);
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    if (isOpen) void loadTurns();
+  }, [isOpen, loadTurns]);
+
+  if (!isOpen) return null;
+
+  const retryPrompt =
+    [...(session?.conversation_history ?? [])]
+      .reverse()
+      .find((message) => message.role?.toLowerCase() === "user")?.content ?? null;
+
+  return (
+    <aside
+      role="dialog"
+      aria-label="Turn inspector"
+      data-testid="turn-inspector"
+      className="fixed inset-y-0 right-0 z-40 w-full sm:w-[26rem] bg-surface-base border-l border-surface-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-200"
+    >
+      <header className="h-14 shrink-0 px-4 border-b border-surface-border flex items-center justify-between select-none">
+        <div className="flex items-center gap-2">
+          <History className="w-4 h-4 text-brand" />
+          <span className="text-xs font-mono uppercase tracking-wider text-foreground">
+            Turn Inspector
+          </span>
+          {sessionId && (
+            <span className="text-[10px] font-mono text-neutral-500 truncate max-w-[10rem]">
+              {sessionId}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => void loadTurns()}
+            title="Refresh turns"
+            aria-label="Refresh turns"
+            className="p-1.5 rounded-md hover:bg-surface-elevated text-neutral-400 hover:text-foreground cursor-pointer"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsOpen(false)}
+            title="Close turn inspector"
+            aria-label="Close turn inspector"
+            className="p-1.5 rounded-md hover:bg-surface-elevated text-neutral-400 hover:text-foreground cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      </header>
+
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {sessionId && <CheckpointsPanel sessionId={sessionId} />}
+        {isLoading && turns.length === 0 && (
+          <p className="text-xs text-neutral-500 font-mono">Loading turns…</p>
+        )}
+        {error && (
+          <p className="text-xs text-amber-300 font-sans">{error}</p>
+        )}
+        {!isLoading && !error && turns.length === 0 && (
+          <p className="text-xs text-neutral-500 font-mono">No turns recorded for this session yet.</p>
+        )}
+        {turns.length > 0 && (
+          <ul className="space-y-3">
+            {turns.map((turn) => (
+              <TurnRow
+                key={turn.id}
+                turn={turn}
+                retryPrompt={retryPrompt}
+                onRetry={onRetryTurn}
+              />
+            ))}
+          </ul>
+        )}
+      </div>
+    </aside>
+  );
+};

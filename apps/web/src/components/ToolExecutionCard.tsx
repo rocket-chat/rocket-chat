@@ -1,201 +1,120 @@
 "use client";
 
 import React, { useState } from "react";
-import { ToolCallData } from "../types/mission";
-import {
-  Terminal,
-  FileCode,
-  Wrench,
-  Search,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  ChevronDown,
-  ChevronRight,
-  Copy,
-  Check,
-  Clock,
-  Code2,
-  FileText,
-} from "lucide-react";
+import { Check, Copy } from "lucide-react";
+import type { FileDiffItem, ToolCallData } from "../types/mission";
+import { describeToolCall, synthesizeDiff } from "../lib/activity";
+import { InlineDiff } from "./InlineDiff";
+import { Disclosure } from "./ui/Disclosure";
+import { cn } from "./ui/cn";
+
+const OUTPUT_PREVIEW_LINES = 12;
 
 interface ToolExecutionCardProps {
   toolCall: ToolCallData;
+  /** The diff the server recorded for this edit, when there is one. */
+  recordedDiff?: FileDiffItem;
+  onOpenInInspector?: () => void;
 }
 
-export const ToolExecutionCard: React.FC<ToolExecutionCardProps> = ({ toolCall }) => {
-  const [isExpanded, setIsExpanded] = useState<boolean>(false);
-  const [activeTab, setActiveTab] = useState<"params" | "output">("output");
-  const [copied, setCopied] = useState<boolean>(false);
+const CopyButton: React.FC<{ text: string; label: string }> = ({ text, label }) => {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={() => {
+        void navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      }}
+      className="cursor-pointer rounded p-1 text-neutral-500 hover:text-foreground"
+    >
+      {copied ? <Check className="h-3.5 w-3.5 text-diff-add" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
+  );
+};
 
-  const isBash =
-    toolCall.name === "bash_exec" ||
-    toolCall.name === "bash" ||
-    toolCall.name === "exec_command";
+const OutputBlock: React.FC<{ text: string; failed: boolean }> = ({ text, failed }) => {
+  const [showAll, setShowAll] = useState(false);
+  const lines = text.split("\n");
+  const clipped = !showAll && lines.length > OUTPUT_PREVIEW_LINES;
+  const shown = clipped ? lines.slice(0, OUTPUT_PREVIEW_LINES).join("\n") : text;
+  return (
+    <div className="overflow-hidden rounded-lg border border-surface-border bg-surface-base">
+      <pre
+        className={cn(
+          "max-h-72 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-[11.5px] leading-5",
+          failed ? "text-diff-del" : "text-neutral-700 dark:text-neutral-300"
+        )}
+      >
+        {shown}
+      </pre>
+      {clipped && (
+        <button
+          type="button"
+          onClick={() => setShowAll(true)}
+          className="w-full cursor-pointer border-t border-surface-border px-3 py-1.5 text-left text-xs text-neutral-600 hover:text-foreground dark:text-neutral-400"
+        >
+          Show all {lines.length} lines
+        </button>
+      )}
+    </div>
+  );
+};
 
-  const getToolIcon = () => {
-    if (isBash) return <Terminal className="w-3.5 h-3.5 text-amber" />;
-    if (toolCall.name.includes("file") || toolCall.name.includes("read") || toolCall.name.includes("write")) {
-      return <FileCode className="w-3.5 h-3.5 text-cyan" />;
-    }
-    if (toolCall.name.includes("search") || toolCall.name.includes("find")) {
-      return <Search className="w-3.5 h-3.5 text-violet" />;
-    }
-    return <Wrench className="w-3.5 h-3.5 text-foreground/80" />;
-  };
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const argsFormatted = toolCall.arguments
-    ? JSON.stringify(toolCall.arguments, null, 2)
-    : "{}";
-
-  const bashCommand =
-    isBash && toolCall.arguments
-      ? (toolCall.arguments.command as string) || (toolCall.arguments.cmd as string) || ""
-      : null;
-
-  const outputFormatted = toolCall.result || toolCall.stdout || "(Awaiting execution output...)";
+/** What a single tool call did, shown only once its row is opened: command, diff or output. */
+export const ToolExecutionCard: React.FC<ToolExecutionCardProps> = ({ toolCall, recordedDiff, onOpenInInspector }) => {
+  const step = describeToolCall(toolCall);
+  const failed = toolCall.status === "error";
+  const output = toolCall.result || toolCall.stdout || "";
+  const diffText = step.kind === "edit" ? (recordedDiff?.diff_content ?? synthesizeDiff(toolCall)) : null;
+  const argsJson = JSON.stringify(toolCall.arguments ?? {}, null, 2);
 
   return (
-    <div
-      className={`my-2.5 rounded-lg border transition-all text-xs font-mono select-text overflow-hidden ${
-        toolCall.status === "error"
-          ? "border-diff-del/50 bg-diff-del/5"
-          : toolCall.status === "pending"
-          ? "border-amber/40 bg-amber/5 animate-pulse"
-          : "border-border/80 bg-surface/70 hover:border-cyan/40"
-      }`}
-    >
-      {/* Header Bar */}
-      <div
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center justify-between px-3 py-2 cursor-pointer bg-elevated/60 hover:bg-elevated/90 transition-colors select-none"
-      >
-        <div className="flex items-center gap-2">
-          {getToolIcon()}
-          <span className="font-bold text-foreground tracking-wide">
-            {toolCall.name}
-          </span>
-
-          {/* Status Badge */}
-          {toolCall.status === "pending" && (
-            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber/15 border border-amber/30 text-amber text-[10px]">
-              <Loader2 className="w-2.5 h-2.5 animate-spin" />
-              RUNNING
-            </span>
-          )}
-          {toolCall.status === "success" && (
-            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-diff-add/15 border border-diff-add/30 text-diff-add text-[10px]">
-              <CheckCircle2 className="w-2.5 h-2.5" />
-              SUCCESS
-            </span>
-          )}
-          {toolCall.status === "error" && (
-            <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-diff-del/15 border border-diff-del/30 text-diff-del text-[10px]">
-              <AlertCircle className="w-2.5 h-2.5" />
-              FAILED
-            </span>
-          )}
-
-          {/* Duration Badge */}
-          {toolCall.duration_ms !== undefined && (
-            <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <Clock className="w-2.5 h-2.5" />
-              {toolCall.duration_ms}ms
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2">
-          {isExpanded ? (
-            <ChevronDown className="w-4 h-4 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="w-4 h-4 text-muted-foreground" />
-          )}
-        </div>
+    <div className="space-y-2.5 text-sm">
+      <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
+        <code className="rounded bg-surface-elevated px-1.5 py-0.5 font-mono text-[11px]">{toolCall.name}</code>
+        {toolCall.duration_ms !== undefined && <span>{toolCall.duration_ms} ms</span>}
+        {toolCall.exit_code !== undefined && toolCall.exit_code !== 0 && <span>exit {toolCall.exit_code}</span>}
       </div>
 
-      {/* Expanded Details */}
-      {isExpanded && (
-        <div className="p-3 border-t border-border/60 bg-void/50 space-y-2">
-          {/* If Bash: Render clear inline shell prompt */}
-          {bashCommand && (
-            <div className="rounded border border-border/80 bg-void p-2.5 flex items-center justify-between text-[11px]">
-              <div className="flex items-center gap-2 overflow-x-auto">
-                <span className="text-amber font-bold">$</span>
-                <span className="text-foreground/90 font-medium select-all">{bashCommand}</span>
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  copyToClipboard(bashCommand);
-                }}
-                title="Copy Command"
-                className="text-muted-foreground hover:text-cyan transition-colors p-1"
-              >
-                {copied ? <Check className="w-3.5 h-3.5 text-diff-add" /> : <Copy className="w-3.5 h-3.5" />}
-              </button>
-            </div>
-          )}
-
-          {/* Tab Bar: Parameters vs Output */}
-          <div className="flex items-center justify-between border-b border-border/50 pb-1 text-[11px]">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setActiveTab("output")}
-                className={`flex items-center gap-1 pb-1 transition-colors ${
-                  activeTab === "output"
-                    ? "border-b-2 border-cyan text-cyan font-bold"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <FileText className="w-3 h-3" />
-                Response / Output
-              </button>
-              <button
-                onClick={() => setActiveTab("params")}
-                className={`flex items-center gap-1 pb-1 transition-colors ${
-                  activeTab === "params"
-                    ? "border-b-2 border-cyan text-cyan font-bold"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Code2 className="w-3 h-3" />
-                Request Parameters
-              </button>
-            </div>
-
-            <button
-              onClick={() => copyToClipboard(activeTab === "params" ? argsFormatted : outputFormatted)}
-              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-cyan transition-colors"
-            >
-              {copied ? <Check className="w-3 h-3 text-diff-add" /> : <Copy className="w-3 h-3" />}
-              <span>{copied ? "Copied" : "Copy"}</span>
-            </button>
-          </div>
-
-          {/* Tab Content */}
-          {activeTab === "params" ? (
-            <pre className="p-2.5 rounded bg-void border border-border/60 text-cyan/90 text-[11px] overflow-x-auto max-h-48 whitespace-pre-wrap leading-relaxed">
-              {argsFormatted}
-            </pre>
-          ) : (
-            <div className="rounded bg-void border border-border/60 p-2.5 max-h-60 overflow-y-auto">
-              <pre
-                className={`text-[11px] whitespace-pre-wrap leading-relaxed ${
-                  toolCall.status === "error" ? "text-diff-del/90" : "text-foreground/85"
-                }`}
-              >
-                {outputFormatted}
-              </pre>
-            </div>
-          )}
+      {step.kind === "run" && step.target && (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-surface-border bg-surface-base px-3 py-2 font-mono text-[12px]">
+          <span className="min-w-0 overflow-x-auto whitespace-pre text-foreground">
+            <span className="mr-2 text-brand">$</span>
+            {typeof toolCall.arguments?.command === "string" ? toolCall.arguments.command : step.target}
+          </span>
+          <CopyButton
+            text={typeof toolCall.arguments?.command === "string" ? toolCall.arguments.command : step.target}
+            label="Copy command"
+          />
         </div>
+      )}
+
+      {diffText && <InlineDiff diff={diffText} onOpenInInspector={recordedDiff ? onOpenInInspector : undefined} />}
+
+      {output ? (
+        <div className="space-y-1">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">
+              {failed ? "Error" : "Output"}
+            </span>
+            <CopyButton text={output} label="Copy output" />
+          </div>
+          <OutputBlock text={output} failed={failed} />
+        </div>
+      ) : (
+        toolCall.status === "pending" && <p className="text-xs text-neutral-500">Waiting for output…</p>
+      )}
+
+      {step.kind !== "run" && step.kind !== "edit" && (
+        <Disclosure summary="Arguments">
+          <pre className="max-h-48 overflow-auto rounded-lg border border-surface-border bg-surface-base px-3 py-2 font-mono text-[11.5px] leading-5">
+            {argsJson}
+          </pre>
+        </Disclosure>
       )}
     </div>
   );

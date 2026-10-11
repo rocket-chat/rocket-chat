@@ -6,41 +6,37 @@ import { useMissionStore } from "../lib/store";
 
 export default function MissionControlPage() {
   const router = useRouter();
-  const { session, fetchSessions, createSession } = useMissionStore();
+  const { session, initDraftSession } = useMissionStore();
 
   useEffect(() => {
-    let isMounted = true;
+    // 1. If store already has active persisted session, navigate immediately
+    if (
+      session?.session_id &&
+      !session.is_draft &&
+      session.session_id !== "draft" &&
+      session.session_id !== "new"
+    ) {
+      router.replace(`/chat/${session.session_id}`);
+      return;
+    }
 
-    const navigateToCanonicalChat = async () => {
-      // If already in an active session, go straight to it
-      if (session?.session_id) {
-        router.replace(`/chat/${session.session_id}`);
+    // 2. Check cached last session id in localStorage for instant restore
+    try {
+      const cachedId =
+        typeof window !== "undefined" ? localStorage.getItem("rocket_last_session_id") : null;
+      if (cachedId && cachedId !== "draft" && cachedId !== "new") {
+        router.replace(`/chat/${cachedId}`);
         return;
       }
+    } catch {}
 
-      await fetchSessions();
-      if (!isMounted) return;
-
-      const currentSessions = useMissionStore.getState().sessions;
-      if (currentSessions.length > 0) {
-        router.replace(`/chat/${currentSessions[0].session_id}`);
-      } else {
-        const newSession = await createSession();
-        if (newSession && isMounted) {
-          router.replace(`/chat/${newSession.session_id}`);
-        }
-      }
-    };
-
-    navigateToCanonicalChat();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [session?.session_id, fetchSessions, createSession, router]);
+    // 3. Immediately route to draft session so cockpit renders instantly with zero blocking delay
+    initDraftSession();
+    router.replace(`/chat/draft`);
+  }, [session?.session_id, session?.is_draft, initDraftSession, router]);
 
   return (
-    <div className="h-screen w-screen flex flex-col items-center justify-center bg-void text-foreground font-mono text-xs gap-3">
+    <div className="h-full w-full flex flex-col items-center justify-center bg-void text-foreground font-mono text-xs gap-3">
       <div className="w-8 h-8 rounded-xl border border-primary/40 bg-primary/10 flex items-center justify-center text-primary font-bold animate-pulse">
         RC
       </div>
