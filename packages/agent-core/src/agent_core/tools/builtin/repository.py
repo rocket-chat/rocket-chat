@@ -75,7 +75,10 @@ def register(registry: "ToolRegistry") -> None:
         description=(
             "Read one file, or list a directory, of a GitHub repository WITHOUT cloning or "
             "starting a sandbox (README, AGENTS.md, a config file, the repository root). "
-            "Use it to understand a repository before deciding to clone it."
+            "Use it to understand a repository before deciding to clone it. Once the "
+            "repository is cloned in the sandbox, do NOT use this: read and search the local "
+            "files with `file_read`, `list_dir` and `grep_search` (faster, and they include "
+            "your own changes)."
         )
     )
     async def github_read_file(
@@ -87,6 +90,16 @@ def register(registry: "ToolRegistry") -> None:
             str | None, Field(description="Branch, tag or commit (default branch).")
         ] = None,
     ) -> str:
+        # Enforce what the description asks: a repository already in the running sandbox is read
+        # there. Another ref is the one case where the GitHub copy differs from the clone.
+        target = registry._sandbox_target("github_read_file") if ref is None else None
+        if target and (folder := await repository_tools.local_clone_of(*target, repository)):
+            return (
+                f"{repository} is already cloned at {folder}. Read it there instead, with "
+                f"`file_read`, `list_dir` and `grep_search` (faster, and it includes your own "
+                f"changes). Use this tool only for a repository that is not cloned, or pass "
+                f"`ref` to read another branch or commit."
+            )
         access = await registry._github_access()
         return await github_tools.read_file(access, repository, path, ref)
 

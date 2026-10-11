@@ -16,7 +16,7 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | `ROCKET_DEFAULT_MODEL` | string | `openrouter/deepseek/deepseek-v4.1-flash` | Default model identifier passed to LiteLLM for sessions that do not specify a model. |
 | `LOG_LEVEL` | string | `INFO` | Configurable backend log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
 | `LOG_FORMAT` | string | `console` | Logging output structure: `console` (colored human-readable) or `json` (structured machine-readable for Datadog, Loki, CloudWatch). |
-| `AGENT_MAX_TURNS` | int | `30` | Default autonomous ReAct turn limit per user prompt before triggering post-failure synthesis. |
+| `AGENT_MAX_TURNS` | int | `60` | Default autonomous ReAct turn limit per user prompt before triggering post-failure synthesis. |
 | `ROCKET_FALLBACK_MODELS` | string | `""` | Comma-separated ordered fallback models used on transient provider failures. Handled natively by LiteLLM (`fallbacks`). E.g. `openrouter/openai/gpt-4o,openrouter/google/gemini-2.5-pro`. |
 | `ROCKET_MODEL_MAX_RETRIES` | int | `2` | Retry attempts for transient provider errors (rate limit, timeout, 5xx), delegated to LiteLLM (`num_retries`). |
 | `ROCKET_CODE_INDEX_MAX_SESSIONS` | int | `16` | Maximum number of per-session semantic code indexes kept in process memory (LRU). The index is derived data, so eviction is always safe. |

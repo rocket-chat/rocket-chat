@@ -46,6 +46,9 @@ SANDBOX_GUIDANCE: tuple[str, ...] = (
     "AGENTS.md or a directory listing, without cloning) and `github_issues` (an issue or "
     "pull request and its discussion). If a GitHub MCP connector is connected, its "
     "`mcp__github__*` tools are available too.",
+    "- Once a repository is cloned, read and search it in the sandbox (`file_read`, "
+    "`list_dir`, `grep_search`, `glob_files`) - never with `github_read_file`, which is only "
+    "for repositories you have not cloned.",
     "- Then fetch it with `clone_repository` (`owner/name` -> `/workspace/<name>`; safe "
     "to repeat; it authenticates with the member's linked GitHub account or the "
     "organization's GitHub App by itself). Do not search the environment for tokens and "

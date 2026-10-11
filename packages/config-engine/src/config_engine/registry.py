@@ -112,7 +112,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
         _spec(
             "max_turns",
             "int",
-            30,
+            60,
             "org",
             _TURN_ROUTING,
             "Default maximum reasoning steps per turn (an agent persona may override it).",

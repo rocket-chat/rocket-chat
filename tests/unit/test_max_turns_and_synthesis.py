@@ -11,7 +11,7 @@ from api.services.settings import reset_memory_settings, save_org_config
 from api.turns.routing import _resolve_effective_max_turns
 from config_engine.cascading import CascadingSettingsResolver
 
-from specifications.interfaces.agent import AgentEvent
+from specifications.interfaces.agent import DEFAULT_MAX_TURNS, AgentEvent
 from specifications.interfaces.llm import StreamChunk
 
 
@@ -22,12 +22,12 @@ async def test_default_max_turns_and_env_override(monkeypatch: pytest.MonkeyPatc
     registry.bind_subagent_runner = MagicMock()
     registry.get_tool_definitions = MagicMock(return_value=[])
 
-    # Default is 30
+    # Default is DEFAULT_MAX_TURNS
     monkeypatch.delenv("AGENT_MAX_TURNS", raising=False)
     monkeypatch.delenv("ROCKET_MAX_TURNS", raising=False)
     monkeypatch.delenv("MAX_TURNS", raising=False)
     orchestrator = AsyncReActOrchestrator(gateway=gateway, registry=registry)
-    assert orchestrator.max_turns == 30
+    assert orchestrator.max_turns == DEFAULT_MAX_TURNS
 
     # Env var override
     monkeypatch.setenv("AGENT_MAX_TURNS", "45")
@@ -39,7 +39,7 @@ async def test_default_max_turns_and_env_override(monkeypatch: pytest.MonkeyPatc
 async def test_cascading_settings_max_turns_default() -> None:
     resolver = CascadingSettingsResolver()
     gen_defaults = resolver.get_system_defaults("general")
-    assert gen_defaults.get("max_turns") == 30
+    assert gen_defaults.get("max_turns") == DEFAULT_MAX_TURNS
 
     # The turn limit lives in one domain only; `models` no longer carries a duplicate.
     assert "max_turns" not in resolver.get_system_defaults("models")
@@ -49,9 +49,9 @@ async def test_cascading_settings_max_turns_default() -> None:
 async def test_resolve_effective_max_turns_cascading() -> None:
     org_id = "test_org_turns"
 
-    # 1. Default fallback is 30
+    # 1. Default fallback is DEFAULT_MAX_TURNS
     res_default = await _resolve_effective_max_turns(agent=None, org_id=org_id)
-    assert res_default == 30
+    assert res_default == DEFAULT_MAX_TURNS
 
     # 2. Org settings override
     await save_org_config(None, org_id, "general", {"max_turns": 40}, [])

@@ -398,7 +398,7 @@
     }
   },
   {
-    "description": "Read one file, or list a directory, of a GitHub repository WITHOUT cloning or starting a sandbox (README, AGENTS.md, a config file, the repository root). Use it to understand a repository before deciding to clone it.",
+    "description": "Read one file, or list a directory, of a GitHub repository WITHOUT cloning or starting a sandbox (README, AGENTS.md, a config file, the repository root). Use it to understand a repository before deciding to clone it. Once the repository is cloned in the sandbox, do NOT use this: read and search the local files with `file_read`, `list_dir` and `grep_search` (faster, and they include your own changes).",
     "name": "github_read_file",
     "parameters": {
       "properties": {

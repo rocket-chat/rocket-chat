@@ -50,22 +50,33 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     }
   }, [initialPrompt]);
   const composerSeed = useMissionStore((state) => state.composerSeed);
+  const clearComposerSeed = useMissionStore((state) => state.clearComposerSeed);
   const draftSessionId = useMissionStore((state) => state.session?.session_id);
-  // Restore what was typed but not sent in this conversation, and keep saving it.
+  // The composer outlives navigation, so each conversation's unsent text is tied to it. Moving
+  // from one conversation to another swaps the field for the other's draft (empty when it has
+  // none) instead of carrying the first one's text over. Going from "no conversation yet" to the
+  // one just created keeps what is typed.
+  const previousSessionRef = useRef<string | undefined>(draftSessionId);
   useEffect(() => {
+    const previous = previousSessionRef.current;
+    previousSessionRef.current = draftSessionId;
     const saved = loadDraft(draftSessionId);
-    if (saved) setPrompt((current) => current || saved);
+    if (previous && previous !== draftSessionId) setPrompt(saved);
+    else if (saved) setPrompt((current) => current || saved);
   }, [draftSessionId]);
   useEffect(() => {
     const timer = setTimeout(() => saveDraft(draftSessionId, prompt), 300);
     return () => clearTimeout(timer);
   }, [draftSessionId, prompt]);
+  // A starter or template drops its text in once; clearing it keeps a later mount (opening
+  // another conversation) from filling the field with it again.
   useEffect(() => {
     if (composerSeed) {
       setPrompt(composerSeed.text);
       textareaRef.current?.focus();
+      clearComposerSeed();
     }
-  }, [composerSeed]);
+  }, [composerSeed, clearComposerSeed]);
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState<boolean>(false);
   const [modelSearchQuery, setModelSearchQuery] = useState<string>("");
   const [isLaunchingRocket, setIsLaunchingRocket] = useState<boolean>(false);
@@ -200,6 +211,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     const targetModel = inferenceMode === "agent" ? activeAgent?.model || selectedModel : selectedModel;
     onIgnite(trimmed, targetModel, messageId, attachmentIds.length ? attachmentIds : undefined);
     setPrompt("");
+    saveDraft(draftSessionId, "");
     setSuggestedFollowup(null);
     clearAttachments();
   };

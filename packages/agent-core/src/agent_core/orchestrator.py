@@ -25,6 +25,7 @@ from agent_core.tools.registry import ToolRegistry
 from agent_core.transcript import RecordingList, repair_tool_pairs
 from specifications.interfaces.agent import (
     APPROVAL_GRANTED_PREFIX,
+    DEFAULT_MAX_TURNS,
     AgentEvent,
     AgentOrchestratorProtocol,
     ApprovalRequest,
@@ -101,7 +102,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         gateway: LLMGatewayProtocol,
         registry: ToolRegistry,
         default_model: str = "openrouter/deepseek/deepseek-v4.1-flash",
-        max_turns: int = 30,
+        max_turns: int = DEFAULT_MAX_TURNS,
         subagent_configs: dict[str, SubagentConfig] | None = None,
         transcript_store: TranscriptStoreProtocol | None = None,
     ) -> None:

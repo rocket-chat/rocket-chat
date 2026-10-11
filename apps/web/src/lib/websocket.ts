@@ -385,7 +385,7 @@ export class MissionWebSocket {
       }
 
       case "post_failure_synthesis": {
-        const turns = payload.turns_taken || payload.max_turns || 30;
+        const turns = payload.turns_taken || payload.max_turns || 60;
         const reason = payload.reason || "Turn limit reached";
         store.setStatusMessage(`Synthesizing findings: ${reason}`);
         store.appendFlightLog({

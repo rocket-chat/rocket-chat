@@ -19,8 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `agent-core`/`config-engine`/`api`: **The default turn budget is 60 reasoning steps (was 30).** One shared constant (`DEFAULT_MAX_TURNS`) now defines it for the orchestrator, the resolver and the `general.max_turns` setting; `AGENT_MAX_TURNS`, the organization setting and an agent's own limit still override it.
 
 ### Fixed
+- `agent-core`/`api`: **The agent reads a cloned repository from the sandbox, not through the GitHub API.** `github_read_file` now answers "already cloned at /workspace/<name>, read it with `file_read`, `list_dir` and `grep_search`" when the repository is in the running sandbox (another `ref` still reads from GitHub), its description and the system prompt say the same, and the check never starts a sandbox or exposes the clone's credentials.
+- `web`: **The conversation no longer jumps to the bottom at every step.** It follows new content only while you are at the bottom, stays where you are when you have scrolled up to review the reasoning, and shows a "scroll to the latest message" arrow to get back (sending a message also returns you to the end).
+- `web`: **Opening a conversation no longer fills the message box with someone else's text.** A starter prompt stayed in the store and refilled every composer that mounted afterwards, and unsent text followed you from one conversation to the next. A starter now applies once, each conversation keeps its own draft, and a sent message clears its draft at once, so the box stays empty and the next-step suggestion shows as the placeholder.
 
 ### Security
 

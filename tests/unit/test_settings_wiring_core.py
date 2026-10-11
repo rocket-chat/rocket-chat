@@ -241,3 +241,14 @@ async def test_sign_in_is_limited_to_the_organizations_domains_only_when_enforce
     )
     assert await _sso_allowed(None, org, "alice@acme.test") is True
     assert await _sso_allowed(None, org, "mallory@elsewhere.test") is False
+
+
+@pytest.mark.setting("general.max_turns")
+async def test_the_default_turn_budget_is_the_same_everywhere_it_is_stated() -> None:
+    """The registry, the resolver and the orchestrator must not drift apart on the default."""
+    from config_engine.registry import REGISTRY
+
+    from specifications.interfaces.agent import DEFAULT_MAX_TURNS
+
+    assert REGISTRY["general"]["max_turns"].default == DEFAULT_MAX_TURNS == 60
+    assert (await _plan("wire_default_budget")).max_turns == DEFAULT_MAX_TURNS
