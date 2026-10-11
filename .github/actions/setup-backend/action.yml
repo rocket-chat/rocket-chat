@@ -1,0 +1,15 @@
+name: Set up the backend toolchain
+description: Python 3.12, uv with a lockfile-keyed cache, and the locked development dependencies.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+        cache-dependency-glob: uv.lock
+    - name: Install locked dependencies
+      shell: bash
+      run: uv sync --dev --frozen

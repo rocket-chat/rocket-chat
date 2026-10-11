@@ -1,0 +1,29 @@
+name: Dev images
+
+# Publish development images from any branch on demand (native builds, no emulation).
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Image tag to push
+        required: false
+        default: dev
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  backend:
+    uses: ./.github/workflows/image.yml
+    with:
+      image: backend
+      file: deploy/docker/Dockerfile.backend
+      tags: ${{ inputs.tag || 'dev' }}
+
+  frontend:
+    uses: ./.github/workflows/image.yml
+    with:
+      image: frontend
+      file: deploy/docker/Dockerfile.frontend
+      tags: ${{ inputs.tag || 'dev' }}

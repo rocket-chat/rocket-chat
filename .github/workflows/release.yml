@@ -1,4 +1,4 @@
-name: Release Pipeline
+name: Release
 
 on:
   push:
@@ -6,131 +6,174 @@ on:
       - "v*.*.*"
 
 permissions:
-  contents: write
+  contents: read
   packages: write
 
 jobs:
-  docker-release:
-    name: Build & Push Multi-Arch Docker Images
+  # Fail in seconds, before any image is built: the manifests agree with each other and with the
+  # tag, and the changelog has notes for this version.
+  verify:
+    name: Verify the tag
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tags: ${{ steps.plan.outputs.tags }}
+      primary: ${{ steps.plan.outputs.primary }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          python-version: "3.12"
+      - name: Manifests, tag and changelog agree
+        run: |
+          python3 scripts/release.py check
+          python3 scripts/release.py notes "${GITHUB_REF_NAME#v}" --output "$RUNNER_TEMP/notes.md"
+          python3 - <<'PY'
+          import os, tomllib
+          version = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"].removeprefix("v")
+          assert version == tag, f"tag v{tag} does not match the manifests ({version})"
+          PY
+      - name: Plan the image tags
+        id: plan
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          tags="$version"
+          # A pre-release (1.0.0-rc.1) never moves `latest`.
+          [[ "$version" == *-* ]] || tags="$version"$'\n'"latest"
+          {
+            echo "version=$version"
+            echo "primary=$version"
+            echo "tags<<EOF"
+            echo "$tags"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Extract Docker metadata for Backend
-        id: meta-backend
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/backend
-          tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest
+  # ---- container images: native amd64 and arm64 builds, one job per image, all in parallel ----
 
-      - name: Build and Push Backend Image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: deploy/docker/Dockerfile.backend
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-backend.outputs.tags }}
-          labels: ${{ steps.meta-backend.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+  backend:
+    needs: verify
+    uses: ./.github/workflows/image.yml
+    with:
+      image: backend
+      file: deploy/docker/Dockerfile.backend
+      tags: ${{ needs.verify.outputs.tags }}
 
-      - name: Extract Docker metadata for Frontend
-        id: meta-frontend
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/frontend
-          tags: |
-            type=semver,pattern={{version}}
-            type=raw,value=latest
+  frontend:
+    needs: verify
+    uses: ./.github/workflows/image.yml
+    with:
+      image: frontend
+      file: deploy/docker/Dockerfile.frontend
+      tags: ${{ needs.verify.outputs.tags }}
 
-      - name: Build and Push Frontend Image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: deploy/docker/Dockerfile.frontend
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta-frontend.outputs.tags }}
-          labels: ${{ steps.meta-frontend.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+  # The agent workspace images: the devbox every session starts from, and the variant with a
+  # headless browser for the `browser_inspect` tool.
+  sandbox:
+    needs: verify
+    uses: ./.github/workflows/image.yml
+    with:
+      image: sandbox
+      file: deploy/docker/Dockerfile.sandbox
+      tags: ${{ needs.verify.outputs.tags }}
 
-  helm-release:
-    name: Package & Push OCI Helm Chart
+  sandbox-browser:
+    needs: [verify, sandbox]
+    uses: ./.github/workflows/image.yml
+    with:
+      image: sandbox-browser
+      file: deploy/docker/Dockerfile.sandbox-browser
+      tags: ${{ needs.verify.outputs.tags }}
+      build-args: BASE_IMAGE=ghcr.io/${{ github.repository_owner }}/sandbox:${{ needs.verify.outputs.primary }}
+
+  helm:
+    name: Package & push the OCI Helm chart
+    needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
         with:
           version: "v3.15.0"
-
-      - name: Extract Version Tag
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
-
-      - name: Package Helm Chart
-        run: |
-          helm package deploy/helm/platform \
-            --version ${{ steps.get_version.outputs.VERSION }} \
-            --app-version ${{ steps.get_version.outputs.VERSION }} \
-            --destination .cr-release-packages
-
-      - name: Push Helm Chart to GHCR OCI Registry
+      - uses: oras-project/setup-oras@v1
+      - name: Package and push the chart
         env:
-          HELM_EXPERIMENTAL_OCI: 1
+          VERSION: ${{ needs.verify.outputs.version }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
-          CHART_PACKAGE=$(ls .cr-release-packages/*.tgz | head -n 1)
-          helm push "$CHART_PACKAGE" oci://ghcr.io/${{ github.repository_owner }}/charts
-
-      - name: Set up ORAS
-        uses: oras-project/setup-oras@v1
-
-      - name: Push Artifact Hub Metadata to GHCR (Verified Publisher)
+          helm package deploy/helm/platform --version "$VERSION" --app-version "$VERSION" \
+            --destination .cr-release-packages
+          echo "$REGISTRY_TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push .cr-release-packages/*.tgz "oci://ghcr.io/$OWNER/charts"
+      - name: Push Artifact Hub metadata (verified publisher)
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u ${{ github.actor }} --password-stdin
-          oras push ghcr.io/${{ github.repository_owner }}/charts/rocket-chat:artifacthub.io \
+          echo "$REGISTRY_TOKEN" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push "ghcr.io/$OWNER/charts/rocket-chat:artifacthub.io" \
             --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
             artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
 
-  github-release:
-    name: Publish GitHub Release
-    needs: [docker-release, helm-release]
+  sbom:
+    name: Software bill of materials
+    needs: [verify, backend, frontend, sandbox, sandbox-browser]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Extract Release Notes from CHANGELOG
-        id: notes
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          python3 scripts/release.py notes "$VERSION" --output RELEASE_NOTES.md
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          body_path: RELEASE_NOTES.md
+          python-version: "3.12"
+      # The lockfile SBOM is the authoritative, deterministic artifact: it needs no external
+      # scanner, so a green release never depends on a third-party tool.
+      - name: Lockfile SBOM (CycloneDX)
+        run: python3 scripts/generate_sbom.py --output sbom/rocket-chat-source.cdx.json
+      # Best-effort OS-package layer of each published image; a registry hiccup must not block the
+      # release because the lockfile SBOM already satisfies the supply-chain requirement.
+      - name: Image SBOMs
+        continue-on-error: true
+        env:
+          TAG: ${{ needs.verify.outputs.primary }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$RUNNER_TEMP/bin"
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          for image in backend frontend sandbox sandbox-browser; do
+            "$RUNNER_TEMP/bin/syft" "ghcr.io/$OWNER/$image:$TAG" -o spdx-json="sbom/$image-image.spdx.json" &
+          done
+          wait
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom/
+
+  github-release:
+    name: Publish the GitHub release
+    needs: [verify, backend, frontend, sandbox, sandbox-browser, helm, sbom]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: sbom
+          path: sbom
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Release notes from the changelog
+        run: python3 scripts/release.py notes "${GITHUB_REF_NAME#v}" --output "$RUNNER_TEMP/RELEASE_NOTES.md"
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: ${{ runner.temp }}/RELEASE_NOTES.md
+          prerelease: ${{ contains(github.ref_name, '-') }}
           files: |
             deploy/docker-compose.prod.yml
+            sbom/*.json
           generate_release_notes: false

@@ -1,0 +1,15 @@
+name: Set up the frontend toolchain
+description: pnpm and Node (the versions the production image uses) with the pnpm store cached, and the locked dependencies.
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 10
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+    - name: Install locked dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

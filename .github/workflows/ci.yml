@@ -1,138 +1,357 @@
-name: CI Pipeline
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  # Run the whole pipeline by hand on any branch.
+  workflow_dispatch:
 
+# A new push to a pull request supersedes its running checks; runs on main always finish, so every
+# merged commit has a verdict.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CI: "true"
+  DEFAULT_SANDBOX_DRIVER: fake
+  ROCKET_MODEL_STUB: deterministic
+  UV_FROZEN: "1"
 
 jobs:
+  # Decide which expensive, rarely relevant jobs a change needs. Pushes to main always run them.
+  changes:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      sandbox: ${{ github.event_name != 'pull_request' || steps.filter.outputs.sandbox == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            sandbox:
+              - 'deploy/docker/Dockerfile.sandbox*'
+              - 'scripts/smoke_sandbox_image.sh'
+              - 'packages/sandbox-driver/**'
+              - 'tests/integration/test_k8s_live_cluster.py'
+              - '.github/workflows/ci.yml'
+              - '.github/actions/**'
+
+  # ---- backend ------------------------------------------------------------------------------
+
+  backend-static:
+    name: Backend lint & types
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-backend
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy packages apps/api
+
+  backend-core:
+    name: Backend unit tests ${{ matrix.shard }}/2
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rocket_chat
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      TEST_DATABASE_URL: postgresql+asyncpg://rocket_app:rocket_app@localhost:5432/rocket_chat
+      ADMIN_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/rocket_chat
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-backend
+      - run: scripts/ci/provision_postgres.sh
+      # `-rs` prints skip reasons, so an unexpectedly skipped suite is visible in the log.
+      - name: Unit, contract and concurrency tests
+        run: uv run pytest tests/unit tests/contract tests/concurrency --shard=${{ matrix.shard }}/2 -rs -q
+      # The golden set scores task completion, TTFT and cache metrics against the real
+      # orchestrator with the stub model and fake sandbox, and must be byte-stable between runs.
+      - name: Golden-set evaluation
+        if: matrix.shard == 1
+        env:
+          ROCKET_AUTO_PROVISION_TENANTS: "true"
+        run: |
+          uv run pytest tests/harness -q
+          uv run python -m tests.harness.run_golden --twice
+
+  backend-db:
+    name: Backend integration & security tests ${{ matrix.shard }}/2
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    # Row-level security, migrations and state preservation run against a real PostgreSQL. Without
+    # it they would skip and CI would report green while testing nothing (`require_database` in
+    # tests/conftest.py turns that into a failure).
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rocket_chat
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      TEST_DATABASE_URL: postgresql+asyncpg://rocket_app:rocket_app@localhost:5432/rocket_chat
+      ADMIN_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/rocket_chat
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-backend
+      - run: scripts/ci/provision_postgres.sh
+      - run: uv run pytest tests/integration tests/security --shard=${{ matrix.shard }}/2 -rs -q
+
+  # The name branch protection requires; the jobs above do the work in parallel.
   backend:
     name: Backend Lint, Type-Check & Tests
+    needs: [backend-static, backend-core, backend-db]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Require every backend job to pass
+        run: |
+          [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "false" ]
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+  # ---- frontend -----------------------------------------------------------------------------
+
+  frontend-static:
+    name: Frontend lint, types & build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-frontend
+      - run: pnpm --filter web lint
+      - run: pnpm --filter web type-check
+      - name: Cache the Next.js build cache
+        uses: actions/cache@v4
         with:
-          enable-cache: true
-          version: "latest"
+          path: apps/web/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**', 'apps/web/*.ts', 'apps/web/*.mjs') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}-
+      - run: pnpm --filter web build
 
-      - name: Set up Python 3.12
-        run: uv python install 3.12
-
-      - name: Install dependencies
-        run: uv sync --dev
-
-      - name: Run Ruff Linter
-        run: uv run ruff check .
-
-      - name: Run Ruff Formatter Check
-        run: uv run ruff format --check .
-
-      - name: Run Mypy Type Checker
-        run: uv run mypy packages apps/api
-
-      - name: Run Pytest Test Suite
+  # The same Playwright suite against the in-memory stack and against what production runs: the
+  # migrated schema with forced row-level security and the unprivileged application role (it is
+  # what caught the races that in-memory stores cannot show). Each runs in four shards. E2E starts
+  # `next dev`, so it does not need the production build above.
+  e2e:
+    name: E2E ${{ matrix.store }} ${{ matrix.shard }}/4
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        store: [memory, postgres]
+        shard: [1, 2, 3, 4]
+    env:
+      PGPASSWORD: postgres
+      PLAYWRIGHT_TEST: "true"
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: test-secret-at-least-thirty-two-chars-long
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-backend
+      - uses: ./.github/actions/setup-frontend
+      - uses: ./.github/actions/setup-playwright
+      - name: Start and migrate PostgreSQL
+        if: matrix.store == 'postgres'
+        run: |
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=rocket_chat \
+            --health-cmd pg_isready --health-interval 2s --health-retries 30 pgvector/pgvector:pg16
+          until [ "$(docker inspect -f '{{.State.Health.Status}}' pg)" = healthy ]; do sleep 1; done
+          scripts/ci/provision_postgres.sh
+          DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/rocket_chat \
+          ADMIN_DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/rocket_chat \
+            uv run alembic upgrade head
+      - name: Run the Playwright suite
         env:
-          DEFAULT_SANDBOX_DRIVER: docker
-        run: uv run pytest tests/
+          E2E_DATABASE_URL: ${{ matrix.store == 'postgres' && 'postgresql+asyncpg://rocket_app:rocket_app@localhost:5432/rocket_chat' || '' }}
+          E2E_ADMIN_DATABASE_URL: ${{ matrix.store == 'postgres' && 'postgresql+asyncpg://postgres:postgres@localhost:5432/rocket_chat' || '' }}
+          ROCKET_TEST_DB_IS_DISPOSABLE: "1"
+        run: pnpm --filter web test:e2e --shard=${{ matrix.shard }}/4
+      - name: Keep the failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ matrix.store }}-${{ matrix.shard }}
+          path: apps/web/test-results/
+          retention-days: 5
+          if-no-files-found: ignore
 
   frontend:
     name: Frontend Lint, Type-Check, Build & E2E
+    needs: [frontend-static, e2e]
+    if: ${{ always() }}
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Require every frontend job to pass
+        run: |
+          [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "false" ]
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
-          enable-cache: true
-          version: "latest"
-
-      - name: Set up Python 3.12
-        run: uv python install 3.12
-
-      - name: Install backend dependencies
-        run: uv sync --dev
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: "pnpm"
-
-      - name: Install Node dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Run ESLint
-        run: pnpm --filter web lint
-
-      - name: Run TypeScript Compile Check
-        run: pnpm --filter web type-check
-
-      - name: Build Next.js Production Bundle
-        run: pnpm --filter web build
-
-      - name: Install Playwright Browsers
-        run: pnpm --filter web exec playwright install --with-deps chromium
-
-      - name: Run Playwright E2E Tests
-        run: pnpm --filter web test:e2e
+  # ---- documentation and packaging ----------------------------------------------------------
 
   docs:
     name: Documentation Validation
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: "pnpm"
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Validate Mintlify Documentation Site
-        run: pnpm run docs:check
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-frontend
+      - run: pnpm run docs:check
 
   packaging:
     name: Helm & Docker Compose Validation
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VALUES: deploy/helm/platform/ci/values.yaml
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Helm
-        uses: azure/setup-helm@v4
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
         with:
           version: "v3.15.0"
+      - run: helm lint deploy/helm/platform -f "$VALUES"
+      - run: helm template test-release deploy/helm/platform -f "$VALUES" > /dev/null
 
-      - name: Lint Helm Chart
-        run: helm lint deploy/helm/platform
+      - name: Docker Compose fails closed without secrets and renders with them
+        run: |
+          if docker compose -f deploy/docker-compose.prod.yml config > /dev/null 2>&1; then
+            echo "docker-compose.prod.yml rendered without its required secrets" >&2
+            exit 1
+          fi
+          POSTGRES_PASSWORD=ci ROCKET_APP_DB_PASSWORD=ci ENCRYPTION_MASTER_KEY=ci \
+          SESSION_SECRET=ci NEXTAUTH_URL=https://ci.example \
+          NEXT_PUBLIC_API_URL=https://ci.example/api NEXT_PUBLIC_WS_URL=wss://ci.example \
+            docker compose -f deploy/docker-compose.prod.yml config > /dev/null
+          docker compose -f deploy/docker-compose.yml config > /dev/null
 
-      - name: Template Helm Chart
-        run: helm template test-release deploy/helm/platform > /dev/null
+      # Fail when the operational contract drifts: a missing probe, the liveness/readiness split,
+      # the drain hook, or the memory ceiling.
+      - name: Probes, drain and resource sizing
+        run: |
+          set -euo pipefail
+          show() { helm template test-release deploy/helm/platform -f "$VALUES" --show-only "$1"; }
+          backend=$(show templates/backend/deployment.yaml)
+          frontend=$(show templates/frontend/deployment.yaml)
+          for probe in startupProbe livenessProbe readinessProbe; do
+            grep -q "$probe:" <<<"$backend" || { echo "backend missing $probe"; exit 1; }
+            grep -q "$probe:" <<<"$frontend" || { echo "frontend missing $probe"; exit 1; }
+          done
+          grep -q "path: /v1/ready" <<<"$backend" || { echo "backend readiness must target /v1/ready"; exit 1; }
+          grep -q "terminationGracePeriodSeconds: 60" <<<"$backend" || { echo "backend drain grace drift"; exit 1; }
+          grep -q "/v1/drain" <<<"$backend" || { echo "backend preStop must call /v1/drain"; exit 1; }
+          grep -q "maxUnavailable: 0" <<<"$backend" || { echo "backend must set maxUnavailable: 0"; exit 1; }
+          grep -q "memory: 2Gi" <<<"$backend" || { echo "backend memory limit drift"; exit 1; }
+          show templates/backend/pdb.yaml | grep -q "kind: PodDisruptionBudget" || { echo "PDB missing"; exit 1; }
+          show templates/backend/hpa.yaml | grep -q "kind: HorizontalPodAutoscaler" || { echo "HPA missing"; exit 1; }
 
-      - name: Validate Docker Compose Configuration
-        run: docker compose -f deploy/docker-compose.prod.yml config
+  # ---- sandbox images and the Kubernetes driver --------------------------------------------
+
+  # Pull requests that touch neither sandbox code nor images skip both jobs (see `changes`).
+
+  # Build the sandbox images and prove an agent can really use them: the devbox tools running
+  # unprivileged with every capability dropped, and the headless browser.
+  sandbox-images:
+    name: Sandbox image smoke tests
+    needs: changes
+    if: ${{ needs.changes.outputs.sandbox == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the devbox
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile.sandbox
+          load: true
+          tags: rocket-chat-sandbox:dev
+          cache-from: type=gha,scope=sandbox
+          cache-to: type=gha,scope=sandbox,mode=max
+      # The browser variant builds FROM the devbox just loaded into the local daemon, which the
+      # container builder above cannot see; the default (docker) builder can.
+      - name: Build the browser variant
+        run: docker buildx build --builder default --load -f deploy/docker/Dockerfile.sandbox-browser -t rocket-chat-sandbox-browser:dev .
+      - run: sh scripts/smoke_sandbox_image.sh rocket-chat-sandbox:dev
+      - run: sh scripts/smoke_sandbox_image.sh rocket-chat-sandbox-browser:dev
+
+  # The Kubernetes driver against a real (k3d) cluster: isolation, file I/O, the exec PTY,
+  # processes and NetworkPolicy egress enforcement - none of which a mocked client can prove.
+  k8s-live:
+    name: Kubernetes driver on a real cluster
+    needs: changes
+    if: ${{ needs.changes.outputs.sandbox == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the devbox
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/docker/Dockerfile.sandbox
+          load: true
+          tags: rocket-chat-sandbox:dev
+          cache-from: type=gha,scope=sandbox
+          cache-to: type=gha,scope=sandbox,mode=max
+      - uses: ./.github/actions/setup-backend
+      - name: Create a throwaway k3d cluster and load the devbox
+        run: |
+          curl -fsSL https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-linux-amd64 -o k3d
+          chmod +x k3d
+          ./k3d cluster create ci --servers 1 --agents 0 --no-lb \
+            --kubeconfig-update-default=false --kubeconfig-switch-context=false \
+            --k3s-arg "--disable=traefik@server:0" --wait --timeout 180s
+          ./k3d kubeconfig get ci > "$RUNNER_TEMP/kubeconfig"
+          ./k3d image import rocket-chat-sandbox:dev -c ci
+      - name: Run the live driver tests
+        env:
+          ROCKET_K8S_LIVE: "1"
+        run: |
+          export KUBECONFIG="$RUNNER_TEMP/kubeconfig"
+          uv run pytest tests/integration/test_k8s_live_cluster.py -q -p no:cacheprovider
