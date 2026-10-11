@@ -1,5 +1,6 @@
 "use client";
 
+import { iconButtonClass } from "../ui/IconButton";
 import React from "react";
 import { Sun, Moon, Laptop } from "lucide-react";
 import { useTheme } from "../../lib/theme";
@@ -41,12 +42,11 @@ export const ThemeToggle: React.FC<{ className?: string }> = ({ className = "" }
     <button
       type="button"
       onClick={cycleTheme}
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg border border-border bg-surface hover:bg-elevated text-foreground transition-all duration-150 ${className}`}
-      title={`Theme: ${getLabel()} (Click to toggle)`}
+      className={iconButtonClass(false, className)}
+      title={`Theme: ${getLabel()} (click to change)`}
       aria-label={`Toggle theme (currently ${getLabel()})`}
     >
       {getIcon()}
-      <span className="capitalize">{getLabel()}</span>
     </button>
   );
 };

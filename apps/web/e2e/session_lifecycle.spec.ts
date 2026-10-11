@@ -1,4 +1,14 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
+
+/**
+ * Locates the user's own prompt bubble in the flight stream.
+ *
+ * Scoping matters: a plain `getByText(prompt)` is ambiguous, because the agent
+ * often echoes the prompt back (e.g. rendered as inline code), which trips
+ * Playwright strict mode as soon as the response arrives.
+ */
+const userMessage = (target: Page, text: string) =>
+  target.getByTestId("user-message").filter({ hasText: text });
 
 test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () => {
   test.describe.configure({ mode: "serial" });
@@ -6,16 +16,24 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
   test("switches sessions via sidebar without URL flicker or reversal", async ({ page }) => {
     await page.goto("/");
     await expect(page).toHaveURL(/\/chat\/.+/);
+
+    // Ignite first session
+    const input = page.getByTestId("instruction-input");
+    await input.fill("Session Alpha Turn");
+    await page.getByTestId("ignite-button").click();
+    await expect(page).toHaveURL(/\/chat\/session_.+/, { timeout: 15000 });
     const firstUrl = page.url();
 
     // Create a second session
     const newMissionBtn = page.getByTestId("new-conversation-btn");
     await expect(newMissionBtn).toBeVisible();
     await newMissionBtn.click();
+    await expect(page).toHaveURL("/chat/draft");
 
-    // Verify URL transitioned to new session
-    await expect(page).not.toHaveURL(firstUrl);
-    await expect(page).toHaveURL(/\/chat\/.+/);
+    // Ignite second session
+    await input.fill("Session Beta Turn");
+    await page.getByTestId("ignite-button").click();
+    await expect(page).toHaveURL(/\/chat\/session_.+/, { timeout: 15000 });
     const secondUrl = page.url();
     expect(firstUrl).not.toEqual(secondUrl);
 
@@ -25,10 +43,13 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     await expect(firstSessionLink).toBeVisible();
     await firstSessionLink.click();
 
-    // Verify URL smoothly updates to firstUrl and remains stable (no flicker back to secondUrl)
+    // Verify the URL settled on firstUrl and did not flicker back to secondUrl.
+    // Synchronise on the first session's *own transcript* instead of sleeping: the
+    // flicker bug showed up as rendering the other session's content, so waiting for
+    // this text to appear and then re-checking the URL catches it deterministically.
     await expect(page).toHaveURL(firstUrl);
-    await page.waitForTimeout(1000);
-    expect(page.url()).toEqual(firstUrl);
+    await expect(userMessage(page, "Session Alpha Turn")).toBeVisible();
+    expect(new URL(page.url()).pathname).toEqual(firstPath);
 
     // Switch back to the second session
     const secondPath = new URL(secondUrl).pathname;
@@ -38,8 +59,8 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
 
     // Verify URL updates to secondUrl and remains stable
     await expect(page).toHaveURL(secondUrl);
-    await page.waitForTimeout(1000);
-    expect(page.url()).toEqual(secondUrl);
+    await expect(userMessage(page, "Session Beta Turn")).toBeVisible();
+    expect(new URL(page.url()).pathname).toEqual(secondPath);
 
     // Test native browser history back and forward buttons
     await page.goBack();
@@ -51,15 +72,12 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
 
   test("leaves a session and resumes with fully preserved conversation history", async ({ page }) => {
     await page.goto("/");
-    const initialUrl = page.url();
 
     // Create a dedicated session for this test
     const newMissionBtn = page.getByTestId("new-conversation-btn");
     await expect(newMissionBtn).toBeVisible();
     await newMissionBtn.click();
-    await expect(page).not.toHaveURL(initialUrl);
-    await expect(page).toHaveURL(/\/chat\/.+/);
-    const sessionUrl = page.url();
+    await expect(page).toHaveURL("/chat/draft");
 
     // Submit a user prompt in this session
     const uniqueToken = `telemetry-verify-${Date.now()}`;
@@ -67,61 +85,90 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     await expect(input).toBeEnabled();
     await input.fill(uniqueToken);
     await page.getByTestId("ignite-button").click();
+    await expect(page).toHaveURL(/\/chat\/session_.+/, { timeout: 15000 });
+    const sessionUrl = page.url();
 
     // Verify user prompt is visible in the chat log stream
-    const chatStream = page.locator(".continuous-flight-stream");
-    await expect(chatStream.getByText(uniqueToken)).toBeVisible();
+    await expect(userMessage(page, uniqueToken)).toBeVisible();
+    // The session must be registered server-side before we navigate away; waiting for
+    // its sidebar entry is deterministic proof of that (this replaced a 1s sleep).
+    const sessionPath = new URL(sessionUrl).pathname;
+    await expect(page.locator(`a[href="${sessionPath}"]`)).toBeVisible();
 
     // Leave the session by navigating to the full-page settings suite
     await page.goto("/settings/agents");
     await expect(page).toHaveURL(/\/settings\/agents/);
-    await expect(page.getByText("CUSTOM AGENT PERSONAS & CONTEXT")).toBeVisible();
+    await expect(page.getByText("Custom agent personas")).toBeVisible();
 
     // Resume the session by direct URL deep-link
     await page.goto(sessionUrl);
     await expect(page).toHaveURL(sessionUrl);
 
     // Verify the previous message history was preserved and is visible in the chat stream
-    await expect(page.locator(".continuous-flight-stream").getByText(uniqueToken)).toBeVisible({ timeout: 10000 });
+    await expect(userMessage(page, uniqueToken)).toBeVisible({ timeout: 10000 });
   });
 
-  test("streams real-time updates across 2 concurrent users on the same session", async ({ browser }) => {
-    // User 1 creates/opens a fresh session
+  test("streams real-time updates across 2 concurrent users on the same session", async ({ browser, request }) => {
+    // Create the shared session over REST, deliberately without a setup turn:
+    // turn latency is model/sandbox bound (and can exceed a minute), so waiting
+    // for one made this test flaky. UI-driven session creation is covered by the
+    // lifecycle test above.
+    const createRes = await request.post("http://localhost:8000/v1/sessions", {
+      data: { title: "Collaborative Session" },
+    });
+    expect(createRes.ok()).toBeTruthy();
+    const sharedSessionUrl = `/chat/${(await createRes.json()).session_id}`;
+
+    // User 1 opens the session
     const context1 = await browser.newContext();
     const page1 = await context1.newPage();
-    await page1.goto("/");
-    await expect(page1).toHaveURL(/\/chat\/.+/);
-    const initialUrl = page1.url();
-
-    const newMissionBtn = page1.getByTestId("new-conversation-btn");
-    await expect(newMissionBtn).toBeVisible();
-    await newMissionBtn.click();
-    await expect(page1).not.toHaveURL(initialUrl, { timeout: 10000 });
-    await expect(page1).toHaveURL(/\/chat\/.+/);
-    const sharedSessionUrl = page1.url();
+    await page1.goto(sharedSessionUrl);
+    await expect(page1).toHaveURL(sharedSessionUrl);
 
     // User 2 opens the exact same session URL in an independent context
     const context2 = await browser.newContext();
     const page2 = await context2.newPage();
+    // The collaborator must be subscribed before the instruction is sent, or the test would
+    // measure page-load speed (on Postgres it is slower) instead of the live broadcast.
+    let collaboratorSynced = false;
+    page2.on("websocket", (ws) => {
+      if (/\/v1\/sessions\/.*\/ws/.test(ws.url())) ws.on("framereceived", () => (collaboratorSynced = true));
+    });
     await page2.goto(sharedSessionUrl);
     await expect(page2).toHaveURL(sharedSessionUrl);
+    await expect.poll(() => collaboratorSynced, { timeout: 15000 }).toBe(true);
 
-    // Verify both users are connected to the sandbox
-    await expect(page1.getByText(/Sandbox Ready|Ready/i).first()).toBeVisible({ timeout: 15000 });
-    await expect(page2.getByText(/Sandbox Ready|Ready/i).first()).toBeVisible({ timeout: 15000 });
+    // A freshly created session is idle in both cockpits, so the Run control must
+    // be present (the Queue/Stop pair only renders while a turn is in flight).
+    await expect(page1.getByTestId("ignite-button")).toBeVisible();
+    await expect(page2.getByTestId("ignite-button")).toBeVisible();
 
     // User 1 transmits an instruction
-    const user1Prompt = `multiuser-sync-${Date.now()}`;
     const input1 = page1.getByTestId("instruction-input");
+    const user1Prompt = `multiuser-sync-${Date.now()}`;
     await expect(input1).toBeEnabled();
     await input1.fill(user1Prompt);
     await page1.getByTestId("ignite-button").click();
 
     // User 1 sees their prompt and executing/processing state
-    await expect(page1.locator(".continuous-flight-stream").getByText(user1Prompt)).toBeVisible();
+    await expect(userMessage(page1, user1Prompt)).toBeVisible({ timeout: 15000 });
     await expect(page1.getByText(/Running\.\.\.|Executing in Sandbox|Reasoning|Executing|Synthesizing|Ready/i).first()).toBeVisible({ timeout: 10000 });
 
-    // User 2 in real time receives the live telemetry state via WebSocket without refreshing
+    // User 2 receives the *prompt itself* live over the WebSocket, without reloading:
+    // the server broadcasts a USER_MESSAGE frame carrying the instruction.
+    // This is the strong assertion the backend could not satisfy before the turn handler
+    // published the event — asserting mere "executing" telemetry was a false positive.
+    await expect(userMessage(page2, user1Prompt)).toBeVisible({ timeout: 15000 });
+
+    // Rendered exactly once on the collaborator (a late joiner hydrating from the
+    // snapshot must not get a second copy from the live broadcast).
+    await expect(userMessage(page2, user1Prompt)).toHaveCount(1);
+
+    // And exactly once on the originating client: its optimistic entry is deduped against
+    // the echoed `message_id` rather than rendered twice.
+    await expect(userMessage(page1, user1Prompt)).toHaveCount(1);
+
+    // User 2 also receives the live telemetry state.
     await expect(page2.getByText(/Executing in Sandbox|Running\.\.\.|Reasoning|PROCESSING|Analyzing instruction|Executing|Synthesizing|Ready/i).first()).toBeVisible({ timeout: 10000 });
 
     await context1.close();
@@ -142,9 +189,11 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     const sessionId = sessionData.session_id;
 
     // Patch session with conversation containing reasoning and tool calls
-    const patchRes = await request.patch(`http://localhost:8000/v1/sessions/${sessionId}`, {
+    const patchRes = await request.post(
+      `http://localhost:8000/v1/dev/sessions/${sessionId}/transcript`,
+      {
       data: {
-        conversation_history: [
+        messages: [
           { role: "user", content: "Analyze the current workspace files" },
           {
             role: "assistant",
@@ -162,7 +211,8 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
           },
         ],
       },
-    });
+      },
+    );
     expect(patchRes.ok()).toBeTruthy();
 
     // 2. Navigate to this session in the web app
@@ -175,13 +225,23 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
 
     // Expand the collapsed-by-default reasoning block
     await actionGroupToggle.click();
-    await expect(page.getByText(testReasoning)).toBeVisible();
+    // Each step is one line; its detail (reasoning, command, output) opens on demand.
+    const steps = page.getByTestId("activity-step");
+    await expect(steps).toHaveCount(2);
+    await expect(steps.nth(1)).toContainText("ls -la");
+    await expect(steps.nth(0)).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByText("bash_exec", { exact: true })).toHaveCount(0);
+    await steps.nth(0).click();
+    await expect(steps.nth(0)).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByText(testReasoning).first()).toBeVisible();
+    await steps.nth(1).click();
     await expect(page.getByText("bash_exec", { exact: true }).first()).toBeVisible();
+    await expect(page.getByText(testOutput)).toBeVisible();
 
     // 3. Leave the chat by navigating to settings
     await page.goto("/settings/github");
     await expect(page).toHaveURL("/settings/github");
-    await expect(page.getByText(/GitHub & Code Collaboration|GitHub Integration/i).first()).toBeVisible();
+    await expect(page.getByText(/Git & version control/i).first()).toBeVisible();
 
     // 4. Return to the chat session
     await page.goto(`/chat/${sessionId}`);
@@ -191,7 +251,9 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     const restoredActionGroup = page.getByTestId("action-group-toggle").first();
     await expect(restoredActionGroup).toBeVisible({ timeout: 10000 });
     await restoredActionGroup.click();
-    await expect(page.getByText(testReasoning)).toBeVisible();
+    await page.getByTestId("activity-step").nth(0).click();
+    await expect(page.getByText(testReasoning).first()).toBeVisible();
+    await page.getByTestId("activity-step").nth(1).click();
     await expect(page.getByText("bash_exec", { exact: true }).first()).toBeVisible();
     await expect(page.getByText("Here is the summary of the analyzed workspace files.")).toBeVisible();
   });

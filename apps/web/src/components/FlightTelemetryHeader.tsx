@@ -5,12 +5,15 @@ import Link from "next/link";
 import { useMissionStore } from "../lib/store";
 import { ThemeToggle } from "./Theme/ThemeToggle";
 import { UserHeaderCapsule } from "./UserHeaderCapsule";
+import { IconButton, iconButtonClass } from "./ui/IconButton";
 import {
   Zap,
   Settings2,
   PanelRightClose,
   PanelRightOpen,
   PanelLeftOpen,
+  History,
+  Brain,
 } from "lucide-react";
 
 export const FlightTelemetryHeader: React.FC = () => {
@@ -23,6 +26,10 @@ export const FlightTelemetryHeader: React.FC = () => {
     isExecuting,
     isRightPanelOpen,
     setIsRightPanelOpen,
+    isTurnInspectorOpen,
+    setIsTurnInspectorOpen,
+    isMemoryInspectorOpen,
+    setIsMemoryInspectorOpen,
     isLeftSidebarOpen,
     setIsLeftSidebarOpen,
   } = useMissionStore();
@@ -33,21 +40,16 @@ export const FlightTelemetryHeader: React.FC = () => {
       : selectedModel.split("/").pop() || selectedModel;
 
   return (
-    <header className="sticky top-0 z-30 h-13 px-4 sm:px-6 bg-surface-base/90 backdrop-blur-md border-b border-surface-border flex items-center justify-between select-none transition-colors">
+    <header className="sticky top-0 z-30 h-14 shrink-0 px-4 sm:px-6 bg-surface-base/90 backdrop-blur-md border-b border-surface-border flex items-center justify-between select-none transition-colors">
       {/* Left: Sidebar toggle, Thread Title & Model Tag */}
       <div className="flex items-center gap-3">
         {!isLeftSidebarOpen && (
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setIsLeftSidebarOpen(true)}
-              className="p-1.5 rounded-lg border border-surface-border hover:border-brand/40 bg-surface-card hover:bg-surface-elevated text-neutral-400 hover:text-white transition-colors cursor-pointer"
-              title="Expand Sessions Sidebar"
-            >
-              <PanelLeftOpen className="w-4 h-4" />
-            </button>
+            <IconButton label="Expand Sessions Sidebar" onClick={() => setIsLeftSidebarOpen(true)}>
+              <PanelLeftOpen className="h-4 w-4" />
+            </IconButton>
             <Link href="/" className="flex items-center gap-2">
-              <span className="font-display font-semibold text-sm tracking-tight text-foreground">
+              <span className="hidden font-display text-sm font-semibold tracking-tight text-foreground sm:inline">
                 Rocket Chat
               </span>
             </Link>
@@ -55,7 +57,7 @@ export const FlightTelemetryHeader: React.FC = () => {
         )}
 
         {/* Thread Title */}
-        <h1 className="text-sm font-semibold text-foreground flex items-center gap-2 truncate max-w-xs sm:max-w-md">
+        <h1 className="text-sm font-semibold text-foreground flex items-center gap-2 min-w-0 truncate max-w-[34vw] sm:max-w-md">
           <span className="truncate">{session?.title || "New Session"}</span>
         </h1>
 
@@ -70,58 +72,59 @@ export const FlightTelemetryHeader: React.FC = () => {
         </div>
       </div>
 
-      {/* Right: Real Execution State & Token Telemetry (only if streaming tokens), Theme Toggle, Right Panel toggle & Settings */}
+      {/* Right: run state, then view controls, then account */}
       <div className="flex items-center gap-2 text-xs">
-        {/* Dynamic Execution / Token Rate Tag */}
         {isExecuting ? (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-card border border-brand/30 text-[11px] font-mono text-brand animate-pulse">
-            <Zap className="w-3.5 h-3.5 text-brand" />
-            <span>Executing</span>
-            {tokenRate > 0 && (
-              <>
-                <span className="text-neutral-400 dark:text-neutral-600">·</span>
-                <span className="text-neutral-700 dark:text-neutral-300">{tokenRate} tok/s</span>
-              </>
-            )}
+          <div className="flex items-center gap-1.5 rounded-md border border-brand/30 bg-surface-card px-2.5 py-1 text-[11px] text-brand">
+            <Zap className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
+            <span>Working</span>
+            {tokenRate > 0 && <span className="hidden text-neutral-500 sm:inline">· {tokenRate} tok/s</span>}
           </div>
         ) : (
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface-card border border-surface-border text-[11px] font-mono text-neutral-500 dark:text-neutral-400">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          <div className="flex items-center gap-1.5 rounded-md border border-surface-border bg-surface-card px-2.5 py-1 text-[11px] text-neutral-600 dark:text-neutral-400">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
             <span>Ready</span>
           </div>
         )}
 
-        {/* Native Light/Dark Mode Toggle */}
-        <ThemeToggle />
+        <div className="mx-0.5 hidden h-4 w-px bg-surface-border sm:block" />
 
-        {/* Toggle Right Panel (Inspector/Terminal) */}
-        <button
-          type="button"
+        <div className="hidden items-center gap-1.5 sm:flex">
+          <ThemeToggle />
+          <IconButton
+            data-testid="memory-inspector-trigger"
+            label="Open memory inspector"
+            pressed={isMemoryInspectorOpen}
+            aria-expanded={isMemoryInspectorOpen}
+            onClick={() => setIsMemoryInspectorOpen(!isMemoryInspectorOpen)}
+          >
+            <Brain className="h-4 w-4" />
+          </IconButton>
+          <IconButton
+            data-testid="turn-inspector-toggle"
+            label="Turn Inspector"
+            pressed={isTurnInspectorOpen}
+            onClick={() => setIsTurnInspectorOpen(!isTurnInspectorOpen)}
+          >
+            <History className="h-4 w-4" />
+          </IconButton>
+        </div>
+
+        <IconButton
+          data-testid="right-panel-toggle"
+          label={isRightPanelOpen ? "Collapse Right Panel" : "Expand Right Panel (Inspector / Terminal)"}
+          pressed={isRightPanelOpen}
           onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-          className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
-            isRightPanelOpen
-              ? "bg-surface-elevated border-surface-border text-foreground"
-              : "bg-surface-card hover:bg-surface-elevated border-surface-border text-neutral-500 hover:text-foreground dark:text-neutral-400 dark:hover:text-white"
-          }`}
-          title={isRightPanelOpen ? "Collapse Right Panel" : "Expand Right Panel (Inspector / Terminal)"}
         >
-          {isRightPanelOpen ? (
-            <PanelRightClose className="w-4 h-4" />
-          ) : (
-            <PanelRightOpen className="w-4 h-4" />
-          )}
-        </button>
+          {isRightPanelOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+        </IconButton>
 
-        {/* User Capsule */}
+        <div className="mx-0.5 hidden h-4 w-px bg-surface-border sm:block" />
+
         <UserHeaderCapsule />
 
-        {/* Settings Suite Entrypoint */}
-        <Link
-          href="/settings/github"
-          className="p-1.5 rounded-lg bg-surface-card hover:bg-surface-elevated border border-surface-border text-neutral-500 hover:text-foreground dark:text-neutral-400 dark:hover:text-white transition-colors cursor-pointer"
-          title="Settings Console"
-        >
-          <Settings2 className="w-4 h-4" />
+        <Link href="/settings/github" title="Settings Console" aria-label="Settings Console" className={iconButtonClass(false, "hidden sm:inline-flex")}>
+          <Settings2 className="h-4 w-4" />
         </Link>
       </div>
     </header>

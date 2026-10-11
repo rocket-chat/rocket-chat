@@ -19,7 +19,6 @@ export interface UserPreferencesSettings {
   slack_user_handle: string;
   slack_notifications_enabled: boolean;
   preferred_model: string;
-  turbo_mode: boolean;
   theme_mode: "dark" | "light" | "system";
   notification_sound: boolean;
   suggest_next_questions: boolean;

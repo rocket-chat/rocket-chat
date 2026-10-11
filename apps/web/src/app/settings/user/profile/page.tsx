@@ -1,185 +1,64 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Save, CheckCircle2 } from "lucide-react";
+import React, { Suspense } from "react";
+import { ChangePasswordPanel } from "../../../../components/settings/ChangePasswordPanel";
+import { useSession } from "../../../../components/AuthProvider";
+import { SchemaSettingsForm } from "../../../../components/settings/SchemaSettingsForm";
 
-import { useSession } from "next-auth/react";
-
-interface ProfileState {
-  full_name: string;
-  default_role: string;
-  git_author_email: string;
-  suggest_next_questions?: boolean;
-}
-
-export default function UserProfileSettingsPage() {
+export default function UserProfilePage() {
   const { data: session } = useSession();
-  const [profile, setProfile] = useState<ProfileState>({
-    full_name: "",
-    default_role: "Software Engineer",
-    git_author_email: "",
-    suggest_next_questions: true,
-  });
-  const [saving, setSaving] = useState(false);
-  const [successBanner, setSuccessBanner] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetch("/v1/settings/user_preferences")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.effective) {
-          setProfile((prev) => ({
-            ...prev,
-            ...data.effective,
-            full_name: data.effective.full_name || session?.user?.name || prev.full_name,
-            git_author_email: data.effective.git_author_email || session?.user?.email || prev.git_author_email,
-          }));
-        } else if (session?.user) {
-          setProfile((prev) => ({
-            ...prev,
-            full_name: session.user?.name || prev.full_name,
-            git_author_email: session.user?.email || prev.git_author_email,
-          }));
-        }
-      })
-      .catch(() => {});
-  }, [session]);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await fetch("/v1/settings/user_preferences", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ overrides: profile }),
-      });
-      setSuccessBanner("Profile preferences saved successfully");
-      setTimeout(() => setSuccessBanner(null), 3000);
-    } catch {
-      // ignore
-    } finally {
-      setSaving(false);
-    }
-  };
+  const user = session?.user as unknown as
+    | { name?: string; email?: string; roles?: string[]; orgId?: string }
+    | undefined;
+  const initials = (user?.name || "RC")
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <div className="flex flex-col min-h-full">
-      {/* Header */}
       <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
         <div className="max-w-5xl mx-auto">
           <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
             <span>Settings</span>
             <span>/</span>
-            <span>User Preferences</span>
-            <span>/</span>
             <span className="text-foreground font-medium">Profile & Account</span>
           </div>
           <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
-            Profile & Developer Account
+            Profile & Account
           </h1>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
-            Configure your personal operator identification and session signature.
-          </p>
         </div>
       </div>
 
       <div className="flex-1 p-8">
-        <div className="max-w-5xl mx-auto space-y-6">
-          {successBanner && (
-            <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              <span>{successBanner}</span>
+        <div className="max-w-5xl mx-auto space-y-8">
+          <div className="bg-surface-card rounded-xl border border-surface-border p-6 flex items-center gap-4">
+            <div className="w-16 h-16 rounded-full bg-surface-elevated border-2 border-brand flex items-center justify-center text-foreground font-mono font-bold text-lg">
+              {initials}
             </div>
-          )}
-
-          <div className="bg-surface-card rounded-xl border border-surface-border p-6 space-y-5">
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-full bg-surface-elevated border-2 border-brand flex items-center justify-center text-foreground font-mono font-bold text-lg">
-                AT
-              </div>
-              <div>
-                <h3 className="text-base font-semibold text-foreground">{profile.full_name}</h3>
-                <span className="text-xs font-mono text-neutral-500 dark:text-neutral-400">{profile.default_role}</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-surface-borderSubtle">
-              <div>
-                <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
-                  Full Name
-                </label>
-                <input
-                  type="text"
-                  value={profile.full_name}
-                  onChange={(e) => setProfile({ ...profile, full_name: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
-                  Corporate Email
-                </label>
-                <input
-                  type="email"
-                  value={profile.git_author_email}
-                  onChange={(e) =>
-                    setProfile({ ...profile, git_author_email: e.target.value })
-                  }
-                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1.5">
-                  Default Role Designation
-                </label>
-                <input
-                  type="text"
-                  value={profile.default_role}
-                  onChange={(e) =>
-                    setProfile({ ...profile, default_role: e.target.value })
-                  }
-                  className="w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand"
-                />
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-surface-borderSubtle">
-              <div className="space-y-1">
-                <span className="text-sm font-medium text-foreground">
-                  Suggest Probable Next Questions
-                </span>
-                <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                  Propose intelligent, context-aware follow-up prompts as semi-transparent clickable text at the end of each chat turn.
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
-                <input
-                  type="checkbox"
-                  checked={profile.suggest_next_questions !== false}
-                  onChange={(e) =>
-                    setProfile({ ...profile, suggest_next_questions: e.target.checked })
-                  }
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-surface-highlight peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand" />
-              </label>
+            <div className="space-y-0.5">
+              <h3 className="text-base font-semibold text-foreground">{user?.name || "Operator"}</h3>
+              <p className="text-xs font-mono text-neutral-500 dark:text-neutral-400">{user?.email}</p>
+              <p className="text-[11px] font-mono text-neutral-500 dark:text-neutral-400">
+                {user?.orgId} · {(user?.roles || []).join(", ")}
+              </p>
             </div>
           </div>
-        </div>
-      </div>
 
-      <div className="sticky bottom-0 z-20 bg-surface-sidebar/95 backdrop-blur-md border-t border-surface-border px-8 py-3.5 flex items-center justify-end">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving}
-          className="px-5 py-2 rounded-lg bg-brand hover:bg-brand-hover text-white text-xs font-display font-semibold flex items-center gap-2 cursor-pointer disabled:opacity-50"
-        >
-          <Save className="w-4 h-4" />
-          <span>{saving ? "Saving..." : "Save Changes"}</span>
-        </button>
+          <Suspense fallback={null}>
+            <ChangePasswordPanel />
+          </Suspense>
+
+          <SchemaSettingsForm
+            domain="user_preferences"
+            mode="user"
+            title="Display name"
+            description="Used as your commit author name when no git name is set."
+            only={["full_name"]}
+          />
+        </div>
       </div>
     </div>
   );

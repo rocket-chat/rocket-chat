@@ -1,10 +1,13 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+// Bundled with the app (not a CDN link) so the terminal works offline.
+import "@xterm/xterm/css/xterm.css";
+
+import React, { useEffect, useRef, useState } from "react";
 import type { Terminal as XtermType } from "@xterm/xterm";
 import type { FitAddon as FitAddonType } from "@xterm/addon-fit";
 import { useMissionStore } from "../lib/store";
-import { getActiveMissionWebSocket } from "../lib/websocket";
+import { InteractiveTerminal } from "./InteractiveTerminal";
 import { Terminal as TerminalIcon } from "lucide-react";
 
 export const StreamingTerminal: React.FC = () => {
@@ -12,6 +15,7 @@ export const StreamingTerminal: React.FC = () => {
   const xtermInstanceRef = useRef<XtermType | null>(null);
   const fitAddonRef = useRef<FitAddonType | null>(null);
   const { terminalLogs } = useMissionStore();
+  const [tab, setTab] = useState<"agent" | "shell">("agent");
   const lastWrittenLengthRef = useRef<number>(0);
 
   useEffect(() => {
@@ -22,15 +26,6 @@ export const StreamingTerminal: React.FC = () => {
 
       const { Terminal } = await import("@xterm/xterm");
       const { FitAddon } = await import("@xterm/addon-fit");
-
-      // Inject xterm CSS if not present
-      if (!document.getElementById("xterm-style")) {
-        const link = document.createElement("link");
-        link.id = "xterm-style";
-        link.rel = "stylesheet";
-        link.href = "https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css";
-        document.head.appendChild(link);
-      }
 
       if (!isMounted) return;
 
@@ -53,15 +48,8 @@ export const StreamingTerminal: React.FC = () => {
         fontSize: 12,
         lineHeight: 1.3,
         cursorBlink: true,
-        disableStdin: false,
+        disableStdin: true, // agent output is read-only; the Shell tab is the interactive terminal
         scrollback: 1000,
-      });
-
-      term.onData((data: string) => {
-        const wsClient = getActiveMissionWebSocket();
-        if (wsClient) {
-          wsClient.sendTerminalInput(data);
-        }
       });
 
       const fitAddon = new FitAddon();
@@ -110,13 +98,26 @@ export const StreamingTerminal: React.FC = () => {
     }
   }, [terminalLogs]);
 
+  const tabClass = (name: "agent" | "shell") =>
+    `px-2 py-0.5 rounded font-bold tracking-wider cursor-pointer ${
+      tab === name ? "bg-cyan/15 text-cyan" : "text-muted-foreground hover:text-foreground"
+    }`;
+
   return (
     <div className="h-full flex flex-col bg-void border-t border-border select-none">
       <div className="h-8 border-b border-border bg-surface px-3 flex items-center gap-2 text-xs font-mono text-muted-foreground">
         <TerminalIcon className="w-3.5 h-3.5 text-cyan" />
-        <span className="font-bold tracking-wider">LIVE EXECUTION TERMINAL (SANDBOX CONTAINER)</span>
+        <button type="button" className={tabClass("agent")} onClick={() => setTab("agent")}>
+          AGENT OUTPUT
+        </button>
+        <button type="button" className={tabClass("shell")} onClick={() => setTab("shell")}>
+          SHELL
+        </button>
       </div>
-      <div ref={terminalRef} className="flex-1 p-2 overflow-hidden" />
+      <div ref={terminalRef} className={`flex-1 p-2 overflow-hidden ${tab === "agent" ? "" : "hidden"}`} />
+      <div className={`flex-1 min-h-0 ${tab === "shell" ? "" : "hidden"}`}>
+        <InteractiveTerminal active={tab === "shell"} />
+      </div>
     </div>
   );
 };

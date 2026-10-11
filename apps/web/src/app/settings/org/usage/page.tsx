@@ -5,12 +5,28 @@ import {
   Coins,
   TrendingUp,
   Cpu,
-  Layers,
   CheckCircle2,
+  AlertCircle,
   DollarSign,
   BarChart3,
-  Flame,
+  Clock,
+  Save,
 } from "lucide-react";
+import { useSession } from "../../../../components/AuthProvider";
+import {
+  UserScopeSection,
+  ScopeDivider,
+  OrgScopeSection,
+} from "../../../../components/settings/ScopedSettingsSection";
+
+interface UserUsageData {
+  tenant_user_id: string;
+  total_tokens: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_cost_usd: number;
+  recent_turns_count: number;
+}
 
 interface ModelUsage {
   prompt_tokens: number;
@@ -29,206 +45,259 @@ interface OrgUsageData {
   models: Record<string, ModelUsage>;
 }
 
-export default function OrgUsagePage() {
-  const [usage, setUsage] = useState<OrgUsageData | null>(null);
-  const [budgetInput, setBudgetInput] = useState<string>("250");
-  const [isSaved, setIsSaved] = useState(false);
+export default function UsagePage() {
+  const { data: session } = useSession();
+  const userRoles = (session?.user as unknown as { roles?: string[] })?.roles || [];
+  const isAdmin = !session || userRoles.includes("admin") || userRoles.includes("owner");
+
+  const [userUsage, setUserUsage] = useState<UserUsageData | null>(null);
+  const [orgUsage, setOrgUsage] = useState<OrgUsageData | null>(null);
+  const [budgetInput, setBudgetInput] = useState<string>("0");
+  const [savingBudget, setSavingBudget] = useState(false);
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
+
+  const fetchUsageData = async () => {
+    try {
+      const [uRes, oRes] = await Promise.all([
+        fetch("/v1/settings/user/usage"),
+        fetch("/v1/settings/org/usage"),
+      ]);
+
+      if (uRes.ok) {
+        const uData = await uRes.json();
+        setUserUsage(uData);
+      }
+      if (oRes.ok) {
+        const oData = await oRes.json();
+        setOrgUsage(oData);
+        if (oData.monthly_budget_cap_usd) {
+          setBudgetInput(String(oData.monthly_budget_cap_usd));
+        }
+      }
+    } catch (err) {
+      console.warn("Failed loading usage telemetry:", err);
+    }
+  };
 
   useEffect(() => {
-    fetch("/v1/settings/org/usage")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data) {
-          setUsage(data);
-          if (data.monthly_budget_cap_usd) {
-            setBudgetInput(String(data.monthly_budget_cap_usd));
-          }
-        }
-      })
-      .catch(() => {});
+    fetchUsageData();
   }, []);
 
   const handleSaveBudget = async () => {
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 3000);
+    if (!isAdmin) return;
+    const parsedCap = parseFloat(budgetInput);
+    if (isNaN(parsedCap) || parsedCap < 0) {
+      setErrorBanner("Please specify a monthly budget cap of $0 (no cap) or more");
+      return;
+    }
+    setSavingBudget(true);
+    setErrorBanner(null);
+    try {
+      const res = await fetch("/v1/admin/budget", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ monthly_budget_cap_usd: parsedCap }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Request failed with HTTP ${res.status}`);
+      }
+      setSuccessBanner(
+        parsedCap === 0 ? "Monthly spend cap removed" : `Monthly spend cap updated to $${parsedCap.toFixed(2)}`
+      );
+      fetchUsageData();
+      setTimeout(() => setSuccessBanner(null), 3500);
+    } catch (err: unknown) {
+      setErrorBanner(err instanceof Error ? err.message : "Failed to update monthly budget cap");
+      setTimeout(() => setErrorBanner(null), 5000);
+    } finally {
+      setSavingBudget(false);
+    }
   };
 
-  const totalCost = usage?.total_cost_usd ?? 0.0;
-  const budgetCap = parseFloat(budgetInput) || 250;
-  const percentUsed = budgetCap > 0 ? Math.min(100, Math.round((totalCost / budgetCap) * 100)) : 0;
+  const userCost = userUsage?.total_cost_usd ?? 0.0;
+  const orgCost = orgUsage?.total_cost_usd ?? 0.0;
+  const budgetCap = parseFloat(budgetInput) || 0;
+  const percentUsed = budgetCap > 0 ? Math.min(100, Math.round((orgCost / budgetCap) * 100)) : 0;
 
   return (
-    <div className="flex flex-col min-h-full">
-      {/* Header Banner */}
-      <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
-        <div className="max-w-5xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
-              <span>Settings</span>
-              <span>/</span>
-              <span>Organization</span>
-              <span>/</span>
-              <span className="text-foreground font-medium">Token Usage & Spend Ledger</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
-                Organization Token Usage & Budgeting
-              </h1>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-mono bg-brand/10 text-brand border border-brand/20">
-                <Flame className="w-3.5 h-3.5" />
-                Live Spend Telemetry
-              </span>
-            </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
-              Track multi-tenant token consumption across frontier models, enforce hard dollar spend caps, and review cost accounting.
-            </p>
-          </div>
+    <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
+        <div>
+          <h1 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2.5">
+            <Coins className="w-5 h-5 text-emerald-400" />
+            Token usage &amp; spend
+          </h1>
+          <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 mt-1">
+            Personal runtime token consumption, mission cost breakdown, and organization monthly spend cap ledger.
+          </p>
         </div>
       </div>
 
-      <div className="flex-1 p-8 max-w-5xl mx-auto w-full space-y-6">
-        {/* KPI Metric Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="p-4 rounded-xl bg-surface-card border border-surface-border flex flex-col justify-between">
-            <div className="flex items-center justify-between text-neutral-500 dark:text-neutral-400 text-xs font-mono">
-              <span>MONTHLY SPEND</span>
-              <DollarSign className="w-4 h-4 text-emerald-400" />
+      {errorBanner && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{errorBanner}</span>
+        </div>
+      )}
+
+      {successBanner && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{successBanner}</span>
+        </div>
+      )}
+
+      {/* TIER 1: USER-SPECIFIC USAGE */}
+      <UserScopeSection
+        title="Personal Token Usage & Cost"
+        description="Tokens consumed and dollar spend incurred by your missions, copilots, and interactive sessions."
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+          <div className="p-3.5 rounded-lg border border-border bg-surface-card space-y-1">
+            <div className="flex items-center gap-2 text-muted-foreground text-[10px] font-mono uppercase">
+              <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Personal Spend</span>
             </div>
-            <div className="mt-3">
-              <span className="text-2xl font-display font-bold text-foreground">
-                ${totalCost.toFixed(3)}
-              </span>
-              <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-mono ml-1.5">
-                / ${budgetCap} cap
-              </span>
+            <div className="text-xl font-bold font-mono text-foreground">
+              ${userCost.toFixed(4)}
+            </div>
+            <div className="text-[10px] font-mono text-muted-foreground">USD incurred</div>
+          </div>
+
+          <div className="p-3.5 rounded-lg border border-border bg-surface-card space-y-1">
+            <div className="flex items-center gap-2 text-muted-foreground text-[10px] font-mono uppercase">
+              <Cpu className="w-3.5 h-3.5 text-cyan" />
+              <span>Total Tokens</span>
+            </div>
+            <div className="text-xl font-bold font-mono text-foreground">
+              {(userUsage?.total_tokens ?? 0).toLocaleString()}
+            </div>
+            <div className="text-[10px] font-mono text-muted-foreground">
+              Prompt: {(userUsage?.prompt_tokens ?? 0).toLocaleString()}
             </div>
           </div>
 
-          <div className="p-4 rounded-xl bg-surface-card border border-surface-border flex flex-col justify-between">
-            <div className="flex items-center justify-between text-neutral-500 dark:text-neutral-400 text-xs font-mono">
-              <span>TOTAL TOKENS</span>
-              <Cpu className="w-4 h-4 text-cyan" />
+          <div className="p-3.5 rounded-lg border border-border bg-surface-card space-y-1">
+            <div className="flex items-center gap-2 text-muted-foreground text-[10px] font-mono uppercase">
+              <TrendingUp className="w-3.5 h-3.5 text-brand" />
+              <span>Completion</span>
             </div>
-            <div className="mt-3">
-              <span className="text-2xl font-display font-bold text-foreground">
-                {(usage?.total_tokens ?? 128400).toLocaleString()}
-              </span>
-              <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-mono ml-1.5">tokens</span>
+            <div className="text-xl font-bold font-mono text-foreground">
+              {(userUsage?.completion_tokens ?? 0).toLocaleString()}
             </div>
+            <div className="text-[10px] font-mono text-muted-foreground">Generated tokens</div>
           </div>
 
-          <div className="p-4 rounded-xl bg-surface-card border border-surface-border flex flex-col justify-between">
-            <div className="flex items-center justify-between text-neutral-500 dark:text-neutral-400 text-xs font-mono">
-              <span>PROMPT INPUT</span>
-              <Layers className="w-4 h-4 text-purple-400" />
+          <div className="p-3.5 rounded-lg border border-border bg-surface-card space-y-1">
+            <div className="flex items-center gap-2 text-muted-foreground text-[10px] font-mono uppercase">
+              <Clock className="w-3.5 h-3.5 text-amber-400" />
+              <span>Active Turns</span>
             </div>
-            <div className="mt-3">
-              <span className="text-2xl font-display font-bold text-foreground">
-                {(usage?.prompt_tokens ?? 92100).toLocaleString()}
-              </span>
-              <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-mono ml-1.5">tokens</span>
+            <div className="text-xl font-bold font-mono text-foreground">
+              {userUsage?.recent_turns_count ?? 0}
             </div>
-          </div>
-
-          <div className="p-4 rounded-xl bg-surface-card border border-surface-border flex flex-col justify-between">
-            <div className="flex items-center justify-between text-neutral-500 dark:text-neutral-400 text-xs font-mono">
-              <span>COMPLETION / COT</span>
-              <TrendingUp className="w-4 h-4 text-amber-400" />
-            </div>
-            <div className="mt-3">
-              <span className="text-2xl font-display font-bold text-foreground">
-                {(usage?.completion_tokens ?? 36300).toLocaleString()}
-              </span>
-              <span className="text-[11px] text-neutral-500 dark:text-neutral-400 font-mono ml-1.5">tokens</span>
-            </div>
+            <div className="text-[10px] font-mono text-muted-foreground">Executed turns</div>
           </div>
         </div>
+      </UserScopeSection>
 
-        {/* Budget Progress Bar */}
-        <div className="p-6 rounded-xl bg-surface-card border border-surface-border space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="space-y-0.5">
-              <h2 className="text-sm font-semibold text-foreground">Monthly Spending Quota</h2>
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                Hard gatekeeper prevents API calls once monthly threshold is surpassed.
-              </p>
-            </div>
-            <span className="text-xs font-mono px-2 py-0.5 rounded bg-surface-elevated text-emerald-400 border border-emerald-900/40">
-              {percentUsed}% Consumed
-            </span>
-          </div>
+      {/* VISUAL SEPARATOR */}
+      <ScopeDivider label="Organization Scope" />
 
-          <div className="w-full bg-surface-elevated h-2.5 rounded-full overflow-hidden border border-surface-border">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                percentUsed > 85
-                  ? "bg-rose-500"
-                  : percentUsed > 50
-                  ? "bg-amber-500"
-                  : "bg-emerald-500"
-              }`}
-              style={{ width: `${Math.max(2, percentUsed)}%` }}
-            />
-          </div>
-
-          <div className="pt-2 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono text-neutral-700 dark:text-neutral-300">Set Monthly Spend Cap ($):</span>
-              <input
-                type="number"
-                value={budgetInput}
-                onChange={(e) => setBudgetInput(e.target.value)}
-                className="w-24 px-2.5 py-1 text-xs font-mono bg-surface-subnav border border-surface-border rounded text-foreground focus:outline-none focus:border-brand"
-              />
-            </div>
+      {/* TIER 2: ORGANIZATION-WIDE USAGE */}
+      <OrgScopeSection
+        title="Organization Budget & Model Spend"
+        description="Aggregated token consumption and enforcement of workspace monthly spend caps."
+        action={
+          isAdmin ? (
             <button
+              type="button"
               onClick={handleSaveBudget}
-              className="px-3 py-1.5 text-xs font-mono bg-brand hover:bg-brand/90 text-white rounded transition-colors flex items-center gap-1.5"
+              disabled={savingBudget}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-mono font-semibold transition-all cursor-pointer shadow-sm"
             >
-              {isSaved ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Coins className="w-3.5 h-3.5" />}
-              <span>{isSaved ? "CAP SAVED" : "UPDATE CAP"}</span>
+              <Save className="w-3.5 h-3.5" />
+              <span>{savingBudget ? "SAVING..." : "UPDATE SPEND CAP"}</span>
             </button>
-          </div>
-        </div>
+          ) : undefined
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-4 rounded-lg border border-border bg-surface-card space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <span className="text-xs font-mono font-semibold text-foreground uppercase">
+                  Monthly Budget Cap Enforcement
+                </span>
+                <p className="text-[11px] font-mono text-muted-foreground mt-0.5">
+                  Missions automatically throttle when consumption hits the hard monthly cap.
+                </p>
+              </div>
 
-        {/* Model Breakdown Table */}
-        <div className="p-6 rounded-xl bg-surface-card border border-surface-border space-y-4">
-          <div className="flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-brand" />
-            <h2 className="text-sm font-semibold text-foreground">Spend Breakdown by Model Family</h2>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono text-muted-foreground">$</span>
+                <input
+                  type="number"
+                  disabled={!isAdmin}
+                  value={budgetInput}
+                  onChange={(e) => setBudgetInput(e.target.value)}
+                  className="w-24 px-2 py-1 rounded border border-border bg-void text-xs font-mono text-foreground focus:outline-none focus:border-cyan disabled:opacity-60"
+                />
+                <span className="text-xs font-mono text-muted-foreground">USD / mo</span>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="space-y-1">
+              <div className="flex justify-between text-[10px] font-mono text-muted-foreground">
+                <span>Total Spend: ${orgCost.toFixed(2)}</span>
+                <span>{budgetCap > 0 ? `${percentUsed}% of $${budgetCap.toFixed(2)} Cap` : "No monthly cap (0 = unlimited)"}</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-surface border border-border overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    percentUsed > 90 ? "bg-rose-500" : percentUsed > 70 ? "bg-amber-400" : "bg-emerald-400"
+                  }`}
+                  style={{ width: `${percentUsed}%` }}
+                />
+              </div>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead>
-                <tr className="border-b border-surface-border text-neutral-500 dark:text-neutral-400 uppercase text-[10px]">
-                  <th className="pb-2">Model Family</th>
-                  <th className="pb-2">Prompt Tokens</th>
-                  <th className="pb-2">Completion Tokens</th>
-                  <th className="pb-2 text-right">Cost (USD)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-border/50 text-neutral-700 dark:text-neutral-200">
-                {Object.entries(
-                  usage?.models || {
-                    "claude-3.7-sonnet": { prompt_tokens: 70000, completion_tokens: 25000, cost_usd: 0.385 },
-                    "deepseek-r1": { prompt_tokens: 22100, completion_tokens: 11300, cost_usd: 0.043 },
-                  }
-                ).map(([model, m]) => (
-                  <tr key={model} className="hover:bg-surface-elevated/40 transition-colors">
-                    <td className="py-2.5 font-medium text-foreground">{model}</td>
-                    <td className="py-2.5 text-neutral-500 dark:text-neutral-400">{m.prompt_tokens.toLocaleString()}</td>
-                    <td className="py-2.5 text-neutral-500 dark:text-neutral-400">{m.completion_tokens.toLocaleString()}</td>
-                    <td className="py-2.5 text-right font-bold text-emerald-400">
-                      ${m.cost_usd.toFixed(4)}
-                    </td>
-                  </tr>
+          {/* Model Breakdown */}
+          {orgUsage?.models && Object.keys(orgUsage.models).length > 0 && (
+            <div className="p-4 rounded-lg border border-border bg-surface-card space-y-3">
+              <div className="text-xs font-mono font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-cyan" />
+                <span>Spend Breakdown by Model</span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {Object.entries(orgUsage.models).map(([modelId, mData]) => (
+                  <div
+                    key={modelId}
+                    className="p-2.5 rounded border border-border/70 bg-surface/40 flex items-center justify-between text-xs font-mono"
+                  >
+                    <div className="min-w-0">
+                      <span className="font-semibold text-foreground truncate block">
+                        {modelId}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {(mData.prompt_tokens + mData.completion_tokens).toLocaleString()} tokens
+                      </span>
+                    </div>
+                    <span className="font-semibold text-emerald-400 shrink-0">
+                      ${mData.cost_usd.toFixed(4)}
+                    </span>
+                  </div>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            </div>
+          )}
         </div>
-      </div>
+      </OrgScopeSection>
     </div>
   );
 }

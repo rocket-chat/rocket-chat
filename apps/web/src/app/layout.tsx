@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Hanken_Grotesk, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,6 +18,13 @@ export const metadata: Metadata = {
 };
 
 import { AuthProvider } from "../components/AuthProvider";
+import { ViewportSync } from "../components/ViewportSync";
+
+// next/font downloads the font files at build time and serves them from this app, so the
+// cockpit makes no request to Google at runtime (it must work with no internet access).
+const sans = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken", display: "swap" });
+const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" });
+const display = Space_Grotesk({ subsets: ["latin"], variable: "--font-space", display: "swap" });
 
 export default function RootLayout({
   children,
@@ -24,21 +32,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${sans.variable} ${mono.variable} ${display.variable}`}
+    >
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,300..800;1,300..800&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200"
-          rel="stylesheet"
-        />
         <script
           dangerouslySetInnerHTML={{
             __html: `
@@ -58,6 +60,7 @@ export default function RootLayout({
         />
       </head>
       <body className="bg-void text-foreground antialiased selection:bg-flame/20 selection:text-flame">
+        <ViewportSync />
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

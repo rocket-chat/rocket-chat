@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useSession, signOut } from "next-auth/react";
+import { useSession, signOut } from "./AuthProvider";
 import Link from "next/link";
 import { LogOut, User } from "lucide-react";
 
@@ -17,10 +17,11 @@ export function UserHeaderCapsule() {
     return (
       <Link
         href="/login"
-        className="px-3 py-1.5 rounded-lg bg-surface-elevated hover:bg-surface-border text-xs font-mono text-foreground border border-surface-border flex items-center gap-1.5 transition-colors"
+        aria-label="Sign In"
+        className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-surface-border bg-surface-elevated px-2.5 text-xs text-foreground transition-colors hover:bg-surface-border"
       >
         <User className="w-3.5 h-3.5 text-brand" />
-        <span>Sign In</span>
+        <span className="hidden sm:inline">Sign In</span>
       </Link>
     );
   }

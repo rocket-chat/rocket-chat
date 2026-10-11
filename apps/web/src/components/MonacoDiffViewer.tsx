@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import dynamic from "next/dynamic";
+import "../lib/monaco";
 import { useMissionStore } from "../lib/store";
-import { FileCode, Check, X, Split, FileText } from "lucide-react";
+import { FileCode, Check, X, Split, FileText, FileCheck2, Loader2 } from "lucide-react";
 
 // Dynamically import Monaco DiffEditor to avoid SSR issues
 const DiffEditor = dynamic(
@@ -53,8 +54,10 @@ export const MonacoDiffViewer: React.FC<MonacoDiffViewerProps> = ({
   onApprove,
   onReject,
 }) => {
-  const { fileDiffs, activeDiffIndex, setActiveDiffIndex } = useMissionStore();
+  const { fileDiffs, activeDiffIndex, setActiveDiffIndex, session } = useMissionStore();
   const [inlineMode, setInlineMode] = useState<boolean>(false);
+  const [applyState, setApplyState] = useState<"idle" | "applying" | "applied" | "error">("idle");
+  const [applyError, setApplyError] = useState<string>("");
 
   const activeDiff = fileDiffs[activeDiffIndex] || null;
 
@@ -62,6 +65,37 @@ export const MonacoDiffViewer: React.FC<MonacoDiffViewerProps> = ({
     if (!activeDiff) return { original: "", modified: "" };
     return parseUnifiedDiff(activeDiff.diff_content);
   }, [activeDiff]);
+
+  // A new active file is a fresh decision: clear the previous apply outcome.
+  useEffect(() => {
+    setApplyState("idle");
+    setApplyError("");
+  }, [activeDiff?.path]);
+
+  const handleApplyFile = async () => {
+    const sessionId = session?.session_id;
+    if (!activeDiff || !sessionId) return;
+    setApplyState("applying");
+    setApplyError("");
+    try {
+      const res = await fetch(`/v1/sessions/${sessionId}/diffs/apply`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          path: activeDiff.path,
+          diff_content: activeDiff.diff_content,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Apply failed (${res.status})`);
+      }
+      setApplyState("applied");
+    } catch (err) {
+      setApplyState("error");
+      setApplyError(err instanceof Error ? err.message : "Apply failed");
+    }
+  };
 
   if (!activeDiff) {
     return (
@@ -141,9 +175,42 @@ export const MonacoDiffViewer: React.FC<MonacoDiffViewerProps> = ({
       <div className="h-12 border-t border-border bg-surface px-4 flex items-center justify-between">
         <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
           <span>{fileDiffs.length} file(s) modified</span>
+          {applyState === "applied" && (
+            <span
+              data-testid="diff-apply-status"
+              className="text-diff-add flex items-center gap-1"
+            >
+              <FileCheck2 className="w-3.5 h-3.5" />
+              <span>Applied {activeDiff?.path}</span>
+            </span>
+          )}
+          {applyState === "error" && (
+            <span
+              data-testid="diff-apply-status"
+              className="text-diff-del truncate max-w-[280px]"
+              title={applyError}
+            >
+              {applyError}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            data-testid="apply-diff-button"
+            onClick={handleApplyFile}
+            disabled={applyState === "applying" || applyState === "applied"}
+            title="Apply this file's changes to the session workspace"
+            className="px-3 py-1.5 rounded border border-cyan/60 text-cyan hover:bg-cyan/10 disabled:opacity-50 disabled:cursor-not-allowed font-mono text-xs flex items-center gap-1.5 transition-all"
+          >
+            {applyState === "applying" ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <FileCheck2 className="w-3.5 h-3.5" />
+            )}
+            <span>{applyState === "applied" ? "Applied" : "Apply this file"}</span>
+          </button>
+
           <button
             onClick={() => onReject?.(`reject_${Date.now()}`)}
             className="px-3 py-1.5 rounded border border-border hover:bg-elevated text-diff-del hover:text-white font-mono text-xs flex items-center gap-1.5 transition-all"

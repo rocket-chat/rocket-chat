@@ -1,223 +1,549 @@
 "use client";
 
-import React, { useState } from "react";
+import { Field, Input, Textarea } from "../../../components/ui/Field";
+import React, { useState, useEffect, useCallback } from "react";
 import { KnowledgeBaseConfig } from "../../../types/mission";
-import { MarkdownRenderer } from "../../../components/MarkdownRenderer";
 import {
   Database,
   Plus,
   Search,
-  FileText,
   UploadCloud,
+  CheckCircle2,
+  AlertCircle,
+  Trash2,
 } from "lucide-react";
+import { useSession } from "../../../components/AuthProvider";
+import {
+  UserScopeSection,
+  ScopeDivider,
+  OrgScopeSection,
+} from "../../../components/settings/ScopedSettingsSection";
+
+interface ChunkResult {
+  id: string;
+  score: number;
+  title: string;
+  content: string;
+}
 
 export default function KnowledgeSettingsPage() {
-  const [knowledgeBases] = useState<KnowledgeBaseConfig[]>([
-    {
-      id: "kb-codebase-architecture",
-      name: "Platform Architecture & RFCs",
-      vector_index: "pgvector_hnsw_platform_docs",
-      documents_count: 42,
-      embedding_model: "text-embedding-3-small (1536d)",
-      hybrid_search: true,
-    },
-    {
-      id: "kb-security-policies",
-      name: "Security, RLS & Compliance Rules",
-      vector_index: "pgvector_security_vetting",
-      documents_count: 18,
-      embedding_model: "text-embedding-3-small (1536d)",
-      hybrid_search: false,
-    },
-    {
-      id: "kb-api-specifications",
-      name: "FastAPI & OpenAPI Contracts",
-      vector_index: "pgvector_openapi_specs",
-      documents_count: 29,
-      embedding_model: "text-embedding-3-small (1536d)",
-      hybrid_search: true,
-    },
-  ]);
+  const { data: session } = useSession();
+  const userRoles = (session?.user as unknown as { roles?: string[] })?.roles || [];
+  const isAdmin = !session || userRoles.includes("admin") || userRoles.includes("owner");
 
-  const [selectedKbId, setSelectedKbId] = useState<string>("kb-codebase-architecture");
+  const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseConfig[]>([]);
+  const [selectedKbId, setSelectedKbId] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults] = useState<
-    Array<{ id: string; score: number; title: string; content: string }>
-  >([
-    {
-      id: "chunk-101",
-      score: 0.942,
-      title: "doc/architecture/sandbox-lifecycle.md",
-      content: `### Sandbox Volume Isolation & Lifecycle
-Each mission session provisions an isolated workspace volume via the configured **SandboxDriverProtocol**:
-- In **Docker driver mode**, a named Docker volume \`rocket-sandbox-{session_id}\` is mounted to \`/workspace\`.
-- In **K8s driver mode**, a dynamic PersistentVolumeClaim (\`ReadWriteOnce\`) is scheduled.
+  const [searchResults, setSearchResults] = useState<ChunkResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
-\`\`\`python
-# Zero-compute hibernation maintains storage volume integrity
-await driver.hibernate_sandbox(session_id)
-\`\`\``,
-    },
-    {
-      id: "chunk-102",
-      score: 0.887,
-      title: "specifications/interfaces/llm.py",
-      content: `### Streaming Protocol Contract
-\`LLMGatewayProtocol\` guarantees asynchronous generator yields with granular token tagging:
-| Field | Type | Description |
-|---|---|---|
-| \`text\` | str | Raw text completion delta |
-| \`reasoning_delta\` | str | Extracted chain-of-thought tokens |
-| \`tool_calls\` | list | Structured function calls |`,
-    },
-  ]);
+  // Modal states
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createScope, setCreateScope] = useState<"user" | "org">("user");
+  const [newKbName, setNewKbName] = useState("");
+  const [newKbDesc, setNewKbDesc] = useState("");
+  const [newKbIndex, setNewKbIndex] = useState("");
 
-  const currentKb = knowledgeBases.find((k) => k.id === selectedKbId) || knowledgeBases[0];
+  const [showIngestModal, setShowIngestModal] = useState(false);
+  const [docTitle, setDocTitle] = useState("");
+  const [docContent, setDocContent] = useState("");
+  const [ingesting, setIngesting] = useState(false);
+
+  const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
+
+  const fetchKnowledgeBases = useCallback(async () => {
+    try {
+      const res = await fetch("/v1/knowledge/bases");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setKnowledgeBases(data);
+          if (data.length > 0 && !selectedKbId) {
+            setSelectedKbId(data[0].id);
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Failed fetching knowledge bases:", err);
+    }
+  }, [selectedKbId]);
+
+  useEffect(() => {
+    fetchKnowledgeBases();
+  }, [fetchKnowledgeBases]);
+
+  const userKbs = knowledgeBases.filter((k) => k.scope === "user" || !k.scope || k.user_id != null);
+  const orgKbs = knowledgeBases.filter((k) => k.scope === "org" && k.user_id == null);
+
+  const handleOpenCreateModal = (scope: "user" | "org") => {
+    setCreateScope(scope);
+    setNewKbName("");
+    setNewKbDesc("");
+    setNewKbIndex("");
+    setShowCreateModal(true);
+  };
+
+  const handleCreateKb = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newKbName.trim()) return;
+    setErrorBanner(null);
+    try {
+      const res = await fetch("/v1/knowledge/bases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newKbName.trim(),
+          description: newKbDesc.trim() || undefined,
+          scope: createScope,
+          vector_index: newKbIndex.trim() || undefined,
+          embedding_model: "text-embedding-3-small",
+          hybrid_search: true,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to create knowledge base");
+      }
+      const created = await res.json();
+      setKnowledgeBases((prev) => [...prev, created]);
+      setSelectedKbId(created.id);
+      setShowCreateModal(false);
+      setSuccessBanner(`Created vector knowledge base '${created.name}' (${createScope} scope)`);
+      setTimeout(() => setSuccessBanner(null), 3500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error creating knowledge base";
+      setErrorBanner(msg);
+      setTimeout(() => setErrorBanner(null), 6000);
+    }
+  };
+
+  const handleDeleteKb = async (id: string, name: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm(`Are you sure you want to delete knowledge base '${name}'?`)) {
+      return;
+    }
+    try {
+      const res = await fetch(`/v1/knowledge/bases/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setKnowledgeBases((prev) => prev.filter((k) => k.id !== id));
+        if (selectedKbId === id) {
+          const remaining = knowledgeBases.filter((k) => k.id !== id);
+          setSelectedKbId(remaining[0]?.id || "");
+        }
+        setSuccessBanner("Knowledge base removed");
+        setTimeout(() => setSuccessBanner(null), 3000);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setErrorBanner(err.detail || "Failed to delete knowledge base");
+      }
+    } catch {
+      setErrorBanner("Failed to delete knowledge base");
+    }
+  };
+
+  const handleIngestDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedKbId || !docTitle.trim() || !docContent.trim()) return;
+    setIngesting(true);
+    setErrorBanner(null);
+    try {
+      const res = await fetch(`/v1/knowledge/bases/${selectedKbId}/documents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: docTitle.trim(),
+          content: docContent.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to ingest document");
+      }
+      const data = await res.json();
+      setKnowledgeBases((prev) =>
+        prev.map((k) =>
+          k.id === selectedKbId ? { ...k, documents_count: (k.documents_count || 0) + 1 } : k
+        )
+      );
+      setShowIngestModal(false);
+      setDocTitle("");
+      setDocContent("");
+      setSuccessBanner(`Ingested '${data.title}' into ${data.chunks_count || 1} vector chunks`);
+      setTimeout(() => setSuccessBanner(null), 3500);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Error ingesting document";
+      setErrorBanner(msg);
+      setTimeout(() => setErrorBanner(null), 6000);
+    } finally {
+      setIngesting(false);
+    }
+  };
+
+  const handleQuery = async () => {
+    if (!searchQuery.trim() || !selectedKbId) return;
+    setIsSearching(true);
+    setErrorBanner(null);
+    try {
+      const res = await fetch(`/v1/knowledge/bases/${selectedKbId}/query`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: searchQuery.trim(), limit: 4 }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSearchResults(data.results || []);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Search query failed");
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Vector query failed";
+      setErrorBanner(msg);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const currentKb = knowledgeBases.find((k) => k.id === selectedKbId);
+
+  const renderKbCard = (kb: KnowledgeBaseConfig, canManage: boolean) => {
+    const isSelected = selectedKbId === kb.id;
+    return (
+      <div
+        key={kb.id}
+        onClick={() => setSelectedKbId(kb.id)}
+        className={`p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-between gap-3 ${
+          isSelected
+            ? "border-cyan bg-cyan/10 shadow-sm shadow-cyan/5"
+            : "border-border bg-surface-card hover:border-brand/30"
+        }`}
+      >
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono font-semibold text-foreground truncate">
+              {kb.name}
+            </span>
+            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase bg-surface border border-border text-neutral-400">
+              {kb.documents_count ?? 0} docs
+            </span>
+          </div>
+          {kb.description && (
+            <p className="text-[10px] font-mono text-muted-foreground truncate mt-0.5">
+              {kb.description}
+            </p>
+          )}
+        </div>
+
+        {canManage && (
+          <button
+            type="button"
+            onClick={(e) => handleDeleteKb(kb.id, kb.name, e)}
+            className="p-1 rounded hover:bg-rose-950/40 text-neutral-500 hover:text-rose-400 transition-colors shrink-0"
+            title="Delete collection"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+    );
+  };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-6xl mx-auto space-y-6 px-4 py-8 sm:px-8">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
         <div>
-          <h1 className="text-xl font-bold font-mono tracking-wide text-foreground flex items-center gap-2">
+          <h1 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2.5">
             <Database className="w-5 h-5 text-cyan" />
-            PGVECTOR KNOWLEDGE BASES & RAG ENGINE
+            Knowledge bases
           </h1>
-          <p className="text-xs font-mono text-muted-foreground mt-1">
-            Configure vector collections, HNSW indexing parameters, hybrid dense-sparse retrieval, and document ingestion.
+          <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 mt-1">
+            Personal and organization vector collections, document ingestion, and hybrid dense-sparse retrieval.
           </p>
         </div>
-
-        <button
-          type="button"
-          onClick={() => alert("Index creation dialog")}
-          className="flex items-center gap-2 px-3 py-2 rounded border border-cyan/40 bg-cyan/10 hover:bg-cyan/20 text-cyan text-xs font-mono font-semibold transition-all shadow-sm shadow-cyan/5 cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>NEW VECTOR COLLECTION</span>
-        </button>
       </div>
 
+      {errorBanner && (
+        <div className="flex items-center gap-2 p-3.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+          <AlertCircle className="w-4 h-4 shrink-0" />
+          <span>{errorBanner}</span>
+        </div>
+      )}
+
+      {successBanner && (
+        <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{successBanner}</span>
+        </div>
+      )}
+
+      {/* Main Grid: Collections Left, Details/Search Right */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Collections list */}
-        <div className="space-y-3">
-          <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground font-semibold px-1">
-            ACTIVE VECTOR INDICES ({knowledgeBases.length})
-          </div>
+        {/* Left Column: Two-Tier Knowledge Collections */}
+        <div className="space-y-6">
+          <UserScopeSection
+            title="Personal Collections"
+            description="Private vector documents accessible to your sessions."
+            action={
+              <button
+                type="button"
+                onClick={() => handleOpenCreateModal("user")}
+                className="flex items-center gap-1 px-2 py-1 rounded border border-brand/40 bg-brand/10 hover:bg-brand/20 text-brand text-xs font-mono cursor-pointer"
+              >
+                <Plus className="w-3 h-3" />
+                <span>NEW</span>
+              </button>
+            }
+          >
+            {userKbs.length > 0 ? (
+              <div className="space-y-2">
+                {userKbs.map((kb) => renderKbCard(kb, true))}
+              </div>
+            ) : (
+              <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs font-mono text-muted-foreground">
+                No personal collections yet.
+              </div>
+            )}
+          </UserScopeSection>
 
-          <div className="space-y-2">
-            {knowledgeBases.map((kb) => {
-              const isSelected = kb.id === selectedKbId;
-              return (
-                <div
-                  key={kb.id}
-                  onClick={() => setSelectedKbId(kb.id)}
-                  className={`p-3.5 rounded-lg border transition-all cursor-pointer ${
-                    isSelected
-                      ? "border-cyan bg-cyan/10 shadow-sm shadow-cyan/10"
-                      : "border-border/80 bg-surface/40 hover:bg-surface hover:border-border"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono font-bold text-xs text-foreground">
-                      {kb.name}
-                    </span>
-                    <span className="text-[10px] font-mono text-cyan bg-cyan/20 px-1.5 py-0.5 rounded">
-                      {kb.documents_count} docs
-                    </span>
-                  </div>
-                  <div className="text-[10px] font-mono text-muted-foreground mt-1">
-                    Index: <span className="text-foreground">{kb.vector_index}</span>
-                  </div>
-                  <div className="text-[10px] font-mono text-muted-foreground/80 mt-0.5">
-                    Model: {kb.embedding_model}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          <ScopeDivider label="Organization Scope" />
+
+          <OrgScopeSection
+            title="Organization Collections"
+            description="Shared knowledge collections available across the entire workspace."
+            action={
+              <button
+                type="button"
+                onClick={() => handleOpenCreateModal("org")}
+                className="flex items-center gap-1 px-2 py-1 rounded border border-cyan/40 bg-cyan/10 hover:bg-cyan/20 text-cyan text-xs font-mono cursor-pointer"
+              >
+                <Plus className="w-3 h-3" />
+                <span>NEW</span>
+              </button>
+            }
+          >
+            {orgKbs.length > 0 ? (
+              <div className="space-y-2">
+                {orgKbs.map((kb) => renderKbCard(kb, isAdmin))}
+              </div>
+            ) : (
+              <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs font-mono text-muted-foreground">
+                No organization collections registered.
+              </div>
+            )}
+          </OrgScopeSection>
         </div>
 
-        {/* Right: Semantic Probe & Markdown Chunk Previews */}
-        <div className="lg:col-span-2 rounded-lg border border-border/80 bg-surface/40 p-5 space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-border/60 pb-3">
-            <div>
-              <h2 className="text-sm font-bold text-foreground font-mono">
-                COLLECTION: {currentKb.name}
-              </h2>
-              <span className="text-[10px] font-mono text-muted-foreground">
-                Embedding: {currentKb.embedding_model} • Hybrid Sparse Search:{" "}
-                {currentKb.hybrid_search ? "Enabled" : "Disabled"}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-border/70 hover:border-cyan/40 bg-surface text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <UploadCloud className="w-3.5 h-3.5 text-cyan" />
-                <span>Ingest Document</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Semantic Query Testing */}
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground font-semibold">
-              TEST SEMANTIC RETRIEVAL (COSINE SIMILARITY)
-            </label>
-            <div className="relative">
-              <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-2.5" />
-              <input
-                type="text"
-                placeholder="Ask or query vector space (e.g. 'How does sandbox hibernation work?')..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-24 py-2 rounded border border-border bg-void text-xs font-sans text-foreground focus:outline-none focus:border-cyan"
-              />
-              <button
-                type="button"
-                className="absolute right-1.5 top-1.5 px-2.5 py-1 rounded bg-cyan/20 hover:bg-cyan/30 text-cyan text-[11px] font-mono font-semibold transition-colors"
-              >
-                QUERY RAG
-              </button>
-            </div>
-          </div>
-
-          {/* Retrieved Markdown Chunks Preview */}
-          <div className="space-y-3 pt-2">
-            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground font-semibold flex items-center justify-between">
-              <span>RETRIEVED KNOWLEDGE CHUNKS ({searchResults.length})</span>
-              <span className="text-cyan">HNSW INDEX ACTIVE</span>
-            </div>
-
-            {searchResults.map((result) => (
-              <div
-                key={result.id}
-                className="p-4 rounded border border-border/70 bg-void/80 space-y-2"
-              >
-                <div className="flex items-center justify-between">
+        {/* Right Column: Collection Inspector & Query Engine */}
+        <div className="lg:col-span-2 space-y-4">
+          {currentKb ? (
+            <div className="p-5 rounded-lg border border-border bg-surface-card space-y-4">
+              <div className="flex items-center justify-between border-b border-border/60 pb-3">
+                <div>
                   <div className="flex items-center gap-2">
-                    <FileText className="w-3.5 h-3.5 text-cyan" />
-                    <span className="text-xs font-mono font-semibold text-foreground">
-                      {result.title}
+                    <h2 className="text-sm font-semibold font-mono text-foreground uppercase">
+                      {currentKb.name}
+                    </h2>
+                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono uppercase bg-surface border border-border text-neutral-400">
+                      {currentKb.scope || "user"}
                     </span>
                   </div>
-                  <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                    SIMILARITY: {(result.score * 100).toFixed(1)}%
-                  </span>
+                  <p className="text-xs font-mono text-muted-foreground mt-0.5">
+                    {currentKb.description || "Vector knowledge repository for RAG context injection."}
+                  </p>
                 </div>
 
-                {/* Render Rich Markdown of the chunk! */}
-                <div className="pt-1 text-foreground/90">
-                  <MarkdownRenderer content={result.content} />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowIngestModal(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-cyan/40 bg-cyan/10 hover:bg-cyan/20 text-cyan text-xs font-mono font-semibold transition-all cursor-pointer"
+                >
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  <span>INGEST DOCUMENT</span>
+                </button>
               </div>
-            ))}
-          </div>
+
+              {/* Live Search & Hybrid Test */}
+              <div className="space-y-3">
+                <div className="text-[10px] font-mono text-muted-foreground uppercase font-semibold">
+                  Test Retrieval & Similarity Search:
+                </div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-neutral-500" />
+                    <input
+                      type="text"
+                      placeholder="Enter query to test cosine similarity search..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleQuery()}
+                      className="w-full pl-9 pr-3 py-1.5 rounded border border-border bg-void text-xs font-mono text-foreground focus:outline-none focus:border-cyan"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleQuery}
+                    disabled={isSearching || !searchQuery.trim()}
+                    className="px-3 py-1.5 rounded border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-xs font-mono text-neutral-300 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isSearching ? "SEARCHING..." : "SEARCH"}
+                  </button>
+                </div>
+
+                {searchResults.length > 0 && (
+                  <div className="space-y-2 pt-2">
+                    <div className="text-[10px] font-mono text-muted-foreground uppercase font-semibold">
+                      Matching Vector Chunks ({searchResults.length}):
+                    </div>
+                    {searchResults.map((res) => (
+                      <div
+                        key={res.id}
+                        className="p-3 rounded border border-border/80 bg-surface text-xs font-mono space-y-1"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-brand">{res.title}</span>
+                          <span className="text-[10px] text-cyan">
+                            Score: {(res.score * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-neutral-300 whitespace-pre-wrap leading-relaxed">
+                          {res.content}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="p-8 rounded-lg border border-dashed border-border text-center text-xs font-mono text-muted-foreground">
+              Select or create a knowledge collection to view details and ingest documents.
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Modal: Create Collection */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-md p-5 rounded-lg border border-border bg-surface space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border/60 pb-2">
+              <span className="text-xs font-mono font-bold text-cyan uppercase tracking-wider">
+                Create {createScope === "org" ? "Organization" : "Personal"} Knowledge Base
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                className="text-neutral-400 hover:text-white text-xs font-mono cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateKb} className="space-y-3">
+              <Field label="Collection Name *">
+                {(control) => (
+                  <Input {...control}
+                    placeholder="e.g. Architecture RFCs"
+                    value={newKbName}
+                    onChange={(e) => setNewKbName(e.target.value)}
+                    required
+                  />
+                )}
+              </Field>
+
+              <Field label="Description">
+                {(control) => (
+                  <Input {...control}
+                    placeholder="Summary of indexed documents"
+                    value={newKbDesc}
+                    onChange={(e) => setNewKbDesc(e.target.value)}
+                  />
+                )}
+              </Field>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateModal(false)}
+                  className="px-3 py-1.5 rounded border border-border text-xs font-mono text-neutral-400 hover:text-white cursor-pointer"
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 rounded border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-mono font-semibold transition-all cursor-pointer"
+                >
+                  CREATE COLLECTION
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Ingest Document */}
+      {showIngestModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg p-5 rounded-lg border border-border bg-surface space-y-4 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border/60 pb-2">
+              <span className="text-xs font-mono font-bold text-cyan uppercase tracking-wider">
+                Ingest Document to {currentKb?.name}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowIngestModal(false)}
+                className="text-neutral-400 hover:text-white text-xs font-mono cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleIngestDocument} className="space-y-3">
+              <Field label="Document Title *">
+                {(control) => (
+                  <Input {...control}
+                    placeholder="e.g. Deployment Guide v2"
+                    value={docTitle}
+                    onChange={(e) => setDocTitle(e.target.value)}
+                    required
+                  />
+                )}
+              </Field>
+
+              <Field label="Content (Markdown / Plain Text) *">
+                {(control) => (
+                  <Textarea {...control}
+                    rows={8}
+                    placeholder="Paste documentation text to be chunked and embedded..."
+                    value={docContent}
+                    onChange={(e) => setDocContent(e.target.value)}
+                    required
+                  />
+                )}
+              </Field>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
+                <button
+                  type="button"
+                  onClick={() => setShowIngestModal(false)}
+                  className="px-3 py-1.5 rounded border border-border text-xs font-mono text-neutral-400 hover:text-white cursor-pointer"
+                >
+                  CANCEL
+                </button>
+                <button
+                  type="submit"
+                  disabled={ingesting}
+                  className="px-4 py-1.5 rounded border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-mono font-semibold transition-all cursor-pointer disabled:opacity-50"
+                >
+                  {ingesting ? "CHUNKING & EMBEDDING..." : "INGEST DOCUMENT"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

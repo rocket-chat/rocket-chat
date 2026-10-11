@@ -1,18 +1,19 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Zap, Save, CheckCircle2, Search, Cpu } from "lucide-react";
+import { Save, CheckCircle2, AlertCircle, Search, Cpu } from "lucide-react";
 import { useMissionStore } from "@/lib/store";
+import { ProviderKeysPanel } from "@/components/settings/ProviderKeysPanel";
 
 export default function UserModelsSettingsPage() {
   const { availableModels, fetchModels } = useMissionStore();
   const [modelPrefs, setModelPrefs] = useState({
     preferred_model: "openrouter/deepseek/deepseek-v4.1-flash",
-    turbo_mode: true,
   });
   const [modelFilter, setModelFilter] = useState("");
   const [saving, setSaving] = useState(false);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   useEffect(() => {
     fetchModels();
@@ -28,16 +29,30 @@ export default function UserModelsSettingsPage() {
 
   const handleSave = async () => {
     setSaving(true);
+    setErrorBanner(null);
+    setSuccessBanner(null);
     try {
-      await fetch("/v1/settings/user_preferences", {
+      const res = await fetch("/v1/settings/user_preferences", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ overrides: modelPrefs }),
+        body: JSON.stringify({ overrides: { preferred_model: modelPrefs.preferred_model } }),
       });
+      if (!res.ok) {
+        let errMessage = "";
+        try {
+          const data = await res.json();
+          errMessage = data.detail || data.message || JSON.stringify(data);
+        } catch {
+          errMessage = await res.text();
+        }
+        throw new Error(errMessage || `Failed to save model preferences (HTTP ${res.status})`);
+      }
       setSuccessBanner("Model and latency settings saved");
       setTimeout(() => setSuccessBanner(null), 3000);
-    } catch {
-      // ignore
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Failed to save model preferences";
+      setErrorBanner(msg);
+      setTimeout(() => setErrorBanner(null), 6000);
     } finally {
       setSaving(false);
     }
@@ -74,13 +89,13 @@ export default function UserModelsSettingsPage() {
             <span>/</span>
             <span>User Preferences</span>
             <span>/</span>
-            <span className="text-foreground font-medium">Model Defaults & Turbomode</span>
+            <span className="text-foreground font-medium">Model Defaults</span>
           </div>
           <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
-            Model Defaults & Turbomode Acceleration
+            Model Defaults & Inference
           </h1>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
-            Customize default LLM engine selection, temperature sensitivity, and speculative execution speed.
+            Choose the default LLM engine used across your sessions.
           </p>
         </div>
       </div>
@@ -91,6 +106,13 @@ export default function UserModelsSettingsPage() {
             <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>{successBanner}</span>
+            </div>
+          )}
+
+          {errorBanner && (
+            <div className="flex items-center gap-2 p-3.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{errorBanner}</span>
             </div>
           )}
 
@@ -152,30 +174,8 @@ export default function UserModelsSettingsPage() {
                 Active ID: <span className="font-mono text-neutral-700 dark:text-neutral-300">{modelPrefs.preferred_model}</span>
               </p>
             </div>
-
-            <div className="flex items-center justify-between pt-4 border-t border-surface-borderSubtle">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-brand" />
-                  <span className="text-sm font-medium text-foreground">Turbomode Acceleration</span>
-                </div>
-                <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                  Enables parallel speculative reasoning tokens and hardware prefetching (~62 tok/s).
-                </p>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
-                <input
-                  type="checkbox"
-                  checked={modelPrefs.turbo_mode}
-                  onChange={(e) =>
-                    setModelPrefs({ ...modelPrefs, turbo_mode: e.target.checked })
-                  }
-                  className="sr-only peer"
-                />
-                <div className="w-11 h-6 bg-surface-highlight peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand" />
-              </label>
-            </div>
           </div>
+          <ProviderKeysPanel mode="user" />
         </div>
       </div>
 

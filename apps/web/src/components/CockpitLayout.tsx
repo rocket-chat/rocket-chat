@@ -1,34 +1,58 @@
 "use client";
 
 import React, { useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
 import { FlightTelemetryHeader } from "./FlightTelemetryHeader";
 import { FlightLogStream } from "./FlightLogStream";
 import { IgnitionConsole } from "./IgnitionConsole";
-import { MonacoDiffViewer } from "./MonacoDiffViewer";
+import { InspectorTop } from "./InspectorTop";
 import { StreamingTerminal } from "./StreamingTerminal";
-import { SettingsModal } from "./settings/SettingsModal";
 import { SessionSidebar } from "./Sidebar/SessionSidebar";
+import { TurnInspector } from "./TurnInspector";
+import { MemoryInspector } from "./MemoryInspector";
 import { MissionWebSocket } from "../lib/websocket";
+import { newMessageId } from "../lib/message-id";
 import { useMissionStore } from "../lib/store";
-import { useSession } from "next-auth/react";
-import { GripVertical } from "lucide-react";
+import { useAuth } from "./AuthProvider";
+import { GripVertical, X } from "lucide-react";
 
 interface CockpitLayoutProps {
   sessionId?: string;
 }
 
 export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
+  const router = useRouter();
   const wsRef = useRef<MissionWebSocket | null>(null);
-  const {
-    session,
-    sessions,
-    setSession,
-    isRightPanelOpen,
-    fetchSessions,
-    fetchAgents,
-    fetchModels,
-  } = useMissionStore();
+  const session = useMissionStore((s) => s.session);
+  const sessions = useMissionStore((s) => s.sessions);
+  const setSession = useMissionStore((s) => s.setSession);
+  const isRightPanelOpen = useMissionStore((s) => s.isRightPanelOpen);
+  const fetchSessions = useMissionStore((s) => s.fetchSessions);
+  const fetchAgents = useMissionStore((s) => s.fetchAgents);
+  const fetchModels = useMissionStore((s) => s.fetchModels);
+  const initDraftSession = useMissionStore((s) => s.initDraftSession);
+  const createSessionWithPrompt = useMissionStore((s) => s.createSessionWithPrompt);
+
+  const [isMobile, setIsMobile] = React.useState(false);
+
+  const setIsLeftSidebarOpen = useMissionStore((s) => s.setIsLeftSidebarOpen);
+
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    // On a phone the sidebar is a drawer: start with the conversation, not the list.
+    if (window.innerWidth < 768) setIsLeftSidebarOpen(false);
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, [setIsLeftSidebarOpen]);
+
+  // Opening a conversation from the drawer closes it.
+  useEffect(() => {
+    if (window.innerWidth < 768) setIsLeftSidebarOpen(false);
+  }, [sessionId, setIsLeftSidebarOpen]);
 
   // Load session list, models, and agent personas on mount
   useEffect(() => {
@@ -39,7 +63,12 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
 
   // Sync session from URL parameter if provided
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || sessionId === "draft" || sessionId === "new") {
+      if (!session || !session.is_draft) {
+        initDraftSession();
+      }
+      return;
+    }
     if (session?.session_id === sessionId) return;
 
     const matched = sessions.find((s) => s.session_id === sessionId);
@@ -49,26 +78,44 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
     fetch(`/v1/sessions/${sessionId}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
+        // The socket's snapshot may have arrived first and live events built on it; this
+        // older read must not rewind the transcript (it cannot hold a running turn's answer).
+        if (useMissionStore.getState().session?.session_id === sessionId) return;
         if (data && data.session_id === sessionId) {
           setSession(data);
         }
       })
       .catch(() => {});
-  }, [sessionId, sessions, session?.session_id, setSession]);
+  }, [sessionId, sessions, session, setSession, initDraftSession]);
 
-  const { data: authSession } = useSession();
+  const { user } = useAuth();
+  const token = user?.accessToken || "";
+  const activeSessionId = sessionId || session?.session_id;
+  const isDraft = !activeSessionId || activeSessionId === "draft" || activeSessionId === "new" || session?.is_draft;
 
-  // Connect or reconnect WebSocket when active session changes
+  // Connect or reconnect WebSocket only when target active session or token changes
   useEffect(() => {
-    const activeSessionId = sessionId || session?.session_id;
-    if (!activeSessionId) return;
+    if (isDraft || !activeSessionId) {
+      if (wsRef.current) {
+        wsRef.current.disconnect();
+        wsRef.current = null;
+      }
+      return;
+    }
 
+    // Preserve existing live socket if already targeting this session and token
     if (wsRef.current) {
+      if (
+        wsRef.current.getSessionId() === activeSessionId &&
+        wsRef.current.getToken() === token &&
+        wsRef.current.isConnectedOrConnecting()
+      ) {
+        return;
+      }
       wsRef.current.disconnect();
       wsRef.current = null;
     }
 
-    const token = (authSession?.user as unknown as { accessToken?: string })?.accessToken || "";
     const ws = new MissionWebSocket(activeSessionId, undefined, token);
     ws.connect();
     wsRef.current = ws;
@@ -77,10 +124,38 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
       ws.disconnect();
       wsRef.current = null;
     };
-  }, [sessionId, session?.session_id, authSession]);
+  }, [activeSessionId, token, isDraft]);
 
-  const handleIgnite = (prompt: string, model?: string) => {
-    wsRef.current?.sendTurn(prompt, model);
+  const handleIgnite = async (
+    prompt: string,
+    model?: string,
+    messageId?: string,
+    attachmentIds?: string[]
+  ) => {
+    if (isDraft) {
+      const newSession = await createSessionWithPrompt(prompt, model, messageId);
+      if (newSession) {
+        router.push(`/chat/${newSession.session_id}`);
+      }
+      return;
+    }
+    wsRef.current?.sendTurn(prompt, model, messageId, attachmentIds);
+  };
+
+  const handleCancel = () => {
+    wsRef.current?.cancelTurn();
+  };
+
+  const handleRetryTurn = (prompt: string) => {
+    // Recovery for an interrupted turn: re-dispatch its prompt as a fresh turn,
+    // recording the optimistic entry so the echoed broadcast dedupes against it.
+    const messageId = newMessageId();
+    useMissionStore.getState().appendOwnUserMessage({
+      messageId,
+      content: prompt,
+      authorUserId: user?.user_id ?? null,
+    });
+    wsRef.current?.sendTurn(prompt, undefined, messageId);
   };
 
   const handleAnswerQuestion = (questionId: string, selectedOptions: string[], customText?: string) => {
@@ -89,14 +164,17 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
 
   const handleApprove = (actionId: string) => {
     wsRef.current?.submitApproval(actionId, true);
+    // Clear the gate optimistically; the server confirms via decision_submitted.
+    useMissionStore.getState().setActiveApproval(null);
   };
 
   const handleReject = (actionId: string) => {
     wsRef.current?.submitApproval(actionId, false);
+    useMissionStore.getState().setActiveApproval(null);
   };
 
   return (
-    <div className="h-screen w-screen flex flex-col bg-surface-base text-foreground font-sans overflow-hidden">
+    <div className="h-full w-full flex flex-col bg-surface-base text-foreground font-sans overflow-hidden">
       {/* Top Application Header */}
       <FlightTelemetryHeader />
 
@@ -107,55 +185,105 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
 
         {/* Cockpit Split Pane */}
         <div className="flex-1 flex overflow-hidden">
-          <PanelGroup direction="horizontal" className="h-full w-full">
-            {/* Center Panel: Continuous Flight Stream & Ignition Console */}
-            <Panel
-              id="flight-stream-panel"
-              order={1}
-              defaultSize={isRightPanelOpen ? 50 : 100}
-              minSize={30}
-              className="flex flex-col h-full bg-surface-base"
-            >
-              <FlightLogStream onAnswerQuestion={handleAnswerQuestion} />
-              <IgnitionConsole onIgnite={handleIgnite} />
-            </Panel>
+          {isMobile ? (
+            <div className="flex min-h-0 flex-col h-full w-full bg-surface-base relative">
+              <FlightLogStream
+                  onAnswerQuestion={handleAnswerQuestion}
+                  onApprove={handleApprove}
+                  onReject={handleReject}
+                />
+              <IgnitionConsole onIgnite={handleIgnite} onCancel={handleCancel} />
 
-            {/* Draggable Divider Handle */}
-            {isRightPanelOpen && (
-              <PanelResizeHandle className="w-1.5 bg-border/60 hover:bg-cyan/50 transition-colors flex items-center justify-center cursor-col-resize group relative select-none">
-                <div className="h-8 w-1 rounded-full bg-muted-foreground/40 group-hover:bg-cyan group-hover:shadow-[0_0_8px_rgba(0,242,254,0.6)] transition-all flex items-center justify-center">
-                  <GripVertical className="w-3 h-3 text-transparent group-hover:text-cyan/80" />
+              {/* Mobile Full-Screen Inspector Sheet */}
+              {isRightPanelOpen && (
+                <div className="fixed inset-0 z-50 bg-void flex flex-col animate-in fade-in duration-200">
+                  <div className="h-12 px-4 border-b border-surface-border flex items-center justify-between bg-surface-sidebar">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-xs tracking-wide uppercase font-mono text-brand">
+                        Inspector Deck
+                      </span>
+                      <span className="text-xs text-neutral-400">Diffs & Terminal</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => useMissionStore.getState().setIsRightPanelOpen(false)}
+                      className="p-1.5 rounded-md hover:bg-surface-elevated text-neutral-400 hover:text-foreground cursor-pointer"
+                      aria-label="Close Inspector"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    <div className="h-3/5 overflow-hidden border-b border-surface-border">
+                      <InspectorTop onApprove={handleApprove} onReject={handleReject} />
+                    </div>
+                    <div className="h-2/5 overflow-hidden bg-void">
+                      <StreamingTerminal />
+                    </div>
+                  </div>
                 </div>
-              </PanelResizeHandle>
-            )}
-
-            {/* Right Panel: Monaco Diff Matrix & Streaming Terminal */}
-            {isRightPanelOpen && (
+              )}
+            </div>
+          ) : (
+            <PanelGroup direction="horizontal" className="h-full w-full">
+              {/* Center Panel: Continuous Flight Stream & Ignition Console */}
               <Panel
-                id="telemetry-inspector-panel"
-                order={2}
-                defaultSize={50}
-                minSize={25}
-                collapsible={true}
-                className="flex flex-col h-full overflow-hidden bg-void"
+                id="flight-stream-panel"
+                order={1}
+                defaultSize={isRightPanelOpen ? 50 : 100}
+                minSize={30}
+                className="flex flex-col h-full bg-surface-base"
               >
-                {/* Top half: Monaco Diff Viewer */}
-                <div className="h-3/5 overflow-hidden">
-                  <MonacoDiffViewer onApprove={handleApprove} onReject={handleReject} />
-                </div>
-
-                {/* Bottom half: Streaming Terminal */}
-                <div className="h-2/5 overflow-hidden border-t border-border">
-                  <StreamingTerminal />
-                </div>
+                <FlightLogStream
+                  onAnswerQuestion={handleAnswerQuestion}
+                  onApprove={handleApprove}
+                  onReject={handleReject}
+                />
+                <IgnitionConsole onIgnite={handleIgnite} onCancel={handleCancel} />
               </Panel>
-            )}
-          </PanelGroup>
+
+              {/* Draggable Divider Handle */}
+              {isRightPanelOpen && (
+                <PanelResizeHandle className="w-1.5 bg-border/60 hover:bg-cyan/50 transition-colors flex items-center justify-center cursor-col-resize group relative select-none">
+                  <div className="h-8 w-1 rounded-full bg-muted-foreground/40 group-hover:bg-cyan group-hover:shadow-[0_0_8px_rgba(0,242,254,0.6)] transition-all flex items-center justify-center">
+                    <GripVertical className="w-3 h-3 text-transparent group-hover:text-cyan/80" />
+                  </div>
+                </PanelResizeHandle>
+              )}
+
+              {/* Right Panel: Monaco Diff Matrix & Streaming Terminal */}
+              {isRightPanelOpen && (
+                <Panel
+                  id="telemetry-inspector-panel"
+                  order={2}
+                  defaultSize={50}
+                  minSize={25}
+                  collapsible={true}
+                  className="flex flex-col h-full overflow-hidden bg-void"
+                >
+                  {/* Top half: Monaco Diff Viewer */}
+                  <div className="h-3/5 overflow-hidden">
+                    <InspectorTop onApprove={handleApprove} onReject={handleReject} />
+                  </div>
+
+                  {/* Bottom half: Streaming Terminal */}
+                  <div className="h-2/5 overflow-hidden border-t border-border">
+                    <StreamingTerminal />
+                  </div>
+                </Panel>
+              )}
+            </PanelGroup>
+          )}
         </div>
       </div>
 
       {/* Modal Settings fallback */}
-      <SettingsModal />
+
+      {/* Turn Inspector slide-over (persisted turn traces + interrupted-turn retry) */}
+      <TurnInspector onRetryTurn={handleRetryTurn} />
+
+      {/* Memory Inspector slide-over (view/forget long-term memory) */}
+      <MemoryInspector />
     </div>
   );
 };

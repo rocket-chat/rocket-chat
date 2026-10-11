@@ -27,6 +27,12 @@ const config: Config = {
           border: "var(--surface-border, #202534)",
           borderSubtle: "var(--surface-border-subtle, #181d28)",
         },
+        // Channel variables (see globals.css) so opacity modifiers such as bg-primary/10 work.
+        primary: {
+          DEFAULT: "rgb(var(--primary-rgb) / <alpha-value>)",
+          hover: "rgb(var(--primary-hover-rgb) / <alpha-value>)",
+          dim: "var(--primary-dim)",
+        },
         void: "var(--background)",
         elevated: "var(--elevated)",
         overlay: "var(--overlay)",
@@ -59,6 +65,7 @@ const config: Config = {
       },
       fontFamily: {
         sans: [
+          "var(--font-hanken)",
           "Hanken Grotesk",
           "-apple-system",
           "BlinkMacSystemFont",
@@ -69,11 +76,13 @@ const config: Config = {
           "sans-serif",
         ],
         display: [
+          "var(--font-space)",
           "Space Grotesk",
           "Hanken Grotesk",
           "sans-serif",
         ],
         mono: [
+          "var(--font-jetbrains)",
           "JetBrains Mono",
           "ui-monospace",
           "SFMono-Regular",
