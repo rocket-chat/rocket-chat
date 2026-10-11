@@ -1,0 +1,181 @@
+# Connect Slack
+
+Rocket Chat works inside Slack: mention it in a channel, message it directly, or start work with `/rocket`. This page connects it and sets the policy; what people see and do is described in [Slack for users](/use/slack).
+
+The connection is **Socket Mode**: Rocket Chat opens an outbound WebSocket to Slack. You need no public URL, no inbound firewall rule and no request signing secret.
+
+---
+
+## 1. Create the Slack app (two minutes, from a manifest)
+
+1. Open [api.slack.com/apps](https://api.slack.com/apps) and choose **Create New App → From an app manifest**, then pick your workspace.
+2. Paste this manifest (YAML) and create the app:
+
+```yaml
+display_information:
+  name: Rocket Chat
+  description: A coding agent with its own sandbox, in your Slack
+features:
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: Rocket
+    always_online: true
+  shortcuts:
+    - name: Ask Rocket
+      type: message
+      callback_id: ask_rocket
+      description: Work on this message with Rocket
+  slash_commands:
+    - command: /rocket
+      description: Start, check or stop work with Rocket
+      usage_hint: "new <task> | status | stop | pair | help"
+      should_escape: false
+    - command: /rocket-pair
+      description: Link your Slack account to Rocket Chat
+      should_escape: false
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - assistant:write
+      - channels:history
+      - channels:read
+      - chat:write
+      - commands
+      - files:read
+      - files:write
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - im:write
+      - mpim:history
+      - mpim:read
+      - reactions:write
+      - users:read
+      - users:read.email
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_home_opened
+      - app_mention
+      - assistant_thread_started
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+  interactivity:
+    is_enabled: true
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false
+```
+
+3. **Basic Information → App-Level Tokens → Generate Token and Scopes**: name it `rocket-socket`, add the `connections:write` scope and copy the `xapp-…` token. This is `SLACK_APP_TOKEN`.
+4. **Install App → Install to Workspace**, then copy the **Bot User OAuth Token** (`xoxb-…`). This is `SLACK_BOT_TOKEN`.
+
+### What each permission is for
+
+| Permission | Why Rocket needs it |
+| :--- | :--- |
+| `app_mentions:read`, `message.*` events, `*:history` | Answer when mentioned, in direct messages, and read the thread it was asked in (full context, not just the triggering message). |
+| `chat:write` | Post answers, the live progress message and approval buttons. |
+| `assistant:write` | Show the "working on…" status and suggested prompts in Slack's assistant panel. |
+| `commands` | `/rocket` and `/rocket-pair`. |
+| `files:read` / `files:write` | Read files you attach (logs, screenshots); attach long answers, large diffs and screenshots. |
+| `users:read`, `users:read.email` | Know **who** is speaking; link Slack accounts to Rocket Chat accounts. |
+| `channels:read`, `groups:read`, `im:read`, `mpim:read`, `im:write` | List conversations and open DMs for the agent's Slack tools (both are limited by your policy, below). |
+| `reactions:write` | Let the agent react to a message when asked to. |
+| `app_home_opened` | Draw the **Home** tab. |
+
+> If you add scopes later, reinstall the app so Slack issues a new token.
+
+---
+
+## 2. Give Rocket Chat the tokens
+
+```bash
+SLACK_BOT_TOKEN="xoxb-…"
+SLACK_APP_TOKEN="xapp-…"
+ROCKET_PUBLIC_URL="https://rocket.example.com"   # optional: puts an "Open in Rocket Chat" link on every thread
+```
+
+On Kubernetes put the tokens in the secret the Helm chart reads (see [Kubernetes quickstart](/install/kubernetes)). Restart the API; the log confirms the connection:
+
+```text
+Slack authentication confirmed for team 'Acme' (T0123) as @rocket
+```
+
+**Settings → Slack** shows whether the socket is connected and lets you test it. With several API replicas, exactly one holds the Socket Mode connection (elected through the database); the others take over if it fails.
+
+Invite the bot to a channel (`/invite @Rocket`) and ask for something:
+
+```text
+@Rocket why is the build failing on main?
+```
+
+---
+
+## 3. Administrator settings (Settings → Slack)
+
+| Setting | What it does |
+| :--- | :--- |
+| `default_agent_persona` | The agent persona Slack sessions use. |
+| `allowed_channel_types` | Where Rocket answers: public channels, private channels, direct messages, group DMs. |
+| `dm_policy` | Who the agent may direct-message: nobody, linked members only, or everyone. |
+| `outbound_channels` | Channels the agent may post in or react in. Empty limits it to the conversation it was invoked from. Scheduled missions may only report to these. |
+| `allowed_tools` | Which tools the Slack path may use (`*` means every tool except the deployment's blocked list). |
+| `auto_link_by_verified_email` | Link Slack users to members by their verified e-mail. |
+| `web_base_url` | The public address of Rocket Chat, for "Open in Rocket Chat" links (falls back to `ROCKET_PUBLIC_URL`). |
+| `live_progress` | The live progress message with a Stop button. |
+| `long_output_to_file`, `long_output_chars` | Attach long answers and large diffs as files, and the length that counts as long. |
+| `channel_profiles` | Per-channel behaviour (below). |
+
+### Per-channel profiles
+
+A channel can have its own persona, house rules, tool scope and sandbox image. Set `channel_profiles` to a JSON object keyed by channel id:
+
+```json
+{
+  "C0123ABCD": {
+    "agent_persona": "persona-security",
+    "instructions": "Answer in French. Never run commands against production.",
+    "allowed_tools": ["file_read", "grep_search", "web_search"],
+    "sandbox_image": "registry.example.com/team/security-box:2"
+  }
+}
+```
+
+`allowed_tools` can only narrow what the organization allows. `sandbox_image` must be an image the organization permits (**Settings → Organization → Sandboxes**). Direct messages never use a channel profile.
+
+### Safety limits (deployment-wide)
+
+Environment variables bound what an unlinked Slack user can cost or break: `SLACK_USER_TURNS_PER_MINUTE`, `SLACK_CHANNEL_TURNS_PER_MINUTE`, `SLACK_MAX_ATTACHMENTS_PER_TURN`, `SLACK_MAX_CONSECUTIVE_FAILURES` / `SLACK_FAILURE_COOLDOWN_SECONDS` (a circuit breaker), `SLACK_ALLOWED_TOOLS` / `SLACK_BLOCKED_TOOLS` (by default `git_revert` and `git_open_pr` are blocked on the unauthenticated path), `SLACK_PROACTIVE_NOTIFY_AFTER_SECONDS` (a completion notice for long turns, which members can switch off) and `SLACK_HEALTH_CHECK_SECONDS` (below). The settings reference lists every key.
+
+---
+
+## 4. Scheduled missions that report to Slack
+
+A scheduled mission (**Missions**) can name a **Slack channel**. When a run finishes, Rocket posts its result there with a link to the session (and the full report as a file when it is long). If the organization restricts `outbound_channels`, the channel must be one of them.
+
+---
+
+## 5. Reliability
+
+* **Redelivered events are dropped.** Slack resends an event whose acknowledgement came late; Rocket remembers recent event ids and handles each once.
+* **A silent socket is repaired.** A watchdog checks the connection every `SLACK_HEALTH_CHECK_SECONDS` (30) and reconnects after two failed checks in a row.
+* **Observability.** `GET /v1/slack/status` reports connection state, rate-limit and quota counters, reconnects, dropped redeliveries and the age of the last event.
+
+## 6. Troubleshooting
+
+| Symptom | Likely cause |
+| :--- | :--- |
+| No reply at all | The bot is not in the channel (`/invite @Rocket`), or `message.channels` / `message.groups` events are missing. Check **Settings → Slack → Test socket**. |
+| Replies only to the mention, ignores thread context | `channels:history` / `groups:history` scopes are missing. |
+| No progress message, only a spinner | `chat:write` is missing, or **live progress** is switched off. |
+| Long answers arrive as many messages | `files:write` is missing. |
+| "Only the person who asked can answer" | Buttons are answered by the requester only; ask them, or repeat the request yourself. |
+| `/rocket` does nothing | Reinstall the app from the manifest so the commands exist, then check Socket Mode is on. |

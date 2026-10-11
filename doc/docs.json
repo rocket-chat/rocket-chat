@@ -11,131 +11,77 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Documentation",
+        "tab": "Install",
         "groups": [
+          { "group": "Welcome", "pages": ["index"] },
           {
-            "group": "Overview",
+            "group": "Install",
             "pages": [
-              "index"
+              "install/index",
+              "install/docker-compose",
+              "install/kubernetes",
+              "install/configuration",
+              "install/air-gapped"
             ]
           }
         ]
       },
       {
-        "tab": "Guides",
+        "tab": "Use",
         "groups": [
           {
-            "group": "Getting Started",
+            "group": "Use Rocket Chat",
             "pages": [
-              "getting-started/index",
-              "getting-started/use-cases",
-              "getting-started/user-settings",
-              "getting-started/kubernetes-quickstart",
-              "getting-started/slack-setup",
-              "getting-started/github-app-setup",
-              "getting-started/configuration-reference"
+              "use/index",
+              "use/sessions",
+              "use/slack",
+              "use/automation",
+              "use/extend",
+              "use/personal-settings"
             ]
           }
         ]
       },
       {
-        "tab": "Architecture",
+        "tab": "Administer",
         "groups": [
           {
-            "group": "Architecture",
+            "group": "Administer",
             "pages": [
-              "architecture/index",
-              "architecture/agent-engine",
-              "architecture/sandbox-runtimes",
-              "architecture/custom-sandboxes",
-              "architecture/llm-gateway",
-              "architecture/multi-tenancy",
-              "architecture/configuration-engine",
-              "architecture/git-engine",
-              "architecture/slack-assistant",
-              "architecture/mission-control-ui",
-              "architecture/extensibility-and-tools",
-              "architecture/route-permissions"
+              "administer/index",
+              "administer/organization",
+              "administer/sandboxes",
+              "administer/sso",
+              "administer/github",
+              "administer/slack",
+              "administer/security",
+              "administer/settings-reference"
             ]
           }
         ]
       },
       {
-        "tab": "API & Protocols",
+        "tab": "Operate",
         "groups": [
           {
-            "group": "API & Protocols",
+            "group": "Operate",
             "pages": [
-              "api-reference/index",
-              "api-reference/rest-endpoints",
-              "api-reference/websocket-protocol",
-              "api-reference/python-protocols"
+              "operate/index",
+              "operate/helm-chart",
+              "operate/hardening",
+              "operate/disaster-recovery",
+              "operate/cloud-storage",
+              "operate/troubleshooting"
             ]
           }
         ]
       },
       {
-        "tab": "Deployment & Ops",
+        "tab": "API",
         "groups": [
-          {
-            "group": "Deployment & Operations",
-            "pages": [
-              "deployment-and-ops/index",
-              "deployment-and-ops/docker-compose",
-              "deployment-and-ops/helm-chart",
-              "deployment-and-ops/cloud-storage-csi",
-              "deployment-and-ops/public-release",
-              "deployment-and-ops/security-and-compliance",
-              "deployment-and-ops/production-hardening",
-              "deployment-and-ops/troubleshooting"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "AI & Agents",
-        "groups": [
-          {
-            "group": "AI & Agents",
-            "pages": [
-              "ai/index",
-              "ai/llms-index"
-            ]
-          }
+          { "group": "API", "pages": ["api/index", "api/rest", "api/websocket"] }
         ]
       }
     ]
-  },
-  "logo": {
-    "light": "/assets/logo.svg",
-    "dark": "/assets/logo.svg"
-  },
-  "background": {
-    "color": {
-      "light": "#ffffff",
-      "dark": "#0d1017"
-    }
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Cockpit",
-        "href": "http://localhost:3000"
-      },
-      {
-        "label": "GitHub",
-        "href": "https://github.com/rocket-chat/rocket-chat"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Launch App",
-      "href": "http://localhost:3000"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/rocket-chat/rocket-chat"
-    }
   }
 }

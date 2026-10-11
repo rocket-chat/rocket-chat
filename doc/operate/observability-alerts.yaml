@@ -1,0 +1,160 @@
+# Rocket Chat alert-rule examples (Prometheus / Prometheus Operator).
+#
+# These rules consume the series exposed by `backend` at `GET /metrics`
+# (`apps/api/src/api/services/metrics.py`) plus the standard scrape health series.
+# Wire the backend as a Prometheus scrape target on port 8000, path `/metrics`, and
+# add a blackbox probe against `/v1/ready` for `probe_success`.
+#
+# Thresholds come from the product's latency targets: TTFT < 2 s conversational / < 6 s
+# sandbox p95, prompt-cache hit ratio >= 60%, plus the M2 code-index byte ceiling.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: rocket-chat-alerts
+  labels:
+    release: prometheus
+spec:
+  groups:
+    - name: rocket-chat.availability
+      rules:
+        - alert: RocketBackendDown
+          expr: up{job="rocket-chat-backend"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Rocket Chat backend scrape target is down"
+            description: "The backend {{ $labels.instance }} has been unreachable for 2m."
+
+        - alert: RocketBackendNotReady
+          # Blackbox probe against /v1/ready: fires on database loss or while draining.
+          expr: probe_success{job="rocket-chat-readiness"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Rocket Chat backend is not ready"
+            description: "{{ $labels.instance }} fails /v1/ready (Postgres unreachable or draining)."
+
+    - name: rocket-chat.latency
+      rules:
+        # p95 time-to-first-token, conversational turns (target: < 2 s).
+        - alert: RocketTTFTConversationalHigh
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum by (le) (rate(rocket_turn_time_to_first_token_seconds_bucket{kind="conversational"}[10m]))
+            ) > 2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Conversational TTFT p95 above 2 s"
+            description: "p95 TTFT is {{ $value | humanizeDuration }} (target < 2 s)."
+
+        # p95 time-to-first-token, sandbox turns (target: < 6 s).
+        - alert: RocketTTFTSandboxHigh
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum by (le) (rate(rocket_turn_time_to_first_token_seconds_bucket{kind="sandbox"}[10m]))
+            ) > 6
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Sandbox TTFT p95 above 6 s"
+            description: "p95 TTFT is {{ $value | humanizeDuration }} (target < 6 s)."
+
+        - alert: RocketTurnDurationP95High
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum by (le, kind) (rate(rocket_turn_duration_seconds_bucket[15m]))
+            ) > 600
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Turn duration p95 above 10 minutes ({{ $labels.kind }})"
+
+    - name: rocket-chat.cost
+      rules:
+        # Target: prompt-cache hit ratio >= 60% on long sessions.
+        - alert: RocketPromptCacheHitRatioLow
+          expr: rocket_prompt_cache_hit_ratio < 0.6
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prompt-cache hit ratio below 60%"
+            description: "Cache hit ratio is {{ $value | humanizePercentage }} (target >= 60%)."
+
+        - alert: RocketModelCostSpike
+          expr: sum(rate(rocket_model_cost_usd_total[1h])) > 5
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Model spend above $5/hour"
+
+    - name: rocket-chat.backpressure
+      rules:
+        - alert: RocketTurnQueueBacklog
+          # Turns are waiting for a global concurrency slot: either raise the limit or
+          # scale out (with session affinity) before latency degrades for everyone.
+          expr: rocket_turn_queue_depth > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Turns are queued behind the global concurrency ceiling"
+            description: "queue_depth={{ $value }} (raise ROCKET_GLOBAL_CONCURRENCY_LIMIT or scale out)."
+
+    - name: rocket-chat.memory
+      rules:
+        # The code-index cache ceiling is 192 MiB; alert before the pod approaches it.
+        - alert: RocketCodeIndexFootprintHigh
+          expr: rocket_code_index_bytes > 160 * 1024 * 1024
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Code-index cache is above 160 MiB (ceiling 192 MiB)"
+
+        - alert: RocketCodeIndexRefusing
+          # A non-zero refusal rate means single sessions exceed the whole byte budget.
+          expr: rate(rocket_code_index_refusals_total[15m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Code-index cache is refusing oversized indexes"
+
+    - name: rocket-chat.abuse
+      rules:
+        - alert: RocketQuotaRejectionsHigh
+          expr: sum(rate(rocket_quota_rejections_total[5m])) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Quota/rate-limit rejections are elevated"
+
+        - alert: RocketWebSocketConnectionsHigh
+          expr: rocket_websocket_connections > 1000
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Many cockpit WebSocket connections on one pod"
+
+        - alert: RocketAuthFailuresHigh
+          # Sustained rejections are credential stuffing, a broken token rotation or a
+          # misconfigured client; `reason` separates "no credential" from "bad credential".
+          expr: sum by (reason) (rate(rocket_auth_failures_total[5m])) > 2
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Authentication failures are elevated ({{ $labels.reason }})"
