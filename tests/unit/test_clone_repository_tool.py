@@ -153,3 +153,29 @@ async def test_the_agent_sees_the_tool_and_may_use_it_even_in_plan_mode() -> Non
         current_execution_ctx.reset(token)
 
     assert "Cloned acme/api" in result, "plan mode must still be able to read the code"
+
+
+async def test_a_fresh_clone_brings_the_repositorys_own_instructions_once() -> None:
+    driver = _Driver()
+    await driver.ensure_workspace(
+        __import__("specifications.interfaces.sandbox", fromlist=["WorkspaceSpec"]).WorkspaceSpec(
+            "s", "org", "user", "img"
+        )
+    )
+    await driver.write_file("s", "/workspace/api/AGENTS.md", "Run `make test` before committing.")
+
+    fresh = await clone_repository(driver, "s", "acme/api")
+    assert "[Project Instructions - from `/workspace/api/AGENTS.md`]" in fresh
+    assert "make test" in fresh
+
+    driver.clone = ExecResult(
+        0, "ALREADY_CLONED\nmain\nabc1234 Initial\n--- top level\nsrc\n", "", 1
+    )
+    repeat = await clone_repository(driver, "s", "acme/api")
+    assert "Already cloned" in repeat and "Project Instructions" not in repeat
+
+
+async def test_a_clone_without_instructions_adds_nothing() -> None:
+    result = await clone_repository(_Driver(), "s", "acme/api")
+
+    assert "Project Instructions" not in result
