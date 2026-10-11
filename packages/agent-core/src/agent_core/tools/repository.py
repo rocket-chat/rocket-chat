@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from agent_core.tools.clamp import clamp_output
+from agent_core.tools.project_instructions import instruction_paths, read_instructions
 from specifications.interfaces.sandbox import SandboxDriverProtocol, SandboxStatus
 
 logger = logging.getLogger(__name__)
@@ -211,6 +212,11 @@ async def clone_into_workspace(
     already = output.startswith("ALREADY_CLONED")
     body = output.removeprefix("ALREADY_CLONED").strip()
     head = "Already cloned (fetched the latest)" if already else "Cloned"
-    return CloneOutcome(
-        f"{head} {repo.slug} into {target}\nbranch / last commit / top level:\n{body}", target
-    )
+    message = f"{head} {repo.slug} into {target}\nbranch / last commit / top level:\n{body}"
+    # The repository's own instructions come with a fresh clone, once: a repeat call would only
+    # repeat what the agent already has in its context.
+    if not already and (
+        instructions := await read_instructions(driver, session_id, instruction_paths(target))
+    ):
+        message += f"\n{instructions}"
+    return CloneOutcome(message, target)

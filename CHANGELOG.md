@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `agent-core`: **A fresh clone brings the repository's own instructions.** `clone_repository` now appends the repository's `AGENTS.md` (or `CLAUDE.md`), clamped to 12 KB / 250 lines, to its result - once per clone, not on a repeat call - so the agent follows each repository's conventions without reading the file itself. Previously only a file at `/workspace` or a session bound to a repository was loaded, which never covered a repository the agent cloned.
 - `agent-core`/`config-engine`/`api`: **The default turn budget is 60 reasoning steps (was 30).** One shared constant (`DEFAULT_MAX_TURNS`) now defines it for the orchestrator, the resolver and the `general.max_turns` setting; `AGENT_MAX_TURNS`, the organization setting and an agent's own limit still override it.
 
 ### Fixed

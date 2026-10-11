@@ -22,7 +22,8 @@ def register(registry: "ToolRegistry") -> None:
             "checked out until you clone it, and many tasks need no repository at all. When "
             "one is needed, find it first (user's request, `kb_search`, skills, "
             "`github_find_repositories`), then clone. Idempotent: an existing clone is "
-            "refreshed. Authentication is automatic."
+            "refreshed. Authentication is automatic. A fresh clone's result includes the "
+            "repository's own AGENTS.md / CLAUDE.md: follow it."
         )
     )
     async def clone_repository(
