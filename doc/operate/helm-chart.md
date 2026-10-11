@@ -68,7 +68,7 @@ helm install rocket-chat deploy/helm/platform \
 Or install directly from the public GitHub OCI Container Registry:
 ```bash
 helm install rocket-chat oci://ghcr.io/rocket-chat/charts/rocket-chat \
-  --version 0.2.0 \
+  --version 0.2.1 \
   --namespace rocket-chat \
   --create-namespace \
   -f prod-values.yaml
