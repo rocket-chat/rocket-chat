@@ -1,0 +1,151 @@
+# Architecture
+
+How Rocket Chat is built, how a request becomes a finished turn, and where each responsibility lives. Rules for working in the code are in [`AGENTS.md`](../AGENTS.md); identity, isolation and secrets are in [`security-and-tenancy.md`](security-and-tenancy.md). End-user and operator documentation is the site in `doc/`.
+
+## 1. Shape of the system
+
+One control-plane process, one database, and sandboxes that are created on demand.
+
+```
+ Web cockpit (Next.js 15)      Slack (Socket Mode)      GitHub webhooks      Scheduled missions
+        |  REST + WebSocket          | (in-process)           | HTTP               | (in-process)
+        v                            v                        v                    v
+ +--------------------------------------------------------------------------------------------+
+ |  Control plane  (apps/api, FastAPI, one process per replica)                               |
+ |  routers -> turn engine -> orchestrator (agent-core) -> tools                              |
+ |                  |              |                          |                               |
+ |            event bus       LLM gateway              sandbox driver (Docker | Kubernetes)   |
+ |                  |         (LiteLLM, BYOK, budgets)        |                               |
+ +------------------|---------------------------------------|-------------------------------+
+                    v                                       v
+          PostgreSQL 16 + pgvector                 One sandbox per session
+          (row-level security, LISTEN/NOTIFY)      (container or pod + persistent workspace)
+```
+
+Design choices that shape everything else:
+
+* **No worker tier.** A turn is a coroutine in the API process. Slack, the mission scheduler, the sandbox reaper, retention and turn-lease heartbeats are `asyncio` tasks in the same process (`api/bootstrap/`). Several replicas cooperate through PostgreSQL only: a shared event bus (`LISTEN`/`NOTIFY`), advisory locks for "one turn per session" and leader election, and claim-based work queues.
+* **Contracts first.** Every subsystem is used through a protocol in `specifications/interfaces/` (sandbox driver, LLM gateway, session store, event bus, transcript store, git engine, plus the typed event payloads). `packages/` never import from `apps/`; `specifications` imports no workspace package (enforced by `tests/unit/test_import_boundaries.py`).
+* **Sessions start blank.** A session is a sandbox with an empty `/workspace`. The agent finds and clones repositories itself (`clone_repository`); nothing is pre-cloned by the platform.
+* **PostgreSQL is the only state.** Sessions, turn traces, transcripts, memory, audit, usage, settings, missions, processes and the sandbox catalogue are tables. With no `DATABASE_URL` (tests, a laptop) the same protocols are served by in-memory stores.
+
+## 2. Repository map
+
+| Path | Responsibility |
+| :--- | :--- |
+| `apps/api/src/api/main.py` | Builds the FastAPI app: middleware, routers, `lifespan` (sequences start-up and shutdown). |
+| `api/bootstrap/` | Start-up, one concern per module: `runtime` (driver/gateway/model/cluster choices from the environment), `persistence` (session store + migrations check + recovery), `core` (assembles the shared services into `CoreServices` and `app.state`), `slack` (Slack wiring), `background` (reaper, retention, turn leases, missions, MCP refresh on one `_run_periodically` loop). Add start-up work to the matching module, never to `lifespan`. |
+| `api/routers/` | One module per domain (sessions, turns, MCP, settings, skills, knowledge, agents, admin, workspace, preview, terminal, processes, sandboxes, webhooks, …). Routers validate, authorise and delegate; logic lives in `services/` and `turns/`. |
+| `api/turns/` | The turn engine (§4). |
+| `api/sockets/session_socket.py` | The session WebSocket (§5). |
+| `api/services/` | Domain services: settings resolution, budgets and usage, audit/redaction/retention, memory, knowledge (pgvector), MCP engine and OAuth, missions, quotas, attachments, code index, process tracker, sandbox catalogue, Slack link/pairing, git credentials, metrics. |
+| `api/auth/` | Identity resolution, roles, session cookies, OIDC, local accounts, SSO policy, preview tokens. |
+| `api/db/` | SQLAlchemy models, the PostgreSQL stores, tenant-scoped session manager, schema check. Migrations live in `migrations/` (Alembic; the only thing that changes the schema). |
+| `packages/agent-core` | The agent: orchestrator, tool registry and tools, permission modes, subagents, context hygiene, transcript repair. |
+| `packages/sandbox-driver` | `DockerSandboxDriver`, `K8sSandboxDriver`, `FakeSandboxDriver`, egress policy and proxy, PTY, patching, SSRF-safe loopback HTTP. |
+| `packages/llm-gateway` | `LiteLLMGateway` (the single choke point for model calls), a deterministic stub for tests, pricing, structured output, `<think>` filtering. |
+| `packages/config-engine` | The typed settings registry and cascade, the credential cipher. |
+| `packages/git-engine` | Commits with co-author trailers and signing, PR creation, GitHub webhook verification and triggers. |
+| `packages/slack-assistant` | The Slack assistant (§8). |
+| `specifications/interfaces/` | The contracts: `agent`, `events`, `event_payloads`, `llm`, `sandbox`, `session`, `transcript`, `git`, `mcp`. |
+| `apps/web` | The cockpit (§9) and its Playwright suite (`e2e/`). |
+| `deploy/` | Dockerfiles, Compose files, the Helm chart (`helm/platform`), Kind config. |
+| `doc/` | The user documentation site (Mintlify). `scripts/` holds the generators and checks. |
+| `tests/` | `unit`, `integration`, `security`, `contract`, `concurrency`, `harness` (golden tasks). |
+
+## 3. The agent (`packages/agent-core`)
+
+**Orchestrator.** `AsyncReActOrchestrator` runs the reason-and-act loop. A turn is a `_TurnRun` driven through phase methods: `_begin_turn_run` → `_drive_turn` → `_react_step` (stream one model response, dispatch its tool calls, append results) → `_synthesize_after_budget` / `_fail_turn`. When the turn budget is spent while the model is still calling tools, one last tool-less step synthesises an answer from what was gathered (`post_failure_synthesis`), so findings are never left half-finished. `human_wait_scope` lets the process-wide concurrency gate release its slot while a turn waits for a person.
+
+**Execution context.** `current_execution_ctx` (a `contextvar`) carries the session, organization, user, event queue, permission mode, sandbox capabilities and per-turn callbacks. Tools and subagents read it; nothing mutates shared singletons across turns (`tests/unit/test_no_shared_turn_state.py`).
+
+**Tools.** `ToolRegistry` (FastMCP-based) holds Tier 1 tools (in-process: web, knowledge base, GitHub reads, memory, planning, questions, delegation) and Tier 2 tools (run in the sandbox through the driver: files, search, shell, tests/lint/build, git, package manager, background processes, browser, image viewing). Built-in tools are registered in groups from `tools/builtin/<domain>.py`; their implementations are sibling modules. The registry is also the enforcement point:
+
+* **Permission modes** (`permissions.py`, modes `plan`, `ask`, `auto_edit`, `auto` (default), `bypass`): every tool call is classified as read, edit, command or publish with a risk level, and the session's mode decides which classes raise a human gate *before* the tool runs (`ask` gates edits and commands, `auto_edit` gates commands and publishing). `plan` rejects every mutating tool server-side, whatever the model says.
+* **Scope and capability gates:** per-agent and per-skill tool whitelists; capability-tagged tools (e.g. `browser_inspect`) exist only when the session's sandbox has the capability.
+* **Human gates** (`interaction.py`): `ask_question` and approvals pause the turn; the pending gate is stored with the turn (`api/turns/gates.py`) so a restart or another replica can continue it.
+* **Dispatcher:** independent tool calls run in parallel; mutations of the same path are serialised.
+
+**Context hygiene.** Tool output is clamped head-and-tail (`tools/clamp.py`); old verbose tool results are pruned to one-line receipts past 70% of the model's window; at 85% the history is compacted around invariant anchors (system prompt, goal, checklist, latest turns). Assistant reasoning and `tool_call_id` pairing are never dropped (`transcript.py` repairs pairing on rehydrate).
+
+**Subagents.** `SubagentRunner` runs a delegated, bounded ReAct cycle with its own history and a tool whitelist that can never include delegation. Roles come from the organization's configuration or built-in defaults; an unknown role gets read-only tools.
+
+**Edits.** `editor.py` applies exact block replacements and unified diffs and returns `FileDiff`s, which become `file_diff` events.
+
+## 4. The turn engine (`apps/api/src/api/turns/`)
+
+Every transport (web socket, REST, Slack, GitHub webhook, scheduled mission, restart resume) ends in `run_guarded_turn` (`tasks.py`): it takes a global concurrency slot and the per-session write lock (a cluster advisory lock when replicas share a database), then runs `TurnRunner.run`:
+
+1. **Prepare** — load the session, record the user message, write a durable `running` turn trace (so a crash is visible as `interrupted`), load governance, resolve persona, model route and turn budget (`routing.py`).
+2. **Execute** — resolve model credentials (member key, organization key, platform key), bring the sandbox up blank (`provisioning.py`) and inject git credentials, build the system prompt (`prompt.py`: a byte-stable cached prefix plus a volatile suffix), attach the turn's MCP tools and callbacks (`callbacks.py`), stream the orchestrator, translating each agent event into a published session event with one small handler per type (`events.py`).
+3. **Record** — `finalise.py` stores the answer and trace with `store.mutate_session`, then publishes the closing `status_changed` with `final: true` — strictly after the answer is stored.
+4. **Follow-up and cleanup** — `followup.py` suggests the next instruction; cleanup always runs.
+
+`TurnContext` (`context.py`) is the data a turn carries; `shared.py` holds process-wide collaborators. A failure becomes an `error` event with `final: true` and an interrupted/failed trace, never a silent stop. After a restart, `turn_resume.py` continues turns the previous process left running (claimed by lease so exactly one replica resumes each).
+
+## 5. Events, the WebSocket and consistency
+
+**Events.** `SessionEvent(session_id, event_type, payload, seq)`; types are in `specifications/interfaces/events.py` and every payload has a `TypedDict` in `event_payloads.py`. With `ROCKET_VALIDATE_EVENTS=1` (set by `tests/conftest.py`) the in-process bus validates each published event and the test harness fails on a violation. `AsyncIOEventBus` serves one process and keeps a bounded replay window; `PostgresEventBus` shares events, sequence numbers and decisions across replicas.
+
+**The session socket** (`SessionSocket`): authorise → open the live queue → note the sequence → read the session record → send one `sync` frame → stream. The rule that keeps it correct: the live queue is opened *before* the record is read, so nothing published afterwards can be missed. `sync.catch_up {from_seq, events}` starts at the in-flight turn's first `running` status and ends only at the runner's own closing event (`status_changed` with `final: true`); the orchestrator's earlier `completed` carries no such flag. The client rewinds its resume cursor to `from_seq` whenever a `sync` replaces its transcript (`lib/sync-plan.ts`) and ignores a REST read of the session that lands after the socket established it. Client frames that mutate (`turn`, `cancel`, `answer_question`, `approval`, `share`, …) are refused for read-only members. `resume` replays missed events from a cursor.
+
+**Writes to a session record** go through `store.mutate_session(session_id, org, fn)` — a row-locked read-modify-write on PostgreSQL. A whole-record `get` + `update` lets the title task, the answer and the follow-up erase each other.
+
+## 6. Sandboxes (`packages/sandbox-driver`)
+
+`SandboxDriverProtocol` is the only way the platform touches a sandbox: `ensure_workspace`, `start_sandbox`, `hibernate_sandbox`, `destroy_workspace`, `get_status`, `exec_command` (timeout, env, streamed stdout), file read/write/list, `apply_patch`, `set_session_env`, `open_pty`, and `hold_awake`.
+
+* **Docker driver** (local, single node): a named volume per session mounted at `/workspace`, a warm pool for fast starts, an inactivity reaper. A restricted organization's sandboxes join an internal network and reach the outside only through an allow-listing proxy that vets *resolved* addresses (so DNS rebinding cannot reach private ranges or the metadata endpoint).
+* **Kubernetes driver** (production): one pod and one PVC per session in a dedicated namespace; hibernation deletes the pod and keeps the PVC; resume uses soft node affinity to the previous node to avoid multi-minute volume re-attach (soft rather than a hard `nodeSelector`, which would leave the pod `Pending` forever if that node is cordoned); pods are annotated against eviction while a command runs; restricted organizations get a per-pod NetworkPolicy (the namespace policy excludes `rocket.chat/egress=restricted` pods because NetworkPolicies are additive). Storage classes: `gp3`, `managed-csi`, `pd-balanced`, or `standard`/`local-path`.
+* **Fake driver:** deterministic and in-memory, for tests and CI.
+* **Catalogue.** Each organization has a list of sandboxes (name, image, description, capability tags, one default) in `sandbox_catalogue`. A session starts in the chosen entry; capabilities (e.g. `browser`) decide which optional tools exist for it.
+* **Background processes.** `process_start/list/output/wait/stop` run dev servers and watchers in their own process group inside the sandbox (state files under `/tmp/rocket/proc/<id>/`, no daemon). The control plane mirrors them in `sandbox_processes` (`ProcessTracker`), announces `process_started`/`process_exited`, tells the agent at its next turn what exited while it was away, and holds the sandbox awake (`hold_awake`) while one runs.
+* **Preview.** A minted, port-scoped token serves an app running in the sandbox through `/v1/preview/<token>/…` with a `sandbox` CSP, embedded in an iframe without `allow-same-origin`.
+* **Terminal.** An interactive PTY over a WebSocket, gated like a write to the session and audited on open and close.
+
+## 7. Models, configuration, integrations
+
+**LLM gateway.** `LiteLLMGateway.chat_stream` is the single choke point for every model call (the loop, subagents, titles, summaries, follow-ups). Before the call it checks budgets (`BudgetService`, month-to-date from the persisted ledger) and resolves the key (member → organization → platform per `budgets.byok_policy`); after it, it writes one `usage_events` row. Retries and fallbacks are delegated to LiteLLM (`num_retries`, `fallbacks`) and never retried after tokens have streamed. Prompt caching marks only the stable prefix and tool schemas. Auxiliary calls use JSON-schema constrained output with one repair retry (`structured.py`). Model choice is decided above the gateway (routing settings).
+
+**Settings (`config-engine`).** A typed registry of domains (`general`, `models`, `budgets`, `routing`, `sandboxes`, `github`, `mcp`, `slack`, `governance`, `memory`, `user_preferences`); each key declares kind, default, scope (`org`, `user`, `both`), bounds and the file that consumes it (a test fails if the consumer does not read the key). Resolution is system default → organization value → member override, and an administrator can *lock* a member-overridable key. Writes are validated and rejected, never silently dropped. `doc/administer/settings-reference.md` is generated from the registry. Every key must have a behaviour test marked `@pytest.mark.setting("domain.key")` (enforced by `tests/unit/test_every_setting_is_wired.py`); a member preference must default to empty when it competes with an organization or platform default, otherwise the default counts as the member's choice and always wins.
+
+**MCP.** Organization- and member-scoped servers (stdio for administrators only, HTTP/SSE/streamable-HTTP remote), secrets encrypted at rest, OAuth discovery and client registration through the MCP SDK, optional per-member authorisation, tools attached per turn.
+
+**Git.** `GitEngine` formats commits with `Co-authored-by` trailers, signs (GPG or GitHub App), opens pull requests, and verifies GitHub webhooks (HMAC; unsigned only if explicitly allowed). Webhook triggers (`issues.labeled` with the trigger label, addressed or labelled `issue_comment.created`, `pull_request`) are accepted only from repository insiders and an optional repository allowlist. Credentials are resolved per session (member's linked account, else the App installation) and injected into the sandbox.
+
+**Memory, knowledge, skills.** Long-term memory (`remember`/`recall`, injected only into the volatile prompt suffix), pgvector knowledge bases, prompt skills and agent personas, all organization- or member-scoped under RLS.
+
+**Missions** are scheduled sessions claimed atomically (`claim_due`) and run on a leader-elected scheduler; a run can report to a Slack channel.
+
+## 8. Slack (`packages/slack-assistant`)
+
+`SlackAssistant` is assembled from mixins that share the state declared in `state.py`: `toolset` (Slack tools and policy), `gates` (buttons, Stop, durable ownership), `admission` (rate limits, quotas, organization policy), `turn_stream` (run a turn and render events), `entrypoints` (`/rocket`, the "Ask Rocket" shortcut, App Home, mission reports). `progress.py`, `artifacts.py`, `health.py`, `block_kit.py` are plain helpers. Behaviour worth knowing:
+
+* One live progress message per request, edited in place, with a Stop button only the requester can use; long answers and diffs go out as files.
+* A thread's pending question survives restarts: the requester is stored on the session (`slack_turn_requester`) and a question whose turn died is answered from its stored copy.
+* Socket Mode runs on one leader replica (advisory-lock election); event redeliveries are dropped; a watchdog reconnects a silent socket.
+* The platform calls back into the assistant only through the callables passed at construction (`api/bootstrap/slack.py`), so the package never imports the API.
+
+## 9. The web cockpit (`apps/web`)
+
+Next.js 15 App Router, React 19, Tailwind, lucide icons, Zustand. The client store is split into slices under `lib/store/` (sessions, agents, stream, composer, layout). `lib/websocket.ts` + `lib/sync-plan.ts` + `lib/session-cursor.ts` implement the resume/sync rules of §5. Shared form primitives (`components/ui/Field.tsx`) tie every label to its control; pages share one top bar. Monaco renders diffs, xterm renders logs and the terminal. Playwright (`e2e/`) runs against the in-memory API and, in CI, against a migrated PostgreSQL with forced RLS; `e2e/docs/screenshots.spec.ts` regenerates the documentation screenshots.
+
+## 10. Operations
+
+* **Probes and metrics:** `/health` (liveness, no dependencies), `/v1/ready` (database ping, 503 while draining), `/metrics` (Prometheus text), `POST /v1/drain` (the Helm `preStop` hook). Shutdown sets `draining`, stops background tasks, closes the bus, the sandbox warm pool and the connection pool, in that order.
+* **Backpressure:** a global concurrency gate bounds concurrent turns; a bounded registry of per-session locks gives one writer per session.
+* **Replicas:** `ROCKET_EVENT_BUS=postgres` turns on the shared bus, cluster session locks, leader election (Slack socket, mission scheduler) and turn-lease recovery. Schema upgrades run at container start (`alembic upgrade head`); the API refuses to start against a schema that is behind.
+* **Governance jobs:** a retention sweeper, turn-lease heartbeats and a remote-MCP refresh run on the schema-owner connection because they must see every tenant.
+* **Packaging:** multi-stage Dockerfiles in `deploy/docker/`, Compose for evaluation and single-node production, the Helm chart in `deploy/helm/platform` (every new environment variable, secret, mount or route must be added there).
+
+## 11. Extension points
+
+| To add | Do this |
+| :--- | :--- |
+| A tool | Implement it in the matching `tools/builtin/<domain>.py` group (or a helper module), register in that group's `register_*` function, give parameters `Annotated[..., Field(description=…)]`, decide Tier 1/2 and whether it mutates (plan-mode gate) or needs a capability. Update `tests/golden/tool_catalogue.json`. |
+| A sandbox driver | Implement `SandboxDriverProtocol`, select it in `bootstrap/runtime.py` (`build_sandbox_driver`), add it to the driver conformance tests. |
+| A setting | Add a `SettingSpec` to `registry.py` with its `consumer` file; read it where it is enforced; the settings reference regenerates. |
+| An event | Add the `EventType`, a `TypedDict` in `event_payloads.py`, a handler in `turns/events.py`, the client handling, and the WebSocket documentation, in one change. |
+| A route | New router module; authorise with `_check_session_access` / identity helpers; Pydantic response model and docstring (they generate the API reference); register in `main.py`; add the route to the permission tests. |
+| A table | An Alembic migration (never `create_all`), `ENABLE` + `FORCE ROW LEVEL SECURITY` with an `org_id` policy, a model in `db/models.py`, and an RLS test. |
+| A start-up task | A method in `bootstrap/background.py` using `_run_periodically`, stopped by `BackgroundServices.stop`. |

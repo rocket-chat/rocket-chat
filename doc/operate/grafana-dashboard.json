@@ -1,0 +1,220 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "Prometheus datasource scraping the Rocket Chat backend /metrics endpoint",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "annotations": { "list": [] },
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Time-to-first-token p95 (spec §7: <2s conversational, <6s sandbox)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 5 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, kind) (rate(rocket_turn_time_to_first_token_seconds_bucket[10m])))",
+          "legendFormat": "{{kind}} p95"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Turn duration p95 by kind",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 5 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, kind) (rate(rocket_turn_duration_seconds_bucket[10m])))",
+          "legendFormat": "{{kind}} p95"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (kind) (rate(rocket_turns_total[10m]))",
+          "legendFormat": "{{kind}} turns/s"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "gauge",
+      "title": "Prompt-cache hit ratio (spec §7: ≥60%)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.4 },
+              { "color": "green", "value": 0.6 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "rocket_prompt_cache_hit_ratio", "legendFormat": "cache hit ratio" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Cockpit WebSocket connections",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "expr": "rocket_websocket_connections", "legendFormat": "connections" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Turn backpressure: queue depth vs active vs limit",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 6, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 5 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "rocket_turn_queue_depth", "legendFormat": "queued" },
+        { "refId": "B", "expr": "rocket_turn_active", "legendFormat": "active" },
+        { "refId": "C", "expr": "rocket_turn_concurrency_limit", "legendFormat": "limit" }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Tool calls per second by tool",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "sum by (tool) (rate(rocket_tool_calls_total[5m]))", "legendFormat": "{{tool}}" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Model tokens/s by type and cost/s",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10, "stacking": { "mode": "normal" } }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "sum by (type) (rate(rocket_model_tokens_total[5m]))", "legendFormat": "{{type}} tokens/s" },
+        { "refId": "B", "expr": "sum(rate(rocket_model_cost_usd_total[5m]))", "legendFormat": "USD/s" }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Code-index cache footprint (ceiling 192 MiB)",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 22 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "rocket_code_index_bytes", "legendFormat": "resident bytes" },
+        { "refId": "B", "expr": "rocket_code_index_sessions * 9 * 1024 * 1024", "legendFormat": "~9 MiB x sessions" }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Code-index cache events",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 22 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "drawStyle": "line", "lineWidth": 1, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "rate(rocket_code_index_hits_total[5m])", "legendFormat": "hits/s" },
+        { "refId": "B", "expr": "rate(rocket_code_index_misses_total[5m])", "legendFormat": "misses/s" },
+        { "refId": "C", "expr": "rate(rocket_code_index_evictions_total[5m])", "legendFormat": "evictions/s" },
+        { "refId": "D", "expr": "rate(rocket_code_index_refusals_total[5m])", "legendFormat": "refusals/s" }
+      ]
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Quota / rate-limit rejections per second",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 22 },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 10 }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "refId": "A", "expr": "sum by (scope) (rate(rocket_quota_rejections_total[5m]))", "legendFormat": "{{scope}}" }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["rocket-chat", "operator"],
+  "templating": { "list": [] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timezone": "",
+  "title": "Rocket Chat — Operations",
+  "uid": "rocket-chat-ops",
+  "version": 1
+}

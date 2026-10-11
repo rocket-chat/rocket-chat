@@ -28,10 +28,13 @@
 ### Key Capabilities
 
 - **Isolated Compute Sandboxes:** Pluggable execution driver implementing `SandboxDriverProtocol` supporting local Docker daemon containers and Kubernetes multi-tenant Pods with non-root security contexts.
-- **Modern Pair-Programming Cockpit:** Next.js 15 interface featuring continuous flight streams, real-time collapsible thinking/reasoning blocks, in-stream decision gates, side-by-side Monaco diffs, and streaming virtual terminal output.
-- **Hierarchical Agent Core:** ReAct agent engine with tool dispatching (`view_file`, `replace_file_content`, `write_to_file`, `run_command`, `ask_question`), context compaction, and loop guards.
-- **Universal LLM Gateway:** Unified LiteLLM proxy router supporting Anthropic, OpenAI, DeepSeek, and OpenRouter with BYOK AES-256 encryption.
-- **Embedded Slack Assistant:** Socket Mode integration enabling team members to summon autonomous agents directly in workspace threads.
+- **Modern Pair-Programming Cockpit:** Next.js 15 interface featuring continuous flight streams, real-time collapsible thinking/reasoning blocks, in-stream decision gates, side-by-side Monaco diffs, streaming virtual terminal output, drag-drop attachment uploads, a session sidebar with server-side search/pin/archive/fork, a durable turn inspector, and a memory inspector.
+- **Durable Session Continuity:** A monotonic per-event `seq`, a bounded replay buffer, and a browser cursor mean a reconnect loses nothing; every completed turn is persisted as a queryable trace, and turns interrupted by a crash are flagged on startup so the cockpit can offer a retry.
+- **Multimodal & Memory:** Screenshots, logs, PDFs and office documents reach the model through a content-addressed attachment pipeline (web and Slack), and the agent deliberately `remember`s/`recall`s tenant-scoped long-term knowledge.
+- **Hierarchical Agent Core:** ReAct agent engine with a line-accurate tool suite (`file_read`, `file_edit`, `apply_patch`, `apply_diff_file`, `bash_exec`, `grep_search`, `git_log`, `package_manager`, `run_tests`, `ask_question`, `remember`/`recall`, …), bounded tool fan-out, context compaction, and loop guards.
+- **Universal LLM Gateway:** Unified LiteLLM proxy router supporting Anthropic, OpenAI, DeepSeek, and OpenRouter with BYOK AES-256 encryption, model-routing precedence (`preferred_model` > user > org policy > default), task-aware `frontier`/`balanced`/`economy` routing, and JSON-schema structured outputs.
+- **Governance & Observability:** A durable, RLS-scoped audit trail, configurable redaction/retention and provider/egress policy, plus production probes, Prometheus `/metrics`, graceful drain, PDB/HPA and reproducible SBOMs.
+- **Embedded Slack Assistant:** Socket Mode integration enabling team members to summon autonomous agents directly in workspace threads, bounded by per-workspace quotas, rate limits and enforced tool allowlists.
 
 ---
 
@@ -52,7 +55,8 @@ rocket-chat/
 ├── specifications/
 │   └── interfaces/          # Subsystem protocols & abstract contracts (Single Source of Truth)
 ├── deploy/                  # Docker Compose stacks, Kind manifests, & Helm charts
-├── doc/                     # Living user and architecture documentation (Mintlify)
+├── doc/                     # User documentation site (Mintlify)
+├── dev/                     # Architecture and security design for contributors
 └── tests/                   # Automated unit, integration, and E2E test suites
 ```
 
@@ -69,7 +73,7 @@ You can run Rocket Chat using **Docker Compose** (recommended for quick evaluati
 | **Docker Engine** | 24.0+ | Required for sandboxed code execution (`/var/run/docker.sock`) |
 | **Python** | 3.12+ | Required for backend local development |
 | **`uv`** | Latest | Fast Python workspace and package manager |
-| **Node.js** | 20+ | Required for frontend local development |
+| **Node.js** | 22+ | Required for frontend local development |
 | **`pnpm`** | 9+ | Monorepo package manager for web cockpit |
 
 ---
@@ -86,8 +90,8 @@ The fastest way to spin up the entire platform (PostgreSQL with `pgvector`, Fast
 
 2. **Configure environment variables:**
    ```bash
-   cp .env.example .env
-   # Edit .env and supply your LLM API keys (e.g., OPENROUTER_API_KEY or ANTHROPIC_API_KEY)
+   # Supply an LLM API key (e.g. OPENROUTER_API_KEY or ANTHROPIC_API_KEY) in the environment
+   export OPENROUTER_API_KEY=...
    ```
 
 3. **Launch all services:**
@@ -103,7 +107,7 @@ The fastest way to spin up the entire platform (PostgreSQL with `pgvector`, Fast
 5. **Access the platform:**
    - **Mission Control Cockpit:** [http://localhost:3000](http://localhost:3000)
    - **FastAPI Control Plane & Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
-   - **Healthcheck Endpoint:** [http://localhost:8000/health](http://localhost:8000/health)
+   - **Liveness:** [http://localhost:8000/health](http://localhost:8000/health) · **Readiness:** [http://localhost:8000/v1/ready](http://localhost:8000/v1/ready) · **Metrics:** [http://localhost:8000/metrics](http://localhost:8000/metrics)
 
 To tear down the containers:
 ```bash
@@ -138,7 +142,7 @@ For developing the backend and web frontend with instant hot-reloading:
 
 5. **Start the FastAPI backend (Terminal 1):**
    ```bash
-   DEFAULT_SANDBOX_DRIVER=docker uv run uvicorn apps.api.src.api.routes:app --reload --port 8000
+   DEFAULT_SANDBOX_DRIVER=docker uv run uvicorn api.main:app --app-dir apps/api/src --reload --port 8000
    ```
 
 6. **Start the Next.js Mission Control frontend (Terminal 2):**
@@ -186,7 +190,7 @@ helm registry login ghcr.io -u <YOUR_GITHUB_USERNAME>
 
 # Install or upgrade Rocket Chat from GHCR OCI
 helm upgrade --install rocket-chat oci://ghcr.io/rocket-chat/charts/rocket-chat \
-  --version 0.1.5 \
+  --version 0.2.0 \
   --namespace rocket-chat \
   --create-namespace \
   --set models.openrouter.apiKey="$OPENROUTER_API_KEY" \
@@ -197,7 +201,10 @@ helm upgrade --install rocket-chat oci://ghcr.io/rocket-chat/charts/rocket-chat 
 
 ## Configuration Reference
 
-Key configuration options configurable via `.env` or system environment variables:
+The full, authoritative variable catalogue — sandbox drivers, code-index bounds, attachment
+limits, Slack hardening, routing, governance and operational probes — lives in the
+[configuration reference](doc/install/configuration.md). The most common
+options configurable via `.env` or system environment variables are:
 
 | Variable | Default Value | Description |
 | :--- | :--- | :--- |
@@ -258,14 +265,19 @@ The backend exposes full programmatic control for automation and CI/CD pipelines
 - **Session Lifecycle:**
   ```bash
   # Create a new agent session
-  curl -X POST http://localhost:8000/api/v1/sessions \
+  curl -X POST http://localhost:8000/v1/sessions \
     -H "Content-Type: application/json" \
-    -d '{"target_branch": "main", "agent_persona": "general"}'
+    -d '{"repo_url": "https://github.com/org/repo.git", "branch": "main"}'
+
+  # Inspect the persisted turn traces (tool calls, approvals, routing, cost)
+  curl http://localhost:8000/v1/sessions/{session_id}/turns
   ```
 - **Real-Time Telemetry Stream:** Connect via WebSocket to stream events:
   ```text
-  ws://localhost:8000/ws/sessions/{session_id}
+  ws://localhost:8000/v1/sessions/{session_id}/ws?session_id={session_id}
   ```
+  Send `{"type": "resume", "last_seq": <n>}` on reconnect to receive exactly the events missed
+  during the gap (see the [WebSocket protocol](doc/api/websocket.md)).
 
 ---
 
@@ -298,10 +310,11 @@ pnpm run docs:check
 
 ## Documentation
 
-Comprehensive architecture, API protocols, deployment guides, and tutorials are available at our living documentation site:
+Installation, usage, administration, operations and the API reference are on the documentation site:
 
 - **Official Documentation:** **[https://rocket-chat.mintlify.site/](https://rocket-chat.mintlify.site/)**
 - **Local Documentation:** Maintained directly in `doc/` via Mintlify. Run `pnpm run docs:dev` locally to preview changes.
+- **For contributors:** [`AGENTS.md`](AGENTS.md) (rules and workflow), [`dev/architecture.md`](dev/architecture.md) and [`dev/security-and-tenancy.md`](dev/security-and-tenancy.md).
 
 ---
 
