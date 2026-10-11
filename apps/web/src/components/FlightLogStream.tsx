@@ -12,13 +12,16 @@ import { TaskChecklist } from "./TaskChecklist";
 import { FlightLogEntry } from "../types/mission";
 import { RocketChatIcon } from "./RocketChatLogo";
 import { CockpitEmptyState } from "./CockpitEmptyState";
-import { Check, Copy, Info, Zap, FileText, GitFork } from "lucide-react";
+import { ArrowDown, Check, Copy, Info, Zap, FileText, GitFork } from "lucide-react";
 
 interface FlightLogStreamProps {
   onAnswerQuestion: (questionId: string, selectedOptions: string[], customText?: string) => void;
   onApprove?: (actionId: string) => void;
   onReject?: (actionId: string) => void;
 }
+
+/** Closer than this to the bottom counts as "at the bottom": the stream keeps following. */
+const FOLLOW_THRESHOLD_PX = 80;
 
 interface ActionGroupData {
   id: string;
@@ -54,6 +57,28 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
   const [copiedEntryId, setCopiedEntryId] = useState<string | null>(null);
   const streamRef = useRef<HTMLDivElement>(null);
+  // Follow new content only while the reader is at the bottom; once they scroll up to review
+  // something, the stream must stay where they are.
+  const followingRef = useRef(true);
+  const lastEntryCountRef = useRef(0);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+
+  const handleScroll = () => {
+    const stream = streamRef.current;
+    if (!stream) return;
+    const distance = stream.scrollHeight - stream.scrollTop - stream.clientHeight;
+    const atBottom = distance <= FOLLOW_THRESHOLD_PX;
+    followingRef.current = atBottom;
+    setShowJumpToLatest(!atBottom);
+  };
+
+  const jumpToLatest = () => {
+    const stream = streamRef.current;
+    if (!stream) return;
+    followingRef.current = true;
+    setShowJumpToLatest(false);
+    stream.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
+  };
 
   const handleCopy = (entryId: string, text: string) => {
     void navigator.clipboard.writeText(text);
@@ -92,14 +117,20 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     }
   };
 
-  // Auto-scroll on new entries
+  // Follow new entries while at the bottom.
   useEffect(() => {
     // An empty conversation shows its starting points from the top; only follow real content.
     if (flightLog.length === 0 && !isExecuting) return;
+    // Sending a message always brings you back to the conversation's end.
+    const grew = flightLog.length > lastEntryCountRef.current;
+    lastEntryCountRef.current = flightLog.length;
+    if (grew && flightLog[flightLog.length - 1]?.role === "USER") followingRef.current = true;
+    if (!followingRef.current) return;
     // Scroll the stream itself. scrollIntoView would also scroll every ancestor, including the
-    // overflow-hidden page root, which pushes the top bar off screen on a phone.
+    // overflow-hidden page root, which pushes the top bar off screen on a phone. The jump is
+    // instant: an animated one would fire scroll events that look like the reader leaving.
     const stream = streamRef.current;
-    stream?.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
+    stream?.scrollTo({ top: stream.scrollHeight, behavior: "auto" });
   }, [flightLog, activeDecision, activeApproval, isExecuting, statusMessage]);
 
   // Aggregate consecutive actions into distinct ActionGroups
@@ -164,8 +195,10 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   }
 
   return (
+    <div className="relative flex min-h-0 flex-1 flex-col">
     <div
       ref={streamRef}
+      onScroll={handleScroll}
       data-testid="flight-log-stream"
       data-stream-continuous={isStreamContinuous}
       className="continuous-flight-stream flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [&>*]:shrink-0 px-4 sm:px-6 py-6 space-y-6 font-sans select-text max-w-3xl mx-auto w-full"
@@ -357,6 +390,18 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
         />
       )}
 
+    </div>
+    {showJumpToLatest && (
+      <button
+        type="button"
+        data-testid="scroll-to-latest"
+        aria-label="Scroll to the latest message"
+        onClick={jumpToLatest}
+        className="absolute bottom-3 left-1/2 z-10 flex h-9 w-9 -translate-x-1/2 items-center justify-center rounded-full border border-surface-border bg-surface-card text-foreground shadow-md transition-colors hover:bg-surface-elevated"
+      >
+        <ArrowDown className="h-4 w-4" aria-hidden="true" />
+      </button>
+    )}
     </div>
   );
 };

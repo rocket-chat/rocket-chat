@@ -312,6 +312,9 @@ class HookSpec:
 
 PERMISSION_MODES: tuple[str, ...] = ("plan", "ask", "auto_edit", "auto", "bypass")
 DEFAULT_PERMISSION_MODE = "auto"
+# Reasoning steps a turn may take before the agent must summarise what it has (an agent persona or
+# the organization can set another value).
+DEFAULT_MAX_TURNS = 60
 
 
 @dataclass(frozen=True)

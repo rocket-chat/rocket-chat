@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from agent_core.tools.clamp import clamp_output
-from specifications.interfaces.sandbox import SandboxDriverProtocol
+from specifications.interfaces.sandbox import SandboxDriverProtocol, SandboxStatus
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +119,35 @@ _NO_ACCESS = (
     "you can, and say in your answer which repository you needed and that the user should link "
     "GitHub in Settings > Git & version control."
 )
+
+
+# One line per cloned folder: "<folder> <origin url>". The URL may carry a credential, so it is
+# matched here and never returned to the model.
+_LIST_CLONES = (
+    'for d in /workspace/*/; do [ -d "${d}.git" ] || continue; '
+    'echo "$d $(git -C "$d" remote get-url origin 2>/dev/null)"; done'
+)
+
+
+async def local_clone_of(
+    driver: SandboxDriverProtocol, session_id: str, repository: str
+) -> str | None:
+    """The sandbox folder holding a clone of ``repository``, or ``None``.
+
+    Only looks while the sandbox is already running: asking must never start one.
+    """
+    try:
+        slug = parse_repository(repository).slug.lower()
+    except InvalidRepositoryError:
+        return None
+    if await driver.get_status(session_id) != SandboxStatus.RUNNING:
+        return None
+    result = await driver.exec_command(session_id, _LIST_CLONES, timeout_seconds=15)
+    for line in (result.stdout or "").splitlines():
+        folder, _, origin = line.partition(" ")
+        if origin and f"github.com/{slug}" in origin.lower().removesuffix(".git"):
+            return folder.rstrip("/")
+    return None
 
 
 @dataclass(frozen=True)

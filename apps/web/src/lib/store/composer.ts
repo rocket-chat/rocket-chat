@@ -7,6 +7,7 @@ import type { MissionStore, ComposerSlice } from "./types";
 export const createComposerSlice: StateCreator<MissionStore, [], [], ComposerSlice> = (set, get) => ({
   composerSeed: null,
   seedComposer: (text) => set({ composerSeed: { text, nonce: Date.now() } }),
+  clearComposerSeed: () => set({ composerSeed: null }),
   queuedPrompt: null,
   pendingAttachments: [],
   attachmentError: null,

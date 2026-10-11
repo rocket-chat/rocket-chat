@@ -131,6 +131,8 @@ export interface ComposerSlice {
   /** Text the empty state or a template drops into the composer; the nonce re-fires an identical seed. */
   composerSeed: { text: string; nonce: number } | null;
   seedComposer: (text: string) => void;
+  /** A seed is applied once; leaving it in the store would refill every composer that mounts later. */
+  clearComposerSeed: () => void;
   queuedPrompt: string | null;
   setQueuedPrompt: (prompt: string | null) => void;
   popQueuedPrompt: () => string | null;

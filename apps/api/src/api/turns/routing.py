@@ -20,6 +20,7 @@ from api.services.settings import (
     effective_settings,
     load_org_config,
 )
+from specifications.interfaces.agent import DEFAULT_MAX_TURNS
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ async def _resolve_effective_max_turns(
     org_id: str,
     db_mgr: Any = None,
 ) -> int:
-    """Resolve turn limit cascading: Agent persona -> Org policy -> Env var -> Default (30)."""
+    """Resolve turn limit cascading: Agent persona -> Org policy -> Env var -> Default."""
     if agent and agent.max_turns is not None:
         return int(agent.max_turns)
 
@@ -47,7 +48,7 @@ async def _resolve_effective_max_turns(
     if env_max and env_max.isdigit():
         return int(env_max)
 
-    return 30
+    return DEFAULT_MAX_TURNS
 
 
 async def _resolve_turn_routing(

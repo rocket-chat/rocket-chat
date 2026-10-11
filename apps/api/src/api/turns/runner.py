@@ -42,7 +42,7 @@ from api.turns.finalise import housekeeping, persist_trace, publish_followup, re
 from api.turns.prompt import build_system_prompt
 from api.turns.provisioning import _expand_slash_command
 from api.turns.shared import _turn_service
-from specifications.interfaces.agent import AgentBinding, TurnOverlay
+from specifications.interfaces.agent import DEFAULT_MAX_TURNS, AgentBinding, TurnOverlay
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
 from specifications.interfaces.llm import ChatMessage, ModelScope
 from specifications.interfaces.sandbox import SandboxDriverProtocol, SandboxStatus
@@ -97,7 +97,7 @@ class TurnRunner:
         governance = GovernancePolicy.from_settings(settings)
 
         binding, model, reason = await self._plan(session, governance, trace)
-        state.synthesis_turns = binding.max_turns or 30
+        state.synthesis_turns = binding.max_turns or DEFAULT_MAX_TURNS
         return TurnContext(
             req=req,
             state=state,
@@ -109,7 +109,7 @@ class TurnRunner:
             audit=AuditService(req.db_mgr),
             effective_model=model,
             routing_reason=reason,
-            effective_max_turns=binding.max_turns or 30,
+            effective_max_turns=binding.max_turns or DEFAULT_MAX_TURNS,
         )
 
     async def _load_session(self) -> SessionRecord:
