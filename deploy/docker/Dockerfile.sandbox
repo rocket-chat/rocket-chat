@@ -1,0 +1,37 @@
+# Rocket Chat devbox: the default agent workspace image.
+# Runs unprivileged (uid 1000) so `sandboxes.require_non_root` works; there is deliberately no
+# sudo, because sandboxes run with no-new-privileges and a setuid escalation path would be dead
+# weight. Everything an agent needs is installed at build time.
+FROM node:22-bookworm-slim AS node
+
+FROM python:3.12-slim-bookworm
+
+ARG UV_VERSION=0.5.14
+ARG GH_VERSION=2.63.2
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential ca-certificates curl fd-find git jq less openssh-client procps ripgrep unzip \
+    && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
+    && arch="$(dpkg --print-architecture)" \
+    && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${arch}.tar.gz" \
+        | tar -xz --strip-components=2 -C /usr/local/bin "gh_${GH_VERSION}_linux_${arch}/bin/gh" \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+    && ln -s ../lib/node_modules/corepack/dist/corepack.js /usr/local/bin/corepack \
+    && corepack enable \
+    && pip install --no-cache-dir "uv==${UV_VERSION}"
+
+RUN useradd --uid 1000 --create-home --shell /bin/bash agent \
+    && mkdir -p /workspace \
+    && chown agent:agent /workspace
+USER agent
+ENV HOME=/home/agent \
+    PATH=/home/agent/.local/bin:${PATH} \
+    UV_LINK_MODE=copy
+WORKDIR /workspace
+CMD ["tail", "-f", "/dev/null"]

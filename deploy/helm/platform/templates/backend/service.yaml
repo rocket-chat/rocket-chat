@@ -8,6 +8,15 @@ metadata:
     app.kubernetes.io/component: backend
 spec:
   type: {{ .Values.backend.service.type | default "ClusterIP" }}
+  {{- if .Values.backend.service.sessionAffinity }}
+  # Spec R1: keep a client's WebSocket and REST calls on the pod holding its session.
+  sessionAffinity: {{ .Values.backend.service.sessionAffinity }}
+  {{- if eq .Values.backend.service.sessionAffinity "ClientIP" }}
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: {{ .Values.backend.service.sessionAffinityTimeoutSeconds | default 10800 }}
+  {{- end }}
+  {{- end }}
   ports:
     - port: {{ .Values.backend.service.port | default 8000 }}
       targetPort: http

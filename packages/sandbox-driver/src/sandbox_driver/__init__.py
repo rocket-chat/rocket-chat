@@ -8,7 +8,9 @@ from sandbox_driver.exceptions import (
     SandboxNotFoundError,
     SandboxTimeoutError,
 )
+from sandbox_driver.fake_driver import FakeSandboxDriver
 from sandbox_driver.k8s_driver import K8sSandboxDriver
+from sandbox_driver.seeding import SeedResult, seed_workspace_from
 from specifications.interfaces.sandbox import (
     ExecResult,
     FileStat,
@@ -21,6 +23,7 @@ from specifications.interfaces.sandbox import (
 __all__ = [
     "DockerSandboxDriver",
     "ExecResult",
+    "FakeSandboxDriver",
     "FileStat",
     "K8sSandboxDriver",
     "ResourceLimits",
@@ -31,5 +34,7 @@ __all__ = [
     "SandboxNotFoundError",
     "SandboxStatus",
     "SandboxTimeoutError",
+    "SeedResult",
     "WorkspaceSpec",
+    "seed_workspace_from",
 ]

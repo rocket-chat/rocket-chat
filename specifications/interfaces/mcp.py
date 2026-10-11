@@ -28,6 +28,20 @@ class McpAuthType(str, Enum):
     BASIC = "basic"
 
 
+class McpAuthScope(str, Enum):
+    """Ownership scope of the credentials used to authenticate an MCP server.
+
+    ORG: a single shared service credential (API key, bearer token, or OAuth2
+    client-credentials) configured once by an administrator and reused by every
+    agent, including the Slack bot, regardless of the end user.
+    USER: a per-user credential obtained through an interactive OAuth 2.1
+    authorization-code flow, so each user connects their own account.
+    """
+
+    ORG = "org"
+    USER = "user"
+
+
 class McpHeaderConfig(BaseModel):
     """Configuration for a single header, supporting masked secrets."""
 
@@ -115,3 +129,51 @@ class McpServerDefinition(BaseModel):
     )
     last_probed: str = Field(default="Just now", description="Timestamp of last probe")
     tenant_org_id: str = Field(default="default_org", description="Tenant organization isolation")
+
+
+class McpCatalogEntry(BaseModel):
+    """Curated, pre-configured connector definition for a well-known productivity tool.
+
+    Catalog entries remove the need to hand-code integrations per tool: an
+    administrator (or user) installs an entry, which materializes a regular
+    ``McpServerDefinition`` using organization-wide service credentials or a
+    per-user OAuth flow.
+    """
+
+    id: str = Field(..., description="Stable catalog identifier (e.g. 'jira', 'notion')")
+    name: str = Field(..., description="Human-friendly connector name")
+    description: str = Field(default="", description="What the connector provides")
+    category: str = Field(default="productivity", description="Catalog grouping")
+    icon: str = Field(default="plug", description="lucide-react icon name")
+    docs_url: str | None = Field(default=None, description="Provider setup documentation URL")
+    transport: McpTransportScheme = Field(
+        default=McpTransportScheme.HTTP, description="Transport scheme"
+    )
+    endpoint_or_command: str = Field(
+        ..., description="Default remote MCP endpoint (admin-overridable)"
+    )
+    authorization_url: str | None = Field(
+        default=None, description="OAuth authorization endpoint (per-user or client-credentials)"
+    )
+    token_url: str | None = Field(default=None, description="OAuth token endpoint")
+    default_scopes: list[str] = Field(default_factory=list, description="Recommended OAuth scopes")
+    supported_auth_types: list[McpAuthType] = Field(
+        default_factory=lambda: [McpAuthType.OAUTH2],
+        description="Authentication mechanisms offered by the provider",
+    )
+    recommended_scope: McpAuthScope = Field(
+        default=McpAuthScope.USER, description="Default credential ownership scope"
+    )
+    supports_org_wide_auth: bool = Field(
+        default=True,
+        description=(
+            "Whether a shared service credential (API key / bearer / client-credentials) "
+            "can authenticate the connector for the whole organization."
+        ),
+    )
+    supports_per_user_oauth: bool = Field(
+        default=True, description="Whether per-user interactive OAuth is supported"
+    )
+    guidance: str = Field(
+        default="", description="Custom context injected into the agent prompt for this connector"
+    )

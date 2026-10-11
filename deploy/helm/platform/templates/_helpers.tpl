@@ -65,3 +65,21 @@ Service Account Name
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+DATABASE_URL / ADMIN_DATABASE_URL from the operator-managed secret (empty when the chart creates it).
+*/}}
+{{- define "rocket-chat.databaseEnv" -}}
+{{- if .Values.backend.database.existingSecret }}
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.backend.database.existingSecret }}
+      key: {{ .Values.backend.database.existingSecretKey | default "DATABASE_URL" }}
+- name: ADMIN_DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.backend.database.existingSecret }}
+      key: {{ .Values.backend.database.existingSecretAdminKey | default .Values.backend.database.existingSecretKey | default "DATABASE_URL" }}
+{{- end }}
+{{- end }}

@@ -24,10 +24,14 @@ class CoAuthor:
 @dataclass
 class CommitSpec:
     message: str
-    branch: str
+    # Branch to commit on; empty means "the branch that is currently checked out".
+    branch: str = ""
     co_authors: list[CoAuthor] = field(default_factory=list)
     signing_mode: SigningMode = SigningMode.GITHUB_APP
     gpg_key_id: str | None = None
+    # Identity recorded as author/committer; None falls back to the engine's bot identity.
+    committer_name: str | None = None
+    committer_email: str | None = None
 
 
 @dataclass
@@ -39,6 +43,8 @@ class WebhookTrigger:
     sender_login: str
     branch_name: str | None = None
     prompt_text: str = ""
+    # The GitHub App installation the event came through; maps the event to an organization.
+    installation_id: int | None = None
 
 
 class GitEngineProtocol(ABC):
@@ -63,8 +69,14 @@ class GitEngineProtocol(ABC):
         title: str,
         body: str,
         target_branch: str = "main",
+        token: str | None = None,
     ) -> str:
-        """Pushes working branch and opens a Pull Request. Returns PR URL."""
+        """Pushes the working branch and opens a Pull Request, returning its URL.
+
+        ``token`` (a member's own GitHub token) is used instead of the GitHub App when given.
+        Raises when no credential is available or GitHub refuses: a pull request link is
+        never fabricated.
+        """
         pass
 
     @abstractmethod

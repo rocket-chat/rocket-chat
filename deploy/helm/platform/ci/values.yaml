@@ -1,0 +1,6 @@
+# Throw-away secrets so `helm lint` / `helm template` render in CI. Never deploy with these.
+auth:
+  sessionSecret: "ci-only-session-secret-0123456789abcdef0123456789"
+backend:
+  encryption:
+    masterKey: "ci-only-master-key-0123456789abcdef"

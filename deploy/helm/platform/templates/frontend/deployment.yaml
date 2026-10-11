@@ -31,17 +31,23 @@ spec:
             - name: HOSTNAME
               value: "0.0.0.0"
             - name: NEXTAUTH_URL
-              value: {{ printf "http://%s" .Values.global.domain | quote }}
+              {{- $scheme := "http" }}
+              {{- if or (and .Values.ingress (not (empty .Values.ingress.tls))) (hasPrefix "https" (default "" .Values.auth.nextauthUrl)) }}
+                {{- $scheme = "https" }}
+              {{- end }}
+              value: {{ .Values.auth.nextauthUrl | default (printf "%s://%s" $scheme .Values.global.domain) | quote }}
+            - name: AUTH_TRUST_HOST
+              value: "true"
             {{- if and .Values.auth .Values.auth.enabled }}
-            {{- if .Values.auth.nextauthSecret }}
-            - name: NEXTAUTH_SECRET
-              value: {{ .Values.auth.nextauthSecret | quote }}
-            {{- else if .Values.auth.existingSecret }}
+            {{- if .Values.auth.existingSecret }}
             - name: NEXTAUTH_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.auth.existingSecret }}
                   key: {{ .Values.auth.existingSecretNextAuthKey | default "NEXTAUTH_SECRET" }}
+            {{- else if .Values.auth.nextauthSecret }}
+            - name: NEXTAUTH_SECRET
+              value: {{ .Values.auth.nextauthSecret | quote }}
             {{- end }}
             {{- if .Values.auth.oidc.clientSecret }}
             - name: OIDC_CLIENT_SECRET
@@ -77,21 +83,29 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "rocket-chat.fullname" . }}-config
+          startupProbe:
+            httpGet:
+              path: {{ .Values.frontend.probes.startup.path | default "/" }}
+              port: http
+            initialDelaySeconds: {{ .Values.frontend.probes.startup.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.frontend.probes.startup.periodSeconds | default 5 }}
+            timeoutSeconds: {{ .Values.frontend.probes.startup.timeoutSeconds | default 3 }}
+            failureThreshold: {{ .Values.frontend.probes.startup.failureThreshold | default 30 }}
           livenessProbe:
             httpGet:
-              path: /
+              path: {{ .Values.frontend.probes.liveness.path | default "/" }}
               port: http
-            initialDelaySeconds: 15
-            periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 3
+            initialDelaySeconds: {{ .Values.frontend.probes.liveness.initialDelaySeconds | default 15 }}
+            periodSeconds: {{ .Values.frontend.probes.liveness.periodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.frontend.probes.liveness.timeoutSeconds | default 3 }}
+            failureThreshold: {{ .Values.frontend.probes.liveness.failureThreshold | default 3 }}
           readinessProbe:
             httpGet:
-              path: /
+              path: {{ .Values.frontend.probes.readiness.path | default "/" }}
               port: http
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 2
+            initialDelaySeconds: {{ .Values.frontend.probes.readiness.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.frontend.probes.readiness.periodSeconds | default 5 }}
+            timeoutSeconds: {{ .Values.frontend.probes.readiness.timeoutSeconds | default 3 }}
+            failureThreshold: {{ .Values.frontend.probes.readiness.failureThreshold | default 2 }}
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}

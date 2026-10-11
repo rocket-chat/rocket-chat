@@ -5,6 +5,7 @@ import os
 import secrets
 from hashlib import sha256
 
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from .exceptions import CredentialDecryptionError
@@ -19,7 +20,11 @@ class CredentialCipher:
             master_key or os.getenv("ENCRYPTION_MASTER_KEY") or os.getenv("ROCKET_ENCRYPTION_KEY")
         )
         if not raw_key:
-            # Generate deterministic fallback for development if none configured
+            if os.getenv("ENVIRONMENT", "").strip().lower() == "production":
+                raise CredentialDecryptionError(
+                    "ENCRYPTION_MASTER_KEY is required in production; refusing the dev key"
+                )
+            # Deterministic key for local development and tests only.
             raw_key = "rocket-chat-default-development-encryption-key-32bytes!!"
 
         if isinstance(raw_key, str):
@@ -32,6 +37,14 @@ class CredentialCipher:
                 self._key = raw_key
 
         self._aesgcm = AESGCM(self._key)
+        # Keys retired by a rotation. They are only used to *read* old ciphertext; new
+        # values are always sealed with the primary key (see scripts/rotate_master_key.py).
+        previous = os.getenv("ENCRYPTION_PREVIOUS_KEYS", "")
+        self._previous = [
+            AESGCM(sha256(item.strip().encode("utf-8")).digest())
+            for item in previous.split(",")
+            if item.strip()
+        ]
 
     def encrypt(self, plaintext: str) -> str:
         """Encrypt plaintext string using AES-256-GCM, returning base64-encoded nonce + ciphertext."""
@@ -50,8 +63,12 @@ class CredentialCipher:
 
             nonce = combined[:12]
             ciphertext = combined[12:]
-            decrypted = self._aesgcm.decrypt(nonce, ciphertext, None)
-            return decrypted.decode("utf-8")
+            for candidate in (self._aesgcm, *self._previous):
+                try:
+                    return candidate.decrypt(nonce, ciphertext, None).decode("utf-8")
+                except InvalidTag:
+                    continue
+            raise ValueError("No configured key authenticates this ciphertext")
         except Exception as err:
             raise CredentialDecryptionError(f"Failed decrypting credential: {err}") from err
 

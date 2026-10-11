@@ -62,22 +62,19 @@ async def test_session_crud(mock_app_state: None) -> None:
             "/v1/sessions",
             json={
                 "title": "Fix Auth Token Bug",
-                "tenant_org_id": "test_org",
-                "tenant_user_id": "test_user",
-                "container_image": "python:3.12-slim",
-                "git_branch": "feat/auth",
             },
+            headers={"X-Tenant-User-Id": "test_user", "X-Tenant-Org-Id": "test_org"},
         )
         assert create_res.status_code == 200
         session_data = create_res.json()
         session_id = session_data["session_id"]
         assert session_data["title"] == "Fix Auth Token Bug"
-        assert session_data["git_branch"] == "feat/auth"
 
-        # List sessions
+        # List sessions. A non-admin's list is scoped to the caller's org, carried by the
+        # identity header; the query override is admin-only.
         list_res = await client.get(
             "/v1/sessions?tenant_org_id=test_org",
-            headers={"X-Tenant-User-Id": "test_user"},
+            headers={"X-Tenant-User-Id": "test_user", "X-Tenant-Org-Id": "test_org"},
         )
         assert list_res.status_code == 200
         sessions = list_res.json()
@@ -86,7 +83,8 @@ async def test_session_crud(mock_app_state: None) -> None:
 
         # Get session
         get_res = await client.get(
-            f"/v1/sessions/{session_id}", headers={"X-Tenant-User-Id": "test_user"}
+            f"/v1/sessions/{session_id}",
+            headers={"X-Tenant-User-Id": "test_user", "X-Tenant-Org-Id": "test_org"},
         )
         assert get_res.status_code == 200
         assert get_res.json()["session_id"] == session_id
@@ -341,3 +339,59 @@ async def test_followup_suggestion_event_emission(mock_app_state: None) -> None:
         sess_body = sess_get.json()
         assert sess_body.get("suggested_followup") == sugg_text
         assert sess_body.get("metadata", {}).get("suggested_followup") == sugg_text
+
+
+@pytest.mark.asyncio
+async def test_lazy_sandbox_creation(mock_app_state: None) -> None:
+    """Verify session creation is instantaneous and does NOT eagerly provision sandbox."""
+    mock_driver = MagicMock()
+    mock_driver.start_sandbox = AsyncMock()
+    mock_driver.ensure_workspace = AsyncMock()
+    app.state.sandbox_driver = mock_driver
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/v1/sessions",
+            json={
+                "tenant_org_id": "test_org",
+                "tenant_user_id": "test_user",
+            },
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["sandbox_status"] == "non_existent"
+        assert data["title"] == "New Session"
+        # Driver should NOT have been invoked on session creation
+        mock_driver.start_sandbox.assert_not_called()
+        mock_driver.ensure_workspace.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_atomic_session_creation_with_prompt(mock_app_state: None) -> None:
+    """Verify atomic session ignition derives title from prompt and sets up initial turn."""
+    mock_driver = MagicMock()
+    mock_driver.start_sandbox = AsyncMock()
+    mock_driver.ensure_workspace = AsyncMock()
+    app.state.sandbox_driver = mock_driver
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/v1/sessions",
+            json={
+                "initial_prompt": "Refactor authentication gateway to support PKCE flow",
+                "tenant_org_id": "test_org",
+                "tenant_user_id": "test_user",
+            },
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["sandbox_status"] == "non_existent"
+        assert "Refactor authentication gateway" in data["title"]
+        assert "session_" not in data["title"]
+        # A prompt-derived title is a placeholder: marked so the AI titler replaces it.
+        assert data["metadata"].get("title_source") == "auto"
+        assert len(data["conversation_history"]) == 1
+        assert (
+            data["conversation_history"][0]["content"]
+            == "Refactor authentication gateway to support PKCE flow"
+        )

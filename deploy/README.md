@@ -11,8 +11,9 @@ deploy/
 │   ├── Dockerfile.frontend       # Multi-stage standalone Next.js 15 frontend image
 │   ├── entrypoint.backend.sh     # Database migration and service startup script
 │   └── init-rls.sql              # PostgreSQL init script for Row-Level Security
-├── docker-compose.prod.yml       # Production Compose stack
-├── docker-compose.yml            # Alias to production stack
+├── docker-compose.prod.yml       # Production Compose stack (required secrets, ENVIRONMENT=production)
+├── docker-compose.yml            # Evaluation stack (throwaway secrets, developer login)
+├── .env.example                  # Required settings for the production stack
 ├── docker-compose.dev.yml        # Development mode stack (Postgres + pgvector)
 └── helm/
     └── platform/                 # Official production Helm chart
@@ -20,12 +21,20 @@ deploy/
 
 ---
 
-## 1. Local Production Deployment (Docker Compose)
+## 1. Docker Compose
 
-Launch the full platform (PostgreSQL, Backend Control Plane, Web Mission Control) with a single command:
+**Try it locally** (throwaway credentials, one-click developer login - never expose this):
 
 ```bash
-docker compose -f deploy/docker-compose.prod.yml up -d
+docker compose -f deploy/docker-compose.yml up -d
+```
+
+**Run it for real** on a single node. The production stack refuses to start without its secrets and
+runs the API in `ENVIRONMENT=production` (no developer login, no trusted proxy headers):
+
+```bash
+cp deploy/.env.example deploy/.env      # fill in every REQUIRED value and one sign-in method
+docker compose --env-file deploy/.env -f deploy/docker-compose.prod.yml up -d
 ```
 
 ### Health Check Endpoints:
@@ -34,7 +43,7 @@ docker compose -f deploy/docker-compose.prod.yml up -d
 
 To shut down:
 ```bash
-docker compose -f deploy/docker-compose.prod.yml down
+docker compose --env-file deploy/.env -f deploy/docker-compose.prod.yml down
 ```
 
 ---

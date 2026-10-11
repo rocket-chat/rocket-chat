@@ -1,0 +1,1084 @@
+[
+  {
+    "description": "Fetch content from a URL and convert HTML pages into clean Markdown.",
+    "name": "web_fetch",
+    "parameters": {
+      "properties": {
+        "timeout_seconds": {
+          "description": "Request timeout in seconds (default: 15.0).",
+          "type": "number"
+        },
+        "url": {
+          "description": "The HTTP or HTTPS URL to fetch.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Perform a web search and return structured title, URL, and snippet results.",
+    "name": "web_search",
+    "parameters": {
+      "properties": {
+        "max_results": {
+          "description": "Maximum number of search results to return (default: 5).",
+          "type": "integer"
+        },
+        "query": {
+          "description": "The search query terms.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Ask the human user a question and WAIT: the whole turn is blocked until they answer, which may take hours. Use it only as a last resort, when you cannot continue or choose safely and the answer changes the outcome. Prefer to look it up (knowledge bases, skills, GitHub tools, the code), or pick the most reasonable option, say so in your answer and keep going.",
+    "name": "ask_question",
+    "parameters": {
+      "properties": {
+        "default_recommended_option": {
+          "description": "Recommended default choice.",
+          "type": "string"
+        },
+        "is_multi_select": {
+          "description": "Whether multiple options can be chosen (default: false).",
+          "type": "boolean"
+        },
+        "options": {
+          "description": "List of selectable options for the user.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "question": {
+          "description": "The clarification question text.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question",
+        "options"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Rename the current session with a concise, descriptive title (3-6 words) reflecting the topic.",
+    "name": "session_rename",
+    "parameters": {
+      "properties": {
+        "title": {
+          "description": "The new concise, descriptive title for the session.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Update the real-time status indicator displayed to the user in the Cockpit or Slack loader. MANDATORY PROTOCOL: You MUST call this before executing any actionable task, tool sequence, investigation, or code modification to keep the user informed in real time.",
+    "name": "update_status",
+    "parameters": {
+      "properties": {
+        "message": {
+          "description": "Short human-readable status message describing your current action in present-continuous tense.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Record an explicit reasoning checkpoint (scratchpad) before the next action. The checkpoint is surfaced to the user as a reasoning event.",
+    "name": "think",
+    "parameters": {
+      "properties": {
+        "thought": {
+          "description": "The reasoning checkpoint to record.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thought"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Update or initialize the structured checklist of tasks for the session to track multi-step progress.",
+    "name": "update_task_checklist",
+    "parameters": {
+      "properties": {
+        "tasks": {
+          "description": "List of tasks in the checklist.",
+          "items": {
+            "properties": {
+              "description": {
+                "description": "Optional brief details or context.",
+                "type": "string"
+              },
+              "id": {
+                "description": "Unique task identifier (e.g. '1', 'setup', 'test').",
+                "type": "string"
+              },
+              "status": {
+                "description": "Current status of the task.",
+                "enum": [
+                  "pending",
+                  "in_progress",
+                  "completed",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              "title": {
+                "description": "Short human-readable title of the task.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "status"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "tasks"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Delegate an isolated investigation or task to a specialist subagent (e.g. security_auditor, qa_verifier, researcher).",
+    "name": "delegate_subagent",
+    "parameters": {
+      "properties": {
+        "context": {
+          "description": "Optional background hints or specific files to inspect.",
+          "type": "string"
+        },
+        "role": {
+          "description": "Specialist role to spawn: 'security_auditor', 'qa_verifier', or 'researcher'.",
+          "type": "string"
+        },
+        "task": {
+          "description": "Clear, specific objective for the subagent to accomplish.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "task"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Enter read-only plan mode. Use for multi-step or risky work: investigate safely, then present a plan before changing anything.",
+    "name": "enter_plan_mode",
+    "parameters": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "description": "Leave plan mode and request human approval for the proposed plan.",
+    "name": "exit_plan_mode",
+    "parameters": {
+      "properties": {
+        "summary": {
+          "description": "Concise summary of the plan requiring approval.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Ask the human to approve a sensitive or destructive action (force push, hard reset, data deletion, costly external call) before performing it.",
+    "name": "request_approval",
+    "parameters": {
+      "properties": {
+        "action_type": {
+          "description": "Short action identifier, e.g. 'git_revert_hard'.",
+          "type": "string"
+        },
+        "description": {
+          "description": "What will happen and why it is needed.",
+          "type": "string"
+        },
+        "risk_level": {
+          "description": "Assessed risk level (default: medium).",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "critical"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "action_type",
+        "description"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Search PostgreSQL pgvector knowledge bases for semantic documentation, architecture guides, and API specs.",
+    "name": "kb_search",
+    "parameters": {
+      "properties": {
+        "kb_id": {
+          "description": "Optional specific knowledge base ID to scope search.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max result snippets to retrieve (default: 5).",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Natural language question or search query.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Persist a durable fact, preference, decision or convention for future sessions. Use it deliberately for knowledge worth keeping across sessions; never store secrets or credentials (they are refused).",
+    "name": "remember",
+    "parameters": {
+      "properties": {
+        "content": {
+          "description": "The durable statement to remember, in one clear sentence.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Category of the memory (default: fact).",
+          "enum": [
+            "fact",
+            "preference",
+            "decision",
+            "convention"
+          ],
+          "type": "string"
+        },
+        "scope": {
+          "description": "Who the memory applies to (default: user).",
+          "enum": [
+            "user",
+            "org",
+            "session"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "content"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Search durable long-term memories relevant to a query and return the best matches. Use it before answering questions about past decisions, conventions or preferences.",
+    "name": "recall",
+    "parameters": {
+      "properties": {
+        "limit": {
+          "description": "Maximum memories to return (default: 5).",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Natural-language description of what to remember.",
+          "type": "string"
+        },
+        "scope": {
+          "description": "Optional scope to restrict the search to.",
+          "enum": [
+            "user",
+            "org",
+            "session"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Execute a custom Python skill registered in the organization library.",
+    "name": "execute_skill",
+    "parameters": {
+      "properties": {
+        "arguments": {
+          "description": "Key-value arguments dictionary to pass to the skill function.",
+          "type": "object"
+        },
+        "skill_name": {
+          "description": "Name of the custom Python skill function to execute.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "skill_name",
+        "arguments"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Clone a GitHub repository into the sandbox at /workspace/<name> and describe it (branch, last commit, top-level files). The sandbox starts BLANK: nothing is checked out until you clone it, and many tasks need no repository at all. When one is needed, find it first (user's request, `kb_search`, skills, `github_find_repositories`), then clone. Idempotent: an existing clone is refreshed. Authentication is automatic.",
+    "name": "clone_repository",
+    "parameters": {
+      "properties": {
+        "branch": {
+          "description": "Branch to check out (default: the default branch).",
+          "type": "string"
+        },
+        "directory": {
+          "description": "Folder name under /workspace (default: the repository name).",
+          "type": "string"
+        },
+        "repository": {
+          "description": "owner/name or an https://github.com/owner/name URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Find GitHub repositories without a sandbox: by owner/organization (its most recently active repositories), by search text, or - with neither - those the user's credential can see. Use it to work out which repository a task refers to before cloning.",
+    "name": "github_find_repositories",
+    "parameters": {
+      "properties": {
+        "owner": {
+          "description": "A user or organization to restrict to.",
+          "type": "string"
+        },
+        "query": {
+          "description": "Words from the name or description.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Read one file, or list a directory, of a GitHub repository WITHOUT cloning or starting a sandbox (README, AGENTS.md, a config file, the repository root). Use it to understand a repository before deciding to clone it.",
+    "name": "github_read_file",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "File or directory path; empty lists the root.",
+          "type": "string"
+        },
+        "ref": {
+          "description": "Branch, tag or commit (default branch).",
+          "type": "string"
+        },
+        "repository": {
+          "description": "owner/name or a github.com URL.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Look at GitHub issues and pull requests: pass `number` for one with its description and latest comments (a PR also shows its branches and size), `query` to search, or neither to list the latest. Read-only.",
+    "name": "github_issues",
+    "parameters": {
+      "properties": {
+        "number": {
+          "description": "Issue or PR number.",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Search text (GitHub issue search syntax).",
+          "type": "string"
+        },
+        "repository": {
+          "description": "owner/name or a github.com URL.",
+          "type": "string"
+        },
+        "state": {
+          "description": "open, closed or all (when listing).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Read file content with optional 1-indexed start and end line ranges.",
+    "name": "file_read",
+    "parameters": {
+      "properties": {
+        "end_line": {
+          "description": "Optional 1-indexed end line.",
+          "type": "integer"
+        },
+        "path": {
+          "description": "Path to the file to read.",
+          "type": "string"
+        },
+        "start_line": {
+          "description": "Optional 1-indexed start line.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Write or overwrite file contents in the sandbox workspace.",
+    "name": "file_write",
+    "parameters": {
+      "properties": {
+        "content": {
+          "description": "String content to write.",
+          "type": "string"
+        },
+        "overwrite": {
+          "description": "Whether to overwrite existing file (default: true).",
+          "type": "boolean"
+        },
+        "path": {
+          "description": "Target workspace path to create or overwrite.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "content"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Perform resilient block replacement in a workspace file.",
+    "name": "file_edit",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "Target workspace file path to edit.",
+          "type": "string"
+        },
+        "replacement_block": {
+          "description": "New replacement content.",
+          "type": "string"
+        },
+        "target_block": {
+          "description": "Exact or near-exact block of lines to replace.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "target_block",
+        "replacement_block"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Apply a unified diff patch to a file in the workspace.",
+    "name": "apply_patch",
+    "parameters": {
+      "properties": {
+        "patch_content": {
+          "description": "Unified diff patch content.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Target workspace file path to patch.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "patch_content"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Apply only one file's hunks from a multi-file unified diff to the workspace, after human approval. Use it to accept a single file of a proposed multi-file patch.",
+    "name": "apply_diff_file",
+    "parameters": {
+      "properties": {
+        "diff_content": {
+          "description": "The full unified diff, possibly spanning several files.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Workspace-relative file to apply from the diff.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "diff_content",
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "List the contents of a directory in the sandbox workspace (long format).",
+    "name": "list_dir",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "Directory path to list (default: '.').",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Search file contents recursively for a regex pattern (ripgrep, with grep fallback). Prefer this over bash grep/find for repository navigation.",
+    "name": "grep_search",
+    "parameters": {
+      "properties": {
+        "case_sensitive": {
+          "description": "Whether the search is case sensitive (default: true).",
+          "type": "boolean"
+        },
+        "file_glob": {
+          "description": "Optional glob filter, e.g. '*.py' or 'src/**/*.ts'.",
+          "type": "string"
+        },
+        "max_results": {
+          "description": "Maximum matching lines to return (default: 200).",
+          "type": "integer"
+        },
+        "path": {
+          "description": "Directory or file to search within (default: '.').",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Regex/plain pattern to search for.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Find workspace files matching a glob pattern (supports ** recursion).",
+    "name": "glob_files",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "Root directory to search from (default: '.').",
+          "type": "string"
+        },
+        "pattern": {
+          "description": "Glob pattern, e.g. 'src/**/*.py' or '**/*test*.ts'.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Search the codebase for symbols (functions, classes, types) matching a name or term. Prefer this for 'where is X defined' questions.",
+    "name": "code_search",
+    "parameters": {
+      "properties": {
+        "file_glob": {
+          "description": "Optional glob filter, e.g. '*.py'.",
+          "type": "string"
+        },
+        "max_results": {
+          "description": "Maximum results to return (default: 100).",
+          "type": "integer"
+        },
+        "path": {
+          "description": "Directory to search from (default: '.').",
+          "type": "string"
+        },
+        "query": {
+          "description": "Symbol name or search term.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Execute a shell command inside the active sandbox environment.",
+    "name": "bash_exec",
+    "parameters": {
+      "properties": {
+        "command": {
+          "description": "The shell command to execute.",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "description": "Execution timeout in seconds (default: 120).",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Run the project test suite, auto-detecting npm/cargo/go/pytest, and return a parsed pass/fail summary. Use this to verify changes before finishing.",
+    "name": "run_tests",
+    "parameters": {
+      "properties": {
+        "command": {
+          "description": "Optional explicit test command overriding detection.",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "description": "Test execution timeout in seconds (default: 600).",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Run the project linter (auto-detects npm/ruff/clippy/go vet/make).",
+    "name": "lint",
+    "parameters": {
+      "properties": {
+        "command": {
+          "description": "Optional explicit lint command overriding detection.",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "description": "Timeout (default 600).",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Run the project type checker (auto-detects npm/mypy/tsc/cargo/go).",
+    "name": "typecheck",
+    "parameters": {
+      "properties": {
+        "command": {
+          "description": "Optional explicit typecheck command overriding detection.",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "description": "Timeout (default 600).",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Build the project (auto-detects npm/python/cargo/go/make).",
+    "name": "build",
+    "parameters": {
+      "properties": {
+        "command": {
+          "description": "Optional explicit build command overriding detection.",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "description": "Timeout (default 600).",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Install or manage project dependencies through the workspace's declared package manager (uv, pnpm, npm or poetry). Lockfile-aware; returns a parsed failure cause when an install fails.",
+    "name": "package_manager",
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": "Operation to perform (default: install).",
+          "enum": [
+            "install",
+            "add",
+            "remove"
+          ],
+          "type": "string"
+        },
+        "dev": {
+          "description": "Add as a development dependency (add only).",
+          "type": "boolean"
+        },
+        "manager": {
+          "description": "Optional explicit manager overriding workspace detection.",
+          "enum": [
+            "uv",
+            "pnpm",
+            "npm",
+            "poetry"
+          ],
+          "type": "string"
+        },
+        "packages": {
+          "description": "Package names for add/remove, applied in the given order.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "timeout_seconds": {
+          "description": "Timeout (default 600).",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Open a page in a headless browser inside the sandbox and report what a person would see: title, page structure, visible text, console errors and failed requests. Use it to check an app you started (for example http://localhost:3000/) instead of guessing.",
+    "name": "browser_inspect",
+    "parameters": {
+      "properties": {
+        "screenshot": {
+          "description": "Also save a screenshot to the workspace (default: false).",
+          "type": "boolean"
+        },
+        "url": {
+          "description": "Full http(s) URL, e.g. http://localhost:3000/.",
+          "type": "string"
+        },
+        "wait_ms": {
+          "description": "Extra time to let the page settle, in ms (default: 500).",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Look at an image file from the workspace (a screenshot, a diagram, a design). The image is shown to you with your next step; it needs a model that can see images, and says so if yours cannot. Formats: PNG, JPEG, GIF, WebP, up to 5 MB. Use it to check a UI you built or to read a screenshot instead of guessing.",
+    "name": "view_image",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "Image path inside /workspace.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Start a long-running command in the BACKGROUND (a dev server, a watcher, a slow build) and return at once with a process id. `bash_exec` blocks until its command ends and kills it on timeout, so use this for anything that keeps running. Declare `port` for a server: the person can then open it in the Preview tab. Read output with `process_output`, wait for it to finish with `process_wait`, stop it with `process_stop`. Processes end when the sandbox is hibernated; the session is told about any that exited while you were away.",
+    "name": "process_start",
+    "parameters": {
+      "properties": {
+        "command": {
+          "description": "The shell command to run in the background.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Short label shown to the person (default: the command).",
+          "type": "string"
+        },
+        "port": {
+          "description": "TCP port the process serves on, if any.",
+          "type": "integer"
+        },
+        "workdir": {
+          "description": "Directory to run in (default: /workspace).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "List the background processes of this session and their state.",
+    "name": "process_list",
+    "parameters": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "description": "Read the latest output (stdout and stderr together) of a background process.",
+    "name": "process_output",
+    "parameters": {
+      "properties": {
+        "lines": {
+          "description": "How many trailing lines (max 500).",
+          "type": "integer"
+        },
+        "process_id": {
+          "description": "Id returned by process_start.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "process_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Wait until a background process ends (or the timeout passes) and return its exit code and last output. Use it for builds and test runs started with process_start.",
+    "name": "process_wait",
+    "parameters": {
+      "properties": {
+        "process_id": {
+          "description": "Id returned by process_start.",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "description": "How long to wait, at most 300 (default 60).",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "process_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Stop a background process and everything it started.",
+    "name": "process_stop",
+    "parameters": {
+      "properties": {
+        "process_id": {
+          "description": "Id returned by process_start.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "process_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Return the porcelain git status (current branch + changed/untracked files) of the workspace.",
+    "name": "git_status",
+    "parameters": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "description": "Show the current unified git diff (optionally staged, scoped to a path, or stat-only).",
+    "name": "git_diff",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "Optional file path to scope the diff to.",
+          "type": "string"
+        },
+        "staged": {
+          "description": "Show staged (cached) changes instead (default: false).",
+          "type": "boolean"
+        },
+        "stat_only": {
+          "description": "Return only a diffstat summary (default: false).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Return structured git history: author, date, subject and changed files per commit.",
+    "name": "git_log",
+    "parameters": {
+      "properties": {
+        "author": {
+          "description": "Optional author filter.",
+          "type": "string"
+        },
+        "max_count": {
+          "description": "Maximum commits to return (default 20, max 100).",
+          "type": "integer"
+        },
+        "path": {
+          "description": "Optional path to scope the history to.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Create a git commit (signed with co-author trailers when the GitHub App is configured). Prefer a checkpoint first for destructive work.",
+    "name": "git_commit",
+    "parameters": {
+      "properties": {
+        "branch": {
+          "description": "Optional branch to create/checkout before committing.",
+          "type": "string"
+        },
+        "co_authors": {
+          "description": "Optional co-author names to credit.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "message": {
+          "description": "Commit message.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Create and switch to a new git branch.",
+    "name": "git_branch",
+    "parameters": {
+      "properties": {
+        "from_ref": {
+          "description": "Optional base commit/branch to branch from.",
+          "type": "string"
+        },
+        "name": {
+          "description": "New branch name.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Tag the current HEAD as a restorable checkpoint. Cheap undo point before large or risky edits.",
+    "name": "git_checkpoint",
+    "parameters": {
+      "properties": {
+        "label": {
+          "description": "Optional human-readable label suffix.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Restore the workspace to a checkpoint or commit. mode='files' restores tracked files safely; mode='hard' discards all changes and requires approval.",
+    "name": "git_revert",
+    "parameters": {
+      "properties": {
+        "mode": {
+          "description": "Restore tracked files (default) or hard reset.",
+          "enum": [
+            "files",
+            "hard"
+          ],
+          "type": "string"
+        },
+        "reference": {
+          "description": "Checkpoint tag, commit SHA, or ref to restore.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Push the current branch and open a pull request via the GitHub App.",
+    "name": "git_open_pr",
+    "parameters": {
+      "properties": {
+        "body": {
+          "description": "Pull request description.",
+          "type": "string"
+        },
+        "target_branch": {
+          "description": "Base branch to merge into (default: main).",
+          "type": "string"
+        },
+        "title": {
+          "description": "Pull request title.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "body"
+      ],
+      "type": "object"
+    }
+  }
+]

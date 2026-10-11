@@ -25,70 +25,130 @@ def test_get_settings_defaults(client: TestClient) -> None:
 
 
 def test_update_user_settings_override(client: TestClient) -> None:
-    """PUT /v1/settings/{domain} allows user overrides when unlocked."""
-    payload = {"overrides": {"commit_authorship_policy": "user_only"}}
+    """PUT /v1/settings/{domain} allows member overrides of member-scoped keys."""
     res = client.put(
-        "/v1/settings/github",
-        json=payload,
+        "/v1/settings/user_preferences",
+        json={"overrides": {"git_branch_prefix": "fix/"}},
         headers={"X-Tenant-Org-Id": "test_org", "X-Tenant-User-Id": "user_1"},
     )
     assert res.status_code == 200
     data = res.json()
-    assert data["effective"]["commit_authorship_policy"] == "user_only"
-    assert data["field_status"]["commit_authorship_policy"] == "overridden"
+    assert data["effective"]["git_branch_prefix"] == "fix/"
+    assert data["field_status"]["git_branch_prefix"] == "overridden"
+
+
+def test_members_cannot_write_organization_managed_keys(client: TestClient) -> None:
+    headers = {"X-Tenant-Org-Id": "test_org", "X-Tenant-User-Id": "user_1"}
+    res = client.put(
+        "/v1/settings/github",
+        json={"overrides": {"commit_authorship_policy": "bot_only"}},
+        headers=headers,
+    )
+    assert res.status_code == 422
+    assert res.json()["detail"] == [
+        {
+            "key": "commit_authorship_policy",
+            "message": "can only be set by an organization administrator",
+        }
+    ]
+
+
+def test_unknown_keys_values_and_domains_are_rejected(client: TestClient) -> None:
+    headers = {"X-Tenant-Org-Id": "test_org", "X-Tenant-User-Id": "user_1"}
+    unknown_key = client.put(
+        "/v1/settings/user_preferences", json={"overrides": {"nonsense": 1}}, headers=headers
+    )
+    assert unknown_key.status_code == 422 and unknown_key.json()["detail"][0]["key"] == "nonsense"
+
+    bad_value = client.put(
+        "/v1/settings/user_preferences",
+        json={"overrides": {"suggest_next_questions": "maybe"}},
+        headers=headers,
+    )
+    assert bad_value.status_code == 422
+
+    assert client.get("/v1/settings/not_a_domain", headers=headers).status_code == 404
+    assert (
+        client.put("/v1/settings/not_a_domain", json={"overrides": {}}, headers=headers).status_code
+        == 404
+    )
+
+
+def test_admin_settings_are_validated_and_scoped(client: TestClient) -> None:
+    admin = {
+        "X-Tenant-Org-Id": "test_org",
+        "X-Tenant-User-Id": "admin_user",
+        "X-User-Role": "admin",
+    }
+    wrong_enum = client.put(
+        "/v1/admin/settings/sandboxes", json={"config": {"cpu_limit": "lots"}}, headers=admin
+    )
+    assert wrong_enum.status_code == 422
+    # Only member-overridable keys can be locked.
+    lock_org_only = client.put(
+        "/v1/admin/settings/github",
+        json={"config": {"default_branch": "main"}, "locked_keys": ["default_branch"]},
+        headers=admin,
+    )
+    assert lock_org_only.status_code == 422
+    ok = client.put(
+        "/v1/admin/settings/sandboxes",
+        json={"config": {"cpu_limit": "4", "default_image": "node:20-slim"}},
+        headers=admin,
+    )
+    assert ok.status_code == 200 and ok.json()["config"]["cpu_limit"] == 4.0
 
 
 def test_admin_lockout_and_enforcement(client: TestClient) -> None:
-    """Admin locks a key via /v1/admin/settings/{domain}; user override is ignored."""
+    """Admin locks a key via /v1/admin/settings/{domain}; the member override is ignored."""
     admin_headers = {
         "X-Tenant-Org-Id": "test_org",
         "X-Tenant-User-Id": "admin_user",
         "X-User-Role": "admin",
     }
-    # 1. Admin locks commit_authorship_policy
     admin_payload = {
-        "config": {"commit_authorship_policy": "bot_only"},
-        "locked_keys": ["commit_authorship_policy"],
+        "config": {"preferred_model": "openrouter/acme/locked-model"},
+        "locked_keys": ["preferred_model"],
     }
-    admin_res = client.put("/v1/admin/settings/github", json=admin_payload, headers=admin_headers)
+    admin_res = client.put(
+        "/v1/admin/settings/user_preferences", json=admin_payload, headers=admin_headers
+    )
     assert admin_res.status_code == 200
 
-    # 2. Regular user tries to override locked key
     user_headers = {
         "X-Tenant-Org-Id": "test_org",
         "X-Tenant-User-Id": "user_2",
         "X-User-Role": "developer",
     }
     user_res = client.put(
-        "/v1/settings/github",
-        json={"overrides": {"commit_authorship_policy": "user_only", "default_branch": "develop"}},
+        "/v1/settings/user_preferences",
+        json={
+            "overrides": {"preferred_model": "openrouter/other/model", "git_branch_prefix": "dev/"}
+        },
         headers=user_headers,
     )
     assert user_res.status_code == 200
     user_data = user_res.json()
-    # Locked key retains org value
-    assert user_data["effective"]["commit_authorship_policy"] == "bot_only"
-    assert user_data["field_status"]["commit_authorship_policy"] == "locked"
-    # Unlocked key receives override
-    assert user_data["effective"]["default_branch"] == "develop"
-    assert user_data["field_status"]["default_branch"] == "overridden"
+    assert user_data["effective"]["preferred_model"] == "openrouter/acme/locked-model"
+    assert user_data["field_status"]["preferred_model"] == "locked"
+    assert user_data["effective"]["git_branch_prefix"] == "dev/"
+    assert user_data["field_status"]["git_branch_prefix"] == "overridden"
+    assert "Locked keys ignored" in user_data["warning"]
 
 
 def test_reset_user_settings(client: TestClient) -> None:
     """DELETE /v1/settings/{domain} resets user overrides back to org defaults."""
     headers = {"X-Tenant-Org-Id": "test_org", "X-Tenant-User-Id": "user_3"}
-    # Override
     client.put(
-        "/v1/settings/models",
-        json={"overrides": {"temperature": 0.9}},
+        "/v1/settings/user_preferences",
+        json={"overrides": {"git_branch_prefix": "x/"}},
         headers=headers,
     )
-    # Reset
-    res = client.delete("/v1/settings/models", headers=headers)
+    res = client.delete("/v1/settings/user_preferences", headers=headers)
     assert res.status_code == 200
     data = res.json()
-    assert data["effective"]["temperature"] == 0.2
-    assert data["field_status"]["temperature"] == "org_default"
+    assert data["effective"]["git_branch_prefix"] == "feat/rocket-"
+    assert data["field_status"]["git_branch_prefix"] == "org_default"
 
 
 def test_session_reset_clean_slate(client: TestClient) -> None:

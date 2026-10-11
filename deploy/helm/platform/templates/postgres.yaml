@@ -18,10 +18,12 @@ data:
         END IF;
     END
     $$;
-    GRANT ALL PRIVILEGES ON DATABASE {{ .Values.postgresql.database | default "rocket_chat" }} TO {{ .Values.postgresql.appUsername | default "rocket_app" }};
-    GRANT ALL PRIVILEGES ON SCHEMA public TO {{ .Values.postgresql.appUsername | default "rocket_app" }};
-    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO {{ .Values.postgresql.appUsername | default "rocket_app" }};
-    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {{ .Values.postgresql.appUsername | default "rocket_app" }};
+    -- Least privilege: the API reads and writes rows; only the migration init container
+    -- (schema owner) changes the schema.
+    GRANT CONNECT ON DATABASE {{ .Values.postgresql.database | default "rocket_chat" }} TO {{ .Values.postgresql.appUsername | default "rocket_app" }};
+    GRANT USAGE ON SCHEMA public TO {{ .Values.postgresql.appUsername | default "rocket_app" }};
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {{ .Values.postgresql.appUsername | default "rocket_app" }};
+    ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO {{ .Values.postgresql.appUsername | default "rocket_app" }};
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -53,6 +55,8 @@ spec:
               containerPort: 5432
               protocol: TCP
           env:
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
             - name: POSTGRES_DB
               value: {{ .Values.postgresql.database | default "rocket_chat" | quote }}
             - name: POSTGRES_USER
@@ -72,6 +76,7 @@ spec:
               mountPath: /docker-entrypoint-initdb.d
             - name: data
               mountPath: /var/lib/postgresql/data
+              subPath: pgdata
           livenessProbe:
             exec:
               command:

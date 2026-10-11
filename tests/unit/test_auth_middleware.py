@@ -97,7 +97,9 @@ def test_jwt_validator_missing_org_claim(rsa_key_pair):
     assert "org_id" in str(exc.value)
 
 
-def test_auth_middleware_flow(rsa_key_pair):
+def test_auth_middleware_flow(rsa_key_pair, monkeypatch):
+    monkeypatch.delenv("DEV_AUTH_BYPASS", raising=False)
+    monkeypatch.delenv("ROCKET_TRUST_PROXY_HEADERS", raising=False)
     private_pem, public_pem = rsa_key_pair
     validator = JWTValidator(public_key=public_pem)
 
@@ -126,7 +128,7 @@ def test_auth_middleware_flow(rsa_key_pair):
     # 2. Protected path fails without token (401)
     res_no_auth = client.get("/api/mission")
     assert res_no_auth.status_code == 401
-    assert "Missing Bearer token" in res_no_auth.json()["detail"]
+    assert res_no_auth.json()["detail"] == "Authentication required"
 
     # 3. Protected path succeeds with valid Bearer token
     token = _create_test_jwt(
@@ -142,3 +144,55 @@ def test_auth_middleware_flow(rsa_key_pair):
         "org": "space_agency",
         "team": "rover_ops",
     }
+
+
+def test_auth_middleware_with_nextauth_cookie():
+    import base64
+    import json
+
+    from api.auth.nextauth_cookie import DEFAULT_NEXTAUTH_SECRET
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+
+    app = FastAPI()
+    app.add_middleware(AuthMiddleware, validator=JWTValidator())
+
+    @app.get("/api/mission")
+    async def mission(req: Request):
+        ctx: RequestContext = req.state.context
+        return {
+            "user": ctx.user_id,
+            "org": ctx.org_id,
+        }
+
+    # Synthesize valid NextAuth JWE cookie
+    header_json = json.dumps({"alg": "dir", "enc": "A256GCM"})
+    header_b64 = base64.urlsafe_b64encode(header_json.encode("utf-8")).rstrip(b"=").decode("ascii")
+    payload = json.dumps(
+        {"userId": "cookie_user_99", "orgId": "cookie_org", "exp": int(time.time()) + 3600}
+    )
+
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b"",
+        info=b"NextAuth.js Generated Encryption Key",
+    )
+    derived_key = hkdf.derive(DEFAULT_NEXTAUTH_SECRET.encode("utf-8"))
+    aesgcm = AESGCM(derived_key)
+    iv = b"\x00" * 12
+    ciphertext_and_tag = aesgcm.encrypt(iv, payload.encode("utf-8"), header_b64.encode("ascii"))
+    ciphertext = ciphertext_and_tag[:-16]
+    tag = ciphertext_and_tag[-16:]
+
+    def b64url(b: bytes) -> str:
+        return base64.urlsafe_b64encode(b).rstrip(b"=").decode("ascii")
+
+    token_jwe = f"{header_b64}..{b64url(iv)}.{b64url(ciphertext)}.{b64url(tag)}"
+
+    client = TestClient(app)
+    client.cookies.set("__Secure-next-auth.session-token", token_jwe)
+    res = client.get("/api/mission")
+    assert res.status_code == 200
+    assert res.json() == {"user": "cookie_user_99", "org": "cookie_org"}

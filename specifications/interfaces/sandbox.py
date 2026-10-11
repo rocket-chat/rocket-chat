@@ -4,9 +4,32 @@ Defines the contract for pluggable execution environments (K8s & Docker).
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
+
+# Tells the idle reaper whether a session still exists; a live session's workspace is never purged.
+SessionLivenessCheck = Callable[[str], Awaitable[bool]]
+
+
+class PtyChannel(ABC):
+    """A live pseudo-terminal: raw bytes in, raw bytes out, plus window resizes."""
+
+    @abstractmethod
+    async def read(self) -> bytes:
+        """The next chunk of terminal output; empty bytes once the shell has exited."""
+
+    @abstractmethod
+    async def write(self, data: bytes) -> None:
+        """Send keystrokes to the shell."""
+
+    @abstractmethod
+    async def resize(self, cols: int, rows: int) -> None:
+        """Tell the shell the terminal window changed size."""
+
+    @abstractmethod
+    async def close(self) -> None:
+        """End the shell and release the connection."""
 
 
 class SandboxStatus(str, Enum):
@@ -33,6 +56,14 @@ class WorkspaceSpec:
     container_image: str  # e.g. "ghcr.io/org/dev-base:latest"
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     env_vars: dict[str, str] = field(default_factory=dict)
+    # Data-egress governance: the org's allowlisted egress
+    # destinations (hostnames/CIDRs) and whether link-local/internal ranges are blocked.
+    # Empty allowlist means "no org-specific restriction"; internal-subnet blocking is a
+    # separate switch so an org can keep public egress while refusing metadata endpoints.
+    egress_allowlist: list[str] = field(default_factory=list)
+    block_internal_subnets: bool = False
+    # Run as uid 1000 with every capability dropped instead of the default root-with-reduced-caps.
+    require_non_root: bool = False
 
 
 @dataclass
@@ -81,6 +112,15 @@ class SandboxDriverProtocol(ABC):
         Transitions state from RUNNING to HIBERNATED.
         """
         pass
+
+    def hold_awake(self, session_id: str, seconds: float) -> None:
+        """Keep the sandbox out of idle hibernation for ``seconds`` (0 releases the hold).
+
+        Used while background processes run: they are not tool calls, so without a hold the
+        idle reaper would stop a dev server the person is still looking at. Drivers without
+        an idle reaper keep this no-op.
+        """
+        return None
 
     @abstractmethod
     async def destroy_workspace(self, session_id: str) -> None:
@@ -155,15 +195,17 @@ class SandboxDriverProtocol(ABC):
         """
         pass
 
-    async def attach_pty(
-        self,
-        session_id: str,
-        cols: int = 80,
-        rows: int = 24,
-    ) -> AsyncIterator[bytes]:
+    def set_session_env(self, session_id: str, env: dict[str, str]) -> None:  # noqa: B027
+        """Set the environment applied to every command of the session (never persisted).
+
+        Used for short-lived credentials; the default is a no-op for drivers that cannot
+        honour it.
         """
-        Optional: Attaches a bidirectional pseudo-terminal stream for interactive sessions.
-        Drivers primarily stream execution logs via exec_command(on_stdout_chunk=...).
+
+    async def open_pty(self, session_id: str, cols: int = 80, rows: int = 24) -> "PtyChannel":
+        """Open an interactive pseudo-terminal (a login shell in the workspace).
+
+        Optional: drivers that cannot offer one raise ``NotImplementedError``. The caller owns
+        the channel and must ``close()`` it.
         """
-        raise NotImplementedError("PTY streaming is optional; use exec_command for streaming logs.")
-        yield b""
+        raise NotImplementedError("This sandbox driver has no interactive terminal.")

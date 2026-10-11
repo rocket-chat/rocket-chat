@@ -1,0 +1,18 @@
+{
+  "token": "verification-token",
+  "team_id": "T1",
+  "api_app_id": "A1",
+  "event": {
+    "type": "message",
+    "channel_type": "im",
+    "user": "U1",
+    "text": "what changed in the last release?",
+    "ts": "1700000100.000200",
+    "channel": "D1",
+    "event_ts": "1700000100.000200"
+  },
+  "type": "event_callback",
+  "event_id": "Ev_MESSAGE_IM_1",
+  "event_time": 1700000100,
+  "authorizations": [{"enterprise_id": null, "team_id": "T1", "user_id": "UBOT", "is_bot": true, "is_enterprise_install": false}]
+}

@@ -1,0 +1,18 @@
+{
+  "type": "message_action",
+  "token": "verification-token",
+  "action_ts": "1700000400.000500",
+  "team": {"id": "T1", "domain": "acme"},
+  "user": {"id": "U1", "name": "alice", "team_id": "T1"},
+  "channel": {"id": "C1", "name": "builds"},
+  "callback_id": "ask_rocket",
+  "trigger_id": "TRIGGER_SHORTCUT_1",
+  "response_url": "https://hooks.slack.test/app/T1/1/abc",
+  "message_ts": "1700000350.000450",
+  "message": {
+    "type": "message",
+    "user": "U2",
+    "ts": "1700000350.000450",
+    "text": "The deploy job keeps timing out on step 3"
+  }
+}

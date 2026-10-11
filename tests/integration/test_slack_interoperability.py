@@ -14,6 +14,7 @@ from llm_gateway.gateway import LiteLLMGateway
 from sandbox_driver.docker_driver import DockerSandboxDriver
 from slack_assistant.assistant import SlackAssistant
 from slack_assistant.config import SlackAssistantSettings
+from slack_harness import make_slack
 
 from specifications.interfaces.sandbox import ResourceLimits, WorkspaceSpec
 
@@ -68,7 +69,7 @@ async def test_slack_interoperability_math_bug_fix(
         slack_bot_token="xoxb-test-interop-token",
         slack_app_token="xapp-test-interop-token",
     )
-    assistant = SlackAssistant(
+    assistant = make_slack(
         orchestrator=orchestrator,
         sandbox_driver=driver,
         tool_registry=registry,
@@ -245,13 +246,13 @@ async def test_slack_interoperability_math_bug_fix(
         blocks = say_kwargs.get("blocks", [])
         assert len(blocks) >= 3
 
-        # 3. Verify syntax-highlighted diff and approval buttons in Block Kit
+        # 3. Verify the syntax-highlighted diff in Block Kit
         blocks_text = json.dumps(blocks)
         assert "```diff" in blocks_text
         assert "math_mod.py" in blocks_text
         assert "+    return a * b" in blocks_text
-        assert "approve_action" in blocks_text
-        assert "reject_action" in blocks_text
+        # The result is a diff review; there is no phantom commit button behind it.
+        assert "approve_action" not in blocks_text
 
         # 4. Verify actual file content in sandbox volume
         updated_content = await driver.read_file(session_id, "math_mod.py")

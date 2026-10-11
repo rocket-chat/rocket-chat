@@ -6,28 +6,32 @@ from .cascading import (
     ResolvedSettings,
 )
 from .crypto import CredentialCipher
-from .engine import ConfigEngine
 from .exceptions import (
     ConfigEngineError,
     CredentialDecryptionError,
     PolicyViolationError,
 )
-from .models import (
-    OrgPolicy,
-    TeamPolicy,
-    UserOverride,
+from .registry import (
+    REGISTRY,
+    FieldError,
+    SettingSpec,
+    ValidationResult,
+    validate,
+    validate_locked_keys,
 )
 
 __all__ = [
+    "REGISTRY",
     "CascadingSettingsResolver",
-    "ConfigEngine",
     "ConfigEngineError",
     "CredentialCipher",
     "CredentialDecryptionError",
+    "FieldError",
     "FieldStatus",
-    "OrgPolicy",
     "PolicyViolationError",
     "ResolvedSettings",
-    "TeamPolicy",
-    "UserOverride",
+    "SettingSpec",
+    "ValidationResult",
+    "validate",
+    "validate_locked_keys",
 ]

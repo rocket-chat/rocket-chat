@@ -1,21 +1,33 @@
 """Database session management with PostgreSQL Row-Level Security (RLS) enforcement."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
-    AsyncConnection,
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
 
-from .models import Base
+from .alembic_config import upgrade_to_head
 
 logger = logging.getLogger(__name__)
+
+# The tenant RLS context for the work currently in flight.
+#
+# Migration 002 FORCEs row-level security on ten tables (sessions, mcp_servers,
+# knowledge_*, custom_skills, agent_personas, subagent_configs, *_settings,
+# user_credentials) with a policy keyed on `app.current_org_id`. A session that never
+# sets that setting sees *nothing* and cannot write, so the tenant context is
+# established once per request and applied by every session the request opens —
+# relying on ~19 individual call sites to remember it is exactly how a silent
+# "empty list in production" bug is born.
+current_tenant_org_id: ContextVar[str | None] = ContextVar("current_tenant_org_id", default=None)
 
 
 class DatabaseSessionManager:
@@ -44,73 +56,15 @@ class DatabaseSessionManager:
         )
 
     async def create_tables(self) -> None:
-        """Create all tables in the database if they do not exist."""
-        if self.engine is None:
+        """Bring the schema to the Alembic head (development and tests only).
+
+        Alembic is the single source of truth for tables *and* row-level-security policies;
+        this just runs the same migrations the container entrypoint and the Helm init
+        container run, so a test database and a production database cannot drift apart.
+        """
+        if self.db_url is None or self.engine is None:
             raise RuntimeError("Database engine not initialized")
-        async with self.engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            await self.apply_rls_policies(conn)
-
-    async def apply_rls_policies(self, conn: AsyncConnection) -> None:
-        """Configure Row-Level Security on tenant-isolated tables in PostgreSQL."""
-        if conn.dialect.name != "postgresql":
-            logger.debug(
-                "Skipping PostgreSQL RLS setup for non-Postgres dialect (%s)", conn.dialect.name
-            )
-            return
-
-        rls_statements = [
-            # Enable RLS on sessions
-            "ALTER TABLE sessions ENABLE ROW LEVEL SECURITY;",
-            "ALTER TABLE sessions FORCE ROW LEVEL SECURITY;",
-            "DROP POLICY IF EXISTS tenant_isolation_sessions ON sessions;",
-            """
-            CREATE POLICY tenant_isolation_sessions ON sessions
-                FOR ALL
-                USING (org_id = current_setting('app.current_org_id', true));
-            """,
-            # Enable RLS on byok_credentials
-            "ALTER TABLE byok_credentials ENABLE ROW LEVEL SECURITY;",
-            "ALTER TABLE byok_credentials FORCE ROW LEVEL SECURITY;",
-            "DROP POLICY IF EXISTS tenant_isolation_byok ON byok_credentials;",
-            """
-            CREATE POLICY tenant_isolation_byok ON byok_credentials
-                FOR ALL
-                USING (org_id = current_setting('app.current_org_id', true));
-            """,
-            # Enable RLS on org_settings
-            "ALTER TABLE org_settings ENABLE ROW LEVEL SECURITY;",
-            "ALTER TABLE org_settings FORCE ROW LEVEL SECURITY;",
-            "DROP POLICY IF EXISTS tenant_isolation_org_settings ON org_settings;",
-            """
-            CREATE POLICY tenant_isolation_org_settings ON org_settings
-                FOR ALL
-                USING (org_id = current_setting('app.current_org_id', true));
-            """,
-            # Enable RLS on user_settings
-            "ALTER TABLE user_settings ENABLE ROW LEVEL SECURITY;",
-            "ALTER TABLE user_settings FORCE ROW LEVEL SECURITY;",
-            "DROP POLICY IF EXISTS tenant_isolation_user_settings ON user_settings;",
-            """
-            CREATE POLICY tenant_isolation_user_settings ON user_settings
-                FOR ALL
-                USING (org_id = current_setting('app.current_org_id', true));
-            """,
-            # Enable RLS on user_credentials
-            "ALTER TABLE user_credentials ENABLE ROW LEVEL SECURITY;",
-            "ALTER TABLE user_credentials FORCE ROW LEVEL SECURITY;",
-            "DROP POLICY IF EXISTS tenant_isolation_user_credentials ON user_credentials;",
-            """
-            CREATE POLICY tenant_isolation_user_credentials ON user_credentials
-                FOR ALL
-                USING (org_id = current_setting('app.current_org_id', true));
-            """,
-        ]
-        for stmt in rls_statements:
-            try:
-                await conn.execute(text(stmt))
-            except Exception as err:
-                logger.warning("Failed executing RLS statement: %s; error: %s", stmt.strip(), err)
+        await asyncio.to_thread(upgrade_to_head, self.db_url)
 
     async def close(self) -> None:
         """Dispose of the database engine and connection pool."""
@@ -121,13 +75,19 @@ class DatabaseSessionManager:
 
     @asynccontextmanager
     async def session(self, tenant_org_id: str | None = None) -> AsyncIterator[AsyncSession]:
-        """Provide a scoped database session with tenant RLS context set."""
+        """Provide a scoped database session with the tenant RLS context set.
+
+        Falls back to the ambient request context (``current_tenant_org_id``) when no
+        explicit tenant is given, so every session opened while handling a tenant
+        request is correctly scoped — including the call sites that never passed an org.
+        """
         if self.session_factory is None:
             raise RuntimeError("Database session factory is not initialized")
+        effective_org_id = tenant_org_id or current_tenant_org_id.get()
         async with self.session_factory() as session:
             try:
-                if tenant_org_id:
-                    await set_tenant_context(session, tenant_org_id)
+                if effective_org_id:
+                    await set_tenant_context(session, effective_org_id)
                 yield session
                 await session.commit()
             except Exception:

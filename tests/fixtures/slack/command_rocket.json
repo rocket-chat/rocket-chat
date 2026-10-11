@@ -1,0 +1,15 @@
+{
+  "token": "verification-token",
+  "team_id": "T1",
+  "team_domain": "acme",
+  "channel_id": "C1",
+  "channel_name": "builds",
+  "user_id": "U1",
+  "user_name": "alice",
+  "command": "/rocket",
+  "text": "help",
+  "api_app_id": "A1",
+  "is_enterprise_install": "false",
+  "response_url": "https://hooks.slack.test/commands/T1/1/abc",
+  "trigger_id": "TRIGGER_COMMAND_1"
+}

@@ -1,11 +1,10 @@
 """In-memory and simulated filesystem test harness for Kubernetes Sandbox Driver."""
 
 import asyncio
-import base64
 import json
 import os
-import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import uuid
@@ -20,6 +19,37 @@ from kubernetes_asyncio.client import (
 )
 from kubernetes_asyncio.client.exceptions import ApiException
 from kubernetes_asyncio.stream import ws_client
+
+_STAT_SHIM = """#!/usr/bin/env python3
+import os, stat, sys
+args = sys.argv[1:]
+assert args[0] == "-c", "shim only implements GNU 'stat -c'"
+fmt, paths = args[1], args[2:]
+for path in paths:
+    st = os.stat(path)
+    kind = "directory" if stat.S_ISDIR(st.st_mode) else "regular file"
+    print(fmt.replace("%F", kind).replace("%s", str(st.st_size))
+          .replace("%Y", str(int(st.st_mtime))).replace("%n", path))
+"""
+
+_shim_dir: str | None = None
+
+
+def _gnu_stat_shim_dir() -> str:
+    """PATH prefix providing GNU ``stat -c`` on hosts (macOS) whose ``stat`` is BSD.
+
+    Sandbox images are Linux; the harness runs commands in a host shell, so it emulates them.
+    """
+    global _shim_dir
+    if subprocess.run(["stat", "-c", "%s", "/"], capture_output=True, check=False).returncode == 0:
+        return ""
+    if _shim_dir is None:
+        _shim_dir = tempfile.mkdtemp(prefix="gnu-stat-shim-")
+        shim = os.path.join(_shim_dir, "stat")
+        with open(shim, "w") as handle:
+            handle.write(_STAT_SHIM)
+        os.chmod(shim, 0o755)
+    return f"{_shim_dir}:"
 
 
 class FakeWSMessage:
@@ -204,23 +234,11 @@ class FakeK8sHarness:
         # Map /workspace references to physical simulated volume directory
         raw_cmd = command[2] if len(command) >= 3 else " ".join(command)
 
-        def _replace_b64(match: re.Match[str]) -> str:
-            b64_str = match.group(1)
-            try:
-                decoded = base64.b64decode(b64_str).decode("utf-8")
-                if "/workspace" in decoded:
-                    decoded = decoded.replace("/workspace", volume_dir)
-                    return f"base64.b64decode('{base64.b64encode(decoded.encode('utf-8')).decode('ascii')}')"
-            except Exception:
-                pass
-            return match.group(0)
-
-        adapted_cmd = re.sub(r"base64\.b64decode\('([A-Za-z0-9+/=]+)'\)", _replace_b64, raw_cmd)
-        adapted_cmd = adapted_cmd.replace("/workspace", volume_dir)
+        adapted_cmd = raw_cmd.replace("/workspace", volume_dir)
 
         env = dict(os.environ)
         bin_dir = os.path.dirname(sys.executable)
-        env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+        env["PATH"] = f"{_gnu_stat_shim_dir()}{bin_dir}:{env.get('PATH', '')}"
 
         proc = await asyncio.create_subprocess_shell(
             adapted_cmd,

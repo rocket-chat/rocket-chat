@@ -7,7 +7,16 @@ metadata:
     {{- include "rocket-chat.labels" . | nindent 4 }}
     app.kubernetes.io/component: backend
 spec:
-  replicas: {{ .Values.backend.replicas | default 2 }}
+  {{- if not .Values.backend.autoscaling.enabled }}
+  replicas: {{ .Values.backend.replicas | default 1 }}
+  {{- end }}
+  # maxUnavailable: 0 keeps serving capacity during a rollout; the surge pod absorbs
+  # the new revision before an old pod is terminated.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
       {{- include "rocket-chat.backendSelectorLabels" . | nindent 6 }}
@@ -21,6 +30,33 @@ spec:
         app.kubernetes.io/component: backend
     spec:
       serviceAccountName: {{ include "rocket-chat.serviceAccountName" . }}
+      # Drain grace period: the preStop hook flips /v1/ready to failing so the pod
+      # leaves the Service before SIGTERM, then in-flight turns finish here.
+      terminationGracePeriodSeconds: {{ .Values.backend.terminationGracePeriodSeconds | default 60 }}
+      {{- if .Values.backend.migrations.enabled }}
+      # Alembic is the only schema path. It runs once per rollout, as the schema
+      # owner, before any new backend pod serves; concurrent replicas queue on an advisory lock.
+      initContainers:
+        - name: migrate
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy | default "IfNotPresent" }}
+          command: ["/app/deploy/docker/migrate.sh"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "rocket-chat.fullname" . }}-config
+            - secretRef:
+                name: {{ include "rocket-chat.fullname" . }}-secrets
+          {{- if .Values.backend.database.existingSecret }}
+          env:
+            {{- include "rocket-chat.databaseEnv" . | nindent 12 }}
+          {{- end }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      {{- end }}
       containers:
         - name: backend
           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
@@ -41,22 +77,18 @@ spec:
             {{- end }}
             {{- end }}
           {{- $hasEnv := false }}
-          {{- if or .Values.backend.database.existingSecret .Values.backend.encryption.existingSecret .Values.backend.slack.existingSecret .Values.github.existingSecret .Values.models.openrouter.existingSecret .Values.models.anthropic.existingSecret .Values.models.openai.existingSecret .Values.models.deepseek.existingSecret .Values.models.gemini.existingSecret .Values.backend.extraEnv }}
+          {{- if or .Values.backend.database.existingSecret (and .Values.auth.local .Values.auth.local.enabled .Values.auth.local.existingSecret) .Values.backend.encryption.existingSecret (and .Values.auth .Values.auth.enabled) .Values.auth.existingSecret .Values.backend.slack.existingSecret .Values.github.existingSecret .Values.models.openrouter.existingSecret .Values.models.anthropic.existingSecret .Values.models.openai.existingSecret .Values.models.deepseek.existingSecret .Values.models.gemini.existingSecret .Values.backend.extraEnv }}
           {{- $hasEnv = true }}
           {{- end }}
           {{- if $hasEnv }}
           env:
-            {{- if .Values.backend.database.existingSecret }}
-            - name: DATABASE_URL
+            {{- include "rocket-chat.databaseEnv" . | nindent 12 }}
+            {{- if and .Values.auth.local .Values.auth.local.enabled .Values.auth.local.existingSecret }}
+            - name: INITIAL_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.backend.database.existingSecret }}
-                  key: {{ .Values.backend.database.existingSecretKey | default "DATABASE_URL" }}
-            - name: ADMIN_DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.backend.database.existingSecret }}
-                  key: {{ .Values.backend.database.existingSecretAdminKey | default .Values.backend.database.existingSecretKey | default "DATABASE_URL" }}
+                  name: {{ .Values.auth.local.existingSecret }}
+                  key: {{ .Values.auth.local.existingSecretKey | default "INITIAL_ADMIN_PASSWORD" }}
             {{- end }}
             {{- if .Values.backend.encryption.existingSecret }}
             - name: ENCRYPTION_MASTER_KEY
@@ -64,6 +96,55 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.backend.encryption.existingSecret }}
                   key: {{ .Values.backend.encryption.existingSecretKey | default "ENCRYPTION_MASTER_KEY" }}
+            {{- end }}
+            {{- if .Values.auth.existingSecret }}
+            - name: SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: {{ .Values.auth.existingSecretNextAuthKey | default "NEXTAUTH_SECRET" }}
+            {{- end }}
+            {{- if and .Values.auth .Values.auth.enabled }}
+            {{- if .Values.auth.existingSecret }}
+            - name: NEXTAUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.existingSecret }}
+                  key: {{ .Values.auth.existingSecretNextAuthKey | default "NEXTAUTH_SECRET" }}
+            {{- else if .Values.auth.nextauthSecret }}
+            - name: NEXTAUTH_SECRET
+              value: {{ .Values.auth.nextauthSecret | quote }}
+            {{- end }}
+            {{- if .Values.auth.oidc.clientSecret }}
+            - name: OIDC_CLIENT_SECRET
+              value: {{ .Values.auth.oidc.clientSecret | quote }}
+            {{- else if .Values.auth.oidc.existingSecret }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.oidc.existingSecret }}
+                  key: {{ .Values.auth.oidc.existingSecretClientSecretKey | default "OIDC_CLIENT_SECRET" }}
+            {{- end }}
+            {{- if .Values.auth.github.clientSecret }}
+            - name: GITHUB_CLIENT_SECRET
+              value: {{ .Values.auth.github.clientSecret | quote }}
+            {{- else if .Values.auth.github.existingSecret }}
+            - name: GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.github.existingSecret }}
+                  key: {{ .Values.auth.github.existingSecretClientSecretKey | default "GITHUB_CLIENT_SECRET" }}
+            {{- end }}
+            {{- if .Values.auth.google.clientSecret }}
+            - name: GOOGLE_CLIENT_SECRET
+              value: {{ .Values.auth.google.clientSecret | quote }}
+            {{- else if .Values.auth.google.existingSecret }}
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.google.existingSecret }}
+                  key: {{ .Values.auth.google.existingSecretClientSecretKey | default "GOOGLE_CLIENT_SECRET" }}
+            {{- end }}
             {{- end }}
             {{- if .Values.backend.slack.existingSecret }}
             - name: SLACK_BOT_TOKEN
@@ -146,21 +227,34 @@ spec:
             {{- toYaml .Values.backend.extraEnv | nindent 12 }}
             {{- end }}
           {{- end }}
+          startupProbe:
+            httpGet:
+              path: {{ .Values.backend.probes.startup.path | default "/health" }}
+              port: http
+            initialDelaySeconds: {{ .Values.backend.probes.startup.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.backend.probes.startup.periodSeconds | default 5 }}
+            timeoutSeconds: {{ .Values.backend.probes.startup.timeoutSeconds | default 3 }}
+            failureThreshold: {{ .Values.backend.probes.startup.failureThreshold | default 30 }}
           livenessProbe:
             httpGet:
-              path: /health
+              path: {{ .Values.backend.probes.liveness.path | default "/health" }}
               port: http
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 3
-            failureThreshold: 3
+            initialDelaySeconds: {{ .Values.backend.probes.liveness.initialDelaySeconds | default 10 }}
+            periodSeconds: {{ .Values.backend.probes.liveness.periodSeconds | default 10 }}
+            timeoutSeconds: {{ .Values.backend.probes.liveness.timeoutSeconds | default 3 }}
+            failureThreshold: {{ .Values.backend.probes.liveness.failureThreshold | default 3 }}
           readinessProbe:
             httpGet:
-              path: /health
+              path: {{ .Values.backend.probes.readiness.path | default "/v1/ready" }}
               port: http
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 2
+            initialDelaySeconds: {{ .Values.backend.probes.readiness.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ .Values.backend.probes.readiness.periodSeconds | default 5 }}
+            timeoutSeconds: {{ .Values.backend.probes.readiness.timeoutSeconds | default 3 }}
+            failureThreshold: {{ .Values.backend.probes.readiness.failureThreshold | default 2 }}
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  {{- toYaml .Values.backend.lifecycle.preStop.exec.command | nindent 18 }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}

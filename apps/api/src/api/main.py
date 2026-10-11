@@ -1,185 +1,138 @@
 """Rocket Chat FastAPI Control Plane and Service Host."""
 
-import asyncio
 import logging
 import os
-from collections.abc import AsyncIterator
+import re
+import uuid
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from typing import Any
 
-from agent_core.orchestrator import AsyncReActOrchestrator
-from agent_core.tools.registry import ToolRegistry
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from git_engine.engine import GitEngine
-from llm_gateway.gateway import LiteLLMGateway
-from sandbox_driver.docker_driver import DockerSandboxDriver
-from sandbox_driver.k8s_driver import K8sSandboxDriver
-from slack_assistant.assistant import SlackAssistant
 from slack_assistant.config import SlackAssistantSettings
 
-from api.db.models import OrganizationModel, UserModel
-from api.db.session import DatabaseSessionManager
-from api.db.store import PostgresSessionStore
-from api.events import AsyncIOEventBus
+from api.bootstrap.background import BackgroundServices
+from api.bootstrap.core import CoreServices, assemble_core
+from api.bootstrap.slack import SlackRuntime, start_slack
+from api.db.session import current_tenant_org_id
+from api.logging_config import bind_log_context, setup_logging
 from api.middleware.auth import AuthMiddleware
+from api.routers.admin_audit import router as admin_audit_router
+from api.routers.admin_users import router as admin_users_router
+from api.routers.agents import router as agents_router
+from api.routers.attachments import router as attachments_router
+from api.routers.auth import router as auth_router
+from api.routers.checkpoints import router as checkpoints_router
+from api.routers.dev import router as dev_router
+from api.routers.diffs import router as diffs_router
+from api.routers.fork import router as fork_router
+from api.routers.github_app import router as github_app_router
+from api.routers.github_credentials import router as github_credentials_router
+from api.routers.knowledge import router as knowledge_router
+from api.routers.mcp_oauth import router as mcp_oauth_router
+from api.routers.mcp_servers import router as mcp_servers_router
+from api.routers.memory import router as memory_router
+from api.routers.missions import router as missions_router
+from api.routers.model_keys import router as model_keys_router
+from api.routers.models_catalog import router as models_catalog_router
+from api.routers.preview import router as preview_router
+from api.routers.processes import router as processes_router
+from api.routers.sandboxes import router as sandboxes_router
+from api.routers.session_crud import router as session_crud_router
+from api.routers.session_turns import router as session_turns_router
+from api.routers.session_ws import router as session_ws_router
+from api.routers.sessions_list import router as sessions_list_router
+from api.routers.settings_api import router as settings_api_router
+from api.routers.skills import router as skills_router
+from api.routers.slack_admin import router as slack_admin_router
+from api.routers.slack_status import router as slack_status_router
+from api.routers.templates import router as templates_router
+from api.routers.terminal import router as terminal_router
+from api.routers.tools import router as tools_router
+from api.routers.turns import router as turns_router
+from api.routers.usage import router as usage_router
 from api.routers.webhooks import router as webhooks_router
-from api.routes import router as sessions_router
-from api.store import InMemorySessionStore
+from api.routers.workspace import router as workspace_router
+from api.security_guards import enforce_production_config
+from api.services.metrics import (
+    drain_endpoint,
+    metrics_endpoint,
+    readiness_endpoint,
+)
+from api.services.shutdown import begin_shutdown
+from api.telemetry import setup_tracing
 from specifications.interfaces.sandbox import SandboxDriverProtocol
-from specifications.interfaces.session import SessionStoreProtocol
 
 load_dotenv()
+log_level = setup_logging()
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Manage application lifecycle, driver initializations, and embedded background tasks."""
-    settings = SlackAssistantSettings()
-    driver_type = (
-        os.getenv("DEFAULT_SANDBOX_DRIVER") or os.getenv("SANDBOX_DRIVER") or "docker"
-    ).lower()
-    sandbox_driver: SandboxDriverProtocol
-    if driver_type == "k8s":
-        logger.info("Initializing Kubernetes Sandbox Driver (Production)...")
-        sandbox_driver = K8sSandboxDriver()
-    else:
-        logger.info("Initializing Docker Sandbox Driver (Local)...")
-        sandbox_driver = DockerSandboxDriver()
-
-    llm_gateway = LiteLLMGateway()
-    tool_registry = ToolRegistry(driver=sandbox_driver)
-    git_engine = GitEngine(driver=sandbox_driver)
-    default_model = (
-        os.getenv("ROCKET_DEFAULT_MODEL")
-        or os.getenv("DEFAULT_MODEL")
-        or "openrouter/deepseek/deepseek-v4.1-flash"
+    enforce_production_config()
+    logger.info(
+        "Rocket Chat Control Plane starting up with log level: %s", logging.getLevelName(log_level)
     )
-    orchestrator = AsyncReActOrchestrator(
-        gateway=llm_gateway,
-        registry=tool_registry,
-        default_model=default_model,
-    )
-    event_bus = AsyncIOEventBus()
-    session_store: SessionStoreProtocol
-    db_manager_instance: DatabaseSessionManager | None = None
-
-    database_url = os.getenv("DATABASE_URL") or os.getenv("TEST_DATABASE_URL")
-    if database_url:
-        try:
-            logger.info(
-                "Initializing persistent PostgresSessionStore with %s...",
-                database_url.split("@")[-1],
-            )
-            db_manager_instance = DatabaseSessionManager(database_url)
-            await db_manager_instance.create_tables()
-            # Ensure default organization and developer identity exist for foreign key integrity
-            async with db_manager_instance.session() as s:
-                org = await s.get(OrganizationModel, "default_org")
-                if not org:
-                    org = OrganizationModel(
-                        id="default_org",
-                        name="Default Organization",
-                        slug="default-org",
-                    )
-                    s.add(org)
-                    await s.flush()
-                user = await s.get(UserModel, "dev_user")
-                if not user:
-                    user = UserModel(
-                        id="dev_user",
-                        org_id="default_org",
-                        email="dev@rocket.chat",
-                        name="Developer",
-                    )
-                    s.add(user)
-                    await s.flush()
-            session_store = PostgresSessionStore(db_manager_instance)
-            logger.info("PostgresSessionStore initialized successfully.")
-        except Exception as db_err:
-            logger.warning(
-                "Failed connecting to PostgreSQL (%s); falling back to InMemorySessionStore.",
-                db_err,
-            )
-            session_store = InMemorySessionStore()
-    else:
-        logger.info("DATABASE_URL not set; using InMemorySessionStore.")
-        session_store = InMemorySessionStore()
-
-    app.state.sandbox_driver = sandbox_driver
-    app.state.llm_gateway = llm_gateway
-    app.state.tool_registry = tool_registry
-    app.state.orchestrator = orchestrator
-    app.state.event_bus = event_bus
-    app.state.session_store = session_store
-    app.state.git_engine = git_engine
-    if db_manager_instance:
-        app.state.db_manager = db_manager_instance
-
-    slack_task: asyncio.Task[None] | None = None
-    slack_assistant: SlackAssistant | None = None
-
-    if settings.slack_bot_token and settings.slack_app_token:
-        logger.info("Initializing embedded Slack Socket Mode Assistant...")
-        slack_assistant = SlackAssistant(
-            orchestrator=orchestrator,
-            settings=settings,
-            sandbox_driver=sandbox_driver,
-            tool_registry=tool_registry,
-        )
-        app.state.slack_assistant = slack_assistant
-    else:
-        logger.info("Slack tokens not configured; skipping embedded Socket Mode background task.")
-
-    reaper_task: asyncio.Task[None] | None = None
-    if hasattr(sandbox_driver, "reconcile_inactivity"):
-
-        async def _reaper_loop() -> None:
-            while True:
-                try:
-                    await asyncio.sleep(30)
-                    if hasattr(sandbox_driver, "reconcile_inactivity"):
-                        await sandbox_driver.reconcile_inactivity()
-                    if hasattr(sandbox_driver, "reconcile_warm_pool"):
-                        await sandbox_driver.reconcile_warm_pool()
-                except asyncio.CancelledError:
-                    break
-                except Exception as err:
-                    logger.warning("Sandbox background reaper error: %s", err)
-
-        reaper_task = asyncio.create_task(_reaper_loop())
+    core = await assemble_core(app)
+    background = BackgroundServices(app, core)
+    background.start()
+    slack = start_slack(app, core, SlackAssistantSettings())
 
     yield
 
-    if reaper_task and not reaper_task.done():
-        reaper_task.cancel()
-        try:
-            await reaper_task
-        except asyncio.CancelledError:
-            pass
+    await _shut_down(app, core, background, slack)
 
-    if hasattr(sandbox_driver, "cleanup_warm_pool"):
-        try:
-            await sandbox_driver.cleanup_warm_pool()
-        except Exception as err:
-            logger.debug("Warm pool cleanup on shutdown error: %s", err)
 
-    if slack_assistant:
-        logger.info("Shutting down Slack Assistant Socket Mode...")
-        await slack_assistant.stop_socket_mode()
-    if slack_task and not slack_task.done():
-        slack_task.cancel()
-        try:
-            await slack_task
-        except asyncio.CancelledError:
-            pass
+async def _shut_down(
+    app: FastAPI, core: CoreServices, background: BackgroundServices, slack: SlackRuntime | None
+) -> None:
+    """Drain, then stop background work and release shared resources, dependents last."""
+    # Enter draining before cancelling background work so /v1/ready reports `draining` for
+    # the remainder of the grace period; the preStop hook in the Helm chart calls
+    # POST /v1/drain even earlier, so the pod leaves the Service endpoints before SIGTERM.
+    app.state.draining = True
+    begin_shutdown()
+
+    await background.stop()
+    if core.shared_bus is not None:
+        await core.shared_bus.close()
+    await _cleanup_warm_pool(core.sandbox_driver)
+    if slack is not None:
+        await slack.stop()
+
+    # Release the cached semantic indexes before tearing the pool down: they are
+    # derived data and the largest process-resident allocations.
+    code_index_cache = getattr(app.state, "code_index_cache", None)
+    if code_index_cache is not None:
+        code_index_cache.clear()
+
+    # Dispose the connection pool inside the loop that created it. Without this,
+    # every application lifespan (notably across repeated TestClient contexts)
+    # leaves asyncpg connections bound to a closed event loop, which surfaces as
+    # "another operation is in progress" / InterfaceError in later tests.
+    if core.db_manager:
+        await core.db_manager.close()
+        app.state.db_manager = None
+        app.state.transcript_store = None
+
+
+async def _cleanup_warm_pool(driver: SandboxDriverProtocol) -> None:
+    if not hasattr(driver, "cleanup_warm_pool"):
+        return
+    try:
+        await driver.cleanup_warm_pool()
+    except Exception as err:
+        logger.debug("Warm pool cleanup on shutdown error: %s", err)
 
 
 app = FastAPI(
     title="Rocket Chat Control Plane",
     description="FastAPI service hosting the ReAct agent engine and embedded Slack Assistant.",
-    version="0.1.5",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -196,12 +149,125 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Enforce JWT authentication whenever an identity provider is configured.
-# Without OIDC settings the API runs in local-development mode with a fixed identity.
-if os.getenv("OIDC_JWKS_URL") or os.getenv("OIDC_PUBLIC_KEY"):
-    app.add_middleware(AuthMiddleware)
+# Authentication is always enforced. Local development opts into an anonymous identity
+# explicitly with DEV_AUTH_BYPASS=true (ignored when ENVIRONMENT=production).
+app.add_middleware(AuthMiddleware)
 
-app.include_router(sessions_router)
+
+@app.middleware("http")
+async def establish_tenant_context(request: Request, call_next: Callable[[Request], Any]) -> Any:
+    """Bind the caller's organization (and, in dev, their identity) to this request.
+
+    Ten tables FORCE row-level security keyed on `app.current_org_id` (see migration
+    002). Setting it once here means *every* session the request opens is correctly
+    scoped — including routes that never passed an org explicitly, which would
+    otherwise read an empty result set or fail to write.
+    """
+    from api.auth.access import _get_request_identity
+
+    org_id: str | None = None
+    user_id: str | None = None
+    try:
+        org_id, user_id, _roles = _get_request_identity(request)
+    except Exception as err:  # pragma: no cover - identity resolution must never 500
+        logger.debug("Tenant context resolution skipped for %s: %s", request.url.path, err)
+
+    if org_id and user_id:
+        await _provision_identity_if_enabled(request, org_id, user_id)
+
+    token = current_tenant_org_id.set(org_id)
+    bind_log_context(org_id=org_id, user_id=user_id)
+    try:
+        return await call_next(request)
+    finally:
+        current_tenant_org_id.reset(token)
+
+
+@app.middleware("http")
+async def assign_request_id(request: Request, call_next: Callable[[Request], Any]) -> Any:
+    """Correlate a request's log lines (and the caller's report of it) by one id.
+
+    Registered last so it is the outermost layer: even requests rejected by the auth
+    middleware carry an id. A well-formed inbound id is kept so a gateway's id survives.
+    """
+    inbound = request.headers.get("x-request-id", "")
+    request_id = inbound if _REQUEST_ID_PATTERN.fullmatch(inbound) else uuid.uuid4().hex
+    bind_log_context(request_id=request_id)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+
+_REQUEST_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{8,64}")
+
+setup_tracing(app)
+
+_provisioned_tenant_pairs: set[tuple[str, str]] = set()
+
+
+async def _provision_identity_if_enabled(request: Request, org_id: str, user_id: str) -> None:
+    """Create the caller's organisation/user row on first sight (development only).
+
+    Rows referenced by a foreign key must exist, so in development, E2E and CI a caller
+    that arrives with tenant headers should not have to be pre-seeded. Disabled by
+    default: in production identities come from the identity provider.
+    """
+    from api.db.store import _auto_provision_tenants_enabled, ensure_tenant_identity
+
+    if not _auto_provision_tenants_enabled():
+        return
+    pair = (org_id, user_id)
+    if pair in _provisioned_tenant_pairs:
+        return
+    db_manager = getattr(request.app.state, "db_manager", None)
+    if db_manager is None:
+        return
+    async with db_manager.session() as session:
+        await ensure_tenant_identity(session, org_id, user_id)
+    _provisioned_tenant_pairs.add(pair)
+
+
+app.include_router(admin_audit_router)
+app.include_router(admin_users_router)
+app.include_router(attachments_router)
+app.include_router(checkpoints_router)
+app.include_router(auth_router)
+app.include_router(dev_router)
+app.include_router(diffs_router)
+# The keyset listing and fork routers must precede the legacy sessions router so the
+# richer GET /v1/sessions (cursor + search) wins the route match.
+app.include_router(sessions_list_router)
+app.include_router(fork_router)
+app.include_router(github_app_router)
+app.include_router(memory_router)
+app.include_router(preview_router)
+app.include_router(processes_router)
+app.include_router(sandboxes_router)
+app.include_router(missions_router)
+app.include_router(templates_router)
+app.include_router(tools_router)
+# The former single sessions router, in its original route order (path matching depends on it).
+for _router in (
+    agents_router,
+    mcp_servers_router,
+    mcp_oauth_router,
+    session_crud_router,
+    settings_api_router,
+    usage_router,
+    slack_status_router,
+    model_keys_router,
+    github_credentials_router,
+    session_turns_router,
+    models_catalog_router,
+    session_ws_router,
+    knowledge_router,
+    skills_router,
+):
+    app.include_router(_router)
+app.include_router(terminal_router)
+app.include_router(turns_router)
+app.include_router(slack_admin_router)
+app.include_router(workspace_router)
 app.include_router(webhooks_router, prefix="/v1")
 app.include_router(webhooks_router, prefix="/api/v1")
 
@@ -209,5 +275,43 @@ app.include_router(webhooks_router, prefix="/api/v1")
 @app.get("/health")
 @app.get("/v1/health")
 async def health_check() -> dict[str, str]:
-    """Basic health check endpoint."""
+    """Static **liveness** signal: healthy while the process runs, no dependency is checked.
+
+    Use `/v1/ready` for the database check; conflating the two would restart pods for a
+    database outage they cannot fix.
+    """
     return {"status": "healthy"}
+
+
+# --- S11-ops operational endpoints -------------------------------------------
+# Registered with add_api_route rather than include_router so this probes/metrics
+# region stays independent of the integrator's feature-router wiring below.
+# `/v1/health` above remains a static liveness signal; `/v1/ready` is the deep
+# readiness probe (database ping + code-index stats), and `/metrics` is the
+# Prometheus scrape target.
+app.add_api_route(
+    "/metrics",
+    metrics_endpoint,
+    methods=["GET"],
+    tags=["Operations"],
+    summary="Prometheus metrics",
+    description="Prometheus text exposition of the API's counters, gauges and histograms.",
+)
+app.add_api_route(
+    "/v1/ready",
+    readiness_endpoint,
+    methods=["GET"],
+    tags=["Operations"],
+    summary="Readiness probe",
+    description="Deep readiness: pings the database and reports code-index stats. A pod that is "
+    "draining answers 503 so the load balancer stops sending it traffic.",
+)
+app.add_api_route(
+    "/v1/drain",
+    drain_endpoint,
+    methods=["POST"],
+    tags=["Operations"],
+    summary="Start draining",
+    description="Marks this replica as draining: new work is refused with 503 while running "
+    "turns finish. Called by the pod's preStop hook; administrators only.",
+)

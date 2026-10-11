@@ -270,7 +270,7 @@ class TestMcpWriteOnlySecretVault:
     """Verifies write-only encrypted storage for MCP servers and safe secret masking."""
 
     @pytest.mark.asyncio
-    async def test_mcp_secrets_are_write_only_and_masked(self) -> None:
+    async def test_mcp_secrets_are_write_only_and_masked(self, fake_mcp_servers: object) -> None:
         """Tests that API keys and header secrets are encrypted and NEVER returned cleartext."""
         async with AsyncClient(
             transport=ASGITransport(app=app),
