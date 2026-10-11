@@ -1489,6 +1489,81 @@ Delete My Model Key
 
 **Responses:** `200`
 
+## Sharing
+
+### `GET /v1/sessions/{session_id}/sharing`
+
+Get Sharing
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `PUT /v1/sessions/{session_id}/sharing`
+
+Share with the whole organization and/or exactly the members with these emails.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| org_wide | boolean | no |  |
+| emails | list of string | no |  |
+
+**Responses:** `200`
+
+### `POST /v1/sessions/{session_id}/sharing/link`
+
+Create (or replace) the read-only public link; the previous link stops working.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| expires_in_days | integer | no |  |
+
+**Responses:** `200`
+
+### `DELETE /v1/sessions/{session_id}/sharing/link`
+
+Revoke Public Link
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/shared/{token}`
+
+The conversation behind a public link: no sign-in, read-only, never cached.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| token | path | yes | string |
+
+**Responses:** `200`
+
 ## Slack
 
 ### `GET /v1/admin/slack/workspace`

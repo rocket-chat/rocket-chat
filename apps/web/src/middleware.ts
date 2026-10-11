@@ -29,10 +29,11 @@ export const config = {
     /*
      * Match all request paths except:
      * - /login (authentication entry point)
+     * - /shared/:token (a public session link: its signed token is the credential)
      * - /api/auth/:path* (SSO and authentication routes)
      * - /_next/:path* (Next.js assets and client bundles)
      * - /favicon.ico, /icon.svg, /apple-icon.png (static icons)
      */
-    "/((?!login|api/auth|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png).*)",
+    "/((?!login|shared/|api/auth|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png).*)",
   ],
 };

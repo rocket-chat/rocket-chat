@@ -647,6 +647,19 @@
         "title": "CreateCheckpointRequest",
         "type": "object"
       },
+      "CreateLinkRequest": {
+        "properties": {
+          "expires_in_days": {
+            "default": 7,
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Expires In Days",
+            "type": "integer"
+          }
+        },
+        "title": "CreateLinkRequest",
+        "type": "object"
+      },
       "CreateLocalUserRequest": {
         "properties": {
           "email": {
@@ -2237,6 +2250,29 @@
         "title": "McpToolItem",
         "type": "object"
       },
+      "MemberView": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "name"
+        ],
+        "title": "MemberView",
+        "type": "object"
+      },
       "MemoryListResponse": {
         "description": "A user's visible memories, newest first.",
         "properties": {
@@ -2853,6 +2889,25 @@
           "started_at"
         ],
         "title": "ProcessView",
+        "type": "object"
+      },
+      "PublicLinkView": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "url": {
+            "description": "Relative cockpit URL; prefix it with the site address",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expires_at"
+        ],
+        "title": "PublicLinkView",
         "type": "object"
       },
       "ResetSessionsResponse": {
@@ -3497,6 +3552,85 @@
           "is_shared"
         ],
         "title": "ShareSessionRequest",
+        "type": "object"
+      },
+      "SharedConversation": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "messages": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "title",
+          "updated_at",
+          "expires_at",
+          "messages"
+        ],
+        "title": "SharedConversation",
+        "type": "object"
+      },
+      "SharingView": {
+        "properties": {
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/MemberView"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "org_wide": {
+            "description": "Every member of the organization can open it",
+            "title": "Org Wide",
+            "type": "boolean"
+          },
+          "public_link": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicLinkView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "public_links_enabled": {
+            "description": "The organization allows public links (general.public_session_links)",
+            "title": "Public Links Enabled",
+            "type": "boolean"
+          },
+          "unknown_emails": {
+            "description": "Addresses that are not members of the organization",
+            "items": {
+              "type": "string"
+            },
+            "title": "Unknown Emails",
+            "type": "array"
+          }
+        },
+        "required": [
+          "org_wide",
+          "public_links_enabled"
+        ],
+        "title": "SharingView",
         "type": "object"
       },
       "StopResult": {
@@ -4160,6 +4294,25 @@
           }
         },
         "title": "UpdateSessionRequest",
+        "type": "object"
+      },
+      "UpdateSharingRequest": {
+        "properties": {
+          "emails": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Emails",
+            "type": "array"
+          },
+          "org_wide": {
+            "default": false,
+            "title": "Org Wide",
+            "type": "boolean"
+          }
+        },
+        "title": "UpdateSharingRequest",
         "type": "object"
       },
       "UpdateUserRoleRequest": {
@@ -8288,6 +8441,192 @@
         ]
       }
     },
+    "/v1/sessions/{session_id}/sharing": {
+      "get": {
+        "operationId": "get_sharing_v1_sessions__session_id__sharing_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Sharing",
+        "tags": [
+          "Sharing"
+        ]
+      },
+      "put": {
+        "description": "Share with the whole organization and/or exactly the members with these emails.",
+        "operationId": "update_sharing_v1_sessions__session_id__sharing_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSharingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Sharing",
+        "tags": [
+          "Sharing"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/sharing/link": {
+      "delete": {
+        "operationId": "revoke_public_link_v1_sessions__session_id__sharing_link_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Public Link",
+        "tags": [
+          "Sharing"
+        ]
+      },
+      "post": {
+        "description": "Create (or replace) the read-only public link; the previous link stops working.",
+        "operationId": "create_public_link_v1_sessions__session_id__sharing_link_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharingView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Public Link",
+        "tags": [
+          "Sharing"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/turns": {
       "delete": {
         "description": "Halt current autonomous execution immediately.",
@@ -8877,6 +9216,49 @@
         "summary": "Update User Domain Settings",
         "tags": [
           "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/shared/{token}": {
+      "get": {
+        "description": "The conversation behind a public link: no sign-in, read-only, never cached.",
+        "operationId": "read_shared_conversation_v1_shared__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedConversation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Shared Conversation",
+        "tags": [
+          "Sharing"
         ]
       }
     },

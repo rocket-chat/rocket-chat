@@ -413,6 +413,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                         <button
                           type="button"
                           data-testid="delete-session-btn"
+                          aria-label="Delete session"
+                          title="Delete session"
                           onClick={(e) => handleDeleteSession(e, s.session_id)}
                           className="text-neutral-400 hover:text-rose-400 p-0.5"
                         >

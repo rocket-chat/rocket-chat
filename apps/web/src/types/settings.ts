@@ -2,6 +2,7 @@ export interface OrgGeneralSettings {
   company_name: string;
   compliance_tier: "SOC2" | "HIPAA" | "ISO27001" | "NONE";
   session_privacy_default: "private" | "shared_org";
+  public_session_links: boolean;
   telemetry_level: "minimal" | "standard" | "verbose";
   require_signed_commits: boolean;
   thrust_animation_enabled: boolean;
