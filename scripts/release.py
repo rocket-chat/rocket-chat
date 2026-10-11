@@ -285,10 +285,11 @@ def extract_version_notes(changelog_text: str, target_version: str) -> str:
     )
 
     if target_clean == "unreleased":
-        pattern = r"##\s*\[Unreleased\](.*?)(?=\n##\s*\[|\Z)"
+        pattern = r"##\s*\[Unreleased\][^\n]*(.*?)(?=\n##\s*\[|\Z)"
     else:
         # Match e.g. ## [0.2.0] or ## [v1.0.0]
-        pattern = rf"##\s*\[v?{re.escape(target_clean)}\](.*?)(?=\n##\s*\[|\Z)"
+        # The rest of the heading line (" - 2026-10-11") is not part of the notes.
+        pattern = rf"##\s*\[v?{re.escape(target_clean)}\][^\n]*(.*?)(?=\n##\s*\[|\Z)"
 
     match = re.search(pattern, changelog_text, re.DOTALL | re.IGNORECASE)
     if not match:
