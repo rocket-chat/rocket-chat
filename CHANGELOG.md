@@ -10,8 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `api`/`web`: **Share dialog: members by email, the whole organization, or a public link.** *Share* in the session header opens a dialog to give named organization members (by email) or everyone in the organization access, and to create a read-only public link (`/shared/<token>`, a signed capability that expires after 1-30 days and is revoked by creating a new link or deleting it). The public view shows only what was asked and answered, never tool calls, reasoning or files, with `no-store` / `noindex` headers. New `general.public_session_links` setting (default off) lets an administrator allow links and ends every issued link when turned off. New endpoints `GET/PUT /v1/sessions/{id}/sharing`, `POST/DELETE /v1/sessions/{id}/sharing/link` and the unauthenticated `GET /v1/shared/{token}`; every change is audited.
-- `git`/`agent-core`/`api`/`web`: **Sessions can follow a pull request.** `github_watch` / `github_unwatch` tools (and an automatic follow after `git_open_pr`) record a per-session subscription (`github_watches`, migration 026, row-level security). CI results, reviews, comments and merge/close events from the GitHub webhook are delivered to the sessions that follow that pull request or branch in the organization that mapped the installation, shown as a `github_event` line, and - for repository insiders on an idle session, at most five times per watch - start a turn; otherwise they are shown to the agent at its next turn. Archived or deleted sessions stop following.
 - `orchestrator`:
 - `sandboxes`:
 - `api`:
@@ -19,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `settings`:
 - `git`:
 - `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.2.1] - 2026-10-11
+
+### Added
+- `api`/`web`: **Share dialog: members by email, the whole organization, or a public link.** *Share* in the session header opens a dialog to give named organization members (by email) or everyone in the organization access, and to create a read-only public link (`/shared/<token>`, a signed capability that expires after 1-30 days and is revoked by creating a new link or deleting it). The public view shows only what was asked and answered, never tool calls, reasoning or files, with `no-store` / `noindex` headers. New `general.public_session_links` setting (default off) lets an administrator allow links and ends every issued link when turned off. New endpoints `GET/PUT /v1/sessions/{id}/sharing`, `POST/DELETE /v1/sessions/{id}/sharing/link` and the unauthenticated `GET /v1/shared/{token}`; every change is audited.
+- `git`/`agent-core`/`api`/`web`: **Sessions can follow a pull request.** `github_watch` / `github_unwatch` tools (and an automatic follow after `git_open_pr`) record a per-session subscription (`github_watches`, migration 026, row-level security). CI results, reviews, comments and merge/close events from the GitHub webhook are delivered to the sessions that follow that pull request or branch in the organization that mapped the installation, shown as a `github_event` line, and - for repository insiders on an idle session, at most five times per watch - start a turn; otherwise they are shown to the agent at its next turn. Archived or deleted sessions stop following.
 
 ### Changed
 - `agent-core`: **A fresh clone brings the repository's own instructions.** `clone_repository` now appends the repository's `AGENTS.md` (or `CLAUDE.md`), clamped to 12 KB / 250 lines, to its result - once per clone, not on a repeat call - so the agent follows each repository's conventions without reading the file itself. Previously only a file at `/workspace` or a session bound to a repository was loaded, which never covered a repository the agent cloned.
