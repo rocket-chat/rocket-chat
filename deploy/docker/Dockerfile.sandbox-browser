@@ -1,0 +1,21 @@
+# Rocket Chat devbox + a headless browser, for agents that need to look at what they built
+# (the `browser_inspect` tool). Build the devbox first:
+#   docker build -f deploy/docker/Dockerfile.sandbox -t rocket-chat-sandbox:dev .
+#   docker build -f deploy/docker/Dockerfile.sandbox-browser -t rocket-chat-sandbox-browser:dev .
+ARG BASE_IMAGE=rocket-chat-sandbox:dev
+FROM ${BASE_IMAGE}
+
+ARG PLAYWRIGHT_VERSION=1.54.2
+USER root
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright
+RUN mkdir -p /opt/rocket-browser \
+    && cd /opt/rocket-browser \
+    && npm init -y >/dev/null \
+    && npm install --no-audit --no-fund "playwright-core@${PLAYWRIGHT_VERSION}" \
+    && npx --no-install playwright-core install --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/* \
+    && chmod -R a+rX /opt/playwright /opt/rocket-browser
+COPY deploy/docker/rocket-browser.mjs /opt/rocket-browser/rocket-browser.mjs
+RUN printf '#!/bin/sh\nexec node /opt/rocket-browser/rocket-browser.mjs "$@"\n' > /usr/local/bin/rocket-browser \
+    && chmod 0755 /usr/local/bin/rocket-browser
+USER agent

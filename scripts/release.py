@@ -7,10 +7,9 @@ component breakdowns for GitHub Release notes, container descriptions, and Helm 
 Handles end-to-end release preparation:
 - Bumps manifests across Node (package.json, apps/web/package.json), Helm (Chart.yaml, values.yaml),
   Python (root pyproject.toml, apps/api/pyproject.toml, apps/api/src/api/main.py, packages/*/pyproject.toml).
-- Patches documentation & deployment files containing version references (README.md, doc/deployment-and-ops/helm-chart.md,
-  doc/deployment-and-ops/index.md, etc.).
+- Patches documentation & deployment files containing version references (README.md, doc/operate/helm-chart.md,
+  doc/operate/index.md, etc.).
 - Promotes [Unreleased] changelog notes to [version] with current ISO date and resets [Unreleased].
-- Generates RELEASE_NOTES.md.
 - Synchronizes Python lockfile (uv sync) and Node lockfile (pnpm install).
 - Runs automated preflight quality gates (ruff, mypy, pytest, pnpm lint/type-check, helm lint, docs:check).
 - Optionally creates a release branch, git commit, git push, and GitHub PR via --create-pr.
@@ -43,8 +42,8 @@ HELM_CHART_YAML = ROOT_DIR / "deploy" / "helm" / "platform" / "Chart.yaml"
 HELM_VALUES_YAML = ROOT_DIR / "deploy" / "helm" / "platform" / "values.yaml"
 PACKAGES_DIR = ROOT_DIR / "packages"
 README_MD = ROOT_DIR / "README.md"
-HELM_DOC_MD = ROOT_DIR / "doc" / "deployment-and-ops" / "helm-chart.md"
-OPS_INDEX_MD = ROOT_DIR / "doc" / "deployment-and-ops" / "index.md"
+HELM_DOC_MD = ROOT_DIR / "doc" / "operate" / "helm-chart.md"
+OPS_INDEX_MD = ROOT_DIR / "doc" / "operate" / "index.md"
 
 SEMVER_REGEX = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$")
 
@@ -199,7 +198,7 @@ def update_file_versions(version: str) -> None:
         )
         README_MD.write_text(content, encoding="utf-8")
 
-    # 9. doc/deployment-and-ops/helm-chart.md
+    # 9. doc/operate/helm-chart.md
     if HELM_DOC_MD.exists():
         content = HELM_DOC_MD.read_text(encoding="utf-8")
         content = re.sub(
@@ -209,7 +208,7 @@ def update_file_versions(version: str) -> None:
         )
         HELM_DOC_MD.write_text(content, encoding="utf-8")
 
-    # 10. doc/deployment-and-ops/index.md
+    # 10. doc/operate/index.md
     if OPS_INDEX_MD.exists():
         content = OPS_INDEX_MD.read_text(encoding="utf-8")
         content = re.sub(
@@ -263,7 +262,10 @@ def run_command_with_status(cmd: list[str], label: str) -> None:
 def run_quality_gates() -> None:
     """Execute standard repository quality gates as defined in AGENTS.md."""
     print("\n Executing preflight quality gates...")
-    run_command_with_status(["helm", "lint", "deploy/helm/platform"], "Helm Lint")
+    run_command_with_status(
+        ["helm", "lint", "deploy/helm/platform", "-f", "deploy/helm/platform/ci/values.yaml"],
+        "Helm Lint",
+    )
     run_command_with_status(["pnpm", "run", "docs:check"], "Docs Link Check")
     run_command_with_status(["pnpm", "--filter", "web", "lint"], "Web Lint")
     run_command_with_status(["pnpm", "--filter", "web", "type-check"], "Web Type Check")
@@ -360,21 +362,20 @@ def cmd_prepare(
     # Replace [Unreleased] with fresh template + the new version section
     pattern = r"##\s*\[Unreleased\](.*?)(?=\n##\s*\[|\Z)"
     replacement = f"{UNRELEASED_TEMPLATE}\n{new_version_section}"
-    updated_changelog = re.sub(pattern, replacement, changelog_content, count=1, flags=re.DOTALL)
+    # A function replacement keeps literal backslashes in the notes (e.g. the
+    # `\r\n\x00` control-character example) from being parsed as regex escapes.
+    updated_changelog = re.sub(
+        pattern, lambda _match: replacement, changelog_content, count=1, flags=re.DOTALL
+    )
 
     CHANGELOG_PATH.write_text(updated_changelog, encoding="utf-8")
     update_file_versions(version)
     sync_lockfiles()
 
-    # Write standalone RELEASE_NOTES.md
-    release_body = build_release_body(version, notes_text)
-    release_notes_file = ROOT_DIR / "RELEASE_NOTES.md"
-    release_notes_file.write_text(release_body, encoding="utf-8")
-
     print(f" Successfully prepared Rocket Chat version v{version}!")
     print(f" Updated {CHANGELOG_PATH.name} (moved [Unreleased] -> [{version}] - {today})")
     print(f" Updated package manifests and documentation references to {version}")
-    print(f" Generated {release_notes_file.name} for GitHub Release & GHCR descriptions\n")
+    print(" Release notes are generated from the changelog by `release.py notes` in CI\n")
 
     # Verification consistency check
     cmd_check()

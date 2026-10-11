@@ -1,0 +1,18 @@
+{{- if .Values.backend.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "rocket-chat.fullname" . }}-backend
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rocket-chat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  # Never voluntarily disrupt the last backend pod: a session's event bus, approval
+  # gates and active turn are in-process (risk R1), so evicting the owning pod drops
+  # live work even with session affinity.
+  minAvailable: {{ .Values.backend.podDisruptionBudget.minAvailable | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "rocket-chat.backendSelectorLabels" . | nindent 6 }}
+{{- end }}

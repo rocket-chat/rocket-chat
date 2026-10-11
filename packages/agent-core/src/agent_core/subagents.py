@@ -7,6 +7,8 @@ import asyncio
 import json
 import time
 import uuid
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
 from agent_core.context import current_execution_ctx
@@ -17,7 +19,13 @@ from specifications.interfaces.agent import (
     SubagentTaskRequest,
     SubagentTaskResult,
 )
-from specifications.interfaces.llm import ChatMessage, LLMGatewayProtocol, ModelRequest
+from specifications.interfaces.llm import (
+    ChatMessage,
+    LLMGatewayProtocol,
+    ModelExecutionError,
+    ModelRequest,
+    ToolDefinition,
+)
 
 DEFAULT_SUBAGENT_CONFIGS: dict[str, SubagentConfig] = {
     "security_auditor": SubagentConfig(
@@ -60,6 +68,47 @@ DEFAULT_SUBAGENT_CONFIGS: dict[str, SubagentConfig] = {
 }
 
 
+# What a delegate may use when the model names a role nobody configured: read-only inspection.
+READ_ONLY_TOOLS = ["file_read", "grep_search", "glob_files", "list_dir", "web_search", "web_fetch"]
+
+
+NO_DELEGATION = frozenset({"delegate_subagent", "delegate_subagents_parallel"})
+DEFAULT_MODEL = "openrouter/deepseek/deepseek-v4.1-flash"
+
+
+def _fallback_config(role_key: str) -> SubagentConfig:
+    """The model invented a role: never hand an unconfigured delegate the full toolset."""
+    return SubagentConfig(
+        id=role_key,
+        name=f"{role_key.replace('_', ' ').title()} Specialist",
+        role_title="Specialized Delegate",
+        description="Custom delegated subagent",
+        system_prompt=f"You are a specialized {role_key} subagent. Complete the requested task efficiently.",
+        whitelisted_tools=list(READ_ONLY_TOOLS),
+        max_turns=4,
+    )
+
+
+@dataclass
+class _Generation:
+    """What one model call produced."""
+
+    text: str = ""
+    tool_calls: dict[int, dict[str, Any]] = field(default_factory=dict)
+    usage: dict[str, int] | None = None
+
+    def add_tool_call_delta(self, delta: dict[str, Any]) -> None:
+        index = delta.get("index", 0)
+        call = self.tool_calls.setdefault(
+            index, {"id": delta.get("id"), "name": "", "arguments": ""}
+        )
+        function = delta.get("function") or {}
+        if function.get("name"):
+            call["name"] = function["name"]
+        if function.get("arguments"):
+            call["arguments"] += function["arguments"]
+
+
 class SubagentRunner:
     """Manages the lifecycle and bounded execution of specialized subagents."""
 
@@ -78,42 +127,79 @@ class SubagentRunner:
         request: SubagentTaskRequest,
         session_id: str,
         event_queue: asyncio.Queue[AgentEvent | None] | None = None,
-        default_model: str = "openrouter/deepseek/deepseek-v4.1-flash",
+        default_model: str = DEFAULT_MODEL,
     ) -> SubagentTaskResult:
         """Executes a bounded ReAct sub-cycle for the delegated subagent."""
         start_time = time.monotonic()
         subagent_id = request.subagent_id or f"sub_{uuid.uuid4().hex[:6]}"
         role_key = request.role.lower().strip()
-        config = self.configs.get(role_key)
+        config = self._configured_roles().get(role_key)
 
-        if not config:
-            # Fallback dynamic config
-            config = SubagentConfig(
-                id=role_key,
-                name=f"{role_key.replace('_', ' ').title()} Specialist",
-                role_title="Specialized Delegate",
-                description="Custom delegated subagent",
-                system_prompt=f"You are a specialized {role_key} subagent. Complete the requested task efficiently.",
-                whitelisted_tools=["*"],
-                max_turns=4,
+        if config is not None and not config.enabled:
+            return SubagentTaskResult(
+                role=config.id,
+                task=request.task,
+                summary=f"The '{config.id}' subagent is disabled by the organization.",
+                status="failed",
+                subagent_id=subagent_id,
             )
 
-        if event_queue:
-            await event_queue.put(
-                AgentEvent(
-                    event_type="subagent_started",
-                    session_id=session_id,
-                    payload={
-                        "subagent_id": subagent_id,
-                        "role": config.id,
-                        "name": config.name,
-                        "task": request.task,
-                    },
-                )
-            )
+        execution = _SubagentExecution(
+            runner=self,
+            request=request,
+            session_id=session_id,
+            event_queue=event_queue,
+            config=config or _fallback_config(role_key),
+            subagent_id=subagent_id,
+            model=(config.model if config else None) or default_model,
+        )
+        await execution.announce_started()
+        await execution.run_turns()
+        duration_ms = max(1, int((time.monotonic() - start_time) * 1000))
+        result = execution.result(duration_ms)
+        await execution.announce_completed(result)
+        return result
 
-        # Build isolated subagent conversation history
-        messages: list[ChatMessage] = [
+    def _configured_roles(self) -> Mapping[str, SubagentConfig]:
+        """The organization's roles for this turn, else the runner's own."""
+        turn_ctx = current_execution_ctx.get()
+        if turn_ctx is not None and turn_ctx.callbacks.subagent_configs is not None:
+            return turn_ctx.callbacks.subagent_configs
+        return self.configs
+
+    def tools_for(self, config: SubagentConfig) -> list[ToolDefinition]:
+        """The tool definitions a delegate may use; subagents may not delegate further."""
+        all_tools = self.registry.get_tool_definitions()
+        if "*" in config.whitelisted_tools:
+            return [tool for tool in all_tools if tool.name not in NO_DELEGATION]
+        allowed = set(config.whitelisted_tools) - NO_DELEGATION
+        return [tool for tool in all_tools if tool.name in allowed]
+
+
+class _SubagentExecution:
+    """One delegated task: its private conversation, tool whitelist and counters."""
+
+    def __init__(
+        self,
+        *,
+        runner: SubagentRunner,
+        request: SubagentTaskRequest,
+        session_id: str,
+        event_queue: asyncio.Queue[AgentEvent | None] | None,
+        config: SubagentConfig,
+        subagent_id: str,
+        model: str,
+    ) -> None:
+        self._runner = runner
+        self._request = request
+        self._session_id = session_id
+        self._queue = event_queue
+        self._config = config
+        self._subagent_id = subagent_id
+        self._model = model
+        self._tools = runner.tools_for(config)
+        self._permitted = {tool.name for tool in self._tools}
+        self._messages: list[ChatMessage] = [
             ChatMessage(role="system", content=config.system_prompt),
             ChatMessage(
                 role="user",
@@ -124,176 +210,161 @@ class SubagentRunner:
                 ),
             ),
         ]
+        self._turns_taken = 0
+        self._tool_calls_count = 0
+        self._final_summary = ""
 
-        turns_taken = 0
-        tool_calls_count = 0
-        final_summary = ""
-
-        # Filter tools for subagent
-        all_tools = self.registry.get_tool_definitions()
-        if "*" in config.whitelisted_tools:
-            # Do NOT allow subagents to call delegate_subagent to prevent infinite recursion
-            sub_tools = [t for t in all_tools if not t.name.startswith("delegate_subagent")]
-        else:
-            allowed = set(config.whitelisted_tools) - {
-                "delegate_subagent",
-                "delegate_subagents_parallel",
-            }
-            sub_tools = [t for t in all_tools if t.name in allowed]
-
-        effective_model = config.model or default_model
-
-        for _turn in range(config.max_turns):
-            turns_taken += 1
-            model_req = ModelRequest(
-                model=effective_model,
-                messages=messages,
-                tools=sub_tools,
-                temperature=config.temperature,
-            )
-
-            assistant_text = ""
-            tool_calls_raw: dict[int, dict[str, Any]] = {}
-
-            reported_usage: dict[str, int] | None = None
+    async def run_turns(self) -> None:
+        for _turn in range(self._config.max_turns):
+            self._turns_taken += 1
             try:
-                async for chunk in self.gateway.chat_stream(model_req):
-                    if chunk.token_usage:
-                        reported_usage = chunk.token_usage
-                    if chunk.reasoning_delta:
-                        if event_queue:
-                            await event_queue.put(
-                                AgentEvent(
-                                    event_type="subagent_progress",
-                                    session_id=session_id,
-                                    payload={
-                                        "subagent_id": subagent_id,
-                                        "delta": chunk.reasoning_delta,
-                                        "is_reasoning": True,
-                                    },
-                                )
-                            )
-                    if chunk.text_delta:
-                        assistant_text += chunk.text_delta
-                        if event_queue:
-                            await event_queue.put(
-                                AgentEvent(
-                                    event_type="subagent_progress",
-                                    session_id=session_id,
-                                    payload={
-                                        "subagent_id": subagent_id,
-                                        "delta": chunk.text_delta,
-                                        "is_reasoning": False,
-                                    },
-                                )
-                            )
-                    if chunk.tool_call_delta:
-                        idx = chunk.tool_call_delta.get("index", 0)
-                        if idx not in tool_calls_raw:
-                            tool_calls_raw[idx] = {
-                                "id": chunk.tool_call_delta.get("id"),
-                                "name": "",
-                                "arguments": "",
-                            }
-                        func = chunk.tool_call_delta.get("function") or {}
-                        if func.get("name"):
-                            tool_calls_raw[idx]["name"] = func["name"]
-                        if func.get("arguments"):
-                            tool_calls_raw[idx]["arguments"] += func["arguments"]
+                generation = await self._generate()
+            except Exception as err:
+                self._final_summary = f"Subagent error during generation: {err}"
+                return
+            if generation.text:
+                self._final_summary = generation.text
+            if not generation.tool_calls:
+                return
+            await self._run_tool_calls(generation)
 
-                # Record subagent usage into ledger
-                try:
-                    cur_ctx = current_execution_ctx.get()
-                    t_org = cur_ctx.tenant_org_id if cur_ctx else "default_org"
-                    t_user = cur_ctx.tenant_user_id if cur_ctx else "dev_user"
-                    if reported_usage:
-                        p_toks = reported_usage.get("prompt_tokens", 0)
-                        c_toks = reported_usage.get("completion_tokens", 0)
-                    else:
-                        p_toks = max(50, sum(len(m.content or "") // 4 for m in messages))
-                        c_toks = max(10, len(assistant_text) // 4)
-
-                    if hasattr(self.gateway, "record_usage"):
-                        await self.gateway.record_usage(
-                            tenant_org_id=t_org,
-                            tenant_user_id=t_user,
-                            model=effective_model,
-                            prompt_tokens=p_toks,
-                            completion_tokens=c_toks,
-                        )
-                except Exception:
-                    pass
-            except Exception as e:
-                final_summary = f"Subagent error during generation: {e}"
-                break
-
-            if assistant_text:
-                final_summary = assistant_text
-
-            if not tool_calls_raw:
-                # No more tools called, subagent reached its conclusion
-                break
-
-            # Execute subagent tool calls
-            formatted_calls = [
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {"name": tc["name"], "arguments": tc["arguments"]},
-                }
-                for tc in tool_calls_raw.values()
-            ]
-            messages.append(
-                ChatMessage(role="assistant", content=assistant_text, tool_calls=formatted_calls)
-            )
-
-            for tc in tool_calls_raw.values():
-                tool_calls_count += 1
-                call_id = tc.get("id") or str(uuid.uuid4().hex[:8])
-                tool_name = tc.get("name") or "unknown"
-                raw_args = tc.get("arguments") or "{}"
-                args = json.loads(raw_args) if isinstance(raw_args, str) and raw_args else {}
-
-                try:
-                    tool_output = await self.registry.call_tool(tool_name, args)
-                except Exception as err:
-                    tool_output = f"Tool execution error: {err}"
-
-                messages.append(
-                    ChatMessage(
-                        role="tool",
-                        content=tool_output,
-                        tool_call_id=call_id,
-                    )
-                )
-
-        duration_ms = max(1, int((time.monotonic() - start_time) * 1000))
-        result = SubagentTaskResult(
-            role=config.id,
-            task=request.task,
-            summary=final_summary.strip() or "Task completed with no further comments.",
+    def result(self, duration_ms: int) -> SubagentTaskResult:
+        return SubagentTaskResult(
+            role=self._config.id,
+            task=self._request.task,
+            summary=self._final_summary.strip() or "Task completed with no further comments.",
             status="completed",
-            turns_taken=turns_taken,
-            tool_calls_count=tool_calls_count,
+            turns_taken=self._turns_taken,
+            tool_calls_count=self._tool_calls_count,
             duration_ms=duration_ms,
-            subagent_id=subagent_id,
+            subagent_id=self._subagent_id,
         )
 
-        if event_queue:
-            await event_queue.put(
-                AgentEvent(
-                    event_type="subagent_completed",
-                    session_id=session_id,
-                    payload={
-                        "subagent_id": subagent_id,
-                        "role": config.id,
-                        "task": request.task,
-                        "summary": result.summary,
-                        "duration_ms": duration_ms,
-                        "turns_taken": turns_taken,
-                        "tool_calls_count": tool_calls_count,
-                    },
+    async def announce_started(self) -> None:
+        await self._emit(
+            "subagent_started",
+            {
+                "subagent_id": self._subagent_id,
+                "role": self._config.id,
+                "name": self._config.name,
+                "task": self._request.task,
+            },
+        )
+
+    async def announce_completed(self, result: SubagentTaskResult) -> None:
+        await self._emit(
+            "subagent_completed",
+            {
+                "subagent_id": self._subagent_id,
+                "role": self._config.id,
+                "task": self._request.task,
+                "summary": result.summary,
+                "duration_ms": result.duration_ms,
+                "turns_taken": result.turns_taken,
+                "tool_calls_count": result.tool_calls_count,
+            },
+        )
+
+    async def _emit(self, event_type: str, payload: dict[str, Any]) -> None:
+        if self._queue:
+            await self._queue.put(
+                AgentEvent(event_type=event_type, session_id=self._session_id, payload=payload)
+            )
+
+    async def _emit_progress(self, delta: str, *, is_reasoning: bool) -> None:
+        await self._emit(
+            "subagent_progress",
+            {"subagent_id": self._subagent_id, "delta": delta, "is_reasoning": is_reasoning},
+        )
+
+    async def _generate(self) -> _Generation:
+        turn_ctx = current_execution_ctx.get()
+        model_request = ModelRequest(
+            model=self._model,
+            messages=self._messages,
+            tools=self._tools,
+            temperature=self._config.temperature,
+            # Subagent requests inherit the turn's model data-governance requirement.
+            zero_retention=turn_ctx.zero_retention if turn_ctx else False,
+            region=turn_ctx.region if turn_ctx else "",
+        )
+        generation = _Generation()
+        async for chunk in self._runner.gateway.chat_stream(model_request):
+            if chunk.error:
+                raise ModelExecutionError(chunk.error)
+            if chunk.token_usage:
+                generation.usage = chunk.token_usage
+            if chunk.reasoning_delta:
+                await self._emit_progress(chunk.reasoning_delta, is_reasoning=True)
+            if chunk.text_delta:
+                generation.text += chunk.text_delta
+                await self._emit_progress(chunk.text_delta, is_reasoning=False)
+            if chunk.tool_call_delta:
+                generation.add_tool_call_delta(chunk.tool_call_delta)
+        await self._record_usage(generation)
+        return generation
+
+    async def _record_usage(self, generation: _Generation) -> None:
+        """Book the delegate's tokens against the same ledger as the main turn."""
+        gateway = self._runner.gateway
+        if not hasattr(gateway, "record_usage") or getattr(gateway, "records_usage", False):
+            return
+        try:
+            ctx = current_execution_ctx.get()
+            if generation.usage:
+                prompt_tokens = generation.usage.get("prompt_tokens", 0)
+                completion_tokens = generation.usage.get("completion_tokens", 0)
+            else:
+                prompt_tokens = max(50, sum(len(m.content or "") // 4 for m in self._messages))
+                completion_tokens = max(10, len(generation.text) // 4)
+            await gateway.record_usage(
+                tenant_org_id=ctx.tenant_org_id if ctx else "default_org",
+                tenant_user_id=ctx.tenant_user_id if ctx else "dev_user",
+                model=self._model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+        except Exception:
+            # Accounting must never fail the delegated task itself.
+            pass
+
+    async def _run_tool_calls(self, generation: _Generation) -> None:
+        calls = list(generation.tool_calls.values())
+        self._messages.append(
+            ChatMessage(
+                role="assistant",
+                content=generation.text,
+                tool_calls=[
+                    {
+                        "id": call["id"],
+                        "type": "function",
+                        "function": {"name": call["name"], "arguments": call["arguments"]},
+                    }
+                    for call in calls
+                ],
+            )
+        )
+        for call in calls:
+            self._tool_calls_count += 1
+            self._messages.append(
+                ChatMessage(
+                    role="tool",
+                    content=await self._execute(call),
+                    tool_call_id=call.get("id") or str(uuid.uuid4().hex[:8]),
                 )
             )
 
-        return result
+    async def _execute(self, call: dict[str, Any]) -> str:
+        tool_name = call.get("name") or "unknown"
+        raw_args = call.get("arguments") or "{}"
+        args = json.loads(raw_args) if isinstance(raw_args, str) and raw_args else {}
+        if tool_name not in self._permitted:
+            # Advertising a whitelist is not enforcement: the model can name any tool.
+            return (
+                f"Blocked: the '{tool_name}' tool is not available to the "
+                f"'{self._config.id}' subagent."
+            )
+        try:
+            return await self._runner.registry.call_tool(tool_name, args)
+        except Exception as err:
+            return f"Tool execution error: {err}"

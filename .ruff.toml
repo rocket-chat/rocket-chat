@@ -12,6 +12,9 @@ select = [
     "UP",     # pyupgrade
     "ASYNC",  # flake8-async
     "RUF",    # ruff-specific rules
+    "C901",   # cyclomatic complexity
+    "PLR0915",  # statements per function
+    "PLR0912",  # branches per function
 ]
 ignore = [
     "E501",   # Line length handled by formatter
@@ -23,3 +26,15 @@ quote-style = "double"
 indent-style = "space"
 docstring-code-format = false
 
+
+[lint.mccabe]
+max-complexity = 15
+
+[lint.pylint]
+max-statements = 60
+max-branches = 15
+
+[lint.per-file-ignores]
+# Tests and scripts are exempt from the size limits.
+"tests/**" = ["C901", "PLR0915", "PLR0912"]
+"scripts/**" = ["C901", "PLR0915", "PLR0912"]

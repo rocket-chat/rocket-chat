@@ -2,16 +2,37 @@
 # Declare variables to be passed into your templates.
 global:
   domain: "rocket.example.com"
+  # Air-gapped / offline mode: stops the backend fetching anything from the internet at
+  # startup (LiteLLM's model price list). Pair with a self-hosted model endpoint stored for
+  # the organization and an internal registry for images; see doc/install/air-gapped.md.
+  airGapped: false
 
 # Enterprise Identity & Authentication Configuration
 auth:
   enabled: false # Set true to enforce OIDC / OAuth in production
-  nextauthSecret: "rocket-chat-production-nextauth-secret-key-32-chars-min"
+  nextauthUrl: "" # Custom full canonical URL (e.g. https://rocket.example.com). Defaults to https://{{ .Values.global.domain }} if ingress.tls is configured, else http://
+  # Signs session cookies. REQUIRED (>= 32 chars) unless existingSecret provides NEXTAUTH_SECRET.
+  sessionSecret: ""
+  nextauthSecret: "" # Plaintext secret key. Leave empty if using existingSecret.
   existingSecret: ""
   existingSecretNextAuthKey: "NEXTAUTH_SECRET"
-  # OIDC / Corporate SSO Provider (Keycloak, Okta, Google Workspace, Azure AD)
+  initialAdminEmail: "" # Initial system administrator email (automatically granted admin role upon login)
+  adminEmails: "" # Comma-separated list of additional administrator emails (e.g. admin1@corp.com, admin2@corp.com)
+  # Password sign-in for installs without an identity provider. Members are created by an
+  # administrator (temporary password, changed at first login); the first administrator comes
+  # from initialAdminEmail plus the password below. Passwords are stored as argon2id hashes.
+  local:
+    enabled: false
+    initialAdminPassword: "" # or put it in a Secret: existingSecret / existingSecretKey
+    existingSecret: ""
+    existingSecretKey: "INITIAL_ADMIN_PASSWORD"
+  # OIDC / Corporate SSO Provider (Keycloak, Okta, Google Workspace, Azure AD, Authentik, ...).
+  # Endpoints are found through <issuer>/.well-known/openid-configuration; jwksUrl is only
+  # needed for providers without discovery.
   oidc:
     issuer: ""
+    scopes: "" # default: "openid email profile"
+    discoveryUrl: "" # only if the discovery document is not at <issuer>/.well-known/openid-configuration
     jwksUrl: ""
     audience: ""
     clientId: ""
@@ -36,12 +57,65 @@ auth:
 backend:
   image:
     repository: ghcr.io/rocket-chat/backend
-    tag: "0.1.5"
+    tag: "0.2.0"
     pullPolicy: IfNotPresent
-  replicas: 2
+  # Events, sequence numbers, approvals/answers and cancels are shared between replicas
+  # through PostgreSQL (see eventBus), so a WebSocket on one pod follows a turn on another.
+  # Some state is still per-pod (code index, pending OAuth states, rate-limit counters), which
+  # is why ClientIP session affinity below stays on as a safety net.
+  replicas: 1
+  # "auto" shares the bus through PostgreSQL when more than one replica can run (replicas > 1
+  # or autoscaling enabled); "postgres" forces it; "memory" keeps it in-process.
+  eventBus: "auto"
+  logLevel: "INFO" # Configurable log level: DEBUG, INFO, WARNING, ERROR
+  logFormat: "console" # Options: console, json
   env:
     DEFAULT_SANDBOX_DRIVER: "k8s"
     ROCKET_DEFAULT_MODEL: "openrouter/deepseek/deepseek-v4.1-flash"
+    # Ordered fallback models (comma-separated) used on transient provider failures.
+    ROCKET_FALLBACK_MODELS: ""
+    # Retry attempts for transient provider errors (delegated to LiteLLM).
+    ROCKET_MODEL_MAX_RETRIES: "2"
+    # Semantic code-index cache budget. The index is derived data held in process
+    # memory: a full session is ~9 MB (1500 chunks x 1536 float32), so these ceilings
+    # keep the control plane far below its container memory limit. Raise only after
+    # raising backend.resources.limits.memory.
+    ROCKET_CODE_INDEX_MAX_SESSIONS: "16"
+    ROCKET_CODE_INDEX_MAX_BYTES: "201326592"
+    ROCKET_CODE_INDEX_TTL_SECONDS: "900"
+    # Process-wide turn backpressure. The global ceiling bounds concurrent
+    # turns across all sessions; the session-lock capacity bounds the single-writer
+    # lock registry so a pod serving many one-off sessions cannot grow without limit.
+    ROCKET_GLOBAL_CONCURRENCY_LIMIT: "16"
+    ROCKET_SESSION_LOCK_CAPACITY: "256"
+    # Readiness probe deadline for the PostgreSQL ping.
+    ROCKET_DB_PING_TIMEOUT_SECONDS: "2"
+    # Bounded tool fan-out consumed by the agent-core scheduler/dispatcher.
+    ROCKET_TOOL_MAX_CONCURRENCY: "8"
+    ROCKET_TOOL_TIMEOUT_SECONDS: "600"
+    # Attachments. Blobs are content-addressed on disk; mount a volume at
+    # this path in production so uploads survive a pod restart. The signing key is
+    # optional (an ephemeral per-process key is used when unset).
+    ROCKET_ATTACHMENTS_DIR: "/var/lib/rocket-chat/attachments"
+    ROCKET_ATTACHMENT_MAX_BYTES: "26214400"
+    ROCKET_ATTACHMENT_INLINE_BYTES: "65536"
+    # How many times a task is resumed automatically after a restart interrupted it
+    # (0 disables; organizations can also opt out under governance.auto_resume_turns).
+    ROCKET_TURN_AUTO_RESUME_ATTEMPTS: "1"
+    # Knowledge-base ingestion limits per document (characters / embedded chunks).
+    ROCKET_KB_MAX_DOCUMENT_CHARS: "2000000"
+    ROCKET_KB_MAX_CHUNKS_PER_DOCUMENT: "2000"
+    # Optional pinned model for the per-session memory summary; defaults to the turn model.
+    ROCKET_MEMORY_SUMMARY_MODEL: ""
+    # Governance: authenticated-path rate limits bound
+    # turns per user and per org the same way the Slack path is bounded.
+    ROCKET_API_RATE_LIMIT_PER_USER: "60"
+    ROCKET_API_RATE_LIMIT_PER_ORG: "300"
+
+  migrations:
+    # Run `alembic upgrade head` in an init container before each rollout. Disable only if your
+    # pipeline migrates the database itself (the API refuses to start on a stale schema).
+    enabled: true
   database:
     # Inline database URL (only used if existingSecret is not provided)
     url: "postgresql+asyncpg://rocket_app:postgres_prod_password@rocket-chat-postgres:5432/rocket_chat"
@@ -51,8 +125,8 @@ backend:
     existingSecretKey: "DATABASE_URL"
     existingSecretAdminKey: "ADMIN_DATABASE_URL"
   encryption:
-    # Inline master key (32 bytes hex string)
-    masterKey: "0123456789abcdef0123456789abcdef"
+    # Inline master key (>= 32 chars). REQUIRED unless existingSecret is set; there is no default.
+    masterKey: ""
     # External Secret reference for master key
     existingSecret: ""
     existingSecretKey: "ENCRYPTION_MASTER_KEY"
@@ -60,6 +134,27 @@ backend:
     # Slack Bolt operates 100% via outbound Socket Mode; NO public ingress required.
     botToken: ""
     appToken: ""
+    # Bounded Slack thread context auto-injected into the agent system prompt.
+    threadContextLimit: 20
+    threadContextMaxChars: 6000
+    # Maximum messages returned by the on-demand slack_read_channel_history tool.
+    channelHistoryLimit: 50
+    # Unauthenticated-path hardening. The allowlist/blocklist and all limits
+    # are enforced server-side, never by prompting the model. Anyone in the workspace can
+    # reach the bot, so these caps bound runaway cost and destructive actions.
+    teamId: "" # Fallback workspace id when an event does not carry one.
+    allowedTools: "*" # Comma-separated allowlist; '*' allows all except blockedTools.
+    blockedTools: "git_revert,git_open_pr" # Destructive tools always denied on Slack.
+    maxAttachmentsPerTurn: 5 # Slack files ingested per turn; the rest are skipped.
+    maxConsecutiveFailures: 3 # Consecutive failed turns before the abuse breaker trips.
+    failureCooldownSeconds: 300 # Cooldown once the failure breaker trips.
+    userTurnsPerMinute: 12 # Token-bucket capacity per (team,user).
+    channelTurnsPerMinute: 30 # Token-bucket capacity per (team,channel).
+    proactiveNotifyAfterSeconds: 120 # Post a completion notice after long turns.
+    fileDownloadTimeoutSeconds: 30 # Download deadline for hosted Slack files.
+    # Outbound capability policy (org-configurable). dmPolicy: none | paired | all.
+    dmPolicy: "paired" # Who the agent may DM; default paired (linked Rocket users only).
+    outboundChannels: "" # CSV allowlist of channel ids the agent may post/react in; empty = all.
     # External Secret reference for Slack tokens
     existingSecret: ""
     existingSecretBotTokenKey: "SLACK_BOT_TOKEN"
@@ -71,13 +166,65 @@ backend:
   service:
     type: ClusterIP
     port: 8000
+    # Sticky routing keeps one client on one pod, which keeps the remaining per-pod
+    # caches warm and avoids cross-pod hops. It is no longer required for correctness of
+    # the event stream or of approvals (see eventBus).
+    sessionAffinity: ClientIP
+    sessionAffinityTimeoutSeconds: 3600
+  # Probes are wired for both tiers through values. Liveness stays on the
+  # static `/health` signal; readiness hits `/v1/ready`, which pings PostgreSQL and
+  # fails (so the endpoint is drained) when the database is unreachable.
+  probes:
+    startup:
+      path: /health
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 30
+    liveness:
+      path: /health
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      path: /v1/ready
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 2
+  # Graceful drain: Kubernetes runs the preStop hook (POST /v1/drain) before
+  # SIGTERM, removing the pod from Service endpoints while in-flight turns finish
+  # inside the grace period.
+  terminationGracePeriodSeconds: 60
+  lifecycle:
+    preStop:
+      exec:
+        command:
+          - /bin/sh
+          - -c
+          - >-
+            curl -fsS -X POST http://127.0.0.1:8000/v1/drain || true; sleep 10
+  autoscaling:
+    enabled: true
+    # Replicas share events and decisions through PostgreSQL (eventBus); raise minReplicas
+    # for availability.
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  # Memory sizing follows the M2 code-index math: a full session is ~9 MB, the global
+  # code-index ceiling is 192 MiB, and tiktoken/context buffers add further headroom.
+  # 2Gi leaves room for the index ceiling plus base runtime and concurrent turns.
   resources:
     limits:
-      cpu: 1000m
-      memory: 1Gi
+      cpu: 2000m
+      memory: 2Gi
     requests:
-      cpu: 250m
-      memory: 512Mi
+      cpu: 500m
+      memory: 1Gi
 
 # AI Model Provider Credentials (all under unified models.* tree)
 models:
@@ -105,6 +252,11 @@ models:
 # GitHub App integration credentials
 github:
   appId: ""
+  # The App's URL slug (github.com/apps/<slug>); enables the "Install on a GitHub account" link.
+  appSlug: ""
+  # Legacy single-organization behaviour: let the App mint tokens for an installation no
+  # organization has mapped. Leave false when more than one organization shares the platform.
+  allowUnmappedInstallations: false
   privateKey: ""
   webhookSecret: ""
   token: ""
@@ -118,12 +270,33 @@ github:
 frontend:
   image:
     repository: ghcr.io/rocket-chat/frontend
-    tag: "0.1.5"
+    tag: "0.2.0"
     pullPolicy: IfNotPresent
   replicas: 2
   service:
     type: ClusterIP
     port: 3000
+  # Next.js uses `/` for both liveness and readiness; the startup probe absorbs the
+  # first-render latency without the liveness probe killing a slow start.
+  probes:
+    startup:
+      path: /
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 30
+    liveness:
+      path: /
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 3
+      failureThreshold: 3
+    readiness:
+      path: /
+      initialDelaySeconds: 5
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 2
   resources:
     limits:
       cpu: 500m
@@ -143,12 +316,18 @@ ingress:
   hosts:
     - host: "rocket.example.com"
       paths:
-        - path: /api
+        - path: /api/auth
+          pathType: Prefix
+          service: backend
+        - path: /api/v1
           pathType: Prefix
           service: backend
         - path: /v1
           pathType: Prefix
           service: backend
+        # Vestigial: session WebSockets are served under /v1/sessions/{id}/ws, which the
+        # /v1 rule above already covers. Kept only for operators who front the API with
+        # an older path-based rewrite; safe to remove.
         - path: /ws
           pathType: Prefix
           service: backend
@@ -160,7 +339,30 @@ ingress:
           service: frontend
   tls: []
 
+# Agent web access. `web_search` uses `provider`: duckduckgo (zero-config HTML fallback),
+# searxng (your own instance, `searxngUrl`) or brave (`braveApiKey`, stored in the chart secret).
+# `fetchProxy` routes `web_fetch` through an egress proxy that enforces your allowlist; every
+# redirect hop is still checked for private/link-local targets before it is requested.
+search:
+  provider: "duckduckgo"
+  searxngUrl: ""
+  braveApiKey: ""
+  fetchProxy: ""
+
+# OpenTelemetry tracing (turn -> tool -> sandbox spans). Leave the endpoint empty to disable.
+# Sampling, headers and resource attributes use the standard OTEL_* variables
+# (backend.env / backend.extraEnv); put credentials in a secret, not here.
+observability:
+  otlpEndpoint: "" # e.g. http://otel-collector.observability:4318
+  serviceName: "rocket-chat-api"
+
 sandbox:
+  # The image new sandboxes start from unless an organization or agent chooses another. Empty
+  # uses the published devbox (git, Python, Node, uv, gh, ripgrep, build tools; runs as an
+  # unprivileged user). Set it to a mirror in your own registry for private or air-gapped use.
+  defaultImage: ""
+  # Names of image-pull Secrets (in the sandbox namespace) for a private/mirrored registry.
+  imagePullSecrets: []
   namespace: "agent-sandboxes"
   # Cloud storage class mapping:
   # - AWS EKS: "gp3"
@@ -169,6 +371,15 @@ sandbox:
   # - Local / Kind: "standard" or "local-path"
   # Default is empty ("") to dynamically use the cluster's default StorageClass
   storageClass: ""
+  # Inactivity lifecycle reconciliation
+  inactivity:
+    pauseSeconds: 1800 # Seconds of inactivity before hibernating sandbox pod (30 minutes)
+    # Idle seconds before the workspace (PVC) of a session that no longer exists is destroyed.
+    # 0 disables the timer: a live session's workspace is never purged, and sessions remove
+    # their own workspace when deleted.
+    cleanupSeconds: 0
+  # RuntimeClass for sandbox pods (e.g. "gvisor", "kata-qemu"); empty uses the node default.
+  runtimeClassName: ""
   quota:
     enabled: true
     pods: "50"
@@ -177,6 +388,28 @@ sandbox:
     enabled: true
     # Mitigate SSRF by blocking access to cloud instance metadata (169.254.169.254/32)
     blockCloudMetadata: true
+    # Block private RFC1918 subnets (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) so agent code
+    # cannot reach the database, the API or other tenants' sandboxes. Open specific internal
+    # services (package mirrors, ...) through allowedEgressRules. Needs a CNI that enforces
+    # NetworkPolicy (Calico, Cilium, ...); on one that does not, the policy is silently inert.
+    blockInternalSubnets: true
+    # Whitelist specific internal cluster services, namespaces, or CIDR blocks when blockInternalSubnets is enabled
+    # Example:
+    # allowedEgressRules:
+    #   - to:
+    #       - ipBlock:
+    #           cidr: 10.96.0.10/32 # CoreDNS
+    #   - to:
+    #       - namespaceSelector:
+    #           matchLabels:
+    #             kubernetes.io/metadata.name: shared-services
+    #         podSelector:
+    #           matchLabels:
+    #             app: internal-pypi-mirror
+    #     ports:
+    #       - protocol: TCP
+    #         port: 8080
+    allowedEgressRules: []
 
 serviceAccount:
   create: true

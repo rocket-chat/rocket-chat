@@ -3,6 +3,8 @@
 import hashlib
 import hmac
 import json
+import shutil
+import subprocess
 import uuid
 
 import pytest
@@ -21,10 +23,33 @@ from specifications.interfaces.git import CoAuthor, CommitSpec, SigningMode
 from specifications.interfaces.sandbox import SandboxStatus
 
 
+def _sandbox_image() -> str:
+    """An image that already has git when one is built locally.
+
+    The bare Python image has no git, and the engine then installs it with ``apt-get`` over the
+    network, which is the one thing this test must not depend on.
+    """
+    devbox = "rocket-chat-sandbox:dev"
+    if shutil.which("docker"):
+        found = subprocess.run(["docker", "image", "inspect", devbox], capture_output=True)
+        if found.returncode == 0:
+            return devbox
+    return "python:3.12-slim"
+
+
 @pytest.mark.asyncio
-async def test_git_and_webhook_interoperability() -> None:
+async def test_git_and_webhook_interoperability(monkeypatch: pytest.MonkeyPatch) -> None:
+    image = _sandbox_image()
+
+    # The organization default image is not pullable in CI, so this test names a local/public one.
+    async def _org_sandbox_settings(*args: object, **kwargs: object) -> dict[str, object]:
+        return {"default_image": image}
+
+    monkeypatch.setattr("api.routers.webhooks.effective_settings", _org_sandbox_settings)
+    monkeypatch.setattr("api.turns.provisioning.effective_settings", _org_sandbox_settings)
+
     # 1. Prepare environment and drivers
-    driver = DockerSandboxDriver(default_image="python:3.12-slim")
+    driver = DockerSandboxDriver(default_image=image)
     llm_gateway = LiteLLMGateway()
     tool_registry = ToolRegistry(driver=driver)
     orchestrator = AsyncReActOrchestrator(gateway=llm_gateway, registry=tool_registry)
@@ -131,14 +156,44 @@ async def test_git_and_webhook_interoperability() -> None:
             assert "Co-authored-by: Alice Developer <alice@acme.com>" in log_res.stdout
             assert "Co-authored-by: RocketChat Bot <bot@rocketchat.internal>" in log_res.stdout
 
-            # Open PR
+            # Open PR: a local bare repository stands in for GitHub's git endpoint, and the
+            # REST call is answered by a stub - the engine must return GitHub's own URL.
+            setup = await driver.exec_command(
+                expected_session_id,
+                "git init --bare /tmp/origin.git && "
+                f"git remote add origin https://github.com/{repo_name}.git && "
+                f'git config url."/tmp/origin.git".insteadOf "https://github.com/{repo_name}.git"',
+            )
+            assert setup.exit_code == 0, setup.stderr
+
+            class _PullResponse:
+                status_code = 201
+                text = "{}"
+
+                def json(self) -> dict[str, str]:
+                    return {"html_url": f"https://github.com/{repo_name}/pull/7"}
+
+            class _StubClient:
+                def __init__(self, **_: object) -> None: ...
+
+                async def __aenter__(self) -> "_StubClient":
+                    return self
+
+                async def __aexit__(self, *exc: object) -> None:
+                    return None
+
+                async def post(self, *_: object, **__: object) -> _PullResponse:
+                    return _PullResponse()
+
+            monkeypatch.setattr("git_engine.engine.httpx.AsyncClient", _StubClient)
             pr_url = await git_engine.push_and_open_pr(
                 session_id=expected_session_id,
                 title=f"Fix division bug (#{issue_number})",
                 body="Automated PR resolving ZeroDivisionError.",
                 target_branch="main",
+                token="member-token",
             )
-            assert "pull" in pr_url
+            assert pr_url == f"https://github.com/{repo_name}/pull/7"
 
             # -------------------------------------------------------------
             # Step 4: Test Hibernation & Automated Session Resume
@@ -158,7 +213,8 @@ async def test_git_and_webhook_interoperability() -> None:
                 {
                     "action": "created",
                     "comment": {
-                        "body": "@RocketChat please ensure unit tests are also included in test_calculator.py."
+                        "body": "@RocketChat please ensure unit tests are also included in test_calculator.py.",
+                        "author_association": "MEMBER",
                     },
                     "issue": {
                         "number": issue_number,

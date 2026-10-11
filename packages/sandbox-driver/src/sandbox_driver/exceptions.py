@@ -13,6 +13,10 @@ class SandboxExecutionError(SandboxError):
     """Raised when command execution fails unexpectedly inside a sandbox."""
 
 
+class SandboxStartError(SandboxExecutionError):
+    """Raised when a sandbox cannot start for a reason that waiting will not fix (bad image)."""
+
+
 class SandboxTimeoutError(SandboxError):
     """Raised when an operation or command execution exceeds allowed timeout."""
 

@@ -9,12 +9,16 @@ Simulates cold restarts of the application control plane, verifying:
 
 import os
 import uuid
+from collections.abc import AsyncIterator, Callable
 
 import pytest
 from api.db.models import OrganizationModel, UserModel
-from api.db.session import DatabaseSessionManager
+from api.db.session import DatabaseSessionManager, current_tenant_org_id
 from api.main import app
 from fastapi.testclient import TestClient
+from sqlalchemy.exc import SQLAlchemyError
+
+from specifications.interfaces.llm import ChatMessage
 
 DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
@@ -26,35 +30,70 @@ ADMIN_DATABASE_URL = os.getenv(
 )
 
 
-@pytest.fixture(scope="module", autouse=True)
-async def setup_database() -> None:
-    """Ensure database schema and required tenant fixtures exist before testing."""
+async def _seed_tenant_fixtures(admin_mgr: DatabaseSessionManager) -> None:
+    """Upsert the organization and user identity this module's assertions use."""
+    async with admin_mgr.session() as session:
+        org = await session.get(OrganizationModel, "restart_test_org")
+        if not org:
+            org = OrganizationModel(
+                id="restart_test_org",
+                name="Restart Verification Org",
+                slug=f"restart-org-{uuid.uuid4().hex[:6]}",
+            )
+            session.add(org)
+            await session.flush()
+        user = await session.get(UserModel, "restart_test_user")
+        if not user:
+            user = UserModel(
+                id="restart_test_user",
+                org_id="restart_test_org",
+                email="restart@rocket.chat",
+                name="Restart Tester",
+            )
+            session.add(user)
+            await session.flush()
+
+
+@pytest.fixture(autouse=True)
+async def setup_database(require_database: Callable[[Exception, str], None]) -> AsyncIterator[None]:
+    """Ensure the database schema and required tenant fixtures exist before testing.
+
+    Deliberately function-scoped: an async fixture must not outlive the event loop
+    that created its engine, and module scope would force a shared loop
+    (ScopeMismatch). Only an unreachable database skips the test — provisioning
+    errors must fail loudly rather than masquerade as a skipped test.
+    """
+    admin_mgr = DatabaseSessionManager(ADMIN_DATABASE_URL)
     try:
-        admin_mgr = DatabaseSessionManager(ADMIN_DATABASE_URL)
-        await admin_mgr.create_tables()
-        async with admin_mgr.session() as s:
-            org = await s.get(OrganizationModel, "restart_test_org")
-            if not org:
-                org = OrganizationModel(
-                    id="restart_test_org",
-                    name="Restart Verification Org",
-                    slug=f"restart-org-{uuid.uuid4().hex[:6]}",
-                )
-                s.add(org)
-                await s.flush()
-            user = await s.get(UserModel, "restart_test_user")
-            if not user:
-                user = UserModel(
-                    id="restart_test_user",
-                    org_id="restart_test_org",
-                    email="restart@rocket.chat",
-                    name="Restart Tester",
-                )
-                s.add(user)
-                await s.flush()
+        try:
+            await admin_mgr.create_tables()
+        except (SQLAlchemyError, OSError) as err:
+            require_database(err, ADMIN_DATABASE_URL)
+        await _seed_tenant_fixtures(admin_mgr)
+        yield
+    finally:
         await admin_mgr.close()
-    except Exception as e:
-        pytest.skip(f"PostgreSQL not accessible on {ADMIN_DATABASE_URL}: {e}")
+
+
+def _history(client: TestClient, session_id: str) -> list[ChatMessage]:
+    async def _read() -> list[ChatMessage]:
+        current_tenant_org_id.set("restart_test_org")
+        record = await app.state.session_store.get_session(session_id)
+        return list(record.conversation_history)
+
+    return client.portal.call(_read)
+
+
+def _seed_history(client: TestClient, session_id: str, messages: list[ChatMessage]) -> None:
+    store = app.state.session_store
+
+    async def _write() -> None:
+        current_tenant_org_id.set("restart_test_org")
+        record = await store.get_session(session_id)
+        record.conversation_history = list(messages)
+        await store.update_session(record)
+
+    client.portal.call(_write)
 
 
 def test_cold_restart_preserves_sessions_and_settings(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -109,23 +148,23 @@ def test_cold_restart_preserves_sessions_and_settings(monkeypatch: pytest.Monkey
         assert session_data["title"] == "Mission Alpha State Preservation"
 
         # 2. Add conversation history and task checklist to session
+        # The transcript is server-owned (clients cannot PATCH it), so seed it the way the
+        # turn handler does: through the session store.
+        _seed_history(
+            client1,
+            session_id,
+            [
+                ChatMessage(role="user", content=unique_message),
+                ChatMessage(role="assistant", content="Acknowledged. Telemetry locked."),
+            ],
+        )
         patch_res = client1.patch(
             f"/v1/sessions/{session_id}",
             json={
-                "conversation_history": [
-                    {"role": "user", "content": unique_message},
-                    {"role": "assistant", "content": "Acknowledged. Telemetry locked."},
-                ],
-                "metadata": {
-                    "checklist": [
-                        {"id": "task-1", "title": "Inspect orbital engine", "status": "completed"},
-                        {
-                            "id": "task-2",
-                            "title": "Deploy satellite probe",
-                            "status": "in_progress",
-                        },
-                    ]
-                },
+                "checklist": [
+                    {"id": "task-1", "title": "Inspect orbital engine", "status": "completed"},
+                    {"id": "task-2", "title": "Deploy satellite probe", "status": "in_progress"},
+                ]
             },
             headers=user_headers,
         )
@@ -133,10 +172,10 @@ def test_cold_restart_preserves_sessions_and_settings(monkeypatch: pytest.Monkey
 
         # 3. Configure org settings with admin lockout
         admin_res = client1.put(
-            "/v1/admin/settings/github",
+            "/v1/admin/settings/user_preferences",
             json={
-                "config": {"commit_authorship_policy": "bot_only", "bot_author_name": "Rocket Ops"},
-                "locked_keys": ["commit_authorship_policy"],
+                "config": {"preferred_model": "openrouter/acme/locked", "full_name": "Rocket Ops"},
+                "locked_keys": ["preferred_model"],
             },
             headers=admin_headers,
         )
@@ -144,15 +183,15 @@ def test_cold_restart_preserves_sessions_and_settings(monkeypatch: pytest.Monkey
 
         # 4. Configure user settings overrides
         user_res = client1.put(
-            "/v1/settings/github",
-            json={"overrides": {"default_branch": "release-v1"}},
+            "/v1/settings/user_preferences",
+            json={"overrides": {"git_branch_prefix": "release-v1/"}},
             headers=user_headers,
         )
         assert user_res.status_code == 200
         user_data = user_res.json()
-        assert user_data["effective"]["default_branch"] == "release-v1"
-        assert user_data["effective"]["commit_authorship_policy"] == "bot_only"
-        assert user_data["field_status"]["commit_authorship_policy"] == "locked"
+        assert user_data["effective"]["git_branch_prefix"] == "release-v1/"
+        assert user_data["effective"]["preferred_model"] == "openrouter/acme/locked"
+        assert user_data["field_status"]["preferred_model"] == "locked"
 
     # ==========================================
     # COLD SHUTDOWN OCCURRED HERE
@@ -185,26 +224,22 @@ def test_cold_restart_preserves_sessions_and_settings(monkeypatch: pytest.Monkey
         assert checklist[1]["status"] == "in_progress"
 
         # 2. Verify settings and admin lockouts survived restart
-        settings_res = client2.get("/v1/settings/github", headers=user_headers)
+        settings_res = client2.get("/v1/settings/user_preferences", headers=user_headers)
         assert settings_res.status_code == 200
         restored_settings = settings_res.json()
-        assert restored_settings["effective"]["commit_authorship_policy"] == "bot_only"
-        assert restored_settings["field_status"]["commit_authorship_policy"] == "locked"
-        assert restored_settings["effective"]["default_branch"] == "release-v1"
-        assert restored_settings["field_status"]["default_branch"] == "overridden"
+        assert restored_settings["effective"]["preferred_model"] == "openrouter/acme/locked"
+        assert restored_settings["field_status"]["preferred_model"] == "locked"
+        assert restored_settings["effective"]["git_branch_prefix"] == "release-v1/"
+        assert restored_settings["field_status"]["git_branch_prefix"] == "overridden"
 
         # 3. Verify subsequent update works seamlessly post-restart
         post_restart_msg = "Subsequent instruction transmitted after cold server restart."
-        update_res = client2.patch(
-            f"/v1/sessions/{session_id}",
-            json={
-                "conversation_history": [
-                    *rehydrated["conversation_history"],
-                    {"role": "user", "content": post_restart_msg},
-                ]
-            },
-            headers=user_headers,
+        _seed_history(
+            client2,
+            session_id,
+            [*_history(client2, session_id), ChatMessage(role="user", content=post_restart_msg)],
         )
+        update_res = client2.get(f"/v1/sessions/{session_id}", headers=user_headers)
         assert update_res.status_code == 200
         updated = update_res.json()
         assert len(updated["conversation_history"]) == 3

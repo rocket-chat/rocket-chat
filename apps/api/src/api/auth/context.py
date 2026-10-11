@@ -14,3 +14,5 @@ class RequestContext:
     name: str | None = None
     roles: list[str] = field(default_factory=lambda: ["developer"])
     groups: list[str] = field(default_factory=list)
+    # How the identity was established ("session" cookie/token, "oidc", "header", "dev").
+    source: str = "unknown"

@@ -13,18 +13,28 @@ class AgentPersonaModel(BaseModel):
     role_title: str = Field(..., description="Role title")
     description: str = Field(default="", description="Detailed persona description")
     system_prompt: str = Field(..., description="Agent system prompt / instructions")
-    model: str = Field(
-        default="openrouter/deepseek/deepseek-v4.1-flash", description="Default model ID"
-    )
+    model: str = Field(default="", description="Model ID; empty inherits the user/org default")
     whitelisted_tools: list[str] = Field(
         default_factory=list, description="List of allowed tool names"
     )
+    skill_ids: list[str] = Field(default_factory=list, description="Attached custom skill IDs")
+    knowledge_base_ids: list[str] = Field(
+        default_factory=list, description="Attached knowledge base IDs"
+    )
+    scope: str = Field(default="org", description="'org' or 'user'")
+    user_id: str | None = Field(default=None, description="Owner user ID for personal agents")
+    built_in: bool = Field(
+        default=False,
+        description="Shipped with the platform: read-only; customize it by saving a copy",
+    )
     icon: str = Field(default="bot", description="Avatar/icon key")
     sandbox_image: str = Field(
-        default="python:3.12-slim", description="Custom container sandbox image"
+        default="", description="Sandbox image; empty inherits the organization default"
     )
-    cpu_limit: str = Field(default="2.0", description="Container CPU limit")
-    memory_limit: str = Field(default="4Gi", description="Container RAM limit")
+    cpu_limit: str = Field(default="", description="CPU cores; empty inherits the org setting")
+    memory_limit: str = Field(
+        default="", description="Memory limit; empty inherits the org setting"
+    )
     temperature: float | None = Field(
         default=None, ge=0.0, le=2.0, description="Sampling temperature override"
     )
@@ -34,27 +44,45 @@ class AgentPersonaModel(BaseModel):
     reasoning_effort: str | None = Field(
         default=None, description="Reasoning effort tier override ('low', 'medium', 'high')"
     )
+    max_turns: int | None = Field(
+        default=None, ge=1, le=100, description="Maximum ReAct turn cycles override"
+    )
 
 
 class CreateSessionRequest(BaseModel):
     """Payload for creating a new mission session."""
 
-    title: str = Field(default="Mission Control Session", description="Session title or task name")
+    title: str = Field(default="New Session", description="Session title or task name")
     tenant_org_id: str = Field(default="default_org", description="Organization ID")
     tenant_user_id: str = Field(default="dev_user", description="User ID")
     agent_id: str | None = Field(default=None, description="Active custom agent persona ID")
-    container_image: str = Field(
-        default="python:3.12-slim", description="Base docker container image"
+    model: str | None = Field(default=None, description="Optional model override")
+    initial_prompt: str | None = Field(
+        default=None, description="Initial prompt to ignite the first turn on creation"
     )
-    git_repo: str | None = Field(default=None, description="Target repository URL")
-    git_branch: str | None = Field(default="main", description="Target git branch")
+    sandbox_id: str | None = Field(
+        default=None,
+        description="A sandbox from the organization's catalogue (GET /v1/sandboxes); empty "
+        "uses the catalogue's default",
+    )
+    container_image: str | None = Field(
+        default=None,
+        description="An image from the catalogue; prefer sandbox_id",
+    )
     is_shared: bool = Field(
         default=False, description="Whether session is shared with organization"
     )
     collaborators: list[str] = Field(
         default_factory=list, description="List of user IDs with shared access"
     )
-    metadata: dict[str, Any] = Field(default_factory=dict, description="Custom metadata")
+    permission_mode: str | None = Field(
+        default=None,
+        description="Supervision level: plan, ask, auto_edit, auto or bypass (default follows settings)",
+    )
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Client-settable session metadata (inference_mode, selected_model, agent_id)",
+    )
 
 
 class UpdateSessionRequest(BaseModel):
@@ -116,6 +144,10 @@ class UserTurnRequest(BaseModel):
 
     prompt: str = Field(..., min_length=1, description="Instruction or steer message for the agent")
     model: str | None = Field(default=None, description="Override LLM model name")
+    attachment_ids: list[str] = Field(
+        default_factory=list,
+        description="Attachment ids to attach to this turn only (never re-sent on later turns)",
+    )
 
 
 class AnswerQuestionRequest(BaseModel):
@@ -172,10 +204,19 @@ class McpAuthInput(BaseModel):
     header_name: str | None = Field(default="Authorization", description="Header name for token")
     header_prefix: str | None = Field(default="Bearer", description="Prefix (Bearer, etc.)")
     headers: list[McpHeaderInput] = Field(default_factory=list, description="Custom headers")
+    oauth_authorization_url: str | None = None
     oauth_token_url: str | None = None
     oauth_client_id: str | None = None
     oauth_client_secret: str | None = None
     oauth_scopes: list[str] = Field(default_factory=list)
+    oauth_mode: str = Field(
+        default="org",
+        pattern="^(org|member)$",
+        description=(
+            "'org': administrators connect one shared account. 'member': every member connects "
+            "their own account to this organization server."
+        ),
+    )
     basic_username: str | None = None
     basic_password: str | None = None
 
@@ -187,6 +228,20 @@ class McpToolItem(BaseModel):
     guidance: str | None = None
 
 
+class ValidateMcpServerRequest(BaseModel):
+    transport: str = "stdio"
+    endpoint_or_command: str
+    scope: str = "org"
+    auth: McpAuthInput = Field(default_factory=McpAuthInput)
+
+
+class ValidateMcpServerResponse(BaseModel):
+    valid: bool
+    status: str
+    tools: list[McpToolItem] = Field(default_factory=list)
+    error: str | None = None
+
+
 class McpServerResponseModel(BaseModel):
     id: str
     name: str
@@ -195,27 +250,77 @@ class McpServerResponseModel(BaseModel):
     endpoint_or_command: str
     guidance: str = ""
     auth_type: str = "none"
+    scope: str = "org"
+    user_id: str | None = None
     is_builtin: bool = False
     status: str = "connected"
     tools_count: int = 0
-    last_probed: str = "Just now"
+    last_probed: str = ""
     tools: list[McpToolItem] = Field(default_factory=list)
     # Masked previews for write-only credentials
     has_api_key: bool = False
     api_key_fingerprint: str | None = None
     headers_preview: list[dict[str, Any]] = Field(default_factory=list)
     has_oauth_secret: bool = False
+    oauth_status: str | None = None
+    oauth_mode: str = "org"
+    oauth_authorization_url: str | None = None
 
 
 class CreateMcpServerRequest(BaseModel):
     id: str | None = None
     name: str
     description: str = ""
-    transport: str = "stdio"  # stdio, http, sse
+    transport: str = "stdio"  # stdio, http, sse, streamable_http, websocket
     endpoint_or_command: str
     guidance: str = ""
+    scope: str = "org"
     auth: McpAuthInput = Field(default_factory=McpAuthInput)
     tools: list[McpToolItem] = Field(default_factory=list)
+
+
+class McpCatalogEntryResponse(BaseModel):
+    """Curated connector catalog entry exposed to the settings UI."""
+
+    id: str
+    name: str
+    description: str = ""
+    category: str = "productivity"
+    icon: str = "plug"
+    docs_url: str | None = None
+    transport: str = "http"
+    endpoint_or_command: str
+    authorization_url: str | None = None
+    token_url: str | None = None
+    default_scopes: list[str] = Field(default_factory=list)
+    supported_auth_types: list[str] = Field(default_factory=list)
+    recommended_scope: str = "user"
+    supports_org_wide_auth: bool = True
+    supports_per_user_oauth: bool = True
+    guidance: str = ""
+
+
+class InstallMcpServerRequest(BaseModel):
+    """Payload to install a curated catalog connector as a concrete MCP server.
+
+    ``scope='org'`` with a service credential (``api_key``/``bearer``/``oauth2``
+    client-credentials) configures organization-wide access usable by the Slack
+    bot and any agent. ``scope='user'`` with ``auth_type='oauth2'`` provisions a
+    per-user OAuth flow the invoking user completes interactively.
+    """
+
+    entry_id: str | None = None
+    scope: str = "org"
+    auth_type: str = "oauth2"
+    name: str | None = None
+    endpoint_or_command: str | None = None
+    authorization_url: str | None = None
+    token_url: str | None = None
+    client_id: str | None = None
+    client_secret: str | None = None
+    api_key: str | None = None
+    header_name: str | None = None
+    header_prefix: str | None = None
 
 
 class SubagentConfigModel(BaseModel):
@@ -229,3 +334,141 @@ class SubagentConfigModel(BaseModel):
     whitelisted_tools: list[str] = Field(default_factory=lambda: ["*"])
     temperature: float = 0.2
     enabled: bool = True
+
+
+class GitHubLinkRequest(BaseModel):
+    """Payload to link a GitHub OAuth access token to current user."""
+
+    access_token: str
+    username: str | None = None
+    avatar_url: str | None = None
+    scopes: list[str] = Field(default_factory=list)
+    auth_type: str = "oauth"
+
+
+class GitHubPATRequest(BaseModel):
+    """Payload to configure a personal access token for GitHub."""
+
+    pat: str
+
+
+class GitHubTestPATRequest(BaseModel):
+    """Payload to test a personal access token against GitHub."""
+
+    pat: str | None = None
+
+
+class GitHubCredentialStatus(BaseModel):
+    """Sanitized GitHub connection and machine injection status."""
+
+    is_linked: bool
+    username: str | None = None
+    avatar_url: str | None = None
+    scopes: list[str] = Field(default_factory=list)
+    auth_type: str = "none"  # "oauth", "pat", "none"
+    updated_at: int | None = None
+    injection_mode: str = "none"  # "user_token", "app_readonly", "none"
+
+
+class KnowledgeBaseCreateRequest(BaseModel):
+    name: str = Field(..., description="Collection name")
+    description: str = Field(default="", description="Collection description")
+    scope: str = Field(default="org", description="'org' or 'user'")
+    vector_index: str = Field(default="pgvector_hnsw_default", description="Index name")
+    embedding_model: str = Field(
+        default="text-embedding-3-small (1536d)", description="Embedding model identifier"
+    )
+    hybrid_search: bool = Field(default=True, description="Enable hybrid BM25/vector search")
+
+
+class KnowledgeBaseResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    scope: str = "org"
+    user_id: str | None = None
+    vector_index: str
+    embedding_model: str
+    hybrid_search: bool
+    documents_count: int = 0
+    created_at: int
+    updated_at: int
+
+
+class KnowledgeDocumentCreateRequest(BaseModel):
+    title: str = Field(..., description="Document title")
+    content: str = Field(..., description="Raw text or markdown content")
+    source_type: str = Field(default="text", description="Document source type (text, file, url)")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Metadata dictionary")
+
+
+class KnowledgeDocumentResponse(BaseModel):
+    id: str
+    kb_id: str
+    title: str
+    source_type: str
+    chunk_count: int
+    created_at: int
+
+
+class KnowledgeQueryRequest(BaseModel):
+    query: str = Field(..., description="Natural language search query")
+    limit: int = Field(default=5, ge=1, le=20, description="Max result chunks")
+
+
+class KnowledgeQueryResultItem(BaseModel):
+    id: str
+    score: float
+    title: str
+    content: str
+    chunk_index: int
+
+
+class KnowledgeQueryResponse(BaseModel):
+    results: list[KnowledgeQueryResultItem]
+    query: str
+
+
+class CustomSkillCreateRequest(BaseModel):
+    name: str = Field(..., description="Skill name or title")
+    title: str | None = Field(default=None, description="Display title")
+    description: str = Field(default="", description="Skill purpose summary")
+    body: str | None = Field(default=None, description="Prompt instructions and guidelines")
+    code: str | None = Field(default=None, description="Legacy code fallback")
+    signature: str = Field(default="", description="Function signature")
+    scope: str = Field(default="org", description="'org' or 'user'")
+    is_active: bool = Field(default=True, description="Whether skill is active")
+
+
+class CustomSkillImportRequest(BaseModel):
+    markdown: str = Field(..., description="Contents of a SKILL.md file")
+    scope: str = Field(default="user", description="'org' (administrators) or 'user'")
+
+
+class CustomSkillResponse(BaseModel):
+    id: str
+    name: str
+    title: str = ""
+    description: str = ""
+    body: str = ""
+    scope: str = "org"
+    user_id: str | None = None
+    runtime: str = "text"
+    is_active: bool = True
+    signature: str = ""
+    code: str = ""
+    created_at: int
+    updated_at: int
+
+
+class CustomSkillTestRequest(BaseModel):
+    test_arguments: dict[str, Any] = Field(
+        default_factory=dict, description="Arguments to invoke skill with"
+    )
+
+
+class CustomSkillTestResponse(BaseModel):
+    success: bool
+    output: str
+    duration_ms: float
+    exit_code: int = 0

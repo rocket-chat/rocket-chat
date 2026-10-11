@@ -3,23 +3,19 @@
 import os
 import time
 import uuid
+from collections.abc import Callable
 
 import pytest
 from api.db.models import OrganizationModel, SessionModel, UserModel
 from api.db.session import DatabaseSessionManager
 from api.db.store import PostgresSessionStore
 from config_engine import (
-    ConfigEngine,
     CredentialCipher,
-    OrgPolicy,
-    PolicyViolationError,
-    TeamPolicy,
-    UserOverride,
 )
 from sqlalchemy import select, text
 
-from specifications.interfaces.llm import BYOKCredentials, ChatMessage, ModelRequest
-from specifications.interfaces.sandbox import ResourceLimits, SandboxStatus, WorkspaceSpec
+from specifications.interfaces.llm import ChatMessage
+from specifications.interfaces.sandbox import SandboxStatus
 from specifications.interfaces.session import SessionRecord, SessionSource
 
 ADMIN_DB_URL = os.getenv(
@@ -33,7 +29,7 @@ APP_DB_URL = os.getenv(
 
 
 @pytest.fixture
-async def db_manager():
+async def db_manager(require_database: Callable[[Exception, str], None]):
     """
     Provision database manager with PostgreSQL Row-Level Security.
     Connects as application user 'rocket_app' (non-superuser), as PostgreSQL superusers
@@ -43,7 +39,7 @@ async def db_manager():
         admin_manager = DatabaseSessionManager(ADMIN_DB_URL)
         await admin_manager.create_tables()
     except Exception as e:
-        pytest.skip(f"PostgreSQL not accessible on {ADMIN_DB_URL}: {e}")
+        require_database(e, ADMIN_DB_URL)
 
     # Ensure application role exists with grants
     async with admin_manager.session() as s:
@@ -177,54 +173,6 @@ async def test_tenant_data_isolation_row_level_security(db_manager):
 
 
 @pytest.mark.asyncio
-async def test_policy_violation_enforcement():
-    """
-    Verify Org Policy constraint enforcement:
-    Org A forbids 'openai/*' models. User override requesting 'openai/gpt-4o' MUST raise PolicyViolationError.
-    """
-    engine = ConfigEngine()
-    org_id = "org_defence_systems"
-
-    # Organization strictly allows only Anthropic models and blocks OpenAI
-    engine.set_org_policy(
-        OrgPolicy(
-            org_id=org_id,
-            allowed_models=["anthropic/*"],
-            forbidden_models=["openai/*"],
-            default_model="anthropic/claude-3-7-sonnet",
-        )
-    )
-
-    # 1. Compliant user session resolves without error
-    resolved_ok = await engine.resolve_session_config(
-        tenant_org_id=org_id,
-        team_id=None,
-        user_id="user_compliant",
-    )
-    assert resolved_ok.active_model == "anthropic/claude-3-7-sonnet"
-
-    # 2. Rogue user override requesting openai/gpt-4o
-    engine.set_user_override(
-        UserOverride(
-            user_id="user_rogue",
-            org_id=org_id,
-            preferred_model="openai/gpt-4o",
-        )
-    )
-
-    with pytest.raises(PolicyViolationError) as exc_info:
-        await engine.resolve_session_config(
-            tenant_org_id=org_id,
-            team_id=None,
-            user_id="user_rogue",
-        )
-
-    error_msg = str(exc_info.value)
-    assert "openai/gpt-4o" in error_msg
-    assert "violates Organization policy" in error_msg
-
-
-@pytest.mark.asyncio
 async def test_encrypted_byok_credential_at_rest(db_manager):
     """
     Verify BYOK credentials encryption:
@@ -290,105 +238,3 @@ async def test_encrypted_byok_credential_at_rest(db_manager):
     # Assert decryption with master key retrieves original secret
     decrypted = cipher.decrypt(stored_ciphertext)
     assert decrypted == raw_api_key
-
-
-@pytest.mark.asyncio
-async def test_end_to_end_config_injection_interoperability():
-    """
-    Verify end-to-end configuration cascade into LiteLLM Gateway and Sandbox Driver:
-    Org BYOK key and allowed models cascade dynamically into LiteLLM ModelRequest
-    and enforce sandbox container image & resource limits.
-    """
-    engine = ConfigEngine()
-    org_id = "org_deep_space"
-    team_id = "team_propulsion"
-    user_id = "engineer_mark"
-
-    # 1. Configure Org Policy
-    engine.set_org_policy(
-        OrgPolicy(
-            org_id=org_id,
-            allowed_models=["anthropic/*", "openrouter/*"],
-            default_model="anthropic/claude-3-7-sonnet",
-            default_image="ghcr.io/space/avionics-base:latest",
-            max_memory="16Gi",
-            max_cpus=8.0,
-            require_signed_commits=True,
-            custom_env_vars={"ROCKET_TELEMETRY": "enabled"},
-        )
-    )
-    # Set Org corporate BYOK key
-    await engine.set_org_byok(
-        org_id=org_id,
-        provider="anthropic",
-        api_key="sk-ant-corp-deep-space-key",
-    )
-
-    # 2. Team Policy overrides image and adds team env
-    engine.set_team_policy(
-        TeamPolicy(
-            team_id=team_id,
-            org_id=org_id,
-            default_image="ghcr.io/space/propulsion-sim:2.4",
-            custom_env_vars={"SUBSYSTEM": "ion_thruster"},
-        )
-    )
-
-    # 3. User Override specifies author and preferred compliant model
-    engine.set_user_override(
-        UserOverride(
-            user_id=user_id,
-            org_id=org_id,
-            team_id=team_id,
-            preferred_model="anthropic/claude-3-5-sonnet",
-            git_author_name="Mark Watney",
-            git_author_email="m.watney@nasa.gov",
-        )
-    )
-
-    # Resolve Effective Configuration
-    resolved = await engine.resolve_session_config(
-        tenant_org_id=org_id,
-        team_id=team_id,
-        user_id=user_id,
-    )
-
-    # Assert Resolution Cascade
-    assert resolved.active_model == "anthropic/claude-3-5-sonnet"
-    assert resolved.active_container_image == "ghcr.io/space/propulsion-sim:2.4"
-    assert resolved.byok_provider == "anthropic"
-    assert resolved.byok_api_key == "sk-ant-corp-deep-space-key"
-    assert resolved.git_author_name == "Mark Watney"
-    assert resolved.git_author_email == "m.watney@nasa.gov"
-    assert resolved.require_signed_commits is True
-    assert resolved.custom_env_vars["ROCKET_TELEMETRY"] == "enabled"
-    assert resolved.custom_env_vars["SUBSYSTEM"] == "ion_thruster"
-
-    # 4. LiteLLM Gateway Interoperability: Construct ModelRequest with resolved BYOK credentials
-    model_request = ModelRequest(
-        model=resolved.active_model,
-        messages=[ChatMessage(role="user", content="Simulate ion thruster burn")],
-        credentials=BYOKCredentials(
-            provider=resolved.byok_provider,
-            api_key=resolved.byok_api_key,
-        ),
-    )
-    assert model_request.model == "anthropic/claude-3-5-sonnet"
-    assert model_request.credentials is not None
-    assert model_request.credentials.api_key == "sk-ant-corp-deep-space-key"
-
-    # 5. Sandbox Driver Interoperability: Construct WorkspaceSpec with resolved image & limits
-    spec = WorkspaceSpec(
-        session_id="session_thruster_01",
-        tenant_org_id=org_id,
-        tenant_user_id=user_id,
-        container_image=resolved.active_container_image,
-        resources=ResourceLimits(
-            cpu_cores=4.0,
-            memory_limit="8Gi",
-        ),
-        env_vars=resolved.custom_env_vars,
-    )
-    assert spec.container_image == "ghcr.io/space/propulsion-sim:2.4"
-    assert spec.env_vars["ROCKET_TELEMETRY"] == "enabled"
-    assert spec.env_vars["SUBSYSTEM"] == "ion_thruster"

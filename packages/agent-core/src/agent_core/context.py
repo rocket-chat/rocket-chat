@@ -14,13 +14,19 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
-from dataclasses import dataclass
+import logging
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 import litellm
 
-from specifications.interfaces.agent import AgentEvent
-from specifications.interfaces.llm import ChatMessage
+from agent_core.transcript import repair_tool_pairs
+from specifications.interfaces.agent import AgentEvent, TurnCallbacks, TurnPolicy
+from specifications.interfaces.llm import AttachmentRef, ChatMessage
+
+Summarizer = Callable[[list[ChatMessage]], Awaitable[str]]
+logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_CONTEXT_LIMITS: dict[str, int] = {
     "claude-3-7-sonnet": 200_000,
@@ -47,6 +53,28 @@ class ExecutionContext:
     parent_model: str
     tenant_org_id: str = "default_org"
     tenant_user_id: str = "dev_user"
+    plan_mode: bool = False
+    # Set once the workspace has been snapshotted for this turn, before its first change.
+    checkpointed: bool = False
+    # Enforced tool scope for constrained callers (e.g. the unauthenticated Slack path).
+    # None means no restriction; a frozenset is an allowlist the registry enforces server-side.
+    allowed_tools: frozenset[str] | None = None
+    # Model data governance for every request this turn makes: propagated
+    # onto each ModelRequest so the gateway can pass it to the provider.
+    zero_retention: bool = False
+    region: str = ""
+    # Optional toolsets enabled for this turn (e.g. "slack"). Tools tagged with a toolset
+    # are only visible/callable when their tag is in this set.
+    enabled_toolsets: frozenset[str] = frozenset()
+    # Turn-scoped tool collaborators (approvals, questions, sandbox provisioning, ...).
+    callbacks: TurnCallbacks = field(default_factory=TurnCallbacks)
+    # Organization/agent policy for this turn: generation parameters and git rules.
+    policy: TurnPolicy = field(default_factory=TurnPolicy)
+    # Copied from the turn policy so the tool registry can read it from the context.
+    sandbox_capabilities: frozenset[str] | None = None
+    # Images the agent asked to look at this turn (view_image). They ride every model request
+    # of the turn but are never stored in the conversation, so they cannot reach a later turn.
+    turn_images: list[AttachmentRef] = field(default_factory=list)
 
 
 current_execution_ctx: contextvars.ContextVar[ExecutionContext | None] = contextvars.ContextVar(
@@ -73,9 +101,11 @@ class ContextManager:
             if key in clean_name:
                 return limit
         try:
-            max_tokens = litellm.get_max_tokens(model)
-            if max_tokens and isinstance(max_tokens, int):
-                return max_tokens
+            # `max_input_tokens` is the context window; `get_max_tokens` is the *output* cap.
+            info = litellm.get_model_info(model)
+            window = info.get("max_input_tokens") or info.get("max_tokens")
+            if window and isinstance(window, int):
+                return window
         except Exception:
             pass
         return FALLBACK_CONTEXT_LIMIT
@@ -137,6 +167,58 @@ class ContextManager:
 
         return pruned_messages
 
+    def _partition(
+        self, messages: list[ChatMessage], recent_turns_to_preserve: int | None
+    ) -> tuple[list[ChatMessage], list[ChatMessage], list[ChatMessage]] | None:
+        """Split into (anchored head, compactable middle, preserved tail), pair-safely."""
+        preserve_count = (
+            recent_turns_to_preserve
+            if recent_turns_to_preserve is not None
+            else self.recent_turns_to_preserve
+        )
+        if len(messages) <= (preserve_count * 2) + 2:
+            return None
+
+        anchors_head: list[ChatMessage] = []
+        idx = 0
+        while idx < len(messages) and messages[idx].role == "system":
+            anchors_head.append(messages[idx])
+            idx += 1
+
+        # Initial user prompt (and assistant response if immediate)
+        if idx < len(messages) and messages[idx].role == "user":
+            anchors_head.append(messages[idx])
+            idx += 1
+
+        tail_start = max(idx, len(messages) - (preserve_count * 2))
+        # Never start the preserved tail on a tool result: its assistant tool call would be
+        # summarized away and providers reject an orphan `tool` message.
+        while tail_start > idx and messages[tail_start].role == "tool":
+            tail_start -= 1
+        return anchors_head, messages[idx:tail_start], messages[tail_start:]
+
+    @staticmethod
+    def _latest_checklist(middle: list[ChatMessage]) -> str | None:
+        for message in reversed(middle):
+            for call in message.tool_calls or []:
+                function = call.get("function", {})
+                if function.get("name") == "update_task_checklist":
+                    arguments = function.get("arguments")
+                    return str(arguments) if arguments else None
+        return None
+
+    def _bridge(self, middle: list[ChatMessage], summary: str | None) -> ChatMessage:
+        parts: list[str] = [
+            f"[Compacted {len(middle)} intermediate conversational turns "
+            "to respect context window boundaries.]"
+        ]
+        if summary:
+            parts.append(f"Summary of the compacted work:\n{summary}")
+        plan = self._latest_checklist(middle)
+        if plan:
+            parts.append(f"Active Task Checklist State: {plan}")
+        return ChatMessage(role="system", content="\n\n".join(parts))
+
     def compact_with_anchors(
         self,
         messages: list[ChatMessage],
@@ -144,60 +226,31 @@ class ContextManager:
     ) -> list[ChatMessage]:
         """
         Tier 3 Compaction: Anchor system prompt, initial user prompt, active checklist,
-        and last N turns. Middle conversational turns are summarized into a concise bridge.
+        and last N turns. Middle conversational turns are replaced by a concise bridge.
         """
-        preserve_count = (
-            recent_turns_to_preserve
-            if recent_turns_to_preserve is not None
-            else self.recent_turns_to_preserve
-        )
-        if len(messages) <= (preserve_count * 2) + 2:
+        parts = self._partition(messages, recent_turns_to_preserve)
+        if parts is None:
             return list(messages)
+        head, middle, tail = parts
+        return repair_tool_pairs([*head, self._bridge(middle, None), *tail])
 
-        anchors_head: list[ChatMessage] = []
-        middle_candidates: list[ChatMessage] = []
-        recent_tail: list[ChatMessage] = []
-
-        # 1. System prompt
-        idx = 0
-        if idx < len(messages) and messages[idx].role == "system":
-            anchors_head.append(messages[idx])
-            idx += 1
-
-        # 2. Initial user prompt (and assistant response if immediate)
-        if idx < len(messages) and messages[idx].role == "user":
-            anchors_head.append(messages[idx])
-            idx += 1
-
-        tail_start = max(idx, len(messages) - (preserve_count * 2))
-        middle_candidates = messages[idx:tail_start]
-        recent_tail = messages[tail_start:]
-
-        # Extract any active checklist from middle if present
-        latest_plan: str | None = None
-        for m in reversed(middle_candidates):
-            if m.tool_calls:
-                for tc in m.tool_calls:
-                    fn = tc.get("function", {})
-                    if fn.get("name") == "update_task_checklist":
-                        latest_plan = fn.get("arguments")
-                        break
-            if latest_plan:
-                break
-
-        summary_parts: list[str] = [
-            f"[Compacted {len(middle_candidates)} intermediate conversational turns "
-            "to respect context window boundaries.]"
-        ]
-        if latest_plan:
-            summary_parts.append(f"Active Task Checklist State: {latest_plan}")
-
-        summary_msg = ChatMessage(
-            role="system",
-            content="\n\n".join(summary_parts),
-        )
-
-        return [*anchors_head, summary_msg, *recent_tail]
+    async def compact_with_summary(
+        self,
+        messages: list[ChatMessage],
+        summarize: Summarizer,
+        recent_turns_to_preserve: int | None = None,
+    ) -> list[ChatMessage]:
+        """Tier 3 with a model-written summary of the middle; falls back to the bridge."""
+        parts = self._partition(messages, recent_turns_to_preserve)
+        if parts is None:
+            return list(messages)
+        head, middle, tail = parts
+        summary: str | None = None
+        try:
+            summary = (await summarize(middle)).strip() or None
+        except Exception as err:
+            logger.warning("Summarising compaction failed, using the bridge only: %s", err)
+        return repair_tool_pairs([*head, self._bridge(middle, summary), *tail])
 
     def enforce_hygiene(
         self,
@@ -218,3 +271,37 @@ class ContextManager:
             messages = self.compact_with_anchors(messages)
 
         return messages
+
+    async def enforce_hygiene_async(
+        self,
+        model: str,
+        messages: list[ChatMessage],
+        summarize: Summarizer | None = None,
+    ) -> list[ChatMessage]:
+        """Like :meth:`enforce_hygiene`, but Tier 3 summarizes with a model when given one."""
+        limit = self.get_model_context_limit(model)
+        tokens = self.count_tokens(model, messages)
+        if tokens >= int(limit * self.tier2_threshold_ratio):
+            messages = self.prune_tool_payloads(messages)
+            tokens = self.count_tokens(model, messages)
+        if tokens >= int(limit * self.tier3_threshold_ratio):
+            if summarize is not None:
+                return await self.compact_with_summary(messages, summarize)
+            return self.compact_with_anchors(messages)
+        return messages
+
+
+def render_transcript(messages: list[ChatMessage], max_chars: int = 24_000) -> str:
+    """Plain-text rendering of messages for a summarizer prompt (bounded)."""
+    lines: list[str] = []
+    for message in messages:
+        if message.tool_calls:
+            names = ", ".join(
+                str(call.get("function", {}).get("name", "?")) for call in message.tool_calls
+            )
+            lines.append(f"assistant called tools: {names}")
+        if message.content:
+            snippet = " ".join(message.content.split())[:600]
+            lines.append(f"{message.role}: {snippet}")
+    text = "\n".join(lines)
+    return text[-max_chars:] if len(text) > max_chars else text

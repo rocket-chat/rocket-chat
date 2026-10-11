@@ -14,7 +14,7 @@ help:
 	@echo "  make docs-dev        - Starts live Mintlify documentation preview server on port 3333"
 	@echo "  make docs-check      - Validates Mintlify documentation configuration and links"
 	@echo "  make version-check   - Verifies version synchronization across all repository manifests"
-	@echo "  make release-prepare - Prepares CHANGELOG, bumps versions, and generates release notes (e.g. make release-prepare VERSION=0.2.0)"
+	@echo "  make release-prepare - Prepares CHANGELOG and bumps versions (e.g. make release-prepare VERSION=0.2.0)"
 	@echo "  make release-notes   - Extracts release notes for a version (e.g. make release-notes VERSION=X.Y.Z)"
 
 version-check:

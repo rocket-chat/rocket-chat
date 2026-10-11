@@ -1,5 +1,6 @@
 """Git Engine implementing GitEngineProtocol with Co-Authoring, Signing, and Webhooks."""
 
+import fnmatch
 import hashlib
 import hmac
 import json
@@ -7,6 +8,7 @@ import logging
 import re
 import shlex
 import time
+from collections.abc import Sequence
 from typing import Any
 
 import httpx
@@ -23,6 +25,24 @@ from specifications.interfaces.git import (
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 
 logger = logging.getLogger(__name__)
+
+# GitHub `author_association` values that imply write access to the repository.
+_TRUSTED_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR"})
+
+
+def _installation_id(payload: dict[str, Any]) -> int | None:
+    raw = (payload.get("installation") or {}).get("id")
+    return int(raw) if isinstance(raw, int) else None
+
+
+def pick_installation(installations: Sequence[tuple[int, str]], repo: str | None) -> int | None:
+    """The mapped installation to use for ``owner/name``: the one on that owner's account, else
+    the only one there is; ``None`` when none is mapped or the choice would be a guess."""
+    owner = (repo or "").split("/", 1)[0].lower()
+    for installation_id, login in installations:
+        if owner and login.lower() == owner:
+            return installation_id
+    return installations[0][0] if len(installations) == 1 else None
 
 
 class GitEngine(GitEngineProtocol):
@@ -65,17 +85,13 @@ class GitEngine(GitEngineProtocol):
             session_id, "git rev-parse --is-inside-work-tree"
         )
         if check_repo.exit_code != 0:
-            init_cmd = f"git init -b {shlex.quote(spec.branch)}"
+            init_cmd = f"git init -b {shlex.quote(spec.branch or self.settings.default_branch)}"
             await self.driver.exec_command(session_id, init_cmd)
 
-        # 3. Configure Git committer identity
-        if spec.signing_mode == SigningMode.GITHUB_APP:
-            # GitHub App identity results in official GitHub Bot attribution
-            author_name = "github-actions[bot]"
-            author_email = "41898282+github-actions[bot]@users.noreply.github.com"
-        else:
-            author_name = self.settings.bot_author_name
-            author_email = self.settings.bot_author_email
+        # 3. Configure the committer identity: the caller's (policy-resolved) identity, else
+        # this deployment's own bot. Never another product's identity.
+        author_name = spec.committer_name or self.settings.bot_author_name
+        author_email = spec.committer_email or self.settings.bot_author_email
 
         await self.driver.exec_command(
             session_id,
@@ -138,6 +154,8 @@ class GitEngine(GitEngineProtocol):
         self,
         repo: str | None = None,
         permissions: dict[str, str] | None = None,
+        repositories: list[str] | None = None,
+        installation_id: int | None = None,
     ) -> str | None:
         """
         Retrieves a valid GitHub access token.
@@ -162,9 +180,13 @@ class GitEngine(GitEngineProtocol):
             }
 
             async with httpx.AsyncClient(timeout=15.0) as client:
-                installation_id: int | None = None
+                if installation_id is None and not self.settings.allow_unmapped_installations:
+                    # An installation belongs to whoever mapped it; guessing one from a
+                    # repository name or taking the first would cross organizations.
+                    logger.info("No GitHub App installation is mapped for this request")
+                    return None
                 # If specific repo provided, find installation for that repo
-                if repo and "/" in repo:
+                if installation_id is None and repo and "/" in repo:
                     owner_repo = repo.strip()
                     res = await client.get(
                         f"{self.settings.github_api_url.rstrip('/')}/repos/{owner_repo}/installation",
@@ -200,6 +222,9 @@ class GitEngine(GitEngineProtocol):
                     }
                 )
                 payload: dict[str, Any] = {"permissions": token_perms}
+                if repositories:
+                    # Least privilege: restrict the token to the named repositories.
+                    payload["repositories"] = repositories
 
                 token_res = await client.post(
                     f"{self.settings.github_api_url.rstrip('/')}/app/installations/{installation_id}/access_tokens",
@@ -227,14 +252,44 @@ class GitEngine(GitEngineProtocol):
 
         return None
 
+    async def get_installation_account(self, installation_id: int) -> str | None:
+        """The account login an installation belongs to, or ``None`` if GitHub does not know it.
+
+        Proves the installation id the browser brought back is a real installation of *this*
+        App before it is mapped to an organization.
+        """
+        if not (self.settings.github_app_id and self.settings.github_app_private_key):
+            return None
+        headers = {
+            "Authorization": f"Bearer {self.generate_app_jwt()}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            res = await client.get(
+                f"{self.settings.github_api_url.rstrip('/')}/app/installations/{installation_id}",
+                headers=headers,
+            )
+        if res.status_code != 200:
+            return None
+        login = (res.json().get("account") or {}).get("login")
+        return str(login) if login else None
+
     async def push_and_open_pr(
         self,
         session_id: str,
         title: str,
         body: str,
         target_branch: str = "main",
+        token: str | None = None,
+        installations: Sequence[tuple[int, str]] = (),
     ) -> str:
-        """Pushes working branch and opens a Pull Request via GitHub REST API. Returns PR URL."""
+        """Push the working branch and open a pull request through the GitHub REST API.
+
+        ``token`` (a member's own token) takes precedence over the GitHub App. When no
+        credential is available, or GitHub refuses the request, this raises: a pull request
+        URL is never invented.
+        """
         current_branch = "agent-fix"
         remote_url = ""
         if self.driver:
@@ -248,64 +303,55 @@ class GitEngine(GitEngineProtocol):
             if remote_res.exit_code == 0 and remote_res.stdout.strip():
                 remote_url = remote_res.stdout.strip()
 
-            # Push to remote if origin is configured
-            await self.driver.exec_command(
+            push = await self.driver.exec_command(
                 session_id, f"git push -u origin {shlex.quote(current_branch)}"
             )
+            if push.exit_code != 0:
+                raise RuntimeError(f"git push failed: {(push.stderr or push.stdout).strip()}")
 
-        # Extract repo slug from origin url if available (e.g., git@github.com:owner/repo.git or https://github.com/owner/repo.git)
-        owner_repo = "rocketchat/platform"
-        if remote_url:
-            match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+)", remote_url)
-            if match:
-                owner_repo = f"{match.group(1)}/{match.group(2)}"
+        match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+)", remote_url)
+        if match is None:
+            raise RuntimeError(
+                "The workspace has no GitHub 'origin' remote to open a pull request on"
+            )
+        owner_repo = f"{match.group(1)}/{match.group(2)}"
 
-        # Resolve GitHub token: either user PAT or dynamically generated GitHub App token
-        # For opening PRs, request pull_requests:write and contents:write
-        pr_perms = {"pull_requests": "write", "contents": "write"}
-        token = await self.get_github_access_token(repo=owner_repo, permissions=pr_perms)
+        resolved_token = token or await self.get_github_access_token(
+            repo=owner_repo,
+            permissions={"pull_requests": "write", "contents": "write"},
+            installation_id=pick_installation(installations, owner_repo),
+        )
+        if not resolved_token:
+            raise RuntimeError(
+                "No GitHub credential is available: link a personal token or configure the GitHub App"
+            )
 
-        if token:
-            try:
-                headers = {
-                    "Authorization": f"Bearer {token}",
-                    "Accept": "application/vnd.github+json",
-                    "X-GitHub-Api-Version": "2022-11-28",
-                }
-                api_url = f"{self.settings.github_api_url.rstrip('/')}/repos/{owner_repo}/pulls"
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    resp = await client.post(
-                        api_url,
-                        headers=headers,
-                        json={
-                            "title": title,
-                            "body": body,
-                            "head": current_branch,
-                            "base": target_branch,
-                        },
-                    )
-                    if resp.status_code in (200, 201):
-                        pr_data = resp.json()
-                        html_url: str = pr_data.get("html_url", "")
-                        if html_url:
-                            logger.info("Successfully created live GitHub PR: %s", html_url)
-                            return html_url
-                    else:
-                        logger.warning(
-                            "GitHub PR creation returned status %d: %s. Falling back to synthetic PR.",
-                            resp.status_code,
-                            resp.text,
-                        )
-            except Exception as ex:
-                logger.warning(
-                    "Failed to open PR via GitHub API: %s. Falling back to synthetic PR.", ex
-                )
-
-        # Synthetic PR link for sandbox environments without live GitHub API tokens
-        pr_number = abs(hash(session_id)) % 900 + 100
-        pr_url = f"https://github.com/{owner_repo}/pull/{pr_number}"
-        logger.info("Created pull request: %s for branch %s", pr_url, current_branch)
-        return pr_url
+        headers = {
+            "Authorization": f"Bearer {resolved_token}",
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+        api_url = f"{self.settings.github_api_url.rstrip('/')}/repos/{owner_repo}/pulls"
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                api_url,
+                headers=headers,
+                json={
+                    "title": title,
+                    "body": body,
+                    "head": current_branch,
+                    "base": target_branch,
+                },
+            )
+        if resp.status_code not in (200, 201):
+            raise RuntimeError(
+                f"GitHub refused the pull request ({resp.status_code}): {resp.text[:300]}"
+            )
+        html_url: str = resp.json().get("html_url", "")
+        if not html_url:
+            raise RuntimeError("GitHub accepted the pull request but returned no URL")
+        logger.info("Opened GitHub PR: %s", html_url)
+        return html_url
 
     async def handle_webhook(
         self,
@@ -316,25 +362,8 @@ class GitEngine(GitEngineProtocol):
         Verifies HMAC signature, extracts event, and returns trigger object
         if action should start or resume an agent session.
         """
-        # Case-insensitive header lookup
         header_map = {k.lower(): v for k, v in headers.items()}
-        sig_header = header_map.get("x-hub-signature-256")
-        event_name = header_map.get("x-github-event", "")
-
-        # 1. Verify HMAC SHA-256 signature if secret is configured
-        if self.settings.github_webhook_secret:
-            if not sig_header:
-                raise ValueError("Missing X-Hub-Signature-256 header")
-            expected_sig = (
-                "sha256="
-                + hmac.new(
-                    self.settings.github_webhook_secret.encode("utf-8"),
-                    raw_body,
-                    hashlib.sha256,
-                ).hexdigest()
-            )
-            if not hmac.compare_digest(sig_header, expected_sig):
-                raise ValueError("Invalid webhook HMAC signature")
+        self._verify_webhook_signature(raw_body, header_map.get("x-hub-signature-256"))
 
         try:
             payload = json.loads(raw_body.decode("utf-8"))
@@ -342,78 +371,117 @@ class GitEngine(GitEngineProtocol):
             logger.warning("Failed to parse webhook JSON payload: %s", err)
             return None
 
-        # 2. Issues Event (e.g. issues.labeled with 'ai-fix')
+        repo_name = str(payload.get("repository", {}).get("full_name", ""))
+        if self.settings.allowed_repos and not any(
+            fnmatch.fnmatchcase(repo_name, pattern) for pattern in self.settings.allowed_repos
+        ):
+            logger.info("Ignoring webhook for non-allowlisted repository %s", repo_name)
+            return None
+
+        event_name = header_map.get("x-github-event", "")
         if event_name == "issues":
-            action = payload.get("action")
-            if action == "labeled":
-                label_obj = payload.get("label", {})
-                label_name = label_obj.get("name", "")
-                if label_name == self.settings.github_trigger_label:
-                    repo = payload.get("repository", {}).get("full_name", "unknown/repo")
-                    issue = payload.get("issue", {})
-                    issue_number = issue.get("number", 0)
-                    sender = payload.get("sender", {}).get("login", "unknown")
-                    title = issue.get("title", "")
-                    body = issue.get("body") or ""
-                    prompt = f"Issue #{issue_number}: {title}\n\n{body}".strip()
-                    return WebhookTrigger(
-                        provider="github",
-                        event_type="issues.labeled",
-                        repo_full_name=repo,
-                        issue_or_pr_number=issue_number,
-                        sender_login=sender,
-                        branch_name=f"agent/issue-{issue_number}-fix",
-                        prompt_text=prompt,
-                    )
-
-        # 3. Issue Comment Event (e.g. @RocketChat follow-up or comment on labeled issue)
-        elif event_name == "issue_comment":
-            action = payload.get("action")
-            if action == "created":
-                comment = payload.get("comment", {})
-                comment_body = comment.get("body", "")
-                issue = payload.get("issue", {})
-                issue_labels = [
-                    lbl.get("name", "") for lbl in issue.get("labels", []) if isinstance(lbl, dict)
-                ]
-
-                triggers = ["@rocketchat", "@bot", "/agent", "/fix"]
-                is_addressed = any(t in comment_body.lower() for t in triggers)
-                has_label = self.settings.github_trigger_label in issue_labels
-
-                if is_addressed or has_label:
-                    repo = payload.get("repository", {}).get("full_name", "unknown/repo")
-                    issue_number = issue.get("number", 0)
-                    sender = payload.get("sender", {}).get("login", "unknown")
-                    return WebhookTrigger(
-                        provider="github",
-                        event_type="issue_comment.created",
-                        repo_full_name=repo,
-                        issue_or_pr_number=issue_number,
-                        sender_login=sender,
-                        branch_name=f"agent/issue-{issue_number}-fix",
-                        prompt_text=comment_body,
-                    )
-
-        # 4. Pull Request Event
-        elif event_name == "pull_request":
-            action = payload.get("action")
-            if action in ("opened", "synchronize", "labeled"):
-                pr = payload.get("pull_request", {})
-                repo = payload.get("repository", {}).get("full_name", "unknown/repo")
-                pr_number = pr.get("number", 0)
-                sender = payload.get("sender", {}).get("login", "unknown")
-                branch = pr.get("head", {}).get("ref", f"pr-{pr_number}")
-                title = pr.get("title", "")
-                body = pr.get("body") or ""
-                return WebhookTrigger(
-                    provider="github",
-                    event_type="pull_request",
-                    repo_full_name=repo,
-                    issue_or_pr_number=pr_number,
-                    sender_login=sender,
-                    branch_name=branch,
-                    prompt_text=f"Pull Request #{pr_number}: {title}\n\n{body}".strip(),
-                )
-
+            return self._issue_trigger(payload)
+        if event_name == "issue_comment":
+            return self._issue_comment_trigger(payload)
+        if event_name == "pull_request":
+            return _pull_request_trigger(payload)
         return None
+
+    def _verify_webhook_signature(self, raw_body: bytes, signature: str | None) -> None:
+        """Verify the HMAC SHA-256 signature.
+
+        Without a configured secret every webhook is rejected (fail closed) unless unsigned
+        webhooks are explicitly allowed.
+        """
+        secret = self.settings.github_webhook_secret
+        if not secret and not self.settings.allow_unsigned_webhooks:
+            raise ValueError("GITHUB_WEBHOOK_SECRET is not configured; unsigned webhooks rejected")
+        if not secret:
+            return
+        if not signature:
+            raise ValueError("Missing X-Hub-Signature-256 header")
+        expected = (
+            "sha256=" + hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+        )
+        if not hmac.compare_digest(signature, expected):
+            raise ValueError("Invalid webhook HMAC signature")
+
+    def _issue_trigger(self, payload: dict[str, Any]) -> WebhookTrigger | None:
+        """``issues.labeled`` with the trigger label (``ai-fix`` by default)."""
+        if payload.get("action") != "labeled":
+            return None
+        if payload.get("label", {}).get("name", "") != self.settings.github_trigger_label:
+            return None
+        issue = payload.get("issue", {})
+        issue_number = issue.get("number", 0)
+        title = issue.get("title", "")
+        body = issue.get("body") or ""
+        return _github_trigger(
+            payload,
+            event_type="issues.labeled",
+            number=issue_number,
+            branch_name=f"agent/issue-{issue_number}-fix",
+            prompt_text=f"Issue #{issue_number}: {title}\n\n{body}".strip(),
+        )
+
+    def _issue_comment_trigger(self, payload: dict[str, Any]) -> WebhookTrigger | None:
+        """A comment that addresses the agent, or any comment on an issue carrying the label."""
+        if payload.get("action") != "created":
+            return None
+        comment = payload.get("comment", {})
+        # Only repository insiders may steer the agent: a stranger's comment on a public
+        # repo is untrusted input that must not start or resume a run.
+        if comment.get("author_association") not in _TRUSTED_ASSOCIATIONS:
+            return None
+        comment_body = comment.get("body", "")
+        issue = payload.get("issue", {})
+        issue_labels = [
+            label.get("name", "") for label in issue.get("labels", []) if isinstance(label, dict)
+        ]
+        is_addressed = any(trigger in comment_body.lower() for trigger in _COMMENT_TRIGGERS)
+        if not (is_addressed or self.settings.github_trigger_label in issue_labels):
+            return None
+        issue_number = issue.get("number", 0)
+        return _github_trigger(
+            payload,
+            event_type="issue_comment.created",
+            number=issue_number,
+            branch_name=f"agent/issue-{issue_number}-fix",
+            prompt_text=comment_body,
+        )
+
+
+_COMMENT_TRIGGERS = ("@rocketchat", "@bot", "/agent", "/fix")
+
+
+def _github_trigger(
+    payload: dict[str, Any], *, event_type: str, number: int, branch_name: str, prompt_text: str
+) -> WebhookTrigger:
+    return WebhookTrigger(
+        provider="github",
+        installation_id=_installation_id(payload),
+        event_type=event_type,
+        repo_full_name=payload.get("repository", {}).get("full_name", "unknown/repo"),
+        issue_or_pr_number=number,
+        sender_login=payload.get("sender", {}).get("login", "unknown"),
+        branch_name=branch_name,
+        prompt_text=prompt_text,
+    )
+
+
+def _pull_request_trigger(payload: dict[str, Any]) -> WebhookTrigger | None:
+    if payload.get("action") not in ("opened", "synchronize", "labeled"):
+        return None
+    pr = payload.get("pull_request", {})
+    if pr.get("author_association") not in _TRUSTED_ASSOCIATIONS:
+        return None
+    pr_number = pr.get("number", 0)
+    title = pr.get("title", "")
+    body = pr.get("body") or ""
+    return _github_trigger(
+        payload,
+        event_type="pull_request",
+        number=pr_number,
+        branch_name=pr.get("head", {}).get("ref", f"pr-{pr_number}"),
+        prompt_text=f"Pull Request #{pr_number}: {title}\n\n{body}".strip(),
+    )

@@ -5,14 +5,152 @@ metadata:
   labels:
     {{- include "rocket-chat.labels" . | nindent 4 }}
 data:
+  ENVIRONMENT: {{ .Values.backend.env.ENVIRONMENT | default "production" | quote }}
   DEFAULT_SANDBOX_DRIVER: {{ .Values.backend.env.DEFAULT_SANDBOX_DRIVER | default "k8s" | quote }}
   ROCKET_DEFAULT_MODEL: {{ .Values.backend.env.ROCKET_DEFAULT_MODEL | quote }}
+  {{- /* Where the web app lives; Slack threads link to their session there. */}}
+  {{- $scheme := "http" }}
+  {{- if or (and .Values.ingress (not (empty .Values.ingress.tls))) (hasPrefix "https" (default "" .Values.auth.nextauthUrl)) }}
+    {{- $scheme = "https" }}
+  {{- end }}
+  ROCKET_PUBLIC_URL: {{ .Values.auth.nextauthUrl | default (printf "%s://%s" $scheme .Values.global.domain) | quote }}
+  {{- if .Values.backend.env.ROCKET_FALLBACK_MODELS }}
+  ROCKET_FALLBACK_MODELS: {{ .Values.backend.env.ROCKET_FALLBACK_MODELS | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_MODEL_MAX_RETRIES }}
+  ROCKET_MODEL_MAX_RETRIES: {{ .Values.backend.env.ROCKET_MODEL_MAX_RETRIES | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_CODE_INDEX_MAX_SESSIONS }}
+  ROCKET_CODE_INDEX_MAX_SESSIONS: {{ .Values.backend.env.ROCKET_CODE_INDEX_MAX_SESSIONS | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_CODE_INDEX_MAX_BYTES }}
+  ROCKET_CODE_INDEX_MAX_BYTES: {{ .Values.backend.env.ROCKET_CODE_INDEX_MAX_BYTES | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_CODE_INDEX_TTL_SECONDS }}
+  ROCKET_CODE_INDEX_TTL_SECONDS: {{ .Values.backend.env.ROCKET_CODE_INDEX_TTL_SECONDS | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_GLOBAL_CONCURRENCY_LIMIT }}
+  ROCKET_GLOBAL_CONCURRENCY_LIMIT: {{ .Values.backend.env.ROCKET_GLOBAL_CONCURRENCY_LIMIT | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_SESSION_LOCK_CAPACITY }}
+  ROCKET_SESSION_LOCK_CAPACITY: {{ .Values.backend.env.ROCKET_SESSION_LOCK_CAPACITY | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_DB_PING_TIMEOUT_SECONDS }}
+  ROCKET_DB_PING_TIMEOUT_SECONDS: {{ .Values.backend.env.ROCKET_DB_PING_TIMEOUT_SECONDS | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_TOOL_MAX_CONCURRENCY }}
+  ROCKET_TOOL_MAX_CONCURRENCY: {{ .Values.backend.env.ROCKET_TOOL_MAX_CONCURRENCY | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_TOOL_TIMEOUT_SECONDS }}
+  ROCKET_TOOL_TIMEOUT_SECONDS: {{ .Values.backend.env.ROCKET_TOOL_TIMEOUT_SECONDS | quote }}
+  {{- end }}
+  # Migrations run in the init container (or the operator's pipeline), never from replicas.
+  ROCKET_RUN_MIGRATIONS: "false"
+  {{- $bus := .Values.backend.eventBus | default "auto" }}
+  {{- if eq $bus "auto" }}
+  ROCKET_EVENT_BUS: {{ ternary "postgres" "memory" (or .Values.backend.autoscaling.enabled (gt (int (.Values.backend.replicas | default 1)) 1)) | quote }}
+  {{- else }}
+  ROCKET_EVENT_BUS: {{ $bus | quote }}
+  {{- end }}
+  LOG_LEVEL: {{ .Values.backend.logLevel | default "INFO" | quote }}
+  LOG_FORMAT: {{ .Values.backend.logFormat | default "console" | quote }}
+  {{- if and .Values.observability .Values.observability.otlpEndpoint }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.observability.otlpEndpoint | quote }}
+  OTEL_SERVICE_NAME: {{ .Values.observability.serviceName | default "rocket-chat-api" | quote }}
+  {{- end }}
+  {{- with .Values.sandbox.defaultImage }}
+  ROCKET_DEFAULT_SANDBOX_IMAGE: {{ . | quote }}
+  {{- end }}
   K8S_SANDBOX_NAMESPACE: {{ .Values.sandbox.namespace | default "agent-sandboxes" | quote }}
   K8S_STORAGE_CLASS: {{ .Values.sandbox.storageClass | default "" | quote }}
+  {{- if and .Values.sandbox .Values.sandbox.inactivity }}
+  SANDBOX_INACTIVITY_PAUSE_SECONDS: {{ .Values.sandbox.inactivity.pauseSeconds | default 1800 | quote }}
+  SANDBOX_INACTIVITY_CLEANUP_SECONDS: {{ .Values.sandbox.inactivity.cleanupSeconds | default 0 | quote }}
+  {{- end }}
+  {{- if .Values.sandbox.imagePullSecrets }}
+  K8S_IMAGE_PULL_SECRETS: {{ join "," .Values.sandbox.imagePullSecrets | quote }}
+  {{- end }}
+  {{- if .Values.sandbox.runtimeClassName }}
+  K8S_SANDBOX_RUNTIME_CLASS: {{ .Values.sandbox.runtimeClassName | quote }}
+  {{- end }}
   NEXT_PUBLIC_API_URL: {{ printf "http://%s/api" .Values.global.domain | quote }}
   NEXT_PUBLIC_WS_URL: {{ printf "ws://%s/ws" .Values.global.domain | quote }}
   BACKEND_URL: {{ printf "http://%s-backend:%d" (include "rocket-chat.fullname" .) (.Values.backend.service.port | default 8000 | int) | quote }}
-  {{- if and .Values.auth .Values.auth.enabled }}
+  {{- if .Values.backend.slack }}
+  SLACK_THREAD_CONTEXT_LIMIT: {{ .Values.backend.slack.threadContextLimit | default 20 | quote }}
+  SLACK_THREAD_CONTEXT_MAX_CHARS: {{ .Values.backend.slack.threadContextMaxChars | default 6000 | quote }}
+  SLACK_CHANNEL_HISTORY_LIMIT: {{ .Values.backend.slack.channelHistoryLimit | default 50 | quote }}
+  SLACK_TEAM_ID: {{ .Values.backend.slack.teamId | default "" | quote }}
+  SLACK_ALLOWED_TOOLS: {{ .Values.backend.slack.allowedTools | default "*" | quote }}
+  SLACK_BLOCKED_TOOLS: {{ .Values.backend.slack.blockedTools | default "git_revert,git_open_pr" | quote }}
+  SLACK_MAX_ATTACHMENTS_PER_TURN: {{ .Values.backend.slack.maxAttachmentsPerTurn | default 5 | quote }}
+  SLACK_MAX_CONSECUTIVE_FAILURES: {{ .Values.backend.slack.maxConsecutiveFailures | default 3 | quote }}
+  SLACK_FAILURE_COOLDOWN_SECONDS: {{ .Values.backend.slack.failureCooldownSeconds | default 300 | quote }}
+  SLACK_USER_TURNS_PER_MINUTE: {{ .Values.backend.slack.userTurnsPerMinute | default 12 | quote }}
+  SLACK_CHANNEL_TURNS_PER_MINUTE: {{ .Values.backend.slack.channelTurnsPerMinute | default 30 | quote }}
+  SLACK_PROACTIVE_NOTIFY_AFTER_SECONDS: {{ .Values.backend.slack.proactiveNotifyAfterSeconds | default 120 | quote }}
+  SLACK_FILE_DOWNLOAD_TIMEOUT_SECONDS: {{ .Values.backend.slack.fileDownloadTimeoutSeconds | default 30 | quote }}
+  SLACK_DM_POLICY: {{ .Values.backend.slack.dmPolicy | default "paired" | quote }}
+  SLACK_OUTBOUND_CHANNELS: {{ .Values.backend.slack.outboundChannels | default "" | quote }}
+  {{- end }}
+  {{- if .Values.global.airGapped }}
+  LITELLM_LOCAL_MODEL_COST_MAP: "True"
+  {{- end }}
+  {{- if .Values.github }}
+  {{- if .Values.github.appSlug }}
+  GITHUB_APP_SLUG: {{ .Values.github.appSlug | quote }}
+  {{- end }}
+  {{- if .Values.github.allowUnmappedInstallations }}
+  GITHUB_APP_ALLOW_UNMAPPED_INSTALLATIONS: "true"
+  {{- end }}
+  {{- end }}
+  {{- if .Values.search }}
+  ROCKET_SEARCH_PROVIDER: {{ .Values.search.provider | default "duckduckgo" | quote }}
+  {{- if .Values.search.searxngUrl }}
+  ROCKET_SEARXNG_URL: {{ .Values.search.searxngUrl | quote }}
+  {{- end }}
+  {{- if .Values.search.fetchProxy }}
+  ROCKET_WEB_FETCH_PROXY: {{ .Values.search.fetchProxy | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if hasKey .Values.backend.env "ROCKET_TURN_AUTO_RESUME_ATTEMPTS" }}
+  ROCKET_TURN_AUTO_RESUME_ATTEMPTS: {{ .Values.backend.env.ROCKET_TURN_AUTO_RESUME_ATTEMPTS | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_KB_MAX_DOCUMENT_CHARS }}
+  ROCKET_KB_MAX_DOCUMENT_CHARS: {{ .Values.backend.env.ROCKET_KB_MAX_DOCUMENT_CHARS | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_KB_MAX_CHUNKS_PER_DOCUMENT }}
+  ROCKET_KB_MAX_CHUNKS_PER_DOCUMENT: {{ .Values.backend.env.ROCKET_KB_MAX_CHUNKS_PER_DOCUMENT | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_ATTACHMENTS_DIR }}
+  ROCKET_ATTACHMENTS_DIR: {{ .Values.backend.env.ROCKET_ATTACHMENTS_DIR | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_ATTACHMENT_MAX_BYTES }}
+  ROCKET_ATTACHMENT_MAX_BYTES: {{ .Values.backend.env.ROCKET_ATTACHMENT_MAX_BYTES | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_ATTACHMENT_INLINE_BYTES }}
+  ROCKET_ATTACHMENT_INLINE_BYTES: {{ .Values.backend.env.ROCKET_ATTACHMENT_INLINE_BYTES | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_MEMORY_SUMMARY_MODEL }}
+  ROCKET_MEMORY_SUMMARY_MODEL: {{ .Values.backend.env.ROCKET_MEMORY_SUMMARY_MODEL | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_API_RATE_LIMIT_PER_USER }}
+  ROCKET_API_RATE_LIMIT_PER_USER: {{ .Values.backend.env.ROCKET_API_RATE_LIMIT_PER_USER | quote }}
+  {{- end }}
+  {{- if .Values.backend.env.ROCKET_API_RATE_LIMIT_PER_ORG }}
+  ROCKET_API_RATE_LIMIT_PER_ORG: {{ .Values.backend.env.ROCKET_API_RATE_LIMIT_PER_ORG | quote }}
+  {{- end }}
+  {{- if .Values.auth }}
+  {{- if and .Values.auth.local .Values.auth.local.enabled }}
+  LOCAL_AUTH_ENABLED: "true"
+  {{- end }}
+  {{- if .Values.auth.initialAdminEmail }}
+  INITIAL_ADMIN_EMAIL: {{ .Values.auth.initialAdminEmail | quote }}
+  {{- end }}
+  {{- if .Values.auth.adminEmails }}
+  ADMIN_EMAILS: {{ .Values.auth.adminEmails | quote }}
+  {{- end }}
+  {{- if .Values.auth.enabled }}
   {{- if .Values.auth.oidc.issuer }}
   OIDC_ISSUER: {{ .Values.auth.oidc.issuer | quote }}
   {{- end }}
@@ -25,6 +163,12 @@ data:
   {{- if .Values.auth.oidc.clientId }}
   OIDC_CLIENT_ID: {{ .Values.auth.oidc.clientId | quote }}
   {{- end }}
+  {{- if .Values.auth.oidc.scopes }}
+  OIDC_SCOPES: {{ .Values.auth.oidc.scopes | quote }}
+  {{- end }}
+  {{- if .Values.auth.oidc.discoveryUrl }}
+  OIDC_DISCOVERY_URL: {{ .Values.auth.oidc.discoveryUrl | quote }}
+  {{- end }}
   {{- if .Values.auth.github.clientId }}
   GITHUB_CLIENT_ID: {{ .Values.auth.github.clientId | quote }}
   {{- end }}
@@ -33,5 +177,6 @@ data:
   {{- end }}
   {{- if and .Values.auth.google .Values.auth.google.allowedDomain }}
   GOOGLE_ALLOWED_DOMAIN: {{ .Values.auth.google.allowedDomain | quote }}
+  {{- end }}
   {{- end }}
   {{- end }}

@@ -4,12 +4,52 @@ import logging
 import os
 from typing import Any
 
+import httpx
 import jwt
 from jwt import PyJWKClient
 
 from .context import RequestContext
 
 logger = logging.getLogger(__name__)
+
+
+# Asymmetric only: an HS* algorithm would let anyone holding the public client id forge tokens.
+ACCEPTED_ALGORITHMS = [
+    "RS256",
+    "RS384",
+    "RS512",
+    "PS256",
+    "PS384",
+    "PS512",
+    "ES256",
+    "ES384",
+    "ES512",
+]
+DISCOVERY_TIMEOUT_SECONDS = 10.0
+
+_discovered_jwks_uris: dict[str, str] = {}
+
+
+def discover_jwks_uri(issuer: str) -> str:
+    """The issuer's ``jwks_uri`` from ``/.well-known/openid-configuration`` (cached)."""
+    issuer = issuer.rstrip("/")
+    cached = _discovered_jwks_uris.get(issuer)
+    if cached:
+        return cached
+    try:
+        response = httpx.get(
+            f"{issuer}/.well-known/openid-configuration",
+            timeout=DISCOVERY_TIMEOUT_SECONDS,
+            headers={"Accept": "application/json"},
+        )
+        response.raise_for_status()
+        document = response.json()
+    except (httpx.HTTPError, ValueError) as err:
+        raise JWTValidationError(f"OIDC discovery failed for {issuer}: {err}") from err
+    if str(document.get("issuer", "")).rstrip("/") != issuer or not document.get("jwks_uri"):
+        raise JWTValidationError("OIDC discovery document does not match the configured issuer")
+    _discovered_jwks_uris[issuer] = str(document["jwks_uri"])
+    return _discovered_jwks_uris[issuer]
 
 
 class JWTValidationError(Exception):
@@ -40,6 +80,10 @@ class JWTValidator:
         if self.public_key:
             return self.public_key
 
+        if self._jwks_client is None and self.issuer:
+            # Only an issuer is configured: find its keys through OIDC discovery.
+            self._jwks_client = PyJWKClient(discover_jwks_uri(self.issuer))
+
         if self._jwks_client:
             signing_key = self._jwks_client.get_signing_key_from_jwt(token)
             return signing_key.key
@@ -59,7 +103,7 @@ class JWTValidator:
             claims = jwt.decode(
                 token,
                 key=key,
-                algorithms=["RS256"],
+                algorithms=ACCEPTED_ALGORITHMS,
                 audience=self.audience if self.audience else None,
                 issuer=self.issuer if self.issuer else None,
                 options=options,

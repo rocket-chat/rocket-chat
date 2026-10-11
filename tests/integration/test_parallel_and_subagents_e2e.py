@@ -72,7 +72,7 @@ async def test_e2e_parallel_tool_streaming_over_websocket() -> None:
     session_store = InMemorySessionStore()
     session_store._sessions[session_id] = SessionRecord(
         session_id=session_id,
-        tenant_org_id="org_default",
+        tenant_org_id="default_org",
         tenant_user_id="user_e2e",
         title="Parallel Tool E2E Test",
     )
@@ -185,7 +185,7 @@ async def test_e2e_subagent_delegation_streaming_over_websocket() -> None:
     session_store = InMemorySessionStore()
     session_store._sessions[session_id] = SessionRecord(
         session_id=session_id,
-        tenant_org_id="org_default",
+        tenant_org_id="default_org",
         tenant_user_id="user_e2e",
         title="Subagent E2E Test",
     )
@@ -232,7 +232,7 @@ async def test_e2e_subagent_delegation_streaming_over_websocket() -> None:
 
 
 @pytest.mark.asyncio
-async def test_e2e_mcp_multi_scheme_write_only_secrets() -> None:
+async def test_e2e_mcp_multi_scheme_write_only_secrets(fake_mcp_servers: object) -> None:
     """Verifies full lifecycle of multi-scheme MCP server registration with write-only secrets."""
     client = TestClient(app)
 

@@ -1,0 +1,129 @@
+"""The per-turn collaborators the agent's tools call back into (sandbox, KB, skills, GitHub)."""
+
+from __future__ import annotations
+
+from typing import Any
+
+from api.services.git_credentials import GitCredentialBundle
+from api.services.knowledge import search_knowledge
+from api.services.mcp_runtime import McpToolProvider
+from api.services.process_tracker import ProcessTracker
+from api.services.settings import effective_settings
+from api.services.skills import test_skill_execution
+from api.services.skills_lookup import _find_visible_skill
+from api.services.subagents import load_subagent_configs
+from api.turns.context import TurnContext
+from api.turns.provisioning import provision_session_sandbox, run_repository_setup
+from specifications.interfaces.agent import GithubAccess, TurnCallbacks
+from specifications.interfaces.events import EventType, SessionEvent
+from specifications.interfaces.session import SessionRecord
+
+
+async def build_turn_callbacks(
+    ctx: TurnContext, git_bundle: GitCredentialBundle, mcp_tools: McpToolProvider | None
+) -> TurnCallbacks:
+    """Bind this turn's tools to its session, organization and credentials."""
+    req, session, binding = ctx.req, ctx.session, ctx.binding
+    store, event_bus, db_mgr, driver = req.store, req.event_bus, req.db_mgr, req.driver
+
+    async def ensure_sandbox(target_session_id: str) -> None:
+        assert driver is not None
+        await provision_session_sandbox(
+            store=store,
+            driver=driver,
+            event_bus=event_bus,
+            db_mgr=db_mgr,
+            git_engine=req.git_engine,
+            session_id=target_session_id,
+            binding=binding,
+            egress_allowed_cidrs=ctx.governance.egress.allowed_cidrs,
+            block_internal_subnets=ctx.governance.egress.block_internal_subnets,
+            fallback_user=session.tenant_user_id,
+            fallback_org=session.tenant_org_id,
+        )
+
+    async def rename(target_session_id: str, new_title: str) -> None:
+
+        def set_title(record: SessionRecord) -> None:
+            record.title = new_title
+
+        if await store.mutate_session(target_session_id, session.tenant_org_id, set_title):
+            await event_bus.publish(
+                SessionEvent(
+                    session_id=target_session_id,
+                    event_type=EventType.SESSION_UPDATED,
+                    payload={"title": new_title, "session_id": target_session_id},
+                )
+            )
+
+    async def kb_search(query: str, kb_id: str | None = None, limit: int = 5) -> str:
+        if not db_mgr:
+            return f"No knowledge base entries matched '{query}'."
+        async with db_mgr.session(tenant_org_id=session.tenant_org_id) as db_session:
+            return await search_knowledge(
+                db_session,
+                org_id=session.tenant_org_id,
+                user_id=session.tenant_user_id,
+                query_text=query,
+                kb_ref=kb_id,
+                limit=limit,
+                allowed_kb_ids=binding.knowledge_base_ids,
+            )
+
+    async def github_access() -> GithubAccess:
+        return GithubAccess(
+            token=git_bundle.token,
+            api_url=req.git_engine.settings.github_api_url
+            if req.git_engine
+            else "https://api.github.com",
+        )
+
+    async def execute_skill(skill_name: str, args: dict[str, Any]) -> str:
+        skill = await _find_visible_skill(
+            db_mgr,
+            session.tenant_org_id,
+            session.tenant_user_id,
+            skill_name,
+            allowed_ids=binding.skill_ids,
+        )
+        if skill is None:
+            return f"Skill '{skill_name}' not found."
+        if skill.runtime == "python" and skill.code:
+            ok, out, _, _ = await test_skill_execution(
+                driver, ctx.session_id, skill_name, skill.code, args
+            )
+            return out if ok else f"Skill execution error: {out}"
+        return skill.body or f"Skill '{skill_name}' has no content."
+
+    async def repository_cloned(target_session_id: str, folder: str) -> str | None:
+        assert driver is not None
+        sandbox_cfg = await effective_settings(db_mgr, session.tenant_org_id, "sandboxes")
+        if not sandbox_cfg.get("run_repo_setup"):
+            return None
+        return await run_repository_setup(driver, target_session_id, folder, event_bus)
+
+    sandbox_settings = await effective_settings(db_mgr, session.tenant_org_id, "sandboxes")
+
+    async def processes_changed(target_session_id: str) -> None:
+        await ProcessTracker.for_app(db_mgr, event_bus).refresh(
+            target_session_id,
+            session.tenant_org_id,
+            driver,
+            keepalive_seconds=float(sandbox_settings["process_keepalive_minutes"]) * 60,
+        )
+
+    # Long-term memory is bound once at composition time
+    # (`bind_context_memory_callbacks` in main.py); it resolves the tenant from the turn's
+    # execution context, so every path (web, Slack, webhooks) shares it.
+    return TurnCallbacks(
+        ensure_sandbox=ensure_sandbox if driver else None,
+        rename=rename,
+        kb_search=kb_search,
+        execute_skill=execute_skill,
+        external_tools=mcp_tools,
+        github_access=github_access,
+        repository_cloned=repository_cloned if driver else None,
+        processes_changed=processes_changed if driver else None,
+        max_background_processes=int(sandbox_settings["max_background_processes"]),
+        subagent_configs=await load_subagent_configs(db_mgr, session.tenant_org_id),
+    )

@@ -1,0 +1,14 @@
+{
+  "type": "block_actions",
+  "user": {"id": "U1", "username": "alice", "team_id": "T1"},
+  "api_app_id": "A1",
+  "token": "verification-token",
+  "container": {"type": "message", "message_ts": "9.9", "channel_id": "C1", "thread_ts": "1700000000.000100"},
+  "trigger_id": "TRIGGER_STOP_1",
+  "team": {"id": "T1", "domain": "acme"},
+  "channel": {"id": "C1", "name": "builds"},
+  "response_url": "https://hooks.slack.test/actions/T1/1/abc",
+  "actions": [
+    {"action_id": "stop_turn", "block_id": "b1", "text": {"type": "plain_text", "text": "Stop"}, "value": "slack_C1_1700000000_000100", "style": "danger", "type": "button", "action_ts": "1700000500.000600"}
+  ]
+}

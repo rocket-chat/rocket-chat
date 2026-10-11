@@ -492,3 +492,271 @@ async def test_evicted_pod_recovery_as_hibernated(mock_clients, spec):
     )
     # Verified new pod was created
     core_v1.create_namespaced_pod.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_pod_security_hardening(mock_clients, spec):
+    core_v1, ws_core_v1 = mock_clients
+    driver = K8sSandboxDriver(
+        namespace="agent-sandboxes",
+        core_v1_api=core_v1,
+        ws_core_v1_api=ws_core_v1,
+    )
+
+    core_v1.read_namespaced_persistent_volume_claim.return_value = MagicMock()
+    mock_running_pod = MagicMock()
+    mock_running_pod.status.phase = "Running"
+    mock_running_pod.spec.node_name = "k8s-node-1"
+    core_v1.read_namespaced_pod.side_effect = [
+        ApiException(status=404),
+        mock_running_pod,
+    ]
+
+    await driver.start_sandbox(spec.session_id)
+
+    pod_manifest = core_v1.create_namespaced_pod.call_args[1]["body"]
+    assert pod_manifest.spec.automount_service_account_token is False
+    # PID 1 of the container is `tail`, which never reaps children; the pause container must.
+    assert pod_manifest.spec.share_process_namespace is True
+
+    container = pod_manifest.spec.containers[0]
+    assert container.security_context is not None
+    assert container.security_context.allow_privilege_escalation is False
+    assert "NET_RAW" in container.security_context.capabilities.drop
+    assert "SYS_ADMIN" in container.security_context.capabilities.drop
+    assert container.security_context.seccomp_profile.type == "RuntimeDefault"
+
+
+async def _started_pod(core_v1, ws_core_v1, spec, **env):
+    driver = K8sSandboxDriver(
+        namespace="agent-sandboxes", core_v1_api=core_v1, ws_core_v1_api=ws_core_v1
+    )
+    core_v1.read_namespaced_persistent_volume_claim.return_value = MagicMock()
+    running = MagicMock()
+    running.status.phase = "Running"
+    running.spec.node_name = "node-1"
+    core_v1.read_namespaced_pod.side_effect = [ApiException(status=404), running]
+    await driver.ensure_workspace(spec)
+    await driver.start_sandbox(spec.session_id)
+    return core_v1.create_namespaced_pod.call_args[1]["body"]
+
+
+@pytest.mark.asyncio
+async def test_non_root_sandbox_drops_all_capabilities_and_sets_fs_group(mock_clients, spec):
+    spec.require_non_root = True
+    pod = await _started_pod(*mock_clients, spec)
+
+    assert pod.spec.security_context.run_as_non_root is True
+    assert pod.spec.security_context.run_as_user == 1000
+    assert pod.spec.security_context.fs_group == 1000
+    assert pod.spec.containers[0].security_context.capabilities.drop == ["ALL"]
+
+
+@pytest.mark.asyncio
+async def test_default_sandbox_does_not_force_a_user_but_keeps_the_volume_writable(
+    mock_clients, spec
+):
+    pod = await _started_pod(*mock_clients, spec)
+
+    # The devbox image runs as uid 1000 by itself; its volume must be group-writable for it.
+    assert pod.spec.security_context.fs_group == 1000
+    assert pod.spec.security_context.run_as_non_root is None
+    assert pod.spec.security_context.run_as_user is None
+    assert pod.spec.runtime_class_name is None
+    assert "SYS_ADMIN" in pod.spec.containers[0].security_context.capabilities.drop
+
+
+@pytest.mark.asyncio
+async def test_runtime_class_comes_from_the_environment(mock_clients, spec, monkeypatch):
+    monkeypatch.setenv("K8S_SANDBOX_RUNTIME_CLASS", "gvisor")
+    pod = await _started_pod(*mock_clients, spec)
+
+    assert pod.spec.runtime_class_name == "gvisor"
+
+
+@pytest.mark.asyncio
+async def test_workspace_purge_is_off_by_default(mock_clients, spec):
+    import time
+
+    core_v1, ws_core_v1 = mock_clients
+    driver = K8sSandboxDriver(
+        namespace="agent-sandboxes", core_v1_api=core_v1, ws_core_v1_api=ws_core_v1
+    )
+    driver._last_activity[spec.session_id] = time.time() - 10 * 86400
+    core_v1.read_namespaced_pod.side_effect = ApiException(status=404)
+
+    assert await driver.cleanup_inactive_sandboxes() == []
+    core_v1.delete_namespaced_persistent_volume_claim.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_purge_never_touches_the_workspace_of_a_live_session(mock_clients, spec):
+    import time
+
+    core_v1, ws_core_v1 = mock_clients
+    driver = K8sSandboxDriver(
+        namespace="agent-sandboxes", core_v1_api=core_v1, ws_core_v1_api=ws_core_v1
+    )
+    driver._last_activity[spec.session_id] = time.time() - 4000.0
+    core_v1.read_namespaced_pod.side_effect = ApiException(status=404)
+    core_v1.read_namespaced_persistent_volume_claim.return_value = MagicMock()
+
+    async def live(_session_id: str) -> bool:
+        return True
+
+    assert await driver.cleanup_inactive_sandboxes(threshold_seconds=3600, is_live=live) == []
+    core_v1.delete_namespaced_persistent_volume_claim.assert_not_called()
+
+    async def gone(_session_id: str) -> bool:
+        return False
+
+    assert await driver.cleanup_inactive_sandboxes(threshold_seconds=3600, is_live=gone) == [
+        spec.session_id
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pods_that_outlive_a_restart_are_adopted_for_idle_tracking(mock_clients):
+    core_v1, ws_core_v1 = mock_clients
+    driver = K8sSandboxDriver(
+        namespace="agent-sandboxes", core_v1_api=core_v1, ws_core_v1_api=ws_core_v1
+    )
+    pod = MagicMock()
+    pod.metadata.labels = {"agent.session.id": "sess-old"}
+    core_v1.list_namespaced_pod = AsyncMock(return_value=MagicMock(items=[pod]))
+    core_v1.list_namespaced_persistent_volume_claim = AsyncMock(return_value=MagicMock(items=[]))
+
+    await driver.adopt_existing_sandboxes()
+
+    assert "sess-old" in driver._last_activity
+    selector = core_v1.list_namespaced_pod.call_args.kwargs["label_selector"]
+    assert selector == "app.kubernetes.io/managed-by=rocket-chat"
+
+
+@pytest.mark.asyncio
+async def test_hibernated_workspaces_without_a_pod_are_adopted_for_reaping(mock_clients):
+    core_v1, ws_core_v1 = mock_clients
+    driver = K8sSandboxDriver(
+        namespace="agent-sandboxes", core_v1_api=core_v1, ws_core_v1_api=ws_core_v1
+    )
+    claim = MagicMock()
+    claim.metadata.labels = {"agent.session.id": "sess-hibernated"}
+    core_v1.list_namespaced_pod = AsyncMock(return_value=MagicMock(items=[]))
+    core_v1.list_namespaced_persistent_volume_claim = AsyncMock(
+        return_value=MagicMock(items=[claim])
+    )
+
+    await driver.adopt_existing_sandboxes()
+
+    assert "sess-hibernated" in driver._last_activity
+
+
+def test_exec_output_routes_each_channel_and_reads_the_exit_status() -> None:
+    from sandbox_driver.k8s_driver import _ExecOutput
+
+    seen: list[str] = []
+    output = _ExecOutput(seen.append)
+
+    output.feed(bytes([ws_client.STDOUT_CHANNEL]) + b"out ")
+    output.feed(chr(ws_client.STDOUT_CHANNEL) + "more")
+    output.feed(bytes([ws_client.STDERR_CHANNEL]) + b"warn")
+    output.feed(None)
+    output.feed(b"")
+    output.feed(bytes([ws_client.ERROR_CHANNEL]) + b'{"status":"Success"}')
+
+    assert output.stdout.text() == "out more" and seen == ["out ", "more"]
+    assert output.stderr.text() == "warn"
+    assert output.exit_code == 0
+
+
+def test_exec_output_reports_a_failing_exit_code_and_survives_garbage() -> None:
+    from sandbox_driver.k8s_driver import _ExecOutput
+
+    output = _ExecOutput(None)
+    failure = (
+        b'{"status":"Failure","reason":"NonZeroExitCode",'
+        b'"details":{"causes":[{"reason":"ExitCode","message":"3"}]}}'
+    )
+
+    output.feed(bytes([ws_client.ERROR_CHANNEL]) + failure)
+    assert output.exit_code == 3
+
+    output.feed(bytes([ws_client.ERROR_CHANNEL]) + b"not json")
+    assert output.exit_code == 3
+
+
+def _pod_waiting(reason: str, message: str = "") -> MagicMock:
+    pod = MagicMock()
+    pod.status.phase = "Pending"
+    pod.status.reason = None
+    pod.metadata.deletion_timestamp = None
+    container = MagicMock()
+    container.image = "ghcr.io/acme/sandbox:latest"
+    container.state.waiting.reason = reason
+    container.state.waiting.message = message
+    pod.status.container_statuses = [container]
+    return pod
+
+
+@pytest.mark.asyncio
+async def test_an_image_that_cannot_be_pulled_fails_fast_and_names_the_image(mock_clients, spec):
+    from sandbox_driver.exceptions import SandboxStartError
+
+    core_v1, ws_core_v1 = mock_clients
+    driver = K8sSandboxDriver(core_v1_api=core_v1, ws_core_v1_api=ws_core_v1)
+    core_v1.read_namespaced_persistent_volume_claim.return_value = MagicMock()
+    core_v1.read_namespaced_pod.side_effect = [
+        ApiException(status=404),
+        _pod_waiting("ImagePullBackOff", "failed to authorize: 403 Forbidden"),
+    ]
+
+    with pytest.raises(SandboxStartError) as failure:
+        await driver.start_sandbox(spec.session_id)
+
+    message = str(failure.value)
+    assert "ImagePullBackOff" in message and "ghcr.io/acme/sandbox:latest" in message
+    assert "403 Forbidden" in message and "Settings > Organization > Sandboxes" in message
+
+
+@pytest.mark.asyncio
+async def test_a_pod_that_failed_to_start_is_removed_so_a_retry_gets_a_fresh_one(
+    mock_clients, spec
+):
+    from sandbox_driver.exceptions import SandboxStartError
+
+    core_v1, ws_core_v1 = mock_clients
+    driver = K8sSandboxDriver(core_v1_api=core_v1, ws_core_v1_api=ws_core_v1)
+    core_v1.read_namespaced_persistent_volume_claim.return_value = MagicMock()
+    core_v1.read_namespaced_pod.side_effect = [
+        ApiException(status=404),
+        _pod_waiting("InvalidImageName"),
+    ]
+
+    with pytest.raises(SandboxStartError):
+        await driver.start_sandbox(spec.session_id)
+
+    core_v1.delete_namespaced_pod.assert_awaited_once()
+    assert core_v1.delete_namespaced_pod.call_args.kwargs["name"] == driver._pod_name(
+        spec.session_id
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_first_pull_error_is_given_time_to_clear(mock_clients, spec):
+    core_v1, ws_core_v1 = mock_clients
+    driver = K8sSandboxDriver(core_v1_api=core_v1, ws_core_v1_api=ws_core_v1)
+    core_v1.read_namespaced_persistent_volume_claim.return_value = MagicMock()
+    running = MagicMock()
+    running.status.phase = "Running"
+    running.status.container_statuses = []
+    running.spec.node_name = "node-1"
+    running.metadata.deletion_timestamp = None
+    core_v1.read_namespaced_pod.side_effect = [
+        ApiException(status=404),
+        _pod_waiting("ErrImagePull", "temporary registry error"),
+        running,
+    ]
+
+    await driver.start_sandbox(spec.session_id)
+
+    core_v1.delete_namespaced_pod.assert_not_awaited()

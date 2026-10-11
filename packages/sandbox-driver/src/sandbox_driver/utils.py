@@ -3,8 +3,11 @@
 import io
 import os
 import re
+import shlex
 import tarfile
 import time
+
+from specifications.interfaces.sandbox import FileStat
 
 
 def normalize_workspace_path(path: str, default_root: str = "/workspace") -> str:
@@ -70,41 +73,124 @@ def extract_file_from_tar(tar_bytes: bytes, target_filename: str) -> str:
     raise FileNotFoundError(f"Target file {target_filename} not found in archive")
 
 
-def build_list_files_command(target_dir: str, max_depth: int) -> str:
-    """Build a standalone python command to list directory tree with metadata."""
-    import base64
-    import json
+# One base64 argument must stay well below the kernel's per-argument limit (128 KiB on Linux).
+WRITE_CHUNK_CHARS = 64_000
 
-    script = (
-        "import json, os, sys\n"
-        f"root = {json.dumps(target_dir)}\n"
-        f"max_depth = {max_depth}\n"
-        "results = []\n"
-        "if os.path.exists(root):\n"
-        "    if not os.path.isdir(root):\n"
-        "        st = os.stat(root)\n"
-        "        results.append({'path': root, 'is_dir': False, 'size_bytes': st.st_size, 'modified_at': int(st.st_mtime)})\n"
-        "    else:\n"
-        "        for dirpath, dirnames, filenames in os.walk(root):\n"
-        "            rel = os.path.relpath(dirpath, root)\n"
-        "            depth = 0 if rel == '.' else rel.count(os.sep) + 1\n"
-        "            if depth >= max_depth:\n"
-        "                dirnames.clear()\n"
-        "            for d in sorted(dirnames):\n"
-        "                full_p = os.path.join(dirpath, d)\n"
-        "                try:\n"
-        "                    st = os.stat(full_p)\n"
-        "                    results.append({'path': full_p, 'is_dir': True, 'size_bytes': st.st_size, 'modified_at': int(st.st_mtime)})\n"
-        "                except OSError:\n"
-        "                    pass\n"
-        "            for f in sorted(filenames):\n"
-        "                full_p = os.path.join(dirpath, f)\n"
-        "                try:\n"
-        "                    st = os.stat(full_p)\n"
-        "                    results.append({'path': full_p, 'is_dir': False, 'size_bytes': st.st_size, 'modified_at': int(st.st_mtime)})\n"
-        "                except OSError:\n"
-        "                    pass\n"
-        "print(json.dumps(results))\n"
+SANDBOX_UID = 1000
+SANDBOX_UID_GID = f"{SANDBOX_UID}:{SANDBOX_UID}"
+_DEFAULT_DROPPED_CAPABILITIES = ["NET_RAW", "SYS_ADMIN", "SYS_PTRACE", "DAC_READ_SEARCH"]
+
+
+def sandbox_dropped_capabilities(require_non_root: bool) -> list[str]:
+    """Capabilities to drop: everything for unprivileged sandboxes, the risky set otherwise."""
+    return ["ALL"] if require_non_root else list(_DEFAULT_DROPPED_CAPABILITIES)
+
+
+_STAT_FORMAT = "%F|%s|%Y|%n"
+
+
+def build_list_files_command(target_dir: str, max_depth: int) -> str:
+    """List a tree with POSIX tools only (find + stat), so minimal images need no interpreter."""
+    root = shlex.quote(target_dir)
+    stat = f"stat -c '{_STAT_FORMAT}'"
+    return (
+        f"if [ -d {root} ]; then "
+        f"find {root} -mindepth 1 -maxdepth {int(max_depth)} -exec {stat} {{}} +; "
+        f"elif [ -e {root} ]; then {stat} {root}; fi"
     )
-    b64_script = base64.b64encode(script.encode("utf-8")).decode("ascii")
-    return f"python3 -c \"import base64; exec(base64.b64decode('{b64_script}'))\""
+
+
+def parse_list_files_output(stdout: str) -> list[FileStat]:
+    """Parse ``build_list_files_command`` output, sorted by path."""
+    entries: list[FileStat] = []
+    for line in stdout.splitlines():
+        if not line:
+            continue
+        kind, size, mtime, path = line.split("|", 3)
+        entries.append(
+            FileStat(
+                path=path,
+                is_dir=kind == "directory",
+                size_bytes=int(size),
+                modified_at=int(mtime),
+            )
+        )
+    return sorted(entries, key=lambda entry: entry.path)
+
+
+def build_read_file_command(target_path: str) -> str:
+    """Emit the file base64-encoded on one line; exit 2 when it does not exist."""
+    quoted = shlex.quote(target_path)
+    return f"test -f {quoted} || exit 2; base64 < {quoted} | tr -d '\\n'"
+
+
+def build_write_file_commands(target_path: str, content: bytes) -> list[str]:
+    """Commands that create ``target_path`` from ``content`` in bounded-size pieces."""
+    import base64
+
+    quoted = shlex.quote(target_path)
+    parent = shlex.quote(os.path.dirname(target_path) or "/")
+    commands = [f"mkdir -p {parent} && : > {quoted}"]
+    encoded = base64.b64encode(content).decode("ascii")
+    for start in range(0, len(encoded), WRITE_CHUNK_CHARS):
+        chunk = encoded[start : start + WRITE_CHUNK_CHARS]
+        commands.append(f"printf %s {chunk} | base64 -d >> {quoted}")
+    return commands
+
+
+# Exit status of a process killed by SIGKILL (128 + 9), which is what the deadline wrapper sends.
+KILLED_EXIT_CODE = 137
+# The client-side wait only backstops the in-sandbox deadline, so it must outlast it.
+CLIENT_DEADLINE_MARGIN_SECONDS = 10
+MAX_CAPTURED_CHARS = 1_000_000
+
+
+def wrap_with_deadline(command: str, timeout_seconds: int) -> str:
+    """Run ``command`` under ``timeout -s KILL`` so a hung process dies inside the sandbox.
+
+    Cancelling only the client side would leave the process running (and holding the
+    sandbox's CPU) after the caller was told it timed out. Images without ``timeout`` run
+    the command unwrapped, which keeps the previous behaviour.
+    """
+    quoted = shlex.quote(command)
+    return (
+        "if command -v timeout >/dev/null 2>&1; "
+        f"then exec timeout -s KILL {int(timeout_seconds)} sh -c {quoted}; "
+        f"else exec sh -c {quoted}; fi"
+    )
+
+
+def hit_deadline(exit_code: int, elapsed_seconds: float, timeout_seconds: int) -> bool:
+    """True when a command was killed by ``wrap_with_deadline`` rather than failing itself."""
+    return exit_code == KILLED_EXIT_CODE and elapsed_seconds >= timeout_seconds - 1
+
+
+class BoundedOutput:
+    """Collects process output keeping the start and the end, so memory stays bounded.
+
+    Startup noise and the final stack trace are the diagnostic parts; the middle of a runaway
+    log is what gets dropped.
+    """
+
+    def __init__(self, limit: int = MAX_CAPTURED_CHARS) -> None:
+        self._half = limit // 2
+        self._head = ""
+        self._tail = ""
+        self._dropped = 0
+
+    def append(self, chunk: str) -> None:
+        room = self._half - len(self._head)
+        if room > 0:
+            self._head += chunk[:room]
+            chunk = chunk[room:]
+        if not chunk:
+            return
+        self._tail += chunk
+        if len(self._tail) > self._half:
+            self._dropped += len(self._tail) - self._half
+            self._tail = self._tail[-self._half :]
+
+    def text(self) -> str:
+        if not self._dropped:
+            return self._head + self._tail
+        return f"{self._head}\n[... {self._dropped} characters of output dropped ...]\n{self._tail}"

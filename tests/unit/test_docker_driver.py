@@ -1,5 +1,6 @@
 """Unit tests for DockerSandboxDriver and helper utilities using mocks."""
 
+import asyncio
 from unittest.mock import MagicMock
 
 import docker.errors
@@ -120,25 +121,135 @@ async def test_destroy_workspace_removes_container_and_volume() -> None:
     assert status == SandboxStatus.DESTROYED
 
 
-@pytest.mark.asyncio
-async def test_exec_command_timeout() -> None:
+def _running_driver() -> DockerSandboxDriver:
     mock_client = MagicMock()
     mock_container = MagicMock()
     mock_container.status = "running"
     mock_container.id = "mock_ctr_id"
     mock_client.containers.get.return_value = mock_container
+    return DockerSandboxDriver(client=mock_client)
 
-    driver = DockerSandboxDriver(client=mock_client)
-    # Simulate a hanging operation in thread
-    import time
 
-    driver._sync_stream_exec = MagicMock(side_effect=lambda *args, **kwargs: time.sleep(1))  # type: ignore[method-assign]
+@pytest.mark.asyncio
+async def test_command_killed_by_the_in_sandbox_deadline_is_a_timeout() -> None:
+    driver = _running_driver()
+    seen: list[str] = []
+
+    def killed(_cid: str, command: str, *_args: object) -> tuple[int, str, str]:
+        seen.append(command)
+        return 137, "", ""
+
+    driver._sync_stream_exec = killed  # type: ignore[method-assign]
 
     from sandbox_driver.exceptions import SandboxTimeoutError
 
     with pytest.raises(SandboxTimeoutError):
-        await driver.exec_command(
-            session_id="test_timeout",
-            command="sleep 10",
-            timeout_seconds=0,
-        )
+        await driver.exec_command(session_id="t", command="sleep 10", timeout_seconds=0)
+    assert "timeout -s KILL" in seen[0], "the deadline is enforced inside the sandbox"
+
+
+@pytest.mark.asyncio
+async def test_client_side_backstop_fires_when_the_stream_never_returns(monkeypatch) -> None:
+    import time
+
+    import sandbox_driver.docker_driver as module
+
+    monkeypatch.setattr(module, "CLIENT_DEADLINE_MARGIN_SECONDS", 0)
+    driver = _running_driver()
+    driver._sync_stream_exec = MagicMock(side_effect=lambda *a, **k: time.sleep(1))  # type: ignore[method-assign]
+
+    from sandbox_driver.exceptions import SandboxTimeoutError
+
+    with pytest.raises(SandboxTimeoutError):
+        await driver.exec_command(session_id="t", command="sleep 10", timeout_seconds=0)
+
+
+@pytest.mark.asyncio
+async def test_start_sandbox_security_hardening() -> None:
+    mock_client = MagicMock()
+    mock_client.containers.get.side_effect = docker.errors.NotFound("Not found")
+    mock_client.images.get.return_value = MagicMock()
+
+    driver = DockerSandboxDriver(client=mock_client)
+    spec = WorkspaceSpec(
+        session_id="test_sec_1",
+        tenant_org_id="org_sec",
+        tenant_user_id="user_sec",
+        container_image="python:3.12-slim",
+        resources=ResourceLimits(cpu_cores=1.0, memory_limit="2Gi"),
+    )
+
+    await driver.ensure_workspace(spec)
+    await driver.start_sandbox("test_sec_1")
+
+    mock_client.containers.run.assert_called_once()
+    kwargs = mock_client.containers.run.call_args[1]
+    assert kwargs["pids_limit"] == 256
+    assert "NET_RAW" in kwargs["cap_drop"]
+    assert "SYS_ADMIN" in kwargs["cap_drop"]
+    assert "no-new-privileges:true" in kwargs["security_opt"]
+
+
+def _api_error(status_code: int) -> docker.errors.APIError:
+    response = MagicMock()
+    response.status_code = status_code
+    return docker.errors.APIError("docker api error", response=response)
+
+
+def _client_without_container() -> MagicMock:
+    client = MagicMock()
+    client.containers.get.side_effect = docker.errors.NotFound("absent")
+    client.images.get.return_value = MagicMock()
+    client.containers.run.return_value = MagicMock()
+    return client
+
+
+@pytest.mark.asyncio
+async def test_start_sandbox_reuses_an_existing_container_name_on_409() -> None:
+    """A 409 conflict means a concurrent creator won the name; reuse it silently."""
+    client = _client_without_container()
+    client.containers.run.side_effect = _api_error(409)
+    driver = DockerSandboxDriver(client=client)
+
+    await driver.start_sandbox("session_conflict")
+
+    assert client.containers.run.called
+
+
+@pytest.mark.asyncio
+async def test_start_sandbox_propagates_other_api_errors() -> None:
+    """Non-409 Docker failures must not be swallowed."""
+    client = _client_without_container()
+    client.containers.run.side_effect = _api_error(500)
+    driver = DockerSandboxDriver(client=client)
+
+    with pytest.raises(docker.errors.APIError):
+        await driver.start_sandbox("session_broken")
+
+
+@pytest.mark.asyncio
+async def test_concurrent_starts_create_exactly_one_container() -> None:
+    """Per-session locking prevents the check-then-create race entirely."""
+    client = _client_without_container()
+    running = MagicMock()
+    running.status = "running"
+    client.containers.get.side_effect = None
+    client.containers.get.return_value = running
+
+    fresh_client = _client_without_container()
+    created: list[str] = []
+
+    def _run(**kwargs: object) -> MagicMock:
+        created.append(str(kwargs.get("name")))
+        fresh_client.containers.get.side_effect = None
+        fresh_client.containers.get.return_value = running
+        return MagicMock()
+
+    fresh_client.containers.run.side_effect = _run
+    driver = DockerSandboxDriver(client=fresh_client)
+
+    await asyncio.gather(*(driver.start_sandbox("session_race") for _ in range(3)))
+
+    assert created == ["sandbox_ctr_session_race"]
+    assert fresh_client.containers.get.call_count >= 1
+    assert fresh_client.containers.run.call_count == 1

@@ -1,18 +1,25 @@
 """Docker Sandbox Driver implementing SandboxDriverProtocol for local execution."""
 
 import asyncio
-import base64
+import contextlib
 import io
-import json
 import logging
 import os
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
+from typing import Any
 
 import docker
 import docker.errors
 import docker.models.containers
 
+from sandbox_driver.blocking import run_blocking
+from sandbox_driver.docker_egress import (
+    POLICY_LABEL,
+    ensure_egress,
+    is_restricted,
+    remove_unused_proxies,
+)
 from sandbox_driver.exceptions import (
     SandboxError,
     SandboxExecutionError,
@@ -21,24 +28,37 @@ from sandbox_driver.exceptions import (
     SandboxTimeoutError,
 )
 from sandbox_driver.patcher import apply_unified_diff
+from sandbox_driver.pty import SHELL_LAUNCHER, DockerPty
+from sandbox_driver.session_env import SessionEnvMixin
+from sandbox_driver.tracing import traced_exec
 from sandbox_driver.utils import (
+    CLIENT_DEADLINE_MARGIN_SECONDS,
+    SANDBOX_UID_GID,
+    BoundedOutput,
+    build_list_files_command,
     create_tar_archive,
     extract_file_from_tar,
+    hit_deadline,
     normalize_workspace_path,
+    parse_list_files_output,
     parse_memory_to_bytes,
+    sandbox_dropped_capabilities,
+    wrap_with_deadline,
 )
 from specifications.interfaces.sandbox import (
     ExecResult,
     FileStat,
+    PtyChannel,
     SandboxDriverProtocol,
     SandboxStatus,
+    SessionLivenessCheck,
     WorkspaceSpec,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class DockerSandboxDriver(SandboxDriverProtocol):
+class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
     """Manages ephemeral Docker containers attached to persistent named volumes."""
 
     def __init__(
@@ -50,6 +70,36 @@ class DockerSandboxDriver(SandboxDriverProtocol):
         self.default_image: str = default_image
         self._specs: dict[str, WorkspaceSpec] = {}
         self._destroyed_sessions: set[str] = set()
+        self.inactivity_pause_seconds: float = float(
+            os.getenv("SANDBOX_INACTIVITY_PAUSE_SECONDS", "1800.0")
+        )
+        self.inactivity_cleanup_seconds: float = float(
+            os.getenv("SANDBOX_INACTIVITY_CLEANUP_SECONDS", "0")
+        )
+        self._last_activity: dict[str, float] = {}
+        self._held_until: dict[str, float] = {}
+        # Serialises container lifecycle operations per session. Without it, two
+        # concurrent turns on the same session can both observe "container absent"
+        # and race into `containers.run(name=...)`, where the loser gets a 409.
+        self._lifecycle_locks: dict[str, asyncio.Lock] = {}
+
+    def _lifecycle_lock(self, session_id: str) -> asyncio.Lock:
+        """Return the per-session lifecycle lock, creating it on first use."""
+        lock = self._lifecycle_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._lifecycle_locks[session_id] = lock
+        return lock
+
+    def hold_awake(self, session_id: str, seconds: float) -> None:
+        if seconds <= 0:
+            self._held_until.pop(session_id, None)
+        else:
+            self._held_until[session_id] = time.time() + seconds
+
+    def record_activity(self, session_id: str) -> None:
+        """Mark recent interaction timestamp to reset inactivity countdown."""
+        self._last_activity[session_id] = time.time()
 
     def _get_volume_name(self, session_id: str) -> str:
         return f"sandbox_vol_{session_id}"
@@ -81,7 +131,7 @@ class DockerSandboxDriver(SandboxDriverProtocol):
                 }
                 self._client.volumes.create(name=volume_name, labels=labels)
 
-        await asyncio.to_thread(_sync_create_volume)
+        await run_blocking(_sync_create_volume)
 
     async def start_sandbox(self, session_id: str) -> None:
         spec = self._specs.get(session_id)
@@ -122,21 +172,53 @@ class DockerSandboxDriver(SandboxDriverProtocol):
                 "rocket.tenant.user": spec.tenant_user_id,
                 "rocket.managed": "true",
             }
+            environment = dict(spec.env_vars)
+            network: str | None = None
+            if is_restricted(spec):
+                # No route out except through the organization's allow-listing proxy.
+                egress = ensure_egress(self._client, spec)
+                network = egress.network
+                environment.update(egress.environment)
+                labels[POLICY_LABEL] = egress.policy_id
 
-            self._client.containers.run(
-                image=spec.container_image,
-                name=container_name,
-                command=["tail", "-f", "/dev/null"],
-                detach=True,
-                working_dir="/workspace",
-                volumes={volume_name: {"bind": "/workspace", "mode": "rw"}},
-                environment=spec.env_vars,
-                labels=labels,
-                nano_cpus=nano_cpus,
-                mem_limit=mem_bytes,
-            )
+            try:
+                self._client.containers.run(
+                    image=spec.container_image,
+                    name=container_name,
+                    command=["tail", "-f", "/dev/null"],
+                    detach=True,
+                    working_dir="/workspace",
+                    volumes={volume_name: {"bind": "/workspace", "mode": "rw"}},
+                    environment=environment,
+                    labels=labels,
+                    network=network,
+                    nano_cpus=nano_cpus,
+                    mem_limit=mem_bytes,
+                    pids_limit=256,
+                    # A real PID 1 that reaps orphans: processes agents (and MCP servers) start
+                    # and stop would otherwise linger as zombies for the life of the container.
+                    init=True,
+                    cap_drop=sandbox_dropped_capabilities(spec.require_non_root),
+                    user=SANDBOX_UID_GID if spec.require_non_root else None,
+                    security_opt=["no-new-privileges:true"],
+                )
+            except docker.errors.APIError as err:
+                # A concurrent creator (another worker, or a container left over from a
+                # previous process) already holds the name. Reusing it is correct: the
+                # name is derived from the session id, and the workspace volume is shared.
+                if getattr(err.response, "status_code", None) != 409:
+                    raise
+                logger.info(
+                    "Sandbox container %s already exists; reusing it for session %s",
+                    container_name,
+                    session_id,
+                )
 
-        await asyncio.to_thread(_sync_start)
+        # Serialise the whole check-then-create sequence: the 409 branch above is the
+        # safety net, this lock keeps us from needing it in the first place.
+        async with self._lifecycle_lock(session_id):
+            await run_blocking(_sync_start)
+        self.record_activity(session_id)
 
     async def hibernate_sandbox(self, session_id: str) -> None:
         def _sync_hibernate() -> None:
@@ -148,7 +230,7 @@ class DockerSandboxDriver(SandboxDriverProtocol):
             except docker.errors.NotFound:
                 pass
 
-        await asyncio.to_thread(_sync_hibernate)
+        await run_blocking(_sync_hibernate)
 
     async def destroy_workspace(self, session_id: str) -> None:
         def _sync_destroy() -> None:
@@ -166,7 +248,7 @@ class DockerSandboxDriver(SandboxDriverProtocol):
             except docker.errors.NotFound:
                 pass
 
-        await asyncio.to_thread(_sync_destroy)
+        await run_blocking(_sync_destroy)
         self._destroyed_sessions.add(session_id)
         self._specs.pop(session_id, None)
 
@@ -197,7 +279,7 @@ class DockerSandboxDriver(SandboxDriverProtocol):
             except Exception:
                 return SandboxStatus.ERROR
 
-        return await asyncio.to_thread(_sync_status)
+        return await run_blocking(_sync_status)
 
     def _sync_stream_exec(
         self,
@@ -211,28 +293,29 @@ class DockerSandboxDriver(SandboxDriverProtocol):
             container_id,
             cmd=["/bin/sh", "-c", command],
             workdir=workdir,
-            environment=env,
+            environment=env or None,
         )
         exec_id: str = exec_instance["Id"]
         stream = self._client.api.exec_start(exec_id, stream=True, demux=True)
 
-        stdout_chunks: list[str] = []
-        stderr_chunks: list[str] = []
+        stdout_buffer = BoundedOutput()
+        stderr_buffer = BoundedOutput()
 
         for stdout_bytes, stderr_bytes in stream:
             if stdout_bytes:
                 chunk = stdout_bytes.decode("utf-8", errors="replace")
-                stdout_chunks.append(chunk)
+                stdout_buffer.append(chunk)
                 if on_stdout_chunk:
                     on_stdout_chunk(chunk)
             if stderr_bytes:
                 chunk = stderr_bytes.decode("utf-8", errors="replace")
-                stderr_chunks.append(chunk)
+                stderr_buffer.append(chunk)
 
         inspect_data = self._client.api.exec_inspect(exec_id)
         exit_code = int(inspect_data.get("ExitCode", 0))
-        return exit_code, "".join(stdout_chunks), "".join(stderr_chunks)
+        return exit_code, stdout_buffer.text(), stderr_buffer.text()
 
+    @traced_exec
     async def exec_command(
         self,
         session_id: str,
@@ -242,7 +325,8 @@ class DockerSandboxDriver(SandboxDriverProtocol):
         env: dict[str, str] | None = None,
         on_stdout_chunk: Callable[[str], None] | None = None,
     ) -> ExecResult:
-        container = await asyncio.to_thread(self._sync_get_container, session_id)
+        self.record_activity(session_id)
+        container = await run_blocking(self._sync_get_container, session_id)
         if container is None or container.status != "running":
             raise SandboxNotFoundError(
                 f"Active sandbox container for session {session_id} not found."
@@ -255,20 +339,25 @@ class DockerSandboxDriver(SandboxDriverProtocol):
         start_time = time.monotonic()
         try:
             exit_code, stdout_str, stderr_str = await asyncio.wait_for(
-                asyncio.to_thread(
+                run_blocking(
                     self._sync_stream_exec,
                     container_id,
-                    command,
+                    wrap_with_deadline(command, timeout_seconds),
                     workdir,
-                    env,
+                    self.merged_env(session_id, env),
                     on_stdout_chunk,
                 ),
-                timeout=timeout_seconds,
+                timeout=timeout_seconds + CLIENT_DEADLINE_MARGIN_SECONDS,
             )
         except TimeoutError as err:
             raise SandboxTimeoutError(
                 f"Command timed out after {timeout_seconds} seconds: {command}"
             ) from err
+
+        if hit_deadline(exit_code, time.monotonic() - start_time, timeout_seconds):
+            raise SandboxTimeoutError(
+                f"Command timed out after {timeout_seconds} seconds: {command}"
+            )
 
         duration_ms = int((time.monotonic() - start_time) * 1000)
         return ExecResult(
@@ -285,8 +374,9 @@ class DockerSandboxDriver(SandboxDriverProtocol):
         start_line: int | None = None,
         end_line: int | None = None,
     ) -> str:
+        self.record_activity(session_id)
         target_path = normalize_workspace_path(path)
-        container = await asyncio.to_thread(self._sync_get_container, session_id)
+        container = await run_blocking(self._sync_get_container, session_id)
         if container is None or container.status != "running":
             raise SandboxNotFoundError(f"Container for session {session_id} is not running.")
 
@@ -300,7 +390,7 @@ class DockerSandboxDriver(SandboxDriverProtocol):
             except Exception as err:
                 raise SandboxFilesystemError(f"Failed reading {path}: {err}") from err
 
-        content = await asyncio.to_thread(_sync_read)
+        content = await run_blocking(_sync_read)
         if start_line is not None or end_line is not None:
             lines = content.splitlines(keepends=True)
             start_idx = max(0, start_line - 1) if (start_line is not None and start_line > 0) else 0
@@ -315,8 +405,9 @@ class DockerSandboxDriver(SandboxDriverProtocol):
         content: str,
         overwrite: bool = True,
     ) -> None:
+        self.record_activity(session_id)
         target_path = normalize_workspace_path(path)
-        container = await asyncio.to_thread(self._sync_get_container, session_id)
+        container = await run_blocking(self._sync_get_container, session_id)
         if container is None or container.status != "running":
             raise SandboxNotFoundError(f"Container for session {session_id} is not running.")
 
@@ -335,43 +426,7 @@ class DockerSandboxDriver(SandboxDriverProtocol):
             archive_bytes = create_tar_archive(filename, content.encode("utf-8"))
             container.put_archive(parent_dir, io.BytesIO(archive_bytes))
 
-        await asyncio.to_thread(_sync_write)
-
-    def _build_list_files_command(self, target_dir: str, max_depth: int) -> str:
-        script = (
-            "import json, os, sys\n"
-            f"root = {json.dumps(target_dir)}\n"
-            f"max_depth = {max_depth}\n"
-            "results = []\n"
-            "if os.path.exists(root):\n"
-            "    if not os.path.isdir(root):\n"
-            "        st = os.stat(root)\n"
-            "        results.append({'path': root, 'is_dir': False, 'size_bytes': st.st_size, 'modified_at': int(st.st_mtime)})\n"
-            "    else:\n"
-            "        for dirpath, dirnames, filenames in os.walk(root):\n"
-            "            rel = os.path.relpath(dirpath, root)\n"
-            "            depth = 0 if rel == '.' else rel.count(os.sep) + 1\n"
-            "            if depth >= max_depth:\n"
-            "                dirnames.clear()\n"
-            "            for d in sorted(dirnames):\n"
-            "                full_p = os.path.join(dirpath, d)\n"
-            "                try:\n"
-            "                    st = os.stat(full_p)\n"
-            "                    results.append({'path': full_p, 'is_dir': True, 'size_bytes': st.st_size, 'modified_at': int(st.st_mtime)})\n"
-            "                except OSError:\n"
-            "                    pass\n"
-            "            for f in sorted(filenames):\n"
-            "                full_p = os.path.join(dirpath, f)\n"
-            "                try:\n"
-            "                    st = os.stat(full_p)\n"
-            "                    results.append({'path': full_p, 'is_dir': False, 'size_bytes': st.st_size, 'modified_at': int(st.st_mtime)})\n"
-            "                except OSError:\n"
-            "                    pass\n"
-            "print(json.dumps(results))\n"
-        )
-        b64_script = base64.b64encode(script.encode("utf-8")).decode("ascii")
-        # Base64 bypasses shell escaping quirks across different shells
-        return f"python3 -c \"import base64; exec(base64.b64decode('{b64_script}'))\""
+        await run_blocking(_sync_write)
 
     async def list_files(
         self,
@@ -380,23 +435,14 @@ class DockerSandboxDriver(SandboxDriverProtocol):
         max_depth: int = 3,
     ) -> list[FileStat]:
         target_dir = normalize_workspace_path(directory)
-        cmd = self._build_list_files_command(target_dir, max_depth)
+        cmd = build_list_files_command(target_dir, max_depth)
         res = await self.exec_command(session_id, cmd)
         if res.exit_code != 0:
             raise SandboxExecutionError(f"Failed to list directory {directory}: {res.stderr}")
 
         try:
-            raw_entries = json.loads(res.stdout)
-            return [
-                FileStat(
-                    path=item["path"],
-                    is_dir=bool(item["is_dir"]),
-                    size_bytes=int(item["size_bytes"]),
-                    modified_at=int(item["modified_at"]),
-                )
-                for item in raw_entries
-            ]
-        except Exception as err:
+            return parse_list_files_output(res.stdout)
+        except ValueError as err:
             raise SandboxFilesystemError(f"Failed parsing file listing: {err}") from err
 
     async def apply_patch(
@@ -418,54 +464,128 @@ class DockerSandboxDriver(SandboxDriverProtocol):
         await self.write_file(session_id, target_path, patched_content, overwrite=True)
         return True
 
-    async def attach_pty(
-        self,
-        session_id: str,
-        cols: int = 80,
-        rows: int = 24,
-    ) -> AsyncIterator[bytes]:
-        """Attach an interactive bidirectional pseudo-terminal stream to the container."""
-        container = await asyncio.to_thread(self._sync_get_container, session_id)
+    async def open_pty(self, session_id: str, cols: int = 80, rows: int = 24) -> PtyChannel:
+        """Start a login shell in the container with a real TTY."""
+        self.record_activity(session_id)
+        container = await run_blocking(self._sync_get_container, session_id)
         if container is None or container.status != "running":
             raise SandboxNotFoundError(
                 f"Active sandbox container for session {session_id} not found."
             )
+        container_id = str(container.id or "")
 
-        container_id: str = str(container.id or "")
+        def _start() -> tuple[str, Any]:
+            exec_instance = self._client.api.exec_create(
+                container_id,
+                cmd=["/bin/sh", "-c", SHELL_LAUNCHER],
+                workdir="/workspace",
+                environment=self.merged_env(session_id, None) or None,
+                stdin=True,
+                tty=True,
+            )
+            exec_id = str(exec_instance["Id"])
+            stream = self._client.api.exec_start(exec_id, detach=False, tty=True, socket=True)
+            raw = getattr(stream, "_sock", stream)
+            if hasattr(raw, "setblocking"):
+                raw.setblocking(False)
+            # Docker rejects a resize ("timeout waiting for exec session ready") until the exec
+            # has started, so the initial size is applied after the start, not before.
+            with contextlib.suppress(Exception):
+                self._client.api.exec_resize(exec_id, height=rows, width=cols)
+            return exec_id, raw
 
-        # Create exec instance with pty (tty=True, stdin=True)
-        exec_instance = self._client.api.exec_create(
-            container_id,
-            cmd=["/bin/sh"],
-            workdir="/workspace",
-            stdin=True,
-            tty=True,
+        exec_id, raw_socket = await run_blocking(_start)
+        return DockerPty(self._client, exec_id, raw_socket)
+
+    async def adopt_existing_sandboxes(self) -> None:
+        """Start idle tracking for managed containers and workspaces created before this process.
+
+        Activity is held in memory, so after an API restart a running container would
+        otherwise never be paused and a hibernated workspace (a volume with no container) of a
+        session deleted in the meantime would never be reaped. Adopted sandboxes count as
+        active *now*: nothing is paused or purged before one full threshold has passed.
+        """
+
+        def _list() -> list[str]:
+            managed: dict[str, str | list[str] | bool] = {"label": "rocket.managed=true"}
+            containers = self._client.containers.list(all=True, filters=managed)
+            volumes = self._client.volumes.list(filters=managed)
+            return [
+                *(c.labels.get("rocket.session.id", "") for c in containers),
+                *((v.attrs.get("Labels") or {}).get("rocket.session.id", "") for v in volumes),
+            ]
+
+        for session_id in await run_blocking(_list):
+            if session_id and session_id not in self._last_activity:
+                self.record_activity(session_id)
+
+    async def pause_inactive_sandboxes(self, threshold_seconds: float | None = None) -> list[str]:
+        """Hibernate running Docker sandboxes that exceeded configured idle duration."""
+        threshold = (
+            threshold_seconds if threshold_seconds is not None else self.inactivity_pause_seconds
         )
-        exec_id = exec_instance["Id"]
+        now = time.time()
+        paused: list[str] = []
 
-        # Resize tty
-        try:
-            self._client.api.exec_resize(exec_id, height=rows, width=cols)
-        except Exception as resize_err:
-            logger.debug("exec_resize skipped: %s", resize_err)
+        for session_id, last_time in list(self._last_activity.items()):
+            if self._held_until.get(session_id, 0) > now:
+                continue
+            if now - last_time >= threshold:
+                status = await self.get_status(session_id)
+                if status == SandboxStatus.RUNNING:
+                    logger.info(
+                        "Pausing inactive Docker sandbox %s (idle for %.1fs, threshold %.1fs)",
+                        session_id,
+                        now - last_time,
+                        threshold,
+                    )
+                    await self.hibernate_sandbox(session_id)
+                    paused.append(session_id)
+        return paused
 
-        # Start streaming
-        socket = self._client.api.exec_start(
-            exec_id, detach=False, tty=True, stream=True, socket=True
+    async def cleanup_inactive_sandboxes(
+        self,
+        threshold_seconds: float | None = None,
+        is_live: SessionLivenessCheck | None = None,
+    ) -> list[str]:
+        """Purge hibernated workspaces of sessions that no longer exist.
+
+        Disabled unless a positive threshold is configured: the workspace is the session's
+        working copy, so it is removed with the session, not on a timer. ``is_live`` guards the
+        timer path against destroying work a user can still resume.
+        """
+        threshold = (
+            threshold_seconds if threshold_seconds is not None else self.inactivity_cleanup_seconds
         )
-        raw_socket = getattr(socket, "_sock", socket)
-        if hasattr(raw_socket, "setblocking"):
-            raw_socket.setblocking(False)
+        if threshold <= 0:
+            return []
+        now = time.time()
+        cleaned: list[str] = []
 
-        loop = asyncio.get_running_loop()
-        while True:
-            try:
-                chunk = await loop.sock_recv(raw_socket, 4096)  # type: ignore[arg-type]
-                if not chunk:
-                    break
-                yield chunk
-            except (asyncio.CancelledError, GeneratorExit):
-                break
-            except Exception as read_err:
-                logger.debug("PTY read finished or closed: %s", read_err)
-                break
+        for session_id, last_time in list(self._last_activity.items()):
+            if now - last_time < threshold:
+                continue
+            if is_live is not None and await is_live(session_id):
+                continue
+            status = await self.get_status(session_id)
+            if status in (SandboxStatus.HIBERNATED, SandboxStatus.ERROR):
+                logger.info(
+                    "Purging orphaned sandbox workspace %s (idle %.1fs, threshold %.1fs)",
+                    session_id,
+                    now - last_time,
+                    threshold,
+                )
+                await self.destroy_workspace(session_id)
+                cleaned.append(session_id)
+                self._last_activity.pop(session_id, None)
+        return cleaned
+
+    async def reconcile_inactivity(
+        self, is_live: SessionLivenessCheck | None = None
+    ) -> tuple[list[str], list[str]]:
+        """One sweep: adopt sandboxes that outlived a restart, pause idle compute, purge orphans."""
+        await self.adopt_existing_sandboxes()
+        paused = await self.pause_inactive_sandboxes()
+        cleaned = await self.cleanup_inactive_sandboxes(is_live=is_live)
+        await run_blocking(remove_unused_proxies, self._client)
+        return paused, cleaned

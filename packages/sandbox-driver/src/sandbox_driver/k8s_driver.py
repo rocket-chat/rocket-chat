@@ -2,36 +2,58 @@
 
 import asyncio
 import base64
-import json
+import contextlib
 import logging
 import os
 import re
 import shlex
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import Callable
 from typing import Any
 
 from kubernetes_asyncio import client, config
 from kubernetes_asyncio.client.exceptions import ApiException
 from kubernetes_asyncio.stream import WsApiClient, ws_client
 
+from sandbox_driver.egress import (
+    EGRESS_LABEL,
+    EGRESS_RESTRICTED,
+    build_egress_policy,
+    is_restricted,
+    resolve_destinations,
+)
 from sandbox_driver.exceptions import (
     SandboxError,
     SandboxExecutionError,
     SandboxFilesystemError,
     SandboxNotFoundError,
+    SandboxStartError,
     SandboxTimeoutError,
 )
 from sandbox_driver.patcher import apply_unified_diff
+from sandbox_driver.pty import SHELL_LAUNCHER, K8sPty
+from sandbox_driver.session_env import SessionEnvMixin
+from sandbox_driver.tracing import traced_exec
 from sandbox_driver.utils import (
+    CLIENT_DEADLINE_MARGIN_SECONDS,
+    SANDBOX_UID,
+    BoundedOutput,
     build_list_files_command,
+    build_read_file_command,
+    build_write_file_commands,
+    hit_deadline,
     normalize_workspace_path,
+    parse_list_files_output,
+    sandbox_dropped_capabilities,
+    wrap_with_deadline,
 )
 from specifications.interfaces.sandbox import (
     ExecResult,
     FileStat,
+    PtyChannel,
     SandboxDriverProtocol,
     SandboxStatus,
+    SessionLivenessCheck,
     WorkspaceSpec,
 )
 
@@ -67,7 +89,91 @@ CLUSTER_AUTOSCALER_SAFE_TO_EVICT = "cluster-autoscaler.kubernetes.io/safe-to-evi
 KARPENTER_DO_NOT_DISRUPT = "karpenter.sh/do-not-disrupt"
 
 
-class K8sSandboxDriver(SandboxDriverProtocol):
+# Waiting reasons that do not clear by waiting longer: the image or the container config is
+# wrong. ``ErrImagePull`` is deliberately absent: it is the first, possibly transient, failure and
+# turns into ``ImagePullBackOff`` within seconds if it persists.
+_UNRECOVERABLE_WAITING_REASONS = frozenset(
+    {"ImagePullBackOff", "InvalidImageName", "ErrImageNeverPull", "CreateContainerConfigError"}
+)
+_MAX_KUBELET_MESSAGE_CHARS = 300
+
+
+def _raise_if_container_cannot_start(pod: client.V1Pod, pod_name: str) -> None:
+    """Fail at once, naming the cause, when a container is stuck for a reason waiting cannot fix."""
+    for status in (pod.status.container_statuses if pod.status else None) or []:
+        waiting = status.state.waiting if status.state else None
+        if waiting is None or waiting.reason not in _UNRECOVERABLE_WAITING_REASONS:
+            continue
+        detail = (waiting.message or "").strip()[:_MAX_KUBELET_MESSAGE_CHARS]
+        raise SandboxStartError(
+            f"The sandbox could not start: {waiting.reason} for image '{status.image}' "
+            f"(pod {pod_name}). {detail} "
+            "Check that the image exists and the cluster can pull it, or choose another "
+            "image in Settings > Organization > Sandboxes."
+        )
+
+
+def _soft_node_affinity(preferred_node: str | None) -> client.V1Affinity | None:
+    """Prefer ``preferred_node`` without requiring it.
+
+    Soft affinity (preferredDuringSchedulingIgnoredDuringExecution) scores the node +100 to
+    bypass cloud block-storage re-attach latency (~90s). If the node is cordoned, drained or
+    deleted, kube-scheduler places the pod elsewhere instead of leaving it Pending.
+    """
+    if not preferred_node:
+        return None
+    return client.V1Affinity(
+        node_affinity=client.V1NodeAffinity(
+            preferred_during_scheduling_ignored_during_execution=[
+                client.V1PreferredSchedulingTerm(
+                    weight=100,
+                    preference=client.V1NodeSelectorTerm(
+                        match_expressions=[
+                            client.V1NodeSelectorRequirement(
+                                key="kubernetes.io/hostname",
+                                operator="In",
+                                values=[preferred_node],
+                            )
+                        ]
+                    ),
+                )
+            ]
+        )
+    )
+
+
+class _ExecOutput:
+    """Collects one exec call's stdout, stderr and exit status from the multiplexed stream."""
+
+    def __init__(self, on_stdout_chunk: Callable[[str], None] | None) -> None:
+        self.stdout = BoundedOutput()
+        self.stderr = BoundedOutput()
+        self.exit_code = 0
+        self._on_stdout_chunk = on_stdout_chunk
+
+    def feed(self, raw: bytes | str | None) -> None:
+        """Route one WebSocket frame (first byte is the channel) to the right buffer."""
+        if not raw:
+            return
+        if isinstance(raw, bytes):
+            channel, payload = raw[0], raw[1:].decode("utf-8", errors="replace")
+        elif isinstance(raw, str):
+            channel, payload = ord(raw[0]), raw[1:]
+        else:
+            return
+
+        if channel == ws_client.STDOUT_CHANNEL:
+            self.stdout.append(payload)
+            if self._on_stdout_chunk:
+                self._on_stdout_chunk(payload)
+        elif channel == ws_client.STDERR_CHANNEL:
+            self.stderr.append(payload)
+        elif channel == ws_client.ERROR_CHANNEL:
+            with contextlib.suppress(Exception):
+                self.exit_code = WsApiClient.parse_error_data(payload)
+
+
+class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
     """Manages ephemeral Kubernetes Pods bound to PersistentVolumeClaims."""
 
     def __init__(
@@ -79,6 +185,7 @@ class K8sSandboxDriver(SandboxDriverProtocol):
         grace_period_seconds: int = 5,
         core_v1_api: client.CoreV1Api | None = None,
         ws_core_v1_api: client.CoreV1Api | None = None,
+        networking_v1_api: client.NetworkingV1Api | None = None,
     ) -> None:
         self.namespace: str = namespace or os.getenv("K8S_SANDBOX_NAMESPACE") or "agent-sandboxes"
         self.default_image: str = os.getenv("K8S_DEFAULT_IMAGE") or default_image
@@ -100,6 +207,7 @@ class K8sSandboxDriver(SandboxDriverProtocol):
 
         self._core_v1: client.CoreV1Api | None = core_v1_api
         self._ws_core_v1: client.CoreV1Api | None = ws_core_v1_api
+        self._networking_v1: client.NetworkingV1Api | None = networking_v1_api
 
         # Inactivity lifecycle settings (configured via env or parameters)
         pause_env = os.getenv("SANDBOX_INACTIVITY_PAUSE_SECONDS")
@@ -108,7 +216,7 @@ class K8sSandboxDriver(SandboxDriverProtocol):
         )
         cleanup_env = os.getenv("SANDBOX_INACTIVITY_CLEANUP_SECONDS")
         self.inactivity_cleanup_seconds: float = (
-            float(cleanup_env) if cleanup_env is not None else 86400.0  # 24h default
+            float(cleanup_env) if cleanup_env is not None else 0.0  # disabled by default
         )
 
         # Warmed standby pod pool settings
@@ -124,11 +232,21 @@ class K8sSandboxDriver(SandboxDriverProtocol):
             [s.strip() for s in secrets_env.split(",") if s.strip()] if secrets_env else []
         )
 
+        # e.g. gvisor / kata-qemu for kernel-level isolation of untrusted agent code.
+        self.runtime_class_name: str | None = os.getenv("K8S_SANDBOX_RUNTIME_CLASS") or None
+
         self._specs: dict[str, WorkspaceSpec] = {}
         self._node_affinity_cache: dict[str, str] = {}
         self._destroyed_sessions: set[str] = set()
         self._last_activity: dict[str, float] = {}
+        self._held_until: dict[str, float] = {}
         self._init_lock = asyncio.Lock()
+
+    def hold_awake(self, session_id: str, seconds: float) -> None:
+        if seconds <= 0:
+            self._held_until.pop(session_id, None)
+        else:
+            self._held_until[session_id] = time.time() + seconds
 
     def record_activity(self, session_id: str) -> None:
         """Record interaction timestamp to calculate idle duration for pause and cleanup."""
@@ -146,8 +264,10 @@ class K8sSandboxDriver(SandboxDriverProtocol):
         async with self._init_lock:
             if self._core_v1 is None:
                 try:
-                    await config.load_incluster_config()  # type: ignore[no-untyped-call]
-                except Exception:
+                    # Synchronous in kubernetes_asyncio: awaiting its ``None`` raised and sent
+                    # every in-cluster pod down the kubeconfig fallback with a spurious warning.
+                    config.load_incluster_config()  # type: ignore[no-untyped-call]  # untyped upstream
+                except config.ConfigException:
                     try:
                         await config.load_kube_config()
                     except Exception as err:
@@ -162,19 +282,83 @@ class K8sSandboxDriver(SandboxDriverProtocol):
 
         return self._core_v1, self._ws_core_v1
 
+    async def _networking(self) -> client.NetworkingV1Api:
+        if self._networking_v1 is None:
+            core_v1, _ = await self._ensure_clients()
+            self._networking_v1 = client.NetworkingV1Api(
+                api_client=getattr(core_v1, "api_client", None)
+            )
+        return self._networking_v1
+
+    def _egress_policy_name(self, session_id: str) -> str:
+        return f"np-session-{_sanitize_k8s_name(session_id)}"
+
+    async def _apply_egress_policy(self, spec: WorkspaceSpec) -> None:
+        """Give a restricted sandbox its own policy (create, or replace on conflict)."""
+        networking = await self._networking()
+        policy = build_egress_policy(
+            name=self._egress_policy_name(spec.session_id),
+            namespace=self.namespace,
+            session_label=_sanitize_label_value(spec.session_id),
+            cidrs=await resolve_destinations(spec.egress_allowlist),
+            labels=self._build_labels(spec),
+            internet_except_internal=not spec.egress_allowlist,
+        )
+        try:
+            await networking.create_namespaced_network_policy(namespace=self.namespace, body=policy)
+        except ApiException as err:
+            if err.status != 409:
+                raise SandboxExecutionError(
+                    f"Could not apply the egress policy for {spec.session_id}: {err}"
+                ) from err
+            await networking.replace_namespaced_network_policy(
+                name=policy.metadata.name, namespace=self.namespace, body=policy
+            )
+
+    async def _delete_egress_policy(self, session_id: str) -> None:
+        """Remove the sandbox's policy, if it can have one. Best effort: a missing policy (or an
+        older chart whose role cannot touch policies) must never block destroying the workspace."""
+        known = self._specs.get(session_id)
+        if known is not None and not is_restricted(known):
+            return  # a sandbox the driver knows is unrestricted never had a policy
+        try:
+            networking = await self._networking()
+            await networking.delete_namespaced_network_policy(
+                name=self._egress_policy_name(session_id), namespace=self.namespace
+            )
+        except ApiException as err:
+            if err.status not in (403, 404):
+                logger.warning("Egress policy deletion error during destroy: %s", err)
+        except Exception as err:
+            logger.debug("Egress policy deletion skipped: %s", err)
+
     def _pvc_name(self, session_id: str) -> str:
         return f"pvc-session-{_sanitize_k8s_name(session_id)}"
 
     def _pod_name(self, session_id: str) -> str:
         return f"pod-session-{_sanitize_k8s_name(session_id)}"
 
+    def _pod_security_context(self, spec: WorkspaceSpec) -> client.V1PodSecurityContext | None:
+        # fs_group makes the PVC writable by the unprivileged user. It is set even when the
+        # organization does not *require* non-root: the default devbox image runs as uid 1000
+        # on its own, and a root-owned volume would be read-only to it.
+        if not spec.require_non_root:
+            return client.V1PodSecurityContext(fs_group=SANDBOX_UID)
+        return client.V1PodSecurityContext(
+            run_as_non_root=True, run_as_user=SANDBOX_UID, fs_group=SANDBOX_UID
+        )
+
     def _build_labels(self, spec: WorkspaceSpec) -> dict[str, str]:
-        return {
+        labels = {
             "agent.session.id": _sanitize_label_value(spec.session_id),
             "tenant.org.id": _sanitize_label_value(spec.tenant_org_id),
             "tenant.user.id": _sanitize_label_value(spec.tenant_user_id),
             "app.kubernetes.io/managed-by": "rocket-chat",
         }
+        if is_restricted(spec):
+            # Excluded from the namespace-wide internet policy; the per-sandbox one governs it.
+            labels[EGRESS_LABEL] = EGRESS_RESTRICTED
+        return labels
 
     async def ensure_workspace(self, spec: WorkspaceSpec) -> None:
         """Provision PersistentVolumeClaim for the session if it does not already exist."""
@@ -243,6 +427,7 @@ class K8sSandboxDriver(SandboxDriverProtocol):
                     raise SandboxExecutionError(
                         f"Pod {pod_name} entered failed phase '{phase}' ({reason})"
                     )
+                _raise_if_container_cannot_start(pod, pod_name)
 
             except ApiException as err:
                 if err.status != 404:
@@ -268,7 +453,6 @@ class K8sSandboxDriver(SandboxDriverProtocol):
         core_v1, _ = await self._ensure_clients()
 
         pod_name = self._pod_name(session_id)
-        pvc_name = self._pvc_name(session_id)
 
         try:
             existing_pod = await core_v1.read_namespaced_pod(
@@ -299,6 +483,60 @@ class K8sSandboxDriver(SandboxDriverProtocol):
             if err.status != 404:
                 raise SandboxError(f"Error checking existing Pod {pod_name}: {err}") from err
 
+        preferred_node = await self._preferred_node(core_v1, session_id)
+        if is_restricted(spec):
+            # The policy must exist before the pod, or it would briefly run unrestricted.
+            await self._apply_egress_policy(spec)
+        pod_manifest = self._build_pod(spec, pod_name, _soft_node_affinity(preferred_node))
+
+        try:
+            await core_v1.create_namespaced_pod(
+                namespace=self.namespace,
+                body=pod_manifest,
+            )
+        except ApiException as err:
+            if err.status != 409:
+                raise SandboxError(f"Failed creating Pod {pod_name}: {err}") from err
+
+        try:
+            await self._wait_for_pod_running(core_v1, pod_name, session_id, timeout_seconds=45.0)
+        except SandboxError:
+            # A pod that never started keeps its image: remove it so the next attempt (after
+            # the image or catalogue is fixed) creates a fresh one instead of reusing it.
+            await self._delete_pod_quietly(core_v1, pod_name)
+            raise
+
+        self.record_activity(session_id)
+
+    async def _preferred_node(self, core_v1: client.CoreV1Api, session_id: str) -> str | None:
+        """The node whose volume attachment or warm pods make it the cheapest place to resume."""
+        if session_id in self._node_affinity_cache:
+            return self._node_affinity_cache[session_id]
+        if self.warmed_pool_size <= 0:
+            return None
+        # When warm pods are enabled, prefer worker nodes that already have warm pods running
+        for i in range(self.warmed_pool_size):
+            try:
+                warm_pod = await core_v1.read_namespaced_pod(
+                    name=self._warm_pod_name(i),
+                    namespace=self.namespace,
+                )
+            except Exception:
+                continue
+            if (
+                warm_pod.status
+                and warm_pod.status.phase == "Running"
+                and warm_pod.spec
+                and warm_pod.spec.node_name
+            ):
+                return warm_pod.spec.node_name
+        return None
+
+    def _build_pod(
+        self, spec: WorkspaceSpec, pod_name: str, affinity: client.V1Affinity | None
+    ) -> client.V1Pod:
+        """The pod manifest for a session's sandbox."""
+        pvc_name = self._pvc_name(spec.session_id)
         limits: dict[str, str] = {}
         requests: dict[str, str] = {}
         limits["cpu"] = os.getenv(
@@ -318,48 +556,6 @@ class K8sSandboxDriver(SandboxDriverProtocol):
             client.V1LocalObjectReference(name=s) for s in self.image_pull_secrets
         ] or None
 
-        affinity: client.V1Affinity | None = None
-        preferred_node: str | None = None
-        if session_id in self._node_affinity_cache:
-            preferred_node = self._node_affinity_cache[session_id]
-        elif self.warmed_pool_size > 0:
-            # When warm pods are enabled, prefer worker nodes that already have warm pods running
-            for i in range(self.warmed_pool_size):
-                try:
-                    wp = await core_v1.read_namespaced_pod(
-                        name=self._warm_pod_name(i),
-                        namespace=self.namespace,
-                    )
-                    if wp.status and wp.status.phase == "Running" and wp.spec and wp.spec.node_name:
-                        preferred_node = wp.spec.node_name
-                        break
-                except Exception:
-                    pass
-
-        if preferred_node:
-            # Soft node affinity (preferredDuringSchedulingIgnoredDuringExecution):
-            # Prioritizes the target node (score +100) to bypass cloud EBS detachment latency (~90s).
-            # If the node is cordoned, drained, or deleted, kube-scheduler natively and immediately
-            # schedules the pod onto another available node without blocking or timing out.
-            affinity = client.V1Affinity(
-                node_affinity=client.V1NodeAffinity(
-                    preferred_during_scheduling_ignored_during_execution=[
-                        client.V1PreferredSchedulingTerm(
-                            weight=100,
-                            preference=client.V1NodeSelectorTerm(
-                                match_expressions=[
-                                    client.V1NodeSelectorRequirement(
-                                        key="kubernetes.io/hostname",
-                                        operator="In",
-                                        values=[preferred_node],
-                                    )
-                                ]
-                            ),
-                        )
-                    ]
-                )
-            )
-
         # Unmanaged pods are annotated safe-to-evict by default so Cluster Autoscaler
         # and Karpenter can downscale nodes or drain nodes during upgrades when idle.
         annotations = {
@@ -367,7 +563,7 @@ class K8sSandboxDriver(SandboxDriverProtocol):
             KARPENTER_DO_NOT_DISRUPT: "false",
         }
 
-        pod_manifest = client.V1Pod(
+        return client.V1Pod(
             metadata=client.V1ObjectMeta(
                 name=pod_name,
                 namespace=self.namespace,
@@ -378,7 +574,14 @@ class K8sSandboxDriver(SandboxDriverProtocol):
                 affinity=affinity,
                 restart_policy="Never",
                 termination_grace_period_seconds=self.grace_period_seconds,
+                automount_service_account_token=False,
+                # The container's own PID 1 is `tail`, which never reaps children, so every killed or
+                # finished process would linger as a zombie. With a shared process namespace the
+                # pause container is PID 1 and reaps them (Docker sandboxes use `init` for this).
+                share_process_namespace=True,
                 image_pull_secrets=image_pull_refs,
+                runtime_class_name=self.runtime_class_name,
+                security_context=self._pod_security_context(spec),
                 containers=[
                     client.V1Container(
                         name="sandbox",
@@ -387,6 +590,13 @@ class K8sSandboxDriver(SandboxDriverProtocol):
                         working_dir="/workspace",
                         env=env_vars,
                         resources=client.V1ResourceRequirements(limits=limits, requests=requests),
+                        security_context=client.V1SecurityContext(
+                            allow_privilege_escalation=False,
+                            capabilities=client.V1Capabilities(
+                                drop=sandbox_dropped_capabilities(spec.require_non_root)
+                            ),
+                            seccomp_profile=client.V1SeccompProfile(type="RuntimeDefault"),
+                        ),
                         volume_mounts=[
                             client.V1VolumeMount(
                                 name="workspace-storage",
@@ -406,18 +616,16 @@ class K8sSandboxDriver(SandboxDriverProtocol):
             ),
         )
 
+    async def _delete_pod_quietly(self, core_v1: client.CoreV1Api, pod_name: str) -> None:
         try:
-            await core_v1.create_namespaced_pod(
-                namespace=self.namespace,
-                body=pod_manifest,
+            await core_v1.delete_namespaced_pod(
+                name=pod_name, namespace=self.namespace, grace_period_seconds=0
             )
         except ApiException as err:
-            if err.status != 409:
-                raise SandboxError(f"Failed creating Pod {pod_name}: {err}") from err
-
-        await self._wait_for_pod_running(core_v1, pod_name, session_id, timeout_seconds=45.0)
-
-        self.record_activity(session_id)
+            if err.status != 404:
+                logger.warning(
+                    "Could not remove the pod %s that failed to start: %s", pod_name, err
+                )
 
     async def hibernate_sandbox(self, session_id: str) -> None:
         """Scale compute to zero by deleting the Pod while retaining the PVC volume."""
@@ -458,6 +666,8 @@ class K8sSandboxDriver(SandboxDriverProtocol):
         except ApiException as err:
             if err.status != 404:
                 logger.debug("PVC deletion error during destroy: %s", err)
+
+        await self._delete_egress_policy(session_id)
 
         self._destroyed_sessions.add(session_id)
         self._specs.pop(session_id, None)
@@ -538,6 +748,38 @@ class K8sSandboxDriver(SandboxDriverProtocol):
             if err.status != 404:
                 logger.warning("Failed updating eviction protection for pod %s: %s", pod_name, err)
 
+    async def _assert_pod_running(self, core_v1: Any, pod_name: str) -> None:
+        try:
+            pod = await core_v1.read_namespaced_pod(name=pod_name, namespace=self.namespace)
+            if not pod.status or pod.status.phase != "Running":
+                raise SandboxNotFoundError(f"Active sandbox pod {pod_name} is not running.")
+        except ApiException as err:
+            if err.status == 404:
+                raise SandboxNotFoundError(f"Sandbox pod {pod_name} not found.") from err
+            raise SandboxError(f"Failed verifying pod {pod_name}: {err}") from err
+
+    def _shell_command(
+        self,
+        session_id: str,
+        command: str,
+        workdir: str,
+        timeout_seconds: int,
+        env: dict[str, str] | None,
+    ) -> list[str]:
+        """The ``/bin/sh -c`` argv that runs ``command`` in ``workdir`` under a deadline."""
+        env_prefix = ""
+        merged = self.merged_env(session_id, env)
+        if merged:
+            # `export` (not a bare prefix) so every command of a compound script sees it.
+            env_prefix = (
+                "export "
+                + " ".join(f"{k}={shlex.quote(str(v))}" for k, v in merged.items())
+                + " && "
+            )
+        deadline_command = wrap_with_deadline(command, timeout_seconds)
+        return ["/bin/sh", "-c", f"cd {shlex.quote(workdir)} && {env_prefix}{deadline_command}"]
+
+    @traced_exec
     async def exec_command(
         self,
         session_id: str,
@@ -550,70 +792,17 @@ class K8sSandboxDriver(SandboxDriverProtocol):
         """Execute command inside running pod using Kubernetes Exec WebSocket API."""
         core_v1, ws_core_v1 = await self._ensure_clients()
         pod_name = self._pod_name(session_id)
-
-        try:
-            pod = await core_v1.read_namespaced_pod(name=pod_name, namespace=self.namespace)
-            if not pod.status or pod.status.phase != "Running":
-                raise SandboxNotFoundError(f"Active sandbox pod {pod_name} is not running.")
-        except ApiException as err:
-            if err.status == 404:
-                raise SandboxNotFoundError(f"Sandbox pod {pod_name} not found.") from err
-            raise SandboxError(f"Failed verifying pod {pod_name}: {err}") from err
-
-        env_prefix = ""
-        if env:
-            env_prefix = " ".join(f"{k}={shlex.quote(str(v))}" for k, v in env.items()) + " "
-        wrapped_command = f"cd {shlex.quote(workdir)} && {env_prefix}{command}"
-        exec_cmd = ["/bin/sh", "-c", wrapped_command]
+        await self._assert_pod_running(core_v1, pod_name)
+        exec_cmd = self._shell_command(session_id, command, workdir, timeout_seconds, env)
 
         start_time = time.monotonic()
-        stdout_chunks: list[str] = []
-        stderr_chunks: list[str] = []
-        exit_code = 0
-
-        async def _run_stream() -> int:
-            nonlocal exit_code
-            ws_conn: Any = await ws_core_v1.connect_get_namespaced_pod_exec(
-                name=pod_name,
-                namespace=self.namespace,
-                command=exec_cmd,  # type: ignore[arg-type]
-                stderr=True,
-                stdin=False,
-                stdout=True,
-                tty=False,
-                _preload_content=False,
-            )
-
-            async with ws_conn as ws:
-                async for wsmsg in ws:
-                    raw = wsmsg.data
-                    if not raw:
-                        continue
-                    if isinstance(raw, bytes):
-                        channel = raw[0]
-                        payload = raw[1:].decode("utf-8", errors="replace")
-                    elif isinstance(raw, str):
-                        channel = ord(raw[0])
-                        payload = raw[1:]
-                    else:
-                        continue
-
-                    if channel == ws_client.STDOUT_CHANNEL:
-                        stdout_chunks.append(payload)
-                        if on_stdout_chunk:
-                            on_stdout_chunk(payload)
-                    elif channel == ws_client.STDERR_CHANNEL:
-                        stderr_chunks.append(payload)
-                    elif channel == ws_client.ERROR_CHANNEL:
-                        try:
-                            exit_code = WsApiClient.parse_error_data(payload)
-                        except Exception:
-                            pass
-            return exit_code
-
+        output = _ExecOutput(on_stdout_chunk)
         await self.set_eviction_protection(session_id, protected=True)
         try:
-            exit_code = await asyncio.wait_for(_run_stream(), timeout=timeout_seconds)
+            await asyncio.wait_for(
+                self._stream_exec(ws_core_v1, pod_name, exec_cmd, output),
+                timeout=timeout_seconds + CLIENT_DEADLINE_MARGIN_SECONDS,
+            )
         except TimeoutError as err:
             raise SandboxTimeoutError(
                 f"Command timed out after {timeout_seconds} seconds: {command}"
@@ -626,13 +815,34 @@ class K8sSandboxDriver(SandboxDriverProtocol):
             await self.set_eviction_protection(session_id, protected=False)
 
         self.record_activity(session_id)
-        duration_ms = int((time.monotonic() - start_time) * 1000)
+        elapsed = time.monotonic() - start_time
+        if hit_deadline(output.exit_code, elapsed, timeout_seconds):
+            raise SandboxTimeoutError(
+                f"Command timed out after {timeout_seconds} seconds: {command}"
+            )
         return ExecResult(
-            exit_code=exit_code,
-            stdout="".join(stdout_chunks),
-            stderr="".join(stderr_chunks),
-            duration_ms=duration_ms,
+            exit_code=output.exit_code,
+            stdout=output.stdout.text(),
+            stderr=output.stderr.text(),
+            duration_ms=int(elapsed * 1000),
         )
+
+    async def _stream_exec(
+        self, ws_core_v1: Any, pod_name: str, exec_cmd: list[str], output: _ExecOutput
+    ) -> None:
+        ws_conn: Any = await ws_core_v1.connect_get_namespaced_pod_exec(
+            name=pod_name,
+            namespace=self.namespace,
+            command=exec_cmd,
+            stderr=True,
+            stdin=False,
+            stdout=True,
+            tty=False,
+            _preload_content=False,
+        )
+        async with ws_conn as ws:
+            async for message in ws:
+                output.feed(message.data)
 
     async def read_file(
         self,
@@ -643,12 +853,7 @@ class K8sSandboxDriver(SandboxDriverProtocol):
     ) -> str:
         """Read text file contents from the pod filesystem."""
         target_path = normalize_workspace_path(path)
-        read_cmd = (
-            f"python3 -c 'import sys, os, base64; "
-            f'p = "{target_path}"; '
-            f"sys.exit(2) if not os.path.exists(p) else "
-            f'sys.stdout.write(base64.b64encode(open(p, "rb").read()).decode("ascii"))\''
-        )
+        read_cmd = build_read_file_command(target_path)
         res = await self.exec_command(session_id, read_cmd)
         if res.exit_code == 2:
             raise FileNotFoundError(f"File not found in sandbox: {path}")
@@ -677,15 +882,10 @@ class K8sSandboxDriver(SandboxDriverProtocol):
             if check_res.exit_code == 0:
                 raise FileExistsError(f"Path already exists and overwrite=False: {path}")
 
-        parent_dir = os.path.dirname(target_path)
-        b64_content = base64.b64encode(content.encode("utf-8")).decode("ascii")
-        write_cmd = (
-            f"mkdir -p {shlex.quote(parent_dir)} && "
-            f'python3 -c \'import base64; open("{target_path}", "wb").write(base64.b64decode("{b64_content}"))\''
-        )
-        res = await self.exec_command(session_id, write_cmd)
-        if res.exit_code != 0:
-            raise SandboxFilesystemError(f"Failed writing {path}: {res.stderr}")
+        for command in build_write_file_commands(target_path, content.encode("utf-8")):
+            res = await self.exec_command(session_id, command)
+            if res.exit_code != 0:
+                raise SandboxFilesystemError(f"Failed writing {path}: {res.stderr}")
 
     async def list_files(
         self,
@@ -701,17 +901,8 @@ class K8sSandboxDriver(SandboxDriverProtocol):
             raise SandboxExecutionError(f"Failed to list directory {directory}: {res.stderr}")
 
         try:
-            raw_entries = json.loads(res.stdout)
-            return [
-                FileStat(
-                    path=item["path"],
-                    is_dir=bool(item["is_dir"]),
-                    size_bytes=int(item["size_bytes"]),
-                    modified_at=int(item["modified_at"]),
-                )
-                for item in raw_entries
-            ]
-        except Exception as err:
+            return parse_list_files_output(res.stdout)
+        except ValueError as err:
             raise SandboxFilesystemError(f"Failed parsing file listing: {err}") from err
 
     async def apply_patch(
@@ -734,46 +925,38 @@ class K8sSandboxDriver(SandboxDriverProtocol):
         await self.write_file(session_id, target_path, patched_content, overwrite=True)
         return True
 
-    async def attach_pty(
-        self,
-        session_id: str,
-        cols: int = 80,
-        rows: int = 24,
-    ) -> AsyncIterator[bytes]:
-        """Attach a bidirectional pseudo-terminal stream to the running pod."""
+    async def open_pty(self, session_id: str, cols: int = 80, rows: int = 24) -> PtyChannel:
+        """Start a login shell in the pod with a real TTY over the exec WebSocket."""
         pod_name = self._pod_name(session_id)
         status = await self.get_status(session_id)
         if status != SandboxStatus.RUNNING:
             raise SandboxNotFoundError(
                 f"Pod {pod_name} is in status {status}, not {SandboxStatus.RUNNING}."
             )
-
-        # Build interactive exec command stream
-        try:
-            from kubernetes.stream import stream as k8s_stream  # type: ignore[import-not-found]
-
-            if not self._core_v1:
-                raise SandboxNotFoundError("Kubernetes CoreV1 client is uninitialized.")
-
-            resp = k8s_stream(
-                self._core_v1.connect_get_namespaced_pod_exec,
-                pod_name,
-                self.namespace,
-                command=["/bin/sh"],
-                stderr=True,
-                stdin=True,
-                stdout=True,
-                tty=True,
-                _preload_content=False,
-            )
-
-            while resp.is_open():
-                chunk = await asyncio.to_thread(resp.read_stdout, timeout=1)
-                if chunk:
-                    yield chunk.encode("utf-8") if isinstance(chunk, str) else chunk
-                await asyncio.sleep(0.01)
-        except Exception as pty_err:
-            logger.debug("K8s PTY stream terminated: %s", pty_err)
+        _, ws_core_v1 = await self._ensure_clients()
+        merged = self.merged_env(session_id, None)
+        env_prefix = (
+            "export " + " ".join(f"{k}={shlex.quote(str(v))}" for k, v in merged.items()) + "; "
+            if merged
+            else ""
+        )
+        ws_conn: Any = await ws_core_v1.connect_get_namespaced_pod_exec(
+            name=pod_name,
+            namespace=self.namespace,
+            command=["/bin/sh", "-c", f"cd /workspace && {env_prefix}{SHELL_LAUNCHER}"],  # type: ignore[arg-type]
+            stderr=True,
+            stdin=True,
+            stdout=True,
+            tty=True,
+            _preload_content=False,
+        )
+        # The generated client returns aiohttp's un-awaited ``ws_connect`` context manager when the
+        # response is not preloaded; a real cluster needs the second await to get the socket.
+        if not hasattr(ws_conn, "receive"):
+            ws_conn = await ws_conn
+        pty = K8sPty(ws_conn)
+        await pty.resize(cols, rows)
+        return pty
 
     def _warm_pod_name(self, index: int) -> str:
         return f"pod-warm-{index}"
@@ -835,6 +1018,8 @@ class K8sSandboxDriver(SandboxDriverProtocol):
                 spec=client.V1PodSpec(
                     restart_policy="Always",
                     termination_grace_period_seconds=10,
+                    automount_service_account_token=False,
+                    share_process_namespace=True,
                     image_pull_secrets=image_pull_refs,
                     containers=[
                         client.V1Container(
@@ -844,6 +1029,13 @@ class K8sSandboxDriver(SandboxDriverProtocol):
                             resources=client.V1ResourceRequirements(
                                 requests={"cpu": "100m", "memory": "128Mi"},
                                 limits={"cpu": "500m", "memory": "512Mi"},
+                            ),
+                            security_context=client.V1SecurityContext(
+                                allow_privilege_escalation=False,
+                                capabilities=client.V1Capabilities(
+                                    drop=["NET_RAW", "SYS_ADMIN", "SYS_PTRACE", "DAC_READ_SEARCH"]
+                                ),
+                                seccomp_profile=client.V1SeccompProfile(type="RuntimeDefault"),
                             ),
                         )
                     ],
@@ -879,6 +1071,26 @@ class K8sSandboxDriver(SandboxDriverProtocol):
                 if err.status != 404:
                     logger.debug("Failed deleting warm pod %s: %s", pod_name, err)
 
+    async def adopt_existing_sandboxes(self) -> None:
+        """Start idle tracking for managed pods and workspaces created before this process.
+
+        Activity is held in memory, so after an API restart a running pod would otherwise
+        never be paused and a hibernated workspace (a PVC with no pod) of a session deleted in
+        the meantime would never be reaped. Adopted sandboxes count as active *now*: nothing
+        is paused or purged before one full threshold has passed.
+        """
+        core_v1, _ = await self._ensure_clients()
+        selector = "app.kubernetes.io/managed-by=rocket-chat"
+        pods = await core_v1.list_namespaced_pod(namespace=self.namespace, label_selector=selector)
+        claims = await core_v1.list_namespaced_persistent_volume_claim(
+            namespace=self.namespace, label_selector=selector
+        )
+        resources: list[Any] = [*pods.items, *claims.items]
+        for resource in resources:
+            session_id = (resource.metadata.labels or {}).get("agent.session.id", "")
+            if session_id and session_id not in self._last_activity:
+                self.record_activity(session_id)
+
     async def pause_inactive_sandboxes(self, threshold_seconds: float | None = None) -> list[str]:
         """Hibernate running sandboxes that exceeded configured idle duration."""
         threshold = (
@@ -888,6 +1100,8 @@ class K8sSandboxDriver(SandboxDriverProtocol):
         paused: list[str] = []
 
         for session_id, last_time in list(self._last_activity.items()):
+            if self._held_until.get(session_id, 0) > now:
+                continue
             if now - last_time >= threshold:
                 status = await self.get_status(session_id)
                 if status == SandboxStatus.RUNNING:
@@ -901,31 +1115,48 @@ class K8sSandboxDriver(SandboxDriverProtocol):
                     paused.append(session_id)
         return paused
 
-    async def cleanup_inactive_sandboxes(self, threshold_seconds: float | None = None) -> list[str]:
-        """Purge and destroy hibernated sandboxes that exceeded maximum retention inactivity."""
+    async def cleanup_inactive_sandboxes(
+        self,
+        threshold_seconds: float | None = None,
+        is_live: SessionLivenessCheck | None = None,
+    ) -> list[str]:
+        """Purge hibernated workspaces of sessions that no longer exist.
+
+        Disabled unless a positive threshold is configured: the workspace is the session's
+        working copy, so it is removed with the session, not on a timer. ``is_live`` guards the
+        timer path against destroying work a user can still resume.
+        """
         threshold = (
             threshold_seconds if threshold_seconds is not None else self.inactivity_cleanup_seconds
         )
+        if threshold <= 0:
+            return []
         now = time.time()
         cleaned: list[str] = []
 
         for session_id, last_time in list(self._last_activity.items()):
-            if now - last_time >= threshold:
-                status = await self.get_status(session_id)
-                if status in (SandboxStatus.HIBERNATED, SandboxStatus.ERROR):
-                    logger.info(
-                        "Purging inactive sandbox workspace %s (idle for %.1fs, threshold %.1fs)",
-                        session_id,
-                        now - last_time,
-                        threshold,
-                    )
-                    await self.destroy_workspace(session_id)
-                    cleaned.append(session_id)
-                    self._last_activity.pop(session_id, None)
+            if now - last_time < threshold:
+                continue
+            if is_live is not None and await is_live(session_id):
+                continue
+            status = await self.get_status(session_id)
+            if status in (SandboxStatus.HIBERNATED, SandboxStatus.ERROR):
+                logger.info(
+                    "Purging orphaned sandbox workspace %s (idle %.1fs, threshold %.1fs)",
+                    session_id,
+                    now - last_time,
+                    threshold,
+                )
+                await self.destroy_workspace(session_id)
+                cleaned.append(session_id)
+                self._last_activity.pop(session_id, None)
         return cleaned
 
-    async def reconcile_inactivity(self) -> tuple[list[str], list[str]]:
-        """Run single sweep of inactivity checks: pause idle compute, then purge stale storage."""
+    async def reconcile_inactivity(
+        self, is_live: SessionLivenessCheck | None = None
+    ) -> tuple[list[str], list[str]]:
+        """One sweep: adopt sandboxes that outlived a restart, pause idle compute, purge orphans."""
+        await self.adopt_existing_sandboxes()
         paused = await self.pause_inactive_sandboxes()
-        cleaned = await self.cleanup_inactive_sandboxes()
+        cleaned = await self.cleanup_inactive_sandboxes(is_live=is_live)
         return paused, cleaned

@@ -7,11 +7,53 @@ metadata:
   labels:
     {{- include "rocket-chat.labels" . | nindent 4 }}
 spec:
+  # Nothing in the cluster may connect *to* a sandbox: commands reach it through the API
+  # server's exec channel, not the network. (No ingress rules + the Ingress type = deny all.)
   podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: sandbox-default-egress
+  namespace: {{ .Values.sandbox.namespace | default "agent-sandboxes" }}
+  labels:
+    {{- include "rocket-chat.labels" . | nindent 4 }}
+spec:
+  # Sandboxes of organizations that restrict egress are labelled `rocket.chat/egress=restricted`
+  # and governed only by the per-sandbox policy the API creates (policies are additive, so they
+  # must not also match this one).
+  podSelector:
+    matchExpressions:
+      - key: rocket.chat/egress
+        operator: NotIn
+        values: ["restricted"]
   policyTypes:
     - Egress
   egress:
-    {{- if .Values.sandbox.networkPolicy.blockCloudMetadata }}
+    # Always allow DNS resolution for package lookups and external hosts
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    {{- if .Values.sandbox.networkPolicy.allowedEgressRules }}
+    # Explicitly whitelisted internal cluster services, namespaces, or CIDR blocks
+    {{- toYaml .Values.sandbox.networkPolicy.allowedEgressRules | nindent 4 }}
+    {{- end }}
+    {{- if .Values.sandbox.networkPolicy.blockInternalSubnets }}
+    # Allow public internet egress while strictly blocking RFC1918 private subnets and cloud metadata
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 169.254.169.254/32
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+    {{- else if .Values.sandbox.networkPolicy.blockCloudMetadata }}
     # Allow all egress except the cloud metadata IP 169.254.169.254/32 (mitigates SSRF credential exfiltration)
     - to:
         - ipBlock:
@@ -22,3 +64,4 @@ spec:
     - {}
     {{- end }}
 {{- end }}
+

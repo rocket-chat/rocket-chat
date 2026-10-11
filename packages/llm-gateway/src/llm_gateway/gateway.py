@@ -1,33 +1,100 @@
 """LiteLLM Gateway implementing LLMGatewayProtocol with BYOK routing and reasoning extraction."""
 
-from collections.abc import AsyncIterator
+import base64
+import dataclasses
+import logging
+import os
+from collections.abc import AsyncIterator, Iterable, Iterator
 from typing import Any
 
 import litellm
 
+from llm_gateway.pricing import estimate_cost_usd
 from llm_gateway.reasoning import ReasoningStreamFilter
 from specifications.interfaces.llm import (
+    AttachmentRef,
+    BudgetGuardProtocol,
     BYOKCredentials,
     ChatMessage,
+    CredentialResolverProtocol,
     LLMGatewayProtocol,
     ModelRequest,
+    ModelScope,
     StreamChunk,
     ToolDefinition,
+    UsageEvent,
+    UsageSinkProtocol,
+    current_model_scope,
 )
+
+# Substrings of the model ids the platform routes to that accept image input. Kept as an
+# explicit allowlist rather than a denylist: guessing wrong in the permissive direction
+# would send image blocks to a text-only model and fail the whole turn.
+_VISION_MODEL_MARKERS = (
+    "claude-3",
+    "claude-4",
+    "gpt-4o",
+    "gpt-4-turbo",
+    "gpt-4.1",
+    "gpt-5",
+    "gemini",
+    "pixtral",
+    "llava",
+    "qwen-vl",
+    "qwen2-vl",
+    "llama-3.2-vision",
+    "llama-4",
+)
+
+# Provider resilience is delegated entirely to LiteLLM: retries, backoff and
+# fail-over are configured per request rather than reimplemented here.
+
+
+logger = logging.getLogger(__name__)
 
 
 class LiteLLMGateway(LLMGatewayProtocol):
     """Universal LLM router managing provider dispatch, credential injection, and token streaming."""
 
-    def __init__(self) -> None:
-        self._usage_ledger: list[dict[str, Any]] = []
+    # This gateway records every call's usage itself, once, at the point the stream ends -
+    # including title, summary and follow-up calls that never reported it before - so callers
+    # must not also call `record_usage`.
+    records_usage = True
 
-    def _format_request_messages(self, messages: list[ChatMessage]) -> list[dict[str, Any]]:
+    def __init__(self) -> None:
+        self.usage_sink: UsageSinkProtocol | None = None
+        self.budget_guard: BudgetGuardProtocol | None = None
+        self.credential_resolver: CredentialResolverProtocol | None = None
+        self._usage_ledger: list[dict[str, Any]] = []
+        env_retries = os.getenv("ROCKET_MODEL_MAX_RETRIES")
+        self._max_retries: int = int(env_retries) if env_retries and env_retries.isdigit() else 2
+        self._prompt_cache_enabled: bool = os.getenv("ROCKET_PROMPT_CACHE", "true").lower() not in (
+            "false",
+            "0",
+            "no",
+        )
+        self._sanitize_environment_keys()
+
+    def _format_request_messages(
+        self, messages: list[ChatMessage], model: str, explicit_cache: bool = False
+    ) -> list[dict[str, Any]]:
         formatted: list[dict[str, Any]] = []
         for msg in messages:
             entry: dict[str, Any] = {"role": msg.role}
-            if msg.content is not None:
-                entry["content"] = msg.content
+            if msg.attachments:
+                entry["content"] = self._format_attachment_content(msg, model, explicit_cache)
+            elif msg.content is not None:
+                if explicit_cache and msg.cacheable:
+                    # Anthropic-style cache breakpoint on a stable prefix block.
+                    entry["content"] = [
+                        {
+                            "type": "text",
+                            "text": msg.content,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ]
+                else:
+                    entry["content"] = msg.content
             if msg.tool_call_id is not None:
                 entry["tool_call_id"] = msg.tool_call_id
             if msg.tool_calls is not None:
@@ -35,12 +102,79 @@ class LiteLLMGateway(LLMGatewayProtocol):
             formatted.append(entry)
         return formatted
 
+    @staticmethod
+    def _supports_vision(model: str) -> bool:
+        """Whether ``model`` accepts ``image_url`` content blocks."""
+        normalized = (model or "").lower()
+        return any(marker in normalized for marker in _VISION_MODEL_MARKERS)
+
+    def _format_attachment_content(
+        self, msg: ChatMessage, model: str, explicit_cache: bool
+    ) -> list[dict[str, Any]]:
+        """Build multimodal content blocks for the current user turn.
+
+        Text-like attachments are inlined as their own labelled text blocks; binary image
+        attachments become ``image_url`` blocks. A model that cannot see images receives an
+        explicit degradation note instead of a block the provider would reject, so the
+        failure is visible rather than a dropped file.
+        """
+        attachments: list[AttachmentRef] = list(msg.attachments or [])
+        blocks: list[dict[str, Any]] = []
+        if msg.content:
+            text_block: dict[str, Any] = {"type": "text", "text": msg.content}
+            if explicit_cache and msg.cacheable:
+                text_block["cache_control"] = {"type": "ephemeral"}
+            blocks.append(text_block)
+
+        for att in attachments:
+            if att.is_image:
+                continue
+            if att.text:
+                blocks.append(
+                    {
+                        "type": "text",
+                        "text": (
+                            f"[Attached file: {att.name} ({att.mime}, {att.size} bytes)]\n"
+                            f"{att.text}"
+                        ),
+                    }
+                )
+
+        images = [att for att in attachments if att.is_image and att.data]
+        if images and not self._supports_vision(model):
+            skipped = ", ".join(att.name for att in images)
+            blocks.append(
+                {
+                    "type": "text",
+                    "text": (
+                        "[Attachment notice] The selected model cannot process image input, "
+                        f"so {len(images)} image attachment(s) were not sent: {skipped}. "
+                        "Switch to a vision-capable model to analyse them."
+                    ),
+                }
+            )
+        else:
+            for att in images:
+                encoded = base64.b64encode(att.data or b"").decode("ascii")
+                blocks.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{att.mime};base64,{encoded}"},
+                    }
+                )
+
+        if not blocks:
+            # Only text-like attachments were present and the service inlined them, so the
+            # content is non-null; a defensive empty string keeps the message well-formed.
+            blocks.append({"type": "text", "text": msg.content or ""})
+        return blocks
+
     def _format_request_tools(
-        self, tools: list[ToolDefinition] | None
+        self, tools: list[ToolDefinition] | None, explicit_cache: bool = False
     ) -> list[dict[str, Any]] | None:
         if not tools:
             return None
-        return [
+        formatted = [
             {
                 "type": "function",
                 "function": {
@@ -51,45 +185,245 @@ class LiteLLMGateway(LLMGatewayProtocol):
             }
             for t in tools
         ]
+        if explicit_cache:
+            # Tool schemas are static for a session; cache them alongside the prefix.
+            formatted[-1]["cache_control"] = {"type": "ephemeral"}
+        return formatted
+
+    @staticmethod
+    def _supports_explicit_cache(model: str) -> bool:
+        """Whether the provider accepts explicit `cache_control` markers.
+
+        Anthropic-compatible models support block-level cache control. Other
+        providers (OpenAI, DeepSeek, Gemini, OpenRouter passthrough) rely on
+        automatic prefix caching, which still benefits from a stable prefix and
+        is therefore not disabled — only the explicit markers are omitted.
+        """
+        normalized = (model or "").lower()
+        return "claude" in normalized or "anthropic" in normalized
+
+    @staticmethod
+    def _sanitize_header_value(val: str) -> str:
+        """Strip control characters and newlines that cause HTTP header injection errors."""
+        return "".join(ch for ch in str(val) if ch not in "\r\n\x00").strip()
+
+    def _sanitize_environment_keys(self) -> None:
+        """Ensure standard LLM provider API keys in os.environ have no trailing newlines or control chars."""
+        key_names = [
+            "OPENROUTER_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "OPENAI_API_KEY",
+            "DEEPSEEK_API_KEY",
+            "GEMINI_API_KEY",
+            "AZURE_API_KEY",
+            "MISTRAL_API_KEY",
+            "GROQ_API_KEY",
+        ]
+        for key in key_names:
+            val = os.getenv(key)
+            if val is not None:
+                cleaned = self._sanitize_header_value(val)
+                os.environ[key] = cleaned
+                if key == "OPENROUTER_API_KEY":
+                    litellm.openrouter_key = cleaned
+                elif key == "ANTHROPIC_API_KEY":
+                    litellm.anthropic_key = cleaned
+                elif key == "OPENAI_API_KEY":
+                    litellm.openai_key = cleaned
+
+    @staticmethod
+    def _data_governance_kwargs(model: str, request: ModelRequest) -> dict[str, Any]:
+        """Translate an org's model-data policy into provider kwargs.
+
+        Zero-retention and region are org policy, not per-provider trivia, so the
+        translation is centralised here: attach them as LiteLLM metadata (always safe and
+        visible to callbacks), then add the provider-native knob where one exists
+        (OpenRouter data-collection denial; Vertex/Bedrock region pinning).
+        """
+        if not request.zero_retention and not request.region:
+            return {}
+
+        provider = model.split("/", 1)[0].lower() if "/" in model else model.lower()
+        meta: dict[str, Any] = {}
+        if request.zero_retention:
+            meta["zero_retention"] = True
+        if request.region:
+            meta["region"] = request.region
+        kwargs: dict[str, Any] = {"metadata": meta}
+
+        if request.zero_retention and provider == "openrouter":
+            kwargs["extra_body"] = {"provider": {"data_collection": "deny"}}
+        if request.region:
+            if provider in ("vertex_ai", "google", "gemini"):
+                kwargs["vertex_location"] = request.region
+            elif provider in ("bedrock", "bedrock_converse", "aws"):
+                kwargs["aws_region_name"] = request.region
+        return kwargs
 
     def _apply_credentials(
         self, kwargs: dict[str, Any], credentials: BYOKCredentials | None
     ) -> None:
         if not credentials:
             return
-        kwargs["api_key"] = credentials.api_key
+        if credentials.api_key:
+            kwargs["api_key"] = self._sanitize_header_value(credentials.api_key)
         if credentials.api_base:
-            kwargs["api_base"] = credentials.api_base
+            kwargs["api_base"] = self._sanitize_header_value(credentials.api_base)
         if credentials.custom_headers:
-            kwargs["extra_headers"] = credentials.custom_headers
+            kwargs["extra_headers"] = {
+                self._sanitize_header_value(k): self._sanitize_header_value(v)
+                for k, v in credentials.custom_headers.items()
+            }
 
-    async def chat_stream(
-        self,
-        request: ModelRequest,
-    ) -> AsyncIterator[StreamChunk]:
+    def _completion_kwargs(self, model: str, request: ModelRequest) -> dict[str, Any]:
+        """The LiteLLM call arguments for ``request``."""
+        self._sanitize_environment_keys()
+        explicit_cache = (
+            request.enable_prompt_cache
+            and self._prompt_cache_enabled
+            and self._supports_explicit_cache(model)
+        )
         kwargs: dict[str, Any] = {
-            "model": request.model,
-            "messages": self._format_request_messages(request.messages),
+            "model": model.strip() if model else model,
+            "messages": self._format_request_messages(request.messages, model, explicit_cache),
             "temperature": request.temperature,
             "stream": True,
         }
-        if request.max_tokens is not None:
-            kwargs["max_tokens"] = request.max_tokens
+        kwargs.update(self._generation_options(request))
+        formatted_tools = self._format_request_tools(request.tools, explicit_cache)
+        if formatted_tools:
+            kwargs["tools"] = formatted_tools
+        if request.tool_choice is not None:
+            # Forces text over tool calls (e.g. "none" for the terminal synthesis step).
+            kwargs["tool_choice"] = request.tool_choice
 
+        self._apply_credentials(kwargs, request.credentials)
+        kwargs.update(self._data_governance_kwargs(model, request))
+        return kwargs
+
+    def _generation_options(self, request: ModelRequest) -> dict[str, Any]:
+        """Limits, reasoning, resilience and output-format options the request asks for."""
+        options: dict[str, Any] = {}
+        if request.max_tokens is not None:
+            options["max_tokens"] = request.max_tokens
         if request.thinking_budget_tokens is not None:
-            kwargs["thinking"] = {
+            options["thinking"] = {
                 "type": "enabled",
                 "budget_tokens": request.thinking_budget_tokens,
             }
         if request.reasoning_effort is not None:
-            kwargs["reasoning_effort"] = request.reasoning_effort
+            options["reasoning_effort"] = request.reasoning_effort
 
-        formatted_tools = self._format_request_tools(request.tools)
-        if formatted_tools:
-            kwargs["tools"] = formatted_tools
+        # Provider resilience is delegated to LiteLLM (num_retries + fallbacks)
+        # rather than reimplemented here.
+        if request.max_retries is not None:
+            options["num_retries"] = request.max_retries
+        elif self._max_retries is not None:
+            options["num_retries"] = self._max_retries
+        if request.fallback_models:
+            options["fallbacks"] = list(request.fallback_models)
 
-        self._apply_credentials(kwargs, request.credentials)
+        if request.response_schema is not None:
+            # Constrained decoding: LiteLLM translates this into the provider-native
+            # json_schema response format where supported, and best-effort JSON mode
+            # otherwise. The caller still validates with Pydantic (structured.py).
+            options["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": request.response_schema_name,
+                    "schema": request.response_schema,
+                    "strict": True,
+                },
+            }
+        return options
 
+    @staticmethod
+    def _provider_error_chunks(model: str, error: Exception) -> list[StreamChunk]:
+        provider = model.split("/")[0] if "/" in model else "LLM"
+        help_msg = (
+            f"⚠️ LLM Provider Error ({provider}): {error}. "
+            "Please configure a valid API key (e.g., OPENROUTER_API_KEY in .env, or add your BYOK provider key in Settings > Models)."
+        )
+        return [
+            StreamChunk(text_delta=help_msg),
+            StreamChunk(is_finished=True, finish_reason="error"),
+        ]
+
+    @staticmethod
+    def _usage_from_chunk(chunk: Any) -> dict[str, int] | None:
+        """Token counts (including prompt-cache reads and writes) the provider reported."""
+        usage = getattr(chunk, "usage", None)
+        if not usage:
+            return None
+        usage_dict = {
+            "prompt_tokens": getattr(usage, "prompt_tokens", 0),
+            "completion_tokens": getattr(usage, "completion_tokens", 0),
+            "total_tokens": getattr(usage, "total_tokens", 0),
+        }
+        cache_read = getattr(usage, "cache_read_input_tokens", None)
+        cache_creation = getattr(usage, "cache_creation_input_tokens", None)
+        if cache_read is None:
+            details = getattr(usage, "prompt_tokens_details", None)
+            cache_read = getattr(details, "cached_tokens", None) if details else None
+        if cache_read is not None:
+            usage_dict["cache_read_tokens"] = int(cache_read)
+        if cache_creation is not None:
+            usage_dict["cache_creation_tokens"] = int(cache_creation)
+        return usage_dict
+
+    @staticmethod
+    def _filtered_chunks(
+        pieces: Iterable[tuple[str, str]],
+    ) -> Iterator[StreamChunk]:
+        """Reasoning/text pieces from the ``<think>`` filter as stream chunks."""
+        for stream_type, token_text in pieces:
+            if stream_type == "reasoning":
+                yield StreamChunk(reasoning_delta=token_text)
+            else:
+                yield StreamChunk(text_delta=token_text)
+
+    @classmethod
+    def _delta_chunks(
+        cls, delta: Any, reasoning_filter: ReasoningStreamFilter
+    ) -> Iterator[StreamChunk]:
+        # 1. Provider-native reasoning fields (e.g. DeepSeek / Anthropic thinking)
+        provider_reasoning = getattr(delta, "reasoning_content", None) or getattr(
+            delta, "thinking", None
+        )
+        if provider_reasoning:
+            yield StreamChunk(reasoning_delta=provider_reasoning)
+
+        # 2. Text tokens, filtered for in-band <think>...</think> tags
+        content = getattr(delta, "content", None)
+        if content:
+            yield from cls._filtered_chunks(reasoning_filter.feed(content))
+
+        # 3. Tool call streaming deltas
+        for tool_call in getattr(delta, "tool_calls", None) or []:
+            func = getattr(tool_call, "function", None)
+            func_dict = (
+                {
+                    "name": getattr(func, "name", None),
+                    "arguments": getattr(func, "arguments", None),
+                }
+                if func
+                else None
+            )
+            yield StreamChunk(
+                tool_call_delta={
+                    "index": getattr(tool_call, "index", 0),
+                    "id": getattr(tool_call, "id", None),
+                    "type": getattr(tool_call, "type", "function"),
+                    "function": func_dict,
+                }
+            )
+
+    async def _stream_model(
+        self,
+        model: str,
+        request: ModelRequest,
+    ) -> AsyncIterator[StreamChunk]:
+        kwargs = self._completion_kwargs(model, request)
         reasoning_filter = ReasoningStreamFilter()
         try:
             response = await litellm.acompletion(**kwargs)
@@ -97,30 +431,13 @@ class LiteLLMGateway(LLMGatewayProtocol):
             litellm.exceptions.AuthenticationError,
             litellm.exceptions.NotFoundError,
         ) as auth_err:
-            provider = request.model.split("/")[0] if "/" in request.model else "LLM"
-            help_msg = (
-                f"⚠️ LLM Provider Error ({provider}): {auth_err}. "
-                "Please configure a valid API key (e.g., OPENROUTER_API_KEY in .env, or add your BYOK provider key in Settings > Models)."
-            )
-            yield StreamChunk(text_delta=help_msg)
-            yield StreamChunk(is_finished=True, finish_reason="error")
-            return
-        except Exception as err:
-            yield StreamChunk(text_delta=f"⚠️ Model Execution Error: {err}")
-            yield StreamChunk(is_finished=True, finish_reason="error")
+            for error_chunk in self._provider_error_chunks(model, auth_err):
+                yield error_chunk
             return
 
         finished = False
-
         async for chunk in response:
-            usage_dict: dict[str, int] | None = None
-            if hasattr(chunk, "usage") and chunk.usage:
-                usage_dict = {
-                    "prompt_tokens": getattr(chunk.usage, "prompt_tokens", 0),
-                    "completion_tokens": getattr(chunk.usage, "completion_tokens", 0),
-                    "total_tokens": getattr(chunk.usage, "total_tokens", 0),
-                }
-
+            usage_dict = self._usage_from_chunk(chunk)
             choices = getattr(chunk, "choices", None)
             if not choices:
                 if usage_dict:
@@ -129,55 +446,15 @@ class LiteLLMGateway(LLMGatewayProtocol):
 
             choice = choices[0]
             delta = getattr(choice, "delta", None)
-            finish_reason = getattr(choice, "finish_reason", None)
-
             if delta is not None:
-                # 1. Provider-native reasoning fields (e.g. DeepSeek / Anthropic thinking)
-                provider_reasoning = getattr(delta, "reasoning_content", None) or getattr(
-                    delta, "thinking", None
-                )
-                if provider_reasoning:
-                    yield StreamChunk(reasoning_delta=provider_reasoning)
+                for delta_chunk in self._delta_chunks(delta, reasoning_filter):
+                    yield delta_chunk
 
-                # 2. Text tokens, filtered for in-band <think>...</think> tags
-                content = getattr(delta, "content", None)
-                if content:
-                    for stream_type, token_text in reasoning_filter.feed(content):
-                        if stream_type == "reasoning":
-                            yield StreamChunk(reasoning_delta=token_text)
-                        else:
-                            yield StreamChunk(text_delta=token_text)
-
-                # 3. Tool call streaming deltas
-                tool_calls = getattr(delta, "tool_calls", None)
-                if tool_calls:
-                    for tc in tool_calls:
-                        func = getattr(tc, "function", None)
-                        func_dict = (
-                            {
-                                "name": getattr(func, "name", None),
-                                "arguments": getattr(func, "arguments", None),
-                            }
-                            if func
-                            else None
-                        )
-                        yield StreamChunk(
-                            tool_call_delta={
-                                "index": getattr(tc, "index", 0),
-                                "id": getattr(tc, "id", None),
-                                "type": getattr(tc, "type", "function"),
-                                "function": func_dict,
-                            }
-                        )
-
+            finish_reason = getattr(choice, "finish_reason", None)
             if finish_reason:
                 finished = True
-                for stream_type, token_text in reasoning_filter.flush():
-                    if stream_type == "reasoning":
-                        yield StreamChunk(reasoning_delta=token_text)
-                    else:
-                        yield StreamChunk(text_delta=token_text)
-
+                for pending in self._filtered_chunks(reasoning_filter.flush()):
+                    yield pending
                 yield StreamChunk(
                     is_finished=True,
                     finish_reason=finish_reason,
@@ -185,28 +462,117 @@ class LiteLLMGateway(LLMGatewayProtocol):
                 )
 
         if not finished:
-            for stream_type, token_text in reasoning_filter.flush():
-                if stream_type == "reasoning":
-                    yield StreamChunk(reasoning_delta=token_text)
-                else:
-                    yield StreamChunk(text_delta=token_text)
+            for pending in self._filtered_chunks(reasoning_filter.flush()):
+                yield pending
             yield StreamChunk(is_finished=True)
+
+    async def chat_stream(
+        self,
+        request: ModelRequest,
+    ) -> AsyncIterator[StreamChunk]:
+        """Stream a completion.
+
+        Retries and provider fail-over are delegated to LiteLLM (``num_retries``,
+        ``fallbacks``), which implements backoff and retryable-error
+        classification. This wrapper only converts an exhausted/fatal failure into
+        a user-visible error chunk. LiteLLM does not retry after tokens have been
+        streamed, so partial output can never be duplicated.
+
+        It is also the single choke point for tenant policy: the spending caps are checked
+        before any provider call is made, the member's or organization's own key is
+        substituted for the platform key when one applies, and the call's tokens and cost
+        are written to the usage ledger when the stream ends.
+        """
+        scope = current_model_scope.get()
+        key_source = "platform"
+        if scope is not None and (scope.zero_retention or scope.region):
+            request = dataclasses.replace(
+                request,
+                zero_retention=request.zero_retention or scope.zero_retention,
+                region=request.region or scope.region,
+            )
+        try:
+            if scope is not None and self.budget_guard is not None:
+                await self.budget_guard.check(scope)
+            if scope is not None and request.credentials is None and self.credential_resolver:
+                resolved = await self.credential_resolver.resolve(scope, request.model)
+                if resolved is not None:
+                    request = dataclasses.replace(request, credentials=resolved.credentials)
+                    key_source = resolved.key_source
+        except Exception as err:
+            yield StreamChunk(is_finished=True, finish_reason="error", error=str(err))
+            return
+
+        usage: dict[str, int] | None = None
+        produced = 0
+        failed = False
+        try:
+            async for chunk in self._stream_model(request.model, request):
+                if chunk.token_usage:
+                    usage = chunk.token_usage
+                produced += len(chunk.text_delta or "") + len(chunk.reasoning_delta or "")
+                yield chunk
+        except Exception as err:
+            failed = True
+            # A failure is a failure, never model output: consumers raise on `error`.
+            yield StreamChunk(is_finished=True, finish_reason="error", error=str(err))
+        finally:
+            if not failed:
+                await self._record_call(scope, request, usage, produced, key_source)
+
+    async def _record_call(
+        self,
+        scope: ModelScope | None,
+        request: ModelRequest,
+        usage: dict[str, int] | None,
+        produced_chars: int,
+        key_source: str,
+    ) -> None:
+        if scope is None or self.usage_sink is None:
+            return
+        if usage:
+            prompt = int(usage.get("prompt_tokens", 0))
+            completion = int(usage.get("completion_tokens", 0))
+        else:
+            # The provider sent no usage block: bill a character-based estimate rather than 0.
+            prompt = max(50, sum(len(m.content or "") for m in request.messages) // 4)
+            completion = max(10, produced_chars // 4)
+        try:
+            await self.usage_sink.record(
+                UsageEvent(
+                    org_id=scope.org_id,
+                    user_id=scope.user_id,
+                    session_id=scope.session_id,
+                    model=request.model,
+                    prompt_tokens=prompt,
+                    completion_tokens=completion,
+                    cache_read_tokens=int((usage or {}).get("cache_read_tokens", 0)),
+                    cache_creation_tokens=int((usage or {}).get("cache_creation_tokens", 0)),
+                    cost_usd=self._cost_usd(request.model, prompt, completion),
+                    key_source=key_source,
+                )
+            )
+        except Exception:
+            # Accounting must never fail the user's turn; the failure is loud in the logs.
+            logger.exception("Could not record model usage for %s", request.model)
+
+    @staticmethod
+    def _cost_usd(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+        """The provider's published price from LiteLLM, else the conservative estimate."""
+        try:
+            prompt_cost, completion_cost = litellm.cost_per_token(
+                model=model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
+            )
+            total = float(prompt_cost) + float(completion_cost)
+            if total > 0:
+                return round(total, 6)
+        except Exception:
+            pass
+        return estimate_cost_usd(model, prompt_tokens, completion_tokens)
 
     def _estimate_cost_usd(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
         """Estimate token cost based on model family and token usage."""
-        # Standard pricing per million tokens
-        m = model.lower()
-        if "claude-3-7" in m or "claude-3.7" in m:
-            cost = (prompt_tokens * 3.0 / 1_000_000) + (completion_tokens * 15.0 / 1_000_000)
-        elif "gpt-4o" in m:
-            cost = (prompt_tokens * 2.5 / 1_000_000) + (completion_tokens * 10.0 / 1_000_000)
-        elif "deepseek" in m:
-            cost = (prompt_tokens * 0.14 / 1_000_000) + (completion_tokens * 0.28 / 1_000_000)
-        elif "gemini-2.5" in m or "gemini-2.0" in m:
-            cost = (prompt_tokens * 0.10 / 1_000_000) + (completion_tokens * 0.40 / 1_000_000)
-        else:
-            cost = (prompt_tokens * 1.0 / 1_000_000) + (completion_tokens * 3.0 / 1_000_000)
-        return round(cost, 6)
+        return estimate_cost_usd(model, prompt_tokens, completion_tokens)
 
     def set_budget_cap(self, tenant_org_id: str, monthly_budget_usd: float) -> None:
         """Set monthly spending budget cap for an organization."""
@@ -220,6 +586,8 @@ class LiteLLMGateway(LLMGatewayProtocol):
         total_prompt = sum(e.get("prompt_tokens", 0) for e in org_entries)
         total_completion = sum(e.get("completion_tokens", 0) for e in org_entries)
         total_cost = sum(e.get("cost_usd", 0.0) for e in org_entries)
+        total_cache_read = sum(e.get("cache_read_tokens", 0) for e in org_entries)
+        total_cache_creation = sum(e.get("cache_creation_tokens", 0) for e in org_entries)
         budget_cap = getattr(self, "_budget_caps", {}).get(tenant_org_id, 250.0)
 
         # Breakdown by model
@@ -238,6 +606,8 @@ class LiteLLMGateway(LLMGatewayProtocol):
             "prompt_tokens": total_prompt,
             "completion_tokens": total_completion,
             "total_cost_usd": round(total_cost, 4),
+            "cache_read_tokens": total_cache_read,
+            "cache_creation_tokens": total_cache_creation,
             "monthly_budget_cap_usd": budget_cap,
             "budget_used_percent": round((total_cost / budget_cap) * 100, 2)
             if budget_cap > 0
@@ -251,6 +621,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
         total_prompt = sum(e.get("prompt_tokens", 0) for e in user_entries)
         total_completion = sum(e.get("completion_tokens", 0) for e in user_entries)
         total_cost = sum(e.get("cost_usd", 0.0) for e in user_entries)
+        total_cache_read = sum(e.get("cache_read_tokens", 0) for e in user_entries)
 
         return {
             "tenant_user_id": tenant_user_id,
@@ -258,6 +629,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
             "prompt_tokens": total_prompt,
             "completion_tokens": total_completion,
             "total_cost_usd": round(total_cost, 4),
+            "cache_read_tokens": total_cache_read,
             "recent_turns_count": len(user_entries),
         }
 
@@ -281,6 +653,8 @@ class LiteLLMGateway(LLMGatewayProtocol):
         model: str,
         prompt_tokens: int,
         completion_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
     ) -> None:
         cost = self._estimate_cost_usd(model, prompt_tokens, completion_tokens)
         self._usage_ledger.append(
@@ -290,6 +664,8 @@ class LiteLLMGateway(LLMGatewayProtocol):
                 "model": model,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
+                "cache_read_tokens": cache_read_tokens,
+                "cache_creation_tokens": cache_creation_tokens,
                 "cost_usd": cost,
             }
         )

@@ -1,11 +1,13 @@
 """Tier 1 in-process tools for web retrieval and search."""
 
 import json
-from urllib.parse import parse_qs, unquote, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 from markdownify import markdownify
+
+from agent_core.tools.safe_http import UnsafeURLError, safe_get
+from agent_core.tools.search_providers import SearchProviderError, provider_from_env
 
 
 async def web_fetch(url: str, timeout_seconds: float = 15.0) -> str:
@@ -22,14 +24,15 @@ async def web_fetch(url: str, timeout_seconds: float = 15.0) -> str:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=timeout_seconds, follow_redirects=True) as client:
-            response = await client.get(clean_url, headers=headers)
-            response.raise_for_status()
+        response, body = await safe_get(clean_url, headers=headers, timeout_seconds=timeout_seconds)
+        response.raise_for_status()
+    except UnsafeURLError as err:
+        return f"Error: refusing to fetch {url}: {err}"
     except httpx.HTTPError as err:
         return f"Error fetching {url}: {err}"
 
     content_type = response.headers.get("content-type", "").lower()
-    text = response.text
+    text = body.decode(response.encoding or "utf-8", errors="replace")
 
     if "application/json" in content_type:
         try:
@@ -60,51 +63,18 @@ async def web_search(query: str, max_results: int = 5) -> str:
     if not clean_query:
         return "Error: Search query cannot be empty."
 
-    search_url = "https://html.duckduckgo.com/html/"
-    data = {"q": clean_query}
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
-
     try:
-        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
-            response = await client.post(search_url, data=data, headers=headers)
-            response.raise_for_status()
+        results = await provider_from_env().search(clean_query, max_results)
+    except SearchProviderError as err:
+        return f"Search provider misconfigured: {err}"
     except httpx.HTTPError as err:
         return f"Search provider unavailable: {err}"
-
-    soup = BeautifulSoup(response.text, "html.parser")
-    results: list[dict[str, str]] = []
-
-    for result in soup.find_all("div", class_="result", limit=max_results):
-        title_tag = result.find("a", class_="result__a")
-        snippet_tag = result.find("a", class_="result__snippet")
-        if not title_tag:
-            continue
-
-        href_val = title_tag.get("href")
-        raw_href = str(href_val) if href_val is not None else ""
-        # DuckDuckGo redirect wrapper extraction
-        parsed_href = urlparse(raw_href)
-        actual_url = raw_href
-        if "duckduckgo.com" in parsed_href.netloc and parsed_href.path == "/l/":
-            query_params = parse_qs(parsed_href.query)
-            if "uddg" in query_params:
-                actual_url = unquote(query_params["uddg"][0])
-
-        title = title_tag.get_text(strip=True)
-        snippet = snippet_tag.get_text(strip=True) if snippet_tag else ""
-
-        results.append({"title": title, "url": actual_url, "snippet": snippet})
 
     if not results:
         return f"No search results found for query: '{clean_query}'"
 
     lines: list[str] = [f"Search results for: '{clean_query}'\n"]
     for i, res in enumerate(results, start=1):
-        lines.append(f"{i}. [{res['title']}]({res['url']})\n   {res['snippet']}")
+        lines.append(f"{i}. [{res.title}]({res.url})\n   {res.snippet}")
 
     return "\n\n".join(lines)

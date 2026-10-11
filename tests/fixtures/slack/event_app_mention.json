@@ -1,0 +1,18 @@
+{
+  "token": "verification-token",
+  "team_id": "T1",
+  "api_app_id": "A1",
+  "event": {
+    "type": "app_mention",
+    "user": "U1",
+    "text": "<@UBOT> please check the failing build",
+    "ts": "1700000000.000100",
+    "channel": "C1",
+    "event_ts": "1700000000.000100"
+  },
+  "type": "event_callback",
+  "event_id": "Ev_APP_MENTION_1",
+  "event_time": 1700000000,
+  "authorizations": [{"enterprise_id": null, "team_id": "T1", "user_id": "UBOT", "is_bot": true, "is_enterprise_install": false}],
+  "is_ext_shared_channel": false
+}

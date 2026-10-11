@@ -2,8 +2,11 @@
 # Stage 1: Build virtual environment and compile bytecode using uv
 FROM python:3.12-slim-bookworm AS builder
 
-# Install uv from official binary distribution
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+# Install uv from the official binary distribution, pinned to the toolchain version
+# the workspace lockfiles were produced with. `uv:latest` is an unpinned supply-chain
+# input: a silent upstream change could alter the resolver that produces the runtime
+# environment. Bump this deliberately (and in the same commit as uv.lock).
+COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -32,7 +35,7 @@ COPY apps/api/ apps/api/
 COPY specifications/ specifications/
 COPY migrations/ migrations/
 COPY alembic.ini ./
-COPY deploy/docker/entrypoint.backend.sh deploy/docker/entrypoint.backend.sh
+COPY deploy/docker/entrypoint.backend.sh deploy/docker/migrate.sh deploy/docker/
 
 # Final sync to install workspace packages into the virtual environment
 RUN uv sync --frozen --no-dev

@@ -1,7 +1,7 @@
 """GitHub Webhook Ingestion Router with Automated Session Resume."""
 
 import logging
-import shlex
+import os
 import time
 from typing import Any
 
@@ -10,7 +10,15 @@ from agent_core.tools.registry import ToolRegistry
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from git_engine.engine import GitEngine
 
-from api.routes import _spawn_background_turn
+from api.db.store import ensure_tenant_identity
+from api.services.git_credentials import (
+    inject_git_credentials_into_sandbox,
+    resolve_session_git_credentials,
+)
+from api.services.github_installations import installation_org
+from api.services.repository_hint import with_repository_hint
+from api.services.settings import effective_settings
+from api.turns.tasks import _spawn_background_turn
 from specifications.interfaces.events import EventBusProtocol
 from specifications.interfaces.sandbox import SandboxDriverProtocol, SandboxStatus, WorkspaceSpec
 from specifications.interfaces.session import (
@@ -22,6 +30,33 @@ from specifications.interfaces.session import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/webhooks", tags=["GitHub Webhooks"])
+
+
+async def _webhook_identity(
+    request: Request, sender_login: str, installation_id: int | None
+) -> tuple[str, str]:
+    """Tenant and synthetic user that own sessions started by a webhook.
+
+    Webhooks carry no Rocket identity. The organization is the one that mapped the GitHub App
+    installation the event came through; only an unmapped installation falls back to the
+    organization configured in ``ROCKET_WEBHOOK_ORG_ID`` (single-tenant installs).
+    """
+    mapped = (
+        await installation_org(getattr(request.app.state, "db_manager", None), installation_id)
+        if installation_id is not None
+        else None
+    )
+    org_id: str = mapped or os.getenv("ROCKET_WEBHOOK_ORG_ID") or "default_org"
+    safe_login = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in sender_login)
+    return org_id, f"gh_{safe_login}"
+
+
+async def _provision_webhook_identity(request: Request, org_id: str, user_id: str) -> None:
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    if db_mgr is None:
+        return
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        await ensure_tenant_identity(session, org_id, user_id)
 
 
 @router.post("/github", status_code=status.HTTP_200_OK)
@@ -90,8 +125,6 @@ async def github_webhook_endpoint(
                 session_id,
                 "git fetch origin && git pull origin HEAD --rebase || true",
             )
-            if registry:
-                registry.bind_sandbox(driver, session_id)
 
         existing_session.updated_at = int(time.time())
         await store.update_session(existing_session)
@@ -108,6 +141,8 @@ async def github_webhook_endpoint(
             driver=driver,
             registry=registry,
             store=store,
+            git_engine=git_engine,
+            db_mgr=getattr(request.app.state, "db_manager", None),
         )
 
         return {
@@ -127,16 +162,18 @@ async def github_webhook_endpoint(
         trigger.issue_or_pr_number,
     )
 
-    branch = trigger.branch_name or f"agent/issue-{trigger.issue_or_pr_number}-fix"
+    webhook_org_id, webhook_user_id = await _webhook_identity(
+        request, trigger.sender_login, trigger.installation_id
+    )
+    await _provision_webhook_identity(request, webhook_org_id, webhook_user_id)
 
     new_session = SessionRecord(
         session_id=session_id,
-        tenant_org_id="github",
-        tenant_user_id=trigger.sender_login,
+        tenant_org_id=webhook_org_id,
+        tenant_user_id=webhook_user_id,
+        is_shared=True,
         title=f"Fix {trigger.repo_full_name}#{trigger.issue_or_pr_number}",
         source=SessionSource.GITHUB_WEBHOOK,
-        git_repo=trigger.repo_full_name,
-        git_branch=branch,
         sandbox_status=SandboxStatus.RUNNING if driver else SandboxStatus.NON_EXISTENT,
         metadata={
             "github_repo": trigger.repo_full_name,
@@ -150,34 +187,41 @@ async def github_webhook_endpoint(
         await driver.ensure_workspace(
             WorkspaceSpec(
                 session_id=session_id,
-                tenant_org_id="github",
-                tenant_user_id=trigger.sender_login,
-                container_image=new_session.container_image or "python:3.12-slim",
+                tenant_org_id=webhook_org_id,
+                tenant_user_id=webhook_user_id,
+                container_image=new_session.container_image
+                or str(
+                    (
+                        await effective_settings(
+                            getattr(request.app.state, "db_manager", None),
+                            webhook_org_id,
+                            "sandboxes",
+                        )
+                    )["default_image"]
+                ),
             )
         )
         await driver.start_sandbox(session_id)
 
-        # Ensure git binary is installed
-        check_git = await driver.exec_command(session_id, "which git")
-        if check_git.exit_code != 0:
-            await driver.exec_command(
-                session_id,
-                "apt-get update -y && apt-get install -y --no-install-recommends git || apk add --no-cache git || true",
-            )
-
-        # Initialize git workspace with dedicated branch
-        await driver.exec_command(
-            session_id,
-            f"git rev-parse --is-inside-work-tree || (git init -b {shlex.quote(branch)} && "
-            "git config user.name 'RocketChat Bot' && "
-            "git config user.email 'bot@rocketchat.internal')",
+        git_bundle = await resolve_session_git_credentials(
+            user_id=webhook_user_id,
+            org_id=webhook_org_id,
+            git_engine=git_engine,
+            db_mgr=getattr(request.app.state, "db_manager", None),
+            repo=trigger.repo_full_name,
         )
-        if registry:
-            registry.bind_sandbox(driver, session_id)
+        await inject_git_credentials_into_sandbox(driver, session_id, git_bundle)
 
-    prompt_text = (
+    work_branch_instruction = (
+        "Work on the branch above."
+        if trigger.branch_name
+        else f"Do the work on a new branch named `agent/issue-{trigger.issue_or_pr_number}-fix`."
+    )
+    prompt_text = with_repository_hint(
         f"Resolve GitHub issue #{trigger.issue_or_pr_number} in {trigger.repo_full_name}:\n\n"
-        f"{trigger.prompt_text}"
+        f"{trigger.prompt_text}\n\n{work_branch_instruction}",
+        trigger.repo_full_name,
+        trigger.branch_name,
     )
 
     _spawn_background_turn(
@@ -188,6 +232,8 @@ async def github_webhook_endpoint(
         driver=driver,
         registry=registry,
         store=store,
+        git_engine=git_engine,
+        db_mgr=getattr(request.app.state, "db_manager", None),
     )
 
     return {

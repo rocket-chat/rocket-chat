@@ -1,6 +1,6 @@
 """Unit tests for Two-Tier FastMCP ToolRegistry and individual tool implementations."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from agent_core.tools.registry import ToolRegistry
@@ -21,22 +21,24 @@ def test_tool_registry_definitions() -> None:
     assert "file_write" in tool_names
     assert "apply_patch" in tool_names
     assert "session_rename" in tool_names
+    assert "update_status" in tool_names
 
 
 @pytest.mark.asyncio
 async def test_tier1_web_fetch_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    mock_response = MagicMock()
-    mock_response.headers = {"content-type": "application/json"}
-    mock_response.text = '{"title": "Test Title", "version": 1}'
-    mock_response.raise_for_status = MagicMock()
-
-    mock_client = AsyncMock()
-    mock_client.__aenter__.return_value = mock_client
-    mock_client.get.return_value = mock_response
-
     import httpx
+    from agent_core.tools import tier1
 
-    monkeypatch.setattr(httpx, "AsyncClient", lambda *args, **kwargs: mock_client)
+    async def fake_safe_get(url: str, **_: object) -> tuple[httpx.Response, bytes]:
+        body = b'{"title": "Test Title", "version": 1}'
+        response = httpx.Response(
+            200,
+            headers={"content-type": "application/json"},
+            request=httpx.Request("GET", url),
+        )
+        return response, body
+
+    monkeypatch.setattr(tier1, "safe_get", fake_safe_get)
 
     result = await web_fetch("https://api.example.com/data.json")
     assert "Test Title" in result
@@ -108,3 +110,136 @@ async def test_session_rename_callback() -> None:
 
     assert "Refactor Navigation Cockpit" in res
     assert renamed == [("test_session_123", "Refactor Navigation Cockpit")]
+
+
+@pytest.mark.asyncio
+async def test_update_status_tool() -> None:
+    import asyncio
+
+    from agent_core.context import ExecutionContext, current_execution_ctx
+
+    from specifications.interfaces.agent import AgentEvent
+
+    event_queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
+    ctx = ExecutionContext(
+        session_id="test_sess_status",
+        event_queue=event_queue,
+        parent_model="test-model",
+    )
+    current_execution_ctx.set(ctx)
+
+    registry = ToolRegistry(session_id="test_sess_status")
+    res = await registry.call_tool("update_status", {"message": "Investigating auth middleware"})
+
+    assert "Status updated: Investigating auth middleware" in res
+    event = event_queue.get_nowait()
+    assert event is not None
+    assert event.event_type == "status"
+    assert event.payload["message"] == "Investigating auth middleware"
+
+
+@pytest.mark.asyncio
+async def test_think_tool_emits_thought_event() -> None:
+    import asyncio
+
+    from agent_core.context import ExecutionContext, current_execution_ctx
+
+    from specifications.interfaces.agent import AgentEvent
+
+    event_queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
+    ctx = ExecutionContext(
+        session_id="test_sess_think",
+        event_queue=event_queue,
+        parent_model="test-model",
+    )
+    token = current_execution_ctx.set(ctx)
+    try:
+        registry = ToolRegistry(session_id="test_sess_think")
+        res = await registry.call_tool("think", {"thought": "Check the cache prefix first"})
+        assert "Reasoning checkpoint recorded" in res
+        event = event_queue.get_nowait()
+        assert event is not None
+        assert event.event_type == "thought"
+        assert event.payload["content"] == "Check the cache prefix first"
+    finally:
+        current_execution_ctx.reset(token)
+
+
+def test_catalog_completion_tools_are_exposed() -> None:
+    from agent_core.tools.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    names = {definition.name for definition in registry.get_tool_definitions()}
+    assert {"package_manager", "git_log", "apply_diff_file", "think"} <= names
+    assert "think" in registry.PLAN_READ_ONLY_TOOLS
+    assert "git_log" in registry.PLAN_READ_ONLY_TOOLS
+
+
+_MULTI_FILE_DIFF = """diff --git a/a.py b/a.py
+--- a/a.py
++++ b/a.py
+@@ -1 +1 @@
+-old a
++new a
+diff --git a/b.py b/b.py
+--- a/b.py
++++ b/b.py
+@@ -1 +1 @@
+-old b
++new b
+"""
+
+
+@pytest.mark.asyncio
+async def test_apply_diff_file_denied_does_not_touch_workspace() -> None:
+    mock_driver = AsyncMock(spec=SandboxDriverProtocol)
+    registry = ToolRegistry(driver=mock_driver, session_id="s_diff")
+    calls: list[str] = []
+
+    async def _deny(action_type: str, description: str, risk_level: str) -> str:
+        calls.append(action_type)
+        return "Denied by user"
+
+    registry.set_approval_callback(_deny)
+    out = await registry.call_tool(
+        "apply_diff_file", {"diff_content": _MULTI_FILE_DIFF, "path": "a.py"}
+    )
+    assert "not approved" in out.lower()
+    assert calls == ["apply_diff_file"]
+    mock_driver.apply_patch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_apply_diff_file_approved_applies_and_emits_diff() -> None:
+    import asyncio
+
+    from agent_core.context import ExecutionContext, current_execution_ctx
+
+    from specifications.interfaces.agent import AgentEvent
+
+    event_queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
+    ctx = ExecutionContext(session_id="s_diff", event_queue=event_queue, parent_model="m")
+    token = current_execution_ctx.set(ctx)
+    try:
+        mock_driver = AsyncMock(spec=SandboxDriverProtocol)
+        mock_driver.read_file.side_effect = ["old a\n", "new a\n"]
+        mock_driver.apply_patch.return_value = True
+        registry = ToolRegistry(driver=mock_driver, session_id="s_diff")
+
+        async def _approve(action_type: str, description: str, risk_level: str) -> str:
+            return "Approved"
+
+        registry.set_approval_callback(_approve)
+        out = await registry.call_tool(
+            "apply_diff_file", {"diff_content": _MULTI_FILE_DIFF, "path": "a.py"}
+        )
+        assert "Applied patch to 'a.py'" in out
+        mock_driver.apply_patch.assert_awaited_once()
+        assert mock_driver.apply_patch.call_args.kwargs["path"] == "a.py"
+        assert "b.py" not in mock_driver.apply_patch.call_args.kwargs["patch_content"]
+        event = event_queue.get_nowait()
+        assert event is not None
+        assert event.event_type == "file_diff"
+        assert event.payload["path"] == "a.py"
+    finally:
+        current_execution_ctx.reset(token)
