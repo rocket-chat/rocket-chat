@@ -455,46 +455,6 @@ List the caller organisation's audit trail, newest first (admin only).
 
 ## MCP
 
-### `GET /v1/mcp/catalog`
-
-List curated connector catalog entries (Jira, Notion, Google Drive, ...).
-
-**Responses:** `200`
-
-### `POST /v1/mcp/catalog/{entry_id}/install`
-
-Install a curated catalog connector as a concrete MCP server.
-
-Organization scope with a service credential (``api_key``/``bearer``/OAuth2
-client-credentials) grants organization-wide access usable by the Slack bot
-and any agent without per-user consent. User scope with ``oauth2`` provisions
-a per-user interactive OAuth flow.
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| entry_id | path | yes | string |
-
-**Request body**
-
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| entry_id | string | no |  |
-| scope | string | no |  |
-| auth_type | string | no |  |
-| name | string | no |  |
-| endpoint_or_command | string | no |  |
-| authorization_url | string | no |  |
-| token_url | string | no |  |
-| client_id | string | no |  |
-| client_secret | string | no |  |
-| api_key | string | no |  |
-| header_name | string | no |  |
-| header_prefix | string | no |  |
-
-**Responses:** `200`
-
 ### `GET /v1/mcp/oauth/callback`
 
 Exchange the PKCE code for tokens and store them encrypted on the authorized server.

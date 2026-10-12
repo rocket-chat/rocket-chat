@@ -30,6 +30,12 @@ from specifications.interfaces.sandbox import PtyChannel, SandboxDriverProtocol
 logger = logging.getLogger(__name__)
 
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+
+
+def is_valid_env_name(name: str) -> bool:
+    return bool(_ENV_NAME.match(name))
+
+
 MAX_LINE_BYTES = 8 * 1024 * 1024
 # Printed by the process that replaces the interactive shell. Until it is seen nothing is sent:
 # the shell's line editor reads ahead, so a request written while it was still finishing its
@@ -48,7 +54,7 @@ def launch_script(command: str, env: Mapping[str, str], log_file: str, pid_file:
     exports = "".join(
         f"export {name}={shlex.quote(value)}; "
         for name, value in env.items()
-        if _ENV_NAME.match(name)
+        if is_valid_env_name(name)
     )
     # The marker is assembled by printf so the terminal's echo of this very line (it is still in
     # cooked mode while the line is typed) can never be mistaken for the server being ready.

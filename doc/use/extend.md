@@ -15,6 +15,10 @@ A skill is a named instruction you invoke with a slash: type `/review src/` and 
 
 Connect tools from other systems through the [Model Context Protocol](https://modelcontextprotocol.io): an issue tracker, a database, an internal API. Add a server (remote over HTTP/SSE, or a command that runs inside the sandbox), give it credentials (stored encrypted, never shown again) and its tools join the agent's. An organization connector can require each member to authorize their own account. Descriptions you add under *guidance* tell the agent when to use a tool.
 
+**Common servers.** In the registration dialog, *Start from a common server* fills in the name, address, authentication type and a link to the vendor's setup guide for about twenty popular servers (GitHub, Linear, Notion, Atlassian, Slack, Sentry, Stripe, Supabase, PostgreSQL, Brave Search and more). It only prefills the form: you register the server the usual way. Servers that use OAuth need an OAuth app registered with the vendor (the dialog shows the redirect URL to give it) and its client ID and secret.
+
+**Command servers (administrators).** A *Command* server is a program such as `npx -y @modelcontextprotocol/server-filesystem /workspace` or `uvx mcp-server-fetch`. It starts inside the session's sandbox, so it needs the program (`npx`, `uvx`, ...) the sandbox image provides, and its tools appear once the sandbox is running. It cannot be tested from the settings page. Set the environment variables it reads under *Environment variables*; names use letters, digits and underscores, and a value marked secret is stored encrypted. Packages are downloaded in the sandbox, so they are fetched again when its pod is recreated.
+
 ## Knowledge bases
 
 Upload documents (architecture notes, runbooks, API docs) and the agent searches them when relevant. This is also the best place to say where things are: "the billing service is `acme/billing-api`" lets the agent pick the right repository without asking.

@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `web`/`api`: **The MCP page's connector catalog panel is replaced by presets in the registration dialog.** *Start from a common server* prefills about 20 popular servers (12 remote, 8 commands) with their address, authentication type, OAuth endpoints where fixed, environment variable names and a link to the vendor's setup guide, then follows the normal registration flow. Removed `GET /v1/mcp/catalog` and `POST /v1/mcp/catalog/{id}/install` (the one-click OAuth install failed with no client ID configured); servers installed that way keep working as ordinary servers.
+- `web`/`api`: **Command (stdio) servers are described and configured as what they are.** The transport reads "Command (runs in the session sandbox)", the authentication choice becomes *Environment variables* (previously "Custom Headers"), and the API rejects invalid variable names and request-style authentication for a command server.
 
 ### Fixed
 - `web`: registering an MCP server opens in a real dialog (Escape, backdrop and a close button dismiss it; errors show inside it) instead of a block inserted into the page that the member had to scroll up to find. New shared `Modal` component.
