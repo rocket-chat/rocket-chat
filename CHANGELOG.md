@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- `web`: registering an MCP server opens in a real dialog (Escape, backdrop and a close button dismiss it; errors show inside it) instead of a block inserted into the page that the member had to scroll up to find. New shared `Modal` component.
 
 ### Security
 
