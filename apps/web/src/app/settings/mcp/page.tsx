@@ -213,7 +213,6 @@ export default function McpSettingsPage() {
           scope={formScope}
           isAdmin={isAdmin}
           onSaved={handleServerAdded}
-          onError={showError}
           onCancel={() => setShowAddForm(false)}
         />
       )}

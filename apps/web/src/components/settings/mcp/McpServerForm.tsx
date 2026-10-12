@@ -9,13 +9,13 @@ import {
 } from "lucide-react";
 import { Field, Input, Select, Textarea } from "../../ui/Field";
 import { Disclosure } from "../../ui/Disclosure";
+import { Modal } from "../../ui/Modal";
 import { McpServerConfig, McpToolSchema } from "../../../types/mission";
 
 interface McpServerFormProps {
   scope: "user" | "org";
   isAdmin: boolean;
   onSaved: (server: McpServerConfig, message: string) => void;
-  onError: (message: string) => void;
   onCancel: () => void;
 }
 
@@ -24,10 +24,10 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
   scope: formScope,
   isAdmin,
   onSaved,
-  onError,
   onCancel,
 }) => {
   const [validating, setValidating] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
   const [validationResult, setValidationResult] = useState<{
     valid: boolean;
     message?: string;
@@ -115,10 +115,11 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
 
   const handleSaveServer = async () => {
     if (!serverName.trim() || !endpoint.trim()) {
-      onError("Name and endpoint are required.");
+      setFormError("Name and endpoint are required.");
       return;
     }
 
+    setFormError(null);
     try {
       const payload: Record<string, unknown> = {
         name: serverName.trim(),
@@ -144,30 +145,16 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
       onSaved(created, `Registered MCP server '${created.name}' (${formScope} scope)`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error saving MCP server";
-      onError(msg);
+      setFormError(msg);
     }
   };
 
   return (
-    <div className="p-5 rounded-lg border border-cyan/40 bg-surface space-y-4 shadow-xl">
-              <div className="flex items-center justify-between border-b border-border/60 pb-2">
-                <div className="flex items-center gap-2">
-                  <span className="font-display text-base font-semibold text-foreground">
-                    Register a new MCP server
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-mono uppercase bg-cyan/10 text-cyan border border-cyan/20">
-                    {formScope === "org" ? "Organization Scope" : "Personal Scope"}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => onCancel()}
-                  className="text-neutral-400 hover:text-white text-xs font-mono cursor-pointer"
-                >
-                  Cancel
-                </button>
-              </div>
-
+    <Modal
+      title={formScope === "org" ? "Register an organization MCP server" : "Register a personal MCP server"}
+      onClose={onCancel}
+      testId="mcp-server-modal"
+    >
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <Field label="Server name">
                   {(control) => (
@@ -461,7 +448,13 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                 )}
               </div>
 
-              <div className="flex items-center justify-between pt-3 border-t border-border/60">
+              {formError && (
+                <p role="alert" data-testid="mcp-form-error" className="text-xs text-rose-600 dark:text-rose-400">
+                  {formError}
+                </p>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-border/60">
                 <button
                   type="button"
                   onClick={handleValidateConnection}
@@ -490,6 +483,6 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                   </button>
                 </div>
               </div>
-            </div>
+    </Modal>
   );
 };

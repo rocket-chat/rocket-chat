@@ -3,6 +3,17 @@ import { test, expect } from "@playwright/test";
 test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
   test.describe.configure({ mode: "serial" });
 
+  test("the registration form is a dialog that Escape closes", async ({ page }) => {
+    await page.goto("/settings/mcp");
+    await page.getByRole("button", { name: /REGISTER MCP SERVER/i }).click();
+    const dialog = page.getByTestId("mcp-server-modal");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toHaveAttribute("aria-modal", "true");
+
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+  });
+
   test("manages multi-scheme MCP servers with write-only credentials and prompt guidance", async ({ page }) => {
     await page.goto("/settings/mcp");
 
@@ -19,6 +30,9 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     const registerBtn = page.getByRole("button", { name: /REGISTER MCP SERVER/i });
     await expect(registerBtn).toBeVisible();
     await registerBtn.click();
+
+    // The form is a dialog over the page, not a block somewhere in the scrolled content.
+    await expect(page.getByTestId("mcp-server-modal")).toBeVisible();
 
     // Fill server details
     await page.getByPlaceholder("e.g. Stripe Billing MCP").fill("E2E Sentry Server");
