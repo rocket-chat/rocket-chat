@@ -221,3 +221,49 @@ def test_custom_agents_scoping_and_skill_binding(client: TestClient) -> None:
     assert data["name"] == "Eve Custom Tester"
     assert data["scope"] == "user"
     assert "skill-charlie-helper" in data["skill_ids"]
+
+
+def _stdio_server(auth: dict[str, object]) -> dict[str, object]:
+    return {
+        "name": "Env Checked",
+        "transport": "stdio",
+        "endpoint_or_command": "npx -y some-server",
+        "scope": "org",
+        "auth": auth,
+    }
+
+
+_ADMIN = {"X-Tenant-Org-Id": "test_org", "X-Tenant-User-Id": "admin", "X-User-Role": "admin"}
+
+
+def test_a_command_server_takes_environment_variables_with_valid_names(
+    client: TestClient,
+) -> None:
+    bad_name = client.post(
+        "/v1/mcp/servers",
+        json=_stdio_server(
+            {"auth_type": "custom_headers", "headers": [{"name": "X-Org-ID", "value": "1"}]}
+        ),
+        headers=_ADMIN,
+    )
+    assert bad_name.status_code == 422 and "X-Org-ID" in bad_name.json()["detail"]
+
+    request_auth = client.post(
+        "/v1/mcp/servers",
+        json=_stdio_server({"auth_type": "api_key", "api_key": "k"}),
+        headers=_ADMIN,
+    )
+    assert request_auth.status_code == 422
+
+    ok = client.post(
+        "/v1/mcp/servers",
+        json=_stdio_server(
+            {
+                "auth_type": "custom_headers",
+                "headers": [{"name": "BRAVE_API_KEY", "value": "k", "is_secret": True}],
+            }
+        ),
+        headers=_ADMIN,
+    )
+    assert ok.status_code in (200, 201), ok.text
+    client.delete(f"/v1/mcp/servers/{ok.json()['id']}", headers=_ADMIN)

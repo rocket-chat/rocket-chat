@@ -4,12 +4,14 @@ import React, { useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  ExternalLink,
   Plus,
   RefreshCw,
 } from "lucide-react";
 import { Field, Input, Select, Textarea } from "../../ui/Field";
 import { Disclosure } from "../../ui/Disclosure";
 import { Modal } from "../../ui/Modal";
+import { MCP_PRESETS, type McpPreset } from "./presets";
 import { McpServerConfig, McpToolSchema } from "../../../types/mission";
 
 interface McpServerFormProps {
@@ -28,6 +30,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
 }) => {
   const [validating, setValidating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [preset, setPreset] = useState<McpPreset | null>(null);
   const [validationResult, setValidationResult] = useState<{
     valid: boolean;
     message?: string;
@@ -75,6 +78,26 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
         }
       : {}),
   });
+
+  const canUseCommands = isAdmin && formScope === "org";
+  const presets = MCP_PRESETS.filter((p) => p.transport !== "stdio" || canUseCommands);
+  const isCommand = transport === "stdio";
+
+  const applyPreset = (id: string) => {
+    const chosen = MCP_PRESETS.find((p) => p.id === id) ?? null;
+    setPreset(chosen);
+    setValidationResult(null);
+    if (!chosen) return;
+    setServerName(chosen.name);
+    setTransport(chosen.transport);
+    setEndpoint(chosen.endpoint);
+    setAuthType(chosen.auth);
+    setCustomHeaders([]);
+    setNewHeaderKey(chosen.env?.[0] ?? "");
+    setOauthAuthUrl(chosen.oauth?.authorizationUrl ?? "");
+    setOauthTokenUrl(chosen.oauth?.tokenUrl ?? "");
+    setOauthScopes(chosen.oauth?.scopes ?? "");
+  };
 
   const handleValidateConnection = async () => {
     if (!endpoint) {
@@ -155,6 +178,41 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
       onClose={onCancel}
       testId="mcp-server-modal"
     >
+              <Field label="Start from a common server (optional)" hint="Fills in the fields below; you can change anything.">
+                {(control) => (
+                  <Select {...control} data-testid="mcp-preset" value={preset?.id ?? ""} onChange={(e) => applyPreset(e.target.value)}>
+                    <option value="">Custom server</option>
+                    <optgroup label="Remote servers">
+                      {presets.filter((p) => p.transport !== "stdio").map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </optgroup>
+                    {canUseCommands && (
+                      <optgroup label="Commands run in the session sandbox">
+                        {presets.filter((p) => p.transport === "stdio").map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </Select>
+                )}
+              </Field>
+
+              {preset && (
+                <div data-testid="mcp-preset-note" className="rounded-lg border border-surface-border bg-surface-card p-3 text-xs leading-relaxed text-neutral-600 dark:text-neutral-300">
+                  <p>{preset.setup}</p>
+                  {preset.auth === "oauth2" && (
+                    <p className="mt-1">
+                      Redirect URL for the OAuth app:{" "}
+                      <code className="font-mono">{`${typeof window === "undefined" ? "" : window.location.origin}/v1/mcp/oauth/callback`}</code>
+                    </p>
+                  )}
+                  <a href={preset.docsUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-brand hover:underline">
+                    Setup guide <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                  </a>
+                </div>
+              )}
+
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <Field label="Server name">
                   {(control) => (
@@ -171,21 +229,23 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                     <Select
                       {...control}
                       value={transport}
-                      onChange={(e) =>
-                        setTransport(e.target.value as "http" | "sse" | "streamable_http" | "websocket" | "stdio")
-                      }
+                      onChange={(e) => {
+                        const next = e.target.value as "http" | "sse" | "streamable_http" | "websocket" | "stdio";
+                        setTransport(next);
+                        if (next === "stdio" && authType !== "none" && authType !== "custom_headers") setAuthType("none");
+                      }}
                     >
                       <option value="http">http (Streamable HTTP / SSE)</option>
                       <option value="sse">sse (Server-Sent Events)</option>
                       <option value="streamable_http">streamable_http (Modern MCP HTTP)</option>
                       <option value="websocket">websocket (Full-Duplex WS)</option>
                       {isAdmin && formScope === "org" && (
-                        <option value="stdio">stdio (Admin Subprocess CLI / npx)</option>
+                        <option value="stdio">Command (runs in the session sandbox)</option>
                       )}
                     </Select>
                   )}
                 </Field>
-                <Field label={transport === "stdio" ? "Command" : "Endpoint URL"}>
+                <Field label={isCommand ? "Command" : "Endpoint URL"} hint={isCommand ? "Started inside the session's sandbox with npx, uvx or any program its image provides. Tools appear once the sandbox is running." : undefined}>
                   {(control) => (
                     <Input
                       {...control}
@@ -219,17 +279,26 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
               <div className="pt-2 border-t border-border/60 space-y-3">
                 <div className="flex items-center gap-3">
                   <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
-                    Authentication Mode:
+                    {isCommand ? "Environment:" : "Authentication Mode:"}
                   </label>
-                  <select aria-label="Authentication Mode"
+                  <select aria-label={isCommand ? "Environment" : "Authentication Mode"}
                     value={authType}
                     onChange={(e) => setAuthType(e.target.value)}
                     className="px-2 py-1 rounded border border-border bg-void text-xs font-mono text-cyan focus:outline-none focus:border-cyan"
                   >
-                    <option value="none">No Authentication (Public / Local)</option>
-                    <option value="api_key">API Key / Bearer Token</option>
-                    <option value="custom_headers">Custom Headers (Multi-Secret)</option>
-                    <option value="oauth2">OAuth 2.1 (RFC 9728 PKCE)</option>
+                    {isCommand ? (
+                      <>
+                        <option value="none">No environment variables</option>
+                        <option value="custom_headers">Environment variables</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="none">No Authentication (Public / Local)</option>
+                        <option value="api_key">API Key / Bearer Token</option>
+                        <option value="custom_headers">Custom Headers (Multi-Secret)</option>
+                        <option value="oauth2">OAuth 2.1 (RFC 9728 PKCE)</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
@@ -355,19 +424,19 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                 {authType === "custom_headers" && (
                   <div className="space-y-2 p-3 rounded bg-surface-card border border-border">
                     <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
-                      Custom Header Pairs
+                      {isCommand ? "Environment variables" : "Custom Header Pairs"}
                     </div>
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
-                        placeholder="Header Key (e.g. X-Org-ID)"
+                        placeholder={isCommand ? "Variable name (e.g. GITHUB_TOKEN)" : "Header Key (e.g. X-Org-ID)"}
                         value={newHeaderKey}
                         onChange={(e) => setNewHeaderKey(e.target.value)}
                         className="flex-1 px-2.5 py-1 rounded border border-border bg-void text-xs font-mono"
                       />
                       <input
                         type={newHeaderSecret ? "password" : "text"}
-                        placeholder="Header Value"
+                        placeholder={isCommand ? "Value" : "Header Value"}
                         value={newHeaderVal}
                         onChange={(e) => setNewHeaderVal(e.target.value)}
                         className="flex-1 px-2.5 py-1 rounded border border-border bg-void text-xs font-mono"
@@ -395,7 +464,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         }}
                         className="px-2.5 py-1 rounded border border-border text-xs font-mono bg-surface-elevated text-neutral-300"
                       >
-                        Add Header
+                        {isCommand ? "Add variable" : "Add Header"}
                       </button>
                     </div>
                     {customHeaders.length > 0 && (
@@ -405,7 +474,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                             key={i}
                             className="px-2 py-0.5 rounded bg-surface border border-border text-[10px] font-mono flex items-center gap-1"
                           >
-                            <span>{h.name}: {h.is_secret ? "••••••••" : h.value}</span>
+                            <span>{h.name}{isCommand ? "=" : ": "}{h.is_secret ? "••••••••" : h.value}</span>
                             <button
                               type="button"
                               onClick={() => setCustomHeaders(customHeaders.filter((_, idx) => idx !== i))}

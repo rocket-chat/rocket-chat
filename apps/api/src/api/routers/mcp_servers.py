@@ -19,15 +19,11 @@ from api.db.models import (
 )
 from api.models import (
     CreateMcpServerRequest,
-    InstallMcpServerRequest,
-    McpAuthInput,
-    McpCatalogEntryResponse,
     McpServerResponseModel,
     McpToolItem,
     ValidateMcpServerRequest,
     ValidateMcpServerResponse,
 )
-from api.services.mcp_catalog import get_catalog_entries, get_catalog_entry
 from api.services.mcp_discovery import DiscoveryError as McpDiscoveryError
 from api.services.mcp_discovery import discover as discover_mcp_oauth
 from api.services.mcp_discovery import register_client as register_mcp_oauth_client
@@ -43,6 +39,7 @@ from api.services.mcp_turn import (
     _member_token_store,
     _probe_timestamp,
 )
+from api.services.sandbox_stdio import is_valid_env_name
 from api.services.settings import (
     effective_settings,
 )
@@ -205,102 +202,6 @@ async def _with_member_connection_status(
     return views
 
 
-@router.get("/mcp/catalog", response_model=list[McpCatalogEntryResponse])
-async def list_mcp_catalog(request: Request) -> list[McpCatalogEntryResponse]:
-    """List curated connector catalog entries (Jira, Notion, Google Drive, ...)."""
-    _get_request_identity(request)
-    return [
-        McpCatalogEntryResponse(
-            id=entry.id,
-            name=entry.name,
-            description=entry.description,
-            category=entry.category,
-            icon=entry.icon,
-            docs_url=entry.docs_url,
-            transport=entry.transport.value,
-            endpoint_or_command=entry.endpoint_or_command,
-            authorization_url=entry.authorization_url,
-            token_url=entry.token_url,
-            default_scopes=entry.default_scopes,
-            supported_auth_types=[auth.value for auth in entry.supported_auth_types],
-            recommended_scope=entry.recommended_scope.value,
-            supports_org_wide_auth=entry.supports_org_wide_auth,
-            supports_per_user_oauth=entry.supports_per_user_oauth,
-            guidance=entry.guidance,
-        )
-        for entry in get_catalog_entries()
-    ]
-
-
-@router.post("/mcp/catalog/{entry_id}/install", response_model=McpServerResponseModel)
-async def install_mcp_catalog_entry(
-    entry_id: str,
-    req: InstallMcpServerRequest,
-    request: Request,
-) -> McpServerResponseModel:
-    """Install a curated catalog connector as a concrete MCP server.
-
-    Organization scope with a service credential (``api_key``/``bearer``/OAuth2
-    client-credentials) grants organization-wide access usable by the Slack bot
-    and any agent without per-user consent. User scope with ``oauth2`` provisions
-    a per-user interactive OAuth flow.
-    """
-    entry = get_catalog_entry(entry_id)
-    if not entry:
-        raise HTTPException(status_code=404, detail="Unknown catalog connector")
-
-    org_id, user_id, roles = _get_request_identity(request)
-    is_admin = "admin" in roles or "owner" in roles
-
-    if req.scope == "org" and not is_admin:
-        raise HTTPException(
-            status_code=403,
-            detail="Only Organization Administrators can install organization-wide connectors.",
-        )
-    if entry.transport.value == "stdio" and not is_admin:
-        raise HTTPException(
-            status_code=403,
-            detail="Only Organization Administrators can install stdio connectors.",
-        )
-    if req.scope == "org" and not entry.supports_org_wide_auth:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"'{entry.name}' requires per-user authorization and cannot be "
-                "installed organization-wide without a delegated service account."
-            ),
-        )
-    if req.scope == "user" and not entry.supports_per_user_oauth:
-        raise HTTPException(
-            status_code=400, detail=f"'{entry.name}' does not support per-user OAuth."
-        )
-
-    suffix = f"-{user_id}" if req.scope == "user" else ""
-    server_id = f"cat-{entry.id}-{req.scope}-{org_id}{suffix}"[:64]
-
-    payload = CreateMcpServerRequest(
-        id=server_id,
-        name=req.name or entry.name,
-        description=entry.description,
-        transport=entry.transport.value,
-        endpoint_or_command=req.endpoint_or_command or entry.endpoint_or_command,
-        guidance=entry.guidance,
-        scope=req.scope,
-        auth=McpAuthInput(
-            auth_type=req.auth_type,
-            api_key=req.api_key,
-            header_name=req.header_name,
-            header_prefix=req.header_prefix,
-            oauth_authorization_url=req.authorization_url or entry.authorization_url,
-            oauth_token_url=req.token_url or entry.token_url,
-            oauth_client_id=req.client_id,
-            oauth_client_secret=req.client_secret,
-            oauth_scopes=entry.default_scopes,
-        ),
-    )
-    return await register_or_update_mcp_server(payload, request)
-
-
 @router.post("/mcp/servers/validate", response_model=ValidateMcpServerResponse)
 async def validate_mcp_server(
     req: ValidateMcpServerRequest,
@@ -396,6 +297,23 @@ async def _enforce_mcp_policy(
         raise HTTPException(
             status_code=400,
             detail=f"You have reached the organization limit of {limit} personal MCP servers.",
+        )
+
+
+def _check_stdio_environment(req: CreateMcpServerRequest) -> None:
+    """A command server is configured with environment variables, nothing else."""
+    if req.transport != "stdio":
+        return
+    if req.auth.auth_type not in ("none", "custom_headers"):
+        raise HTTPException(
+            status_code=422,
+            detail="A command (stdio) server takes environment variables, not request authentication.",
+        )
+    bad = [h.name for h in req.auth.headers if not is_valid_env_name(h.name)]
+    if bad:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Not valid environment variable names (letters, digits, underscore): {', '.join(bad)}",
         )
 
 
@@ -580,6 +498,7 @@ async def register_or_update_mcp_server(
     org_id, user_id, roles = _get_request_identity(request)
     is_admin = "admin" in roles or "owner" in roles
     _authorise_registration(req, is_admin)
+    _check_stdio_environment(req)
 
     server_id = req.id or f"mcp-{uuid.uuid4().hex[:8]}"
     target_user_id = user_id if req.scope == "user" else None

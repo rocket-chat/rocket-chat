@@ -279,50 +279,6 @@ class CreateMcpServerRequest(BaseModel):
     tools: list[McpToolItem] = Field(default_factory=list)
 
 
-class McpCatalogEntryResponse(BaseModel):
-    """Curated connector catalog entry exposed to the settings UI."""
-
-    id: str
-    name: str
-    description: str = ""
-    category: str = "productivity"
-    icon: str = "plug"
-    docs_url: str | None = None
-    transport: str = "http"
-    endpoint_or_command: str
-    authorization_url: str | None = None
-    token_url: str | None = None
-    default_scopes: list[str] = Field(default_factory=list)
-    supported_auth_types: list[str] = Field(default_factory=list)
-    recommended_scope: str = "user"
-    supports_org_wide_auth: bool = True
-    supports_per_user_oauth: bool = True
-    guidance: str = ""
-
-
-class InstallMcpServerRequest(BaseModel):
-    """Payload to install a curated catalog connector as a concrete MCP server.
-
-    ``scope='org'`` with a service credential (``api_key``/``bearer``/``oauth2``
-    client-credentials) configures organization-wide access usable by the Slack
-    bot and any agent. ``scope='user'`` with ``auth_type='oauth2'`` provisions a
-    per-user OAuth flow the invoking user completes interactively.
-    """
-
-    entry_id: str | None = None
-    scope: str = "org"
-    auth_type: str = "oauth2"
-    name: str | None = None
-    endpoint_or_command: str | None = None
-    authorization_url: str | None = None
-    token_url: str | None = None
-    client_id: str | None = None
-    client_secret: str | None = None
-    api_key: str | None = None
-    header_name: str | None = None
-    header_prefix: str | None = None
-
-
 class SubagentConfigModel(BaseModel):
     id: str
     name: str

@@ -6,7 +6,6 @@ import React, { useState, useEffect, useCallback } from "react";
 import { McpServerConfig } from "../../../types/mission";
 import { Server, Plus, Shield, CheckCircle2, AlertCircle } from "lucide-react";
 import { useSession } from "../../../components/AuthProvider";
-import { McpCatalog, type McpCatalogEntry } from "../../../components/settings/mcp/McpCatalog";
 import { McpServerCard } from "../../../components/settings/mcp/McpServerCard";
 import { McpServerForm } from "../../../components/settings/mcp/McpServerForm";
 import { SchemaSettingsForm } from "../../../components/settings/SchemaSettingsForm";
@@ -22,7 +21,6 @@ export default function McpSettingsPage() {
   const isAdmin = !session || userRoles.includes("admin") || userRoles.includes("owner");
 
   const [servers, setServers] = useState<McpServerConfig[]>([]);
-  const [catalog, setCatalog] = useState<McpCatalogEntry[]>([]);
   const [probingId, setProbingId] = useState<string | null>(null);
   const [expandedServerId, setExpandedServerId] = useState<string | null>(null);
 
@@ -54,22 +52,6 @@ export default function McpSettingsPage() {
     fetchServers();
   }, [fetchServers]);
 
-  const fetchCatalog = useCallback(async () => {
-    try {
-      const res = await fetch("/v1/mcp/catalog");
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) setCatalog(data);
-      }
-    } catch (err) {
-      console.warn("Failed fetching MCP catalog:", err);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchCatalog();
-  }, [fetchCatalog]);
-
   const userServers = servers.filter((s) => s.scope === "user" || !s.scope || s.user_id != null);
   const orgServers = servers.filter((s) => s.scope === "org" && s.user_id == null);
 
@@ -78,17 +60,12 @@ export default function McpSettingsPage() {
     setShowAddForm(true);
   };
 
-  const showError = (message: string) => {
-    setErrorBanner(message);
-    setTimeout(() => setErrorBanner(null), 6000);
-  };
-
   const showSuccess = (message: string) => {
     setSuccessBanner(message);
     setTimeout(() => setSuccessBanner(null), 4000);
   };
 
-  // A server was added (by the form or the catalogue): list it and check what it exposes.
+  // A server was added (by the form): list it and check what it exposes.
   const handleServerAdded = (server: McpServerConfig, message: string) => {
     setServers((prev) => [...prev, server]);
     setShowAddForm(false);
@@ -200,13 +177,6 @@ export default function McpSettingsPage() {
           <span>{successBanner}</span>
         </div>
       )}
-
-      <McpCatalog
-        catalog={catalog}
-        isAdmin={isAdmin}
-        onInstalled={handleServerAdded}
-        onError={showError}
-      />
 
       {showAddForm && (
         <McpServerForm

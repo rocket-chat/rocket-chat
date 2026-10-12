@@ -14,6 +14,32 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await expect(dialog).toHaveCount(0);
   });
 
+  test("a common server prefills the form with a setup guide, and the old connector panel is gone", async ({ page }) => {
+    await page.goto("/settings/mcp");
+    await expect(page.getByText("Connector catalog")).toHaveCount(0);
+
+    await page.getByRole("button", { name: /REGISTER MCP SERVER/i }).click();
+    await page.getByTestId("mcp-preset").selectOption("linear");
+
+    await expect(page.getByPlaceholder("e.g. Stripe Billing MCP")).toHaveValue("Linear");
+    await expect(page.getByPlaceholder("https://api.internal.service/mcp")).toHaveValue("https://mcp.linear.app/mcp");
+    const note = page.getByTestId("mcp-preset-note");
+    await expect(note).toContainText("/v1/mcp/oauth/callback");
+    await expect(note.getByRole("link", { name: /Setup guide/ })).toHaveAttribute("href", "https://linear.app/docs/mcp");
+    await expect(page.getByLabel("Authorization URL")).toHaveValue("https://linear.app/oauth/authorize");
+  });
+
+  test("a command server is configured with environment variables", async ({ page }) => {
+    await page.goto("/settings/mcp");
+    await page.getByRole("button", { name: /Add org MCP/i }).click();
+    await page.getByTestId("mcp-preset").selectOption("brave-search");
+
+    await expect(page.getByLabel("Environment", { exact: true })).toHaveValue("custom_headers");
+    await expect(page.getByPlaceholder(/Variable name/)).toHaveValue("BRAVE_API_KEY");
+    await expect(page.getByText("Authentication Mode:")).toHaveCount(0);
+    await expect(page.getByRole("option", { name: /OAuth/ })).toHaveCount(0);
+  });
+
   test("manages multi-scheme MCP servers with write-only credentials and prompt guidance", async ({ page }) => {
     await page.goto("/settings/mcp");
 
@@ -38,7 +64,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await page.getByPlaceholder("e.g. Stripe Billing MCP").fill("E2E Sentry Server");
 
     // Verify transport options (stdio, http, sse)
-    const transportSelect = page.locator("select").first();
+    const transportSelect = page.getByLabel("Transport", { exact: true });
     await expect(transportSelect).toBeVisible();
     await transportSelect.selectOption("http");
 
@@ -51,7 +77,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await guidanceInput.fill("Use this server to fetch exception tracebacks.");
 
     // Select Custom Headers auth mode
-    const authSelect = page.locator("select").nth(1);
+    const authSelect = page.getByLabel("Authentication Mode");
     await authSelect.selectOption("custom_headers");
 
     // Add custom header with secret toggle
