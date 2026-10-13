@@ -151,7 +151,7 @@ export default function SubagentsSettingsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-surface-border pb-6">
         <div>
-          <div className="flex items-center gap-2 text-xs font-mono text-brand mb-1 uppercase tracking-wider">
+          <div className="flex items-center gap-2 text-xs text-brand mb-1">
             <Cpu className="w-3.5 h-3.5" />
             <span>Autonomous Specialist Subagents</span>
           </div>
@@ -189,7 +189,7 @@ export default function SubagentsSettingsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         {/* Left: Subagents Navigation List */}
         <div className="lg:col-span-4 space-y-3">
-          <span className="text-xs font-mono font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider block">
+          <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 block">
             Specialist Fleet ({subagents.length})
           </span>
 
@@ -217,11 +217,11 @@ export default function SubagentsSettingsPage() {
                         {sub.name}
                       </span>
                       {sub.enabled ? (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+                        <span className="px-1.5 py-0.5 rounded-lg text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
                           Active
                         </span>
                       ) : (
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border border-surface-border">
+                        <span className="px-1.5 py-0.5 rounded-lg text-[10px] bg-neutral-200 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border border-surface-border">
                           Disabled
                         </span>
                       )}
@@ -229,7 +229,7 @@ export default function SubagentsSettingsPage() {
                     <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 line-clamp-2 leading-relaxed">
                       {sub.description}
                     </p>
-                    <div className="flex items-center gap-2 mt-2 text-[10px] font-mono text-neutral-500">
+                    <div className="flex items-center gap-2 mt-2 text-[10px] text-neutral-500">
                       <span>Max {sub.max_turns} turns</span>
                       <span>•</span>
                       <span>{sub.whitelisted_tools.length} tools</span>
@@ -261,7 +261,7 @@ export default function SubagentsSettingsPage() {
               </div>
               <div>
                 <h2 data-testid="selected-subagent-title" className="text-lg font-bold text-foreground">{formData.name}</h2>
-                <span className="text-xs font-mono text-brand">{formData.role_title}</span>
+                <span className="text-xs text-brand">{formData.role_title}</span>
               </div>
             </div>
 
@@ -270,7 +270,7 @@ export default function SubagentsSettingsPage() {
                 type="checkbox"
                 checked={formData.enabled}
                 onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                className="w-4 h-4 rounded border-surface-border bg-surface-base text-brand focus:ring-brand/40"
+                className="w-4 h-4 rounded-lg border-surface-border bg-surface-base text-brand focus:ring-brand/40"
               />
               <span>Enabled for Agent</span>
             </label>
@@ -297,7 +297,7 @@ export default function SubagentsSettingsPage() {
             </Field>
 
             <div>
-              <label className="block text-xs font-mono font-semibold text-neutral-400 mb-1.5 uppercase tracking-wider">
+              <label className="block text-xs font-semibold text-neutral-400 mb-1.5">
                 Specialist System Prompt & Operational Guidance
               </label>
               <textarea aria-label="Specialist System Prompt & Operational Guidance"
@@ -315,10 +315,10 @@ export default function SubagentsSettingsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
               <div className="p-4 rounded-xl border border-surface-border bg-surface-base/60 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono font-semibold text-neutral-400 uppercase tracking-wider">
+                  <span className="text-xs font-semibold text-neutral-400">
                     Turn Limit Cap
                   </span>
-                  <span className="text-xs font-mono font-bold text-brand">
+                  <span className="text-xs font-bold text-brand">
                     {formData.max_turns} turns
                   </span>
                 </div>
@@ -338,10 +338,10 @@ export default function SubagentsSettingsPage() {
 
               <div className="p-4 rounded-xl border border-surface-border bg-surface-base/60 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono font-semibold text-neutral-400 uppercase tracking-wider">
+                  <span className="text-xs font-semibold text-neutral-400">
                     Sampling Temperature
                   </span>
-                  <span className="text-xs font-mono font-bold text-brand">
+                  <span className="text-xs font-bold text-brand">
                     {formData.temperature}
                   </span>
                 </div>
@@ -362,7 +362,7 @@ export default function SubagentsSettingsPage() {
 
             {/* Tool Whitelist */}
             <div className="space-y-2.5 pt-2">
-              <span className="block text-xs font-mono font-semibold text-neutral-400 uppercase tracking-wider">
+              <span className="block text-xs font-semibold text-neutral-400">
                 Whitelisted Specialist Tools
               </span>
               <p className="text-[11px] text-neutral-500">
@@ -386,10 +386,10 @@ export default function SubagentsSettingsPage() {
                         type="checkbox"
                         checked={isChecked}
                         onChange={() => {}}
-                        className="mt-0.5 w-3.5 h-3.5 rounded border-surface-border bg-surface-base text-brand focus:ring-brand/40"
+                        className="mt-0.5 w-3.5 h-3.5 rounded-lg border-surface-border bg-surface-base text-brand focus:ring-brand/40"
                       />
                       <div className="min-w-0">
-                        <span className="text-xs font-semibold block text-neutral-200 font-mono">
+                        <span className="text-xs font-semibold block text-neutral-200">
                           {tool.name}
                         </span>
                         <span className="text-[10px] text-neutral-500 block leading-tight">

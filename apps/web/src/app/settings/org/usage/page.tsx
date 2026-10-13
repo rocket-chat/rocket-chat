@@ -137,14 +137,14 @@ export default function UsagePage() {
       </div>
 
       {errorBanner && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{errorBanner}</span>
         </div>
       )}
 
       {successBanner && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{successBanner}</span>
         </div>
@@ -157,49 +157,49 @@ export default function UsagePage() {
       >
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <div className="p-3.5 rounded-lg border border-border bg-surface-card space-y-1">
-            <div className="flex items-center gap-2 text-muted-foreground text-[10px] font-mono uppercase">
+            <div className="flex items-center gap-2 text-muted-foreground text-[10px]">
               <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
               <span>Personal Spend</span>
             </div>
-            <div className="text-xl font-bold font-mono text-foreground">
+            <div className="text-xl font-bold text-foreground">
               ${userCost.toFixed(4)}
             </div>
-            <div className="text-[10px] font-mono text-muted-foreground">USD incurred</div>
+            <div className="text-[10px] text-muted-foreground">USD incurred</div>
           </div>
 
           <div className="p-3.5 rounded-lg border border-border bg-surface-card space-y-1">
-            <div className="flex items-center gap-2 text-muted-foreground text-[10px] font-mono uppercase">
+            <div className="flex items-center gap-2 text-muted-foreground text-[10px]">
               <Cpu className="w-3.5 h-3.5 text-cyan" />
               <span>Total Tokens</span>
             </div>
-            <div className="text-xl font-bold font-mono text-foreground">
+            <div className="text-xl font-bold text-foreground">
               {(userUsage?.total_tokens ?? 0).toLocaleString()}
             </div>
-            <div className="text-[10px] font-mono text-muted-foreground">
+            <div className="text-[10px] text-muted-foreground">
               Prompt: {(userUsage?.prompt_tokens ?? 0).toLocaleString()}
             </div>
           </div>
 
           <div className="p-3.5 rounded-lg border border-border bg-surface-card space-y-1">
-            <div className="flex items-center gap-2 text-muted-foreground text-[10px] font-mono uppercase">
+            <div className="flex items-center gap-2 text-muted-foreground text-[10px]">
               <TrendingUp className="w-3.5 h-3.5 text-brand" />
               <span>Completion</span>
             </div>
-            <div className="text-xl font-bold font-mono text-foreground">
+            <div className="text-xl font-bold text-foreground">
               {(userUsage?.completion_tokens ?? 0).toLocaleString()}
             </div>
-            <div className="text-[10px] font-mono text-muted-foreground">Generated tokens</div>
+            <div className="text-[10px] text-muted-foreground">Generated tokens</div>
           </div>
 
           <div className="p-3.5 rounded-lg border border-border bg-surface-card space-y-1">
-            <div className="flex items-center gap-2 text-muted-foreground text-[10px] font-mono uppercase">
+            <div className="flex items-center gap-2 text-muted-foreground text-[10px]">
               <Clock className="w-3.5 h-3.5 text-amber-400" />
               <span>Active Turns</span>
             </div>
-            <div className="text-xl font-bold font-mono text-foreground">
+            <div className="text-xl font-bold text-foreground">
               {userUsage?.recent_turns_count ?? 0}
             </div>
-            <div className="text-[10px] font-mono text-muted-foreground">Executed turns</div>
+            <div className="text-[10px] text-muted-foreground">Executed turns</div>
           </div>
         </div>
       </UserScopeSection>
@@ -217,7 +217,7 @@ export default function UsagePage() {
               type="button"
               onClick={handleSaveBudget}
               disabled={savingBudget}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-mono font-semibold transition-all cursor-pointer shadow-sm"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-semibold transition-all cursor-pointer shadow-sm"
             >
               <Save className="w-3.5 h-3.5" />
               <span>{savingBudget ? "SAVING..." : "UPDATE SPEND CAP"}</span>
@@ -229,30 +229,30 @@ export default function UsagePage() {
           <div className="p-4 rounded-lg border border-border bg-surface-card space-y-3">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <span className="text-xs font-mono font-semibold text-foreground uppercase">
+                <span className="text-xs font-semibold text-foreground">
                   Monthly Budget Cap Enforcement
                 </span>
-                <p className="text-[11px] font-mono text-muted-foreground mt-0.5">
+                <p className="text-[11px] text-muted-foreground mt-0.5">
                   Missions automatically throttle when consumption hits the hard monthly cap.
                 </p>
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="text-xs font-mono text-muted-foreground">$</span>
+                <span className="text-xs text-muted-foreground">$</span>
                 <input
                   type="number"
                   disabled={!isAdmin}
                   value={budgetInput}
                   onChange={(e) => setBudgetInput(e.target.value)}
-                  className="w-24 px-2 py-1 rounded border border-border bg-void text-xs font-mono text-foreground focus:outline-none focus:border-cyan disabled:opacity-60"
+                  className="w-24 px-2 py-1 rounded-lg border border-border bg-void text-xs text-foreground focus:outline-none focus:border-cyan disabled:opacity-60"
                 />
-                <span className="text-xs font-mono text-muted-foreground">USD / mo</span>
+                <span className="text-xs text-muted-foreground">USD / mo</span>
               </div>
             </div>
 
             {/* Progress Bar */}
             <div className="space-y-1">
-              <div className="flex justify-between text-[10px] font-mono text-muted-foreground">
+              <div className="flex justify-between text-[10px] text-muted-foreground">
                 <span>Total Spend: ${orgCost.toFixed(2)}</span>
                 <span>{budgetCap > 0 ? `${percentUsed}% of $${budgetCap.toFixed(2)} Cap` : "No monthly cap (0 = unlimited)"}</span>
               </div>
@@ -270,7 +270,7 @@ export default function UsagePage() {
           {/* Model Breakdown */}
           {orgUsage?.models && Object.keys(orgUsage.models).length > 0 && (
             <div className="p-4 rounded-lg border border-border bg-surface-card space-y-3">
-              <div className="text-xs font-mono font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
+              <div className="text-xs font-semibold text-foreground flex items-center gap-2">
                 <BarChart3 className="w-4 h-4 text-cyan" />
                 <span>Spend Breakdown by Model</span>
               </div>
@@ -278,7 +278,7 @@ export default function UsagePage() {
                 {Object.entries(orgUsage.models).map(([modelId, mData]) => (
                   <div
                     key={modelId}
-                    className="p-2.5 rounded border border-border/70 bg-surface/40 flex items-center justify-between text-xs font-mono"
+                    className="p-2.5 rounded-lg border border-border/70 bg-surface/40 flex items-center justify-between text-xs"
                   >
                     <div className="min-w-0">
                       <span className="font-semibold text-foreground truncate block">

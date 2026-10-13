@@ -8,7 +8,7 @@ export default function Page() {
     <div className="flex flex-col min-h-full">
       <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
         <div className="max-w-5xl mx-auto">
-          <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
+          <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 mb-2">
             <span>Settings</span>
             <span>/</span>
             <span>Organization</span>

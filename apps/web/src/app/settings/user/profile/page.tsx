@@ -21,7 +21,7 @@ export default function UserProfilePage() {
     <div className="flex flex-col min-h-full">
       <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
         <div className="max-w-5xl mx-auto">
-          <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
+          <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 mb-2">
             <span>Settings</span>
             <span>/</span>
             <span className="text-foreground font-medium">Profile & Account</span>
@@ -35,13 +35,13 @@ export default function UserProfilePage() {
       <div className="flex-1 p-8">
         <div className="max-w-5xl mx-auto space-y-8">
           <div className="bg-surface-card rounded-xl border border-surface-border p-6 flex items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-surface-elevated border-2 border-brand flex items-center justify-center text-foreground font-mono font-bold text-lg">
+            <div className="w-16 h-16 rounded-full bg-surface-elevated border-2 border-brand flex items-center justify-center text-foreground font-bold text-lg">
               {initials}
             </div>
             <div className="space-y-0.5">
               <h3 className="text-base font-semibold text-foreground">{user?.name || "Operator"}</h3>
-              <p className="text-xs font-mono text-neutral-500 dark:text-neutral-400">{user?.email}</p>
-              <p className="text-[11px] font-mono text-neutral-500 dark:text-neutral-400">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">{user?.email}</p>
+              <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
                 {user?.orgId} · {(user?.roles || []).join(", ")}
               </p>
             </div>

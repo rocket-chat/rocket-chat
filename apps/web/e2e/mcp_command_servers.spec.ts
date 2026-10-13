@@ -6,7 +6,7 @@ const ENV_SERVER = path.resolve(__dirname, "../../../tests/support/env_mcp_serve
 
 async function openOrgForm(page: Page): Promise<void> {
   await page.goto("/settings/mcp");
-  await page.getByRole("button", { name: /Add org MCP/i }).click();
+  await page.getByRole("button", { name: /Add org server/i }).click();
   await expect(page.getByTestId("mcp-server-modal")).toBeVisible();
   await page.getByLabel("Transport", { exact: true }).selectOption("stdio");
 }
@@ -93,7 +93,7 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
       }),
     );
     await page.goto("/settings/mcp");
-    await page.getByRole("button", { name: /Add org MCP/i }).click();
+    await page.getByRole("button", { name: /Add org server/i }).click();
 
     await expect(page.locator("option[value=stdio]")).toBeDisabled();
     await page.getByTestId("mcp-preset").focus();
@@ -109,7 +109,7 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
       }),
     );
     await page.goto("/settings/mcp");
-    await page.getByRole("button", { name: /Add personal MCP/i }).click();
+    await page.getByRole("button", { name: /Add server/i }).click();
 
     await expect(page.locator("option[value=stdio]")).toBeDisabled();
     await expect(page.getByText(/added by an administrator - ask yours/)).toBeVisible();

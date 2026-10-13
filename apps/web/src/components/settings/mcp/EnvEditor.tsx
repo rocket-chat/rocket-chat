@@ -18,7 +18,7 @@ interface EnvEditorProps {
 }
 
 const FIELD =
-  "min-w-0 rounded border border-border bg-void px-2.5 py-1 font-mono text-xs text-foreground focus:border-cyan focus:outline-none";
+  "min-w-0 rounded-lg border border-border bg-void px-2.5 py-1 text-xs text-foreground focus:border-cyan focus:outline-none";
 
 /** The environment variables of a command server, one editable row each. */
 export const EnvEditor: React.FC<EnvEditorProps> = ({ rows, onChange }) => {
@@ -26,7 +26,7 @@ export const EnvEditor: React.FC<EnvEditorProps> = ({ rows, onChange }) => {
     onChange(rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
 
   return (
-    <div data-testid="env-editor" className="space-y-2 rounded border border-border bg-surface-card p-3">
+    <div data-testid="env-editor" className="space-y-2 rounded-lg border border-border bg-surface-card p-3">
       <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Environment variables</div>
       <p className="text-[11px] text-neutral-500">
         Tick <em>Members can set their own</em> for a credential each person should provide themselves (for example

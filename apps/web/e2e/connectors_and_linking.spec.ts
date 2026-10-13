@@ -4,7 +4,7 @@ test.describe("GitHub account linking", () => {
   test("GitHub connect button targets the OAuth linking flow", async ({ page }) => {
     await page.goto("/settings/github");
 
-    const connect = page.getByRole("link", { name: /CONNECT GITHUB OAUTH/i });
+    const connect = page.getByRole("link", { name: /Connect with GitHub/i });
     // The link only renders while no GitHub account is linked.
     if (await connect.count()) {
       const href = await connect.first().getAttribute("href");

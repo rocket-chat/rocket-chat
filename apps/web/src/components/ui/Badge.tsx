@@ -12,13 +12,13 @@ const TONES: Record<BadgeTone, string> = {
   info: "bg-cyan/10 text-cyan border-cyan/25",
 };
 
-/** A small status or category label; the one place mono uppercase micro-text is used on purpose. */
+/** A small status or category label; kept compact and quiet. */
 export const Badge: React.FC<
   React.HTMLAttributes<HTMLSpanElement> & { tone?: BadgeTone }
 > = ({ tone = "neutral", className, ...rest }) => (
   <span
     className={cn(
-      "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-mono text-[10px] font-medium uppercase tracking-wide",
+      "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-medium tracking-wide",
       TONES[tone],
       className
     )}

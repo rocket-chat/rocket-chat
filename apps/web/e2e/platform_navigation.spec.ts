@@ -86,7 +86,7 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     // Navigate to MCP Servers page
     await page.getByRole("link", { name: /MCP Servers/i }).click();
     await expect(page).toHaveURL(/\/settings\/mcp/);
-    await expect(page.getByRole("heading", { name: /MODEL CONTEXT PROTOCOL/i })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /MCP servers/i })).toBeVisible();
 
     // Navigate to Custom Skills page
     await page.getByRole("link", { name: /Skills & Tools/i }).click();
@@ -140,7 +140,7 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     await expect(page.getByText("Custom agent personas")).toBeVisible();
 
     // Click New Agent Persona
-    const newAgentBtn = page.getByRole("button", { name: /NEW AGENT PERSONA/i });
+    const newAgentBtn = page.getByRole("button", { name: /New agent/i });
     await newAgentBtn.click();
 
     // Form should have default name input

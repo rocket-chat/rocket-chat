@@ -158,10 +158,10 @@ export const SettingsNav: React.FC = () => {
             <Link
               href={backHref}
               onClick={handleNavClick}
-              className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-border hover:border-brand/40 bg-surface-card/60 hover:bg-surface-elevated text-xs font-mono text-neutral-600 hover:text-foreground dark:text-neutral-300 dark:hover:text-white transition-all shadow-sm group"
+              className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-border hover:border-brand/40 bg-surface-card/60 hover:bg-surface-elevated text-xs text-neutral-600 hover:text-foreground dark:text-neutral-300 dark:hover:text-white transition-all shadow-sm group"
             >
               <ArrowLeft className="w-4 h-4 text-brand group-hover:-translate-x-0.5 transition-transform" />
-              <span>RETURN TO COCKPIT</span>
+              <span>Back to the cockpit</span>
             </Link>
             <button
               type="button"
@@ -181,19 +181,19 @@ export const SettingsNav: React.FC = () => {
                 <span className="text-xs font-display font-medium text-foreground leading-tight">
                   {tenantOrg}
                 </span>
-                <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
+                <span className="text-[10px] text-neutral-500 dark:text-neutral-400">
                   {isAdmin ? "Admin Access" : "Member"}
                 </span>
               </div>
             </div>
-            <span className="px-1.5 py-0.5 text-[9px] font-mono uppercase rounded bg-brand/10 text-brand border border-brand/20">
+            <span className="px-1.5 py-0.5 text-[9px] rounded-lg bg-brand/10 text-brand border border-brand/20">
               {isAdmin ? "ADMIN" : "USER"}
             </span>
           </div>
 
           {/* Settings Navigation */}
           <div>
-            <div className="px-2.5 pb-2 flex items-center justify-between text-[11px] font-mono font-semibold tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
+            <div className="px-2.5 pb-2 flex items-center justify-between text-[11px] font-semibold text-neutral-500 dark:text-neutral-400">
               <span>Settings</span>
             </div>
             <nav className="space-y-0.5">
@@ -228,7 +228,7 @@ export const SettingsNav: React.FC = () => {
                       <span>{item.label}</span>
                     </span>
                     {isLocked && (
-                      <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-surface-card border border-surface-border text-neutral-500">
+                      <span className="text-[9px] px-1.5 py-0.5 rounded-lg bg-surface-card border border-surface-border text-neutral-500">
                         ADMIN
                       </span>
                     )}
@@ -241,7 +241,7 @@ export const SettingsNav: React.FC = () => {
 
         {/* Subnav Footer Info */}
         <div className="p-3 border-t border-surface-border bg-surface-sidebar/50">
-          <div className="flex items-center justify-between text-[11px] font-mono text-neutral-500 dark:text-neutral-400">
+          <div className="flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400">
             <span>Tenant Scope: {tenantOrg}</span>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
           </div>

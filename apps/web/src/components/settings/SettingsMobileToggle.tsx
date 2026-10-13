@@ -11,7 +11,7 @@ export const SettingsMobileToggle: React.FC = () => {
     <button
       type="button"
       onClick={() => setIsSettingsNavOpen(true)}
-      className="md:hidden p-1.5 rounded-lg border border-surface-border bg-surface-card hover:bg-surface-elevated text-neutral-400 hover:text-foreground cursor-pointer flex items-center gap-1.5 text-xs font-mono"
+      className="md:hidden p-1.5 rounded-lg border border-surface-border bg-surface-card hover:bg-surface-elevated text-neutral-400 hover:text-foreground cursor-pointer flex items-center gap-1.5 text-xs"
       title="Open Settings Menu"
       aria-label="Open Settings Menu"
     >

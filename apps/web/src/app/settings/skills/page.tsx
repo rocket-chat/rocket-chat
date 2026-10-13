@@ -1,5 +1,8 @@
 "use client";
 
+import { Button } from "../../../components/ui/Button";
+import { PageHeader } from "../../../components/ui/PageHeader";
+
 import { Field, Input, Textarea } from "../../../components/ui/Field";
 import React, { useState, useEffect, useCallback } from "react";
 import { CustomSkillConfig } from "../../../types/mission";
@@ -162,20 +165,20 @@ export default function SkillsSettingsPage() {
             className="flex items-center gap-3 cursor-pointer flex-1 min-w-0"
             onClick={() => setExpandedSkillId(isExpanded ? null : skill.id)}
           >
-            <div className="p-2 rounded bg-surface-elevated border border-border shrink-0 text-brand">
+            <div className="p-2 rounded-lg bg-surface-elevated border border-border shrink-0 text-brand">
               <Code2 className="w-4 h-4" />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-mono font-semibold text-foreground truncate">
+                <span className="text-xs font-semibold text-foreground truncate">
                   {skillTitle}
                 </span>
-                <span className="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase bg-surface border border-border text-neutral-400">
+                <span className="px-1.5 py-0.2 rounded-lg text-[9px] bg-surface border border-border text-neutral-400">
                   {skill.scope || "user"}
                 </span>
               </div>
               {skill.description && (
-                <p className="text-[11px] font-mono text-muted-foreground truncate mt-0.5">
+                <p className="text-[11px] text-muted-foreground truncate mt-0.5">
                   {skill.description}
                 </p>
               )}
@@ -187,7 +190,7 @@ export default function SkillsSettingsPage() {
               <button
                 type="button"
                 onClick={() => handleDeleteSkill(skill.id, skillTitle)}
-                className="p-1.5 rounded hover:bg-rose-950/40 text-neutral-500 hover:text-rose-400 transition-colors cursor-pointer"
+                className="p-1.5 rounded-lg hover:bg-rose-950/40 text-neutral-500 hover:text-rose-400 transition-colors cursor-pointer"
                 title="Delete skill"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -196,7 +199,7 @@ export default function SkillsSettingsPage() {
             <button
               type="button"
               onClick={() => setExpandedSkillId(isExpanded ? null : skill.id)}
-              className="p-1 rounded hover:bg-surface-elevated text-neutral-400 cursor-pointer"
+              className="p-1 rounded-lg hover:bg-surface-elevated text-neutral-400 cursor-pointer"
             >
               {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
@@ -205,7 +208,7 @@ export default function SkillsSettingsPage() {
 
         {isExpanded && (
           <div className="px-4 py-3 border-t border-border bg-surface/40 space-y-2">
-            <div className="text-[10px] font-mono text-muted-foreground uppercase font-semibold flex items-center gap-1.5">
+            <div className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1.5">
               <BookOpen className="w-3 h-3 text-brand" />
               <span>Skill Prompt Instructions:</span>
             </div>
@@ -221,27 +224,21 @@ export default function SkillsSettingsPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
-        <div>
-          <h1 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2.5">
-            <Code2 className="w-5 h-5 text-brand" />
-            Skills &amp; tools
-          </h1>
-          <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 mt-1">
-            Prompt-based guidelines and procedural knowledge injected into autonomous agents.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Skills &amp; tools"
+        icon={<Code2 className="h-5 w-5" aria-hidden="true" />}
+        description="Prompt-based guidelines and procedural knowledge injected into autonomous agents."
+      />
 
       {errorBanner && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{errorBanner}</span>
         </div>
       )}
 
       {successBanner && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{successBanner}</span>
         </div>
@@ -252,23 +249,23 @@ export default function SkillsSettingsPage() {
         <div className="p-5 rounded-lg border border-brand/40 bg-surface space-y-4 shadow-xl">
           <div className="flex items-center justify-between border-b border-border/60 pb-2">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-mono font-bold text-brand uppercase tracking-wider">
+              <span className="text-xs font-bold text-brand">
                 CREATE NEW SKILL
               </span>
-              <span className="px-1.5 py-0.5 rounded text-[9px] font-mono uppercase bg-brand/10 text-brand border border-brand/20">
+              <span className="px-1.5 py-0.5 rounded-lg text-[9px] bg-brand/10 text-brand border border-brand/20">
                 {formScope === "org" ? "Organization Scope" : "Personal Scope"}
               </span>
             </div>
             <button
               type="button"
               onClick={() => setShowAddForm(false)}
-              className="text-neutral-400 hover:text-white text-xs font-mono cursor-pointer"
+              className="text-neutral-400 hover:text-white text-xs cursor-pointer"
             >
               ✕ CANCEL
             </button>
           </div>
 
-          <label className="flex items-center gap-2 text-[11px] font-mono text-muted-foreground">
+          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <span>Have a SKILL.md already?</span>
             <input
               type="file"
@@ -315,21 +312,12 @@ export default function SkillsSettingsPage() {
           </Field>
 
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60">
-            <button
-              type="button"
-              onClick={() => setShowAddForm(false)}
-              className="px-3 py-1.5 rounded border border-border text-xs font-mono text-neutral-400 hover:text-white cursor-pointer"
-            >
-              CANCEL
-            </button>
-            <button
-              type="button"
-              onClick={handleSaveSkill}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded border border-brand/40 bg-brand text-slate-950 hover:bg-brand/90 text-xs font-mono font-semibold transition-all cursor-pointer shadow-sm"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>SAVE SKILL</span>
-            </button>
+            <Button size="sm" variant="ghost" onClick={() => setShowAddForm(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="primary" onClick={handleSaveSkill}>
+              Save skill
+            </Button>
           </div>
         </div>
       )}
@@ -339,14 +327,10 @@ export default function SkillsSettingsPage() {
         title="Personal Skills"
         description="Private instructions, conventions, and procedures you created. Attach them to your custom agents."
         action={
-          <button
-            type="button"
-            onClick={() => handleOpenAddForm("user")}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-brand/40 bg-brand/10 hover:bg-brand/20 text-brand text-xs font-mono font-semibold transition-all cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>NEW PERSONAL SKILL</span>
-          </button>
+          <Button size="sm" variant="secondary" onClick={() => handleOpenAddForm("user")}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                New skill
+              </Button>
         }
       >
         {userSkills.length > 0 ? (
@@ -356,7 +340,7 @@ export default function SkillsSettingsPage() {
         ) : (
           <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-2">
             <Code2 className="w-6 h-6 mx-auto text-neutral-500" />
-            <p className="text-xs font-mono text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               You haven&apos;t created any personal skills yet.
             </p>
           </div>
@@ -371,14 +355,10 @@ export default function SkillsSettingsPage() {
         title="Organization Skills"
         description="Shared engineering guidelines, compliance standards, and procedures available to all workspace members."
         action={
-          <button
-            type="button"
-            onClick={() => handleOpenAddForm("org")}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-cyan/40 bg-cyan/10 hover:bg-cyan/20 text-cyan text-xs font-mono font-semibold transition-all cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>NEW ORG SKILL</span>
-          </button>
+          <Button size="sm" variant="secondary" onClick={() => handleOpenAddForm("org")}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                New org skill
+              </Button>
         }
       >
         {orgSkills.length > 0 ? (
@@ -388,7 +368,7 @@ export default function SkillsSettingsPage() {
         ) : (
           <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-2">
             <ShieldCheck className="w-6 h-6 mx-auto text-neutral-500" />
-            <p className="text-xs font-mono text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               No organization-wide skills defined.
             </p>
           </div>

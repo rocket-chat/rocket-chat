@@ -46,7 +46,7 @@ function SlackLinkPanel() {
 
   return (
     <div className="space-y-3" data-testid="slack-link-panel">
-      <p className="text-xs font-mono text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         In Slack run <code>/rocket-pair</code>, then enter the one-time code it shows you (valid 10 minutes).
       </p>
       <div className="flex gap-2 max-w-md">
@@ -56,20 +56,20 @@ function SlackLinkPanel() {
           onChange={(e) => setCode(e.target.value.toUpperCase())}
           placeholder="ABCD2345"
           maxLength={16}
-          className="flex-1 px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand"
+          className="flex-1 px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs text-foreground focus:outline-none focus:border-brand"
         />
         <button
           type="button"
           data-testid="slack-pair-submit"
           onClick={link}
           disabled={!code.trim()}
-          className="px-4 py-2 rounded-lg bg-brand text-white text-xs font-mono font-semibold disabled:opacity-50"
+          className="px-4 py-2 rounded-lg bg-brand text-white text-xs font-semibold disabled:opacity-50"
         >
           Link account
         </button>
       </div>
       {message && (
-        <p role="status" className={`text-xs font-mono ${message.ok ? "text-emerald-400" : "text-rose-400"}`}>
+        <p role="status" className={`text-xs ${message.ok ? "text-emerald-400" : "text-rose-400"}`}>
           {message.text}
         </p>
       )}
@@ -100,7 +100,7 @@ function WorkspaceBindingPanel() {
   if (!binding) return null;
   return (
     <div className="p-3 rounded-lg border border-border bg-surface-card space-y-2" data-testid="slack-workspace-binding">
-      <p className="text-xs font-mono text-foreground">
+      <p className="text-xs text-foreground">
         Connected workspace: <strong>{binding.connected_team_id ?? "none"}</strong>
         {" · "}
         {binding.bound_to_this_org
@@ -114,7 +114,7 @@ function WorkspaceBindingPanel() {
           <button
             type="button"
             onClick={() => change("PUT")}
-            className="px-3 py-1.5 rounded border border-border text-xs font-mono text-foreground"
+            className="px-3 py-1.5 rounded-lg border border-border text-xs text-foreground"
           >
             Bind to this organization
           </button>
@@ -123,13 +123,13 @@ function WorkspaceBindingPanel() {
           <button
             type="button"
             onClick={() => change("DELETE")}
-            className="px-3 py-1.5 rounded border border-border text-xs font-mono text-foreground"
+            className="px-3 py-1.5 rounded-lg border border-border text-xs text-foreground"
           >
             Unbind
           </button>
         )}
       </div>
-      {error && <p className="text-xs font-mono text-rose-400">{error}</p>}
+      {error && <p className="text-xs text-rose-400">{error}</p>}
     </div>
   );
 }
@@ -200,13 +200,13 @@ export default function SlackSettingsPage() {
       </div>
 
       {errorBanner && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{errorBanner}</span>
         </div>
       )}
       {successBanner && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{successBanner}</span>
         </div>
@@ -244,10 +244,10 @@ export default function SlackSettingsPage() {
                 className={`w-4 h-4 ${slackStatus.connected ? "text-emerald-400 animate-pulse" : "text-neutral-500"}`}
               />
               <div>
-                <span className="text-xs font-mono font-semibold text-foreground">
+                <span className="text-xs font-semibold text-foreground">
                   {slackStatus.connected ? "Socket Mode Active" : "Socket Mode Offline / Standby"}
                 </span>
-                <p className="text-[10px] font-mono text-muted-foreground">
+                <p className="text-[10px] text-muted-foreground">
                   {slackStatus.channels_linked} Slack conversations seen since startup.
                 </p>
               </div>
@@ -256,10 +256,10 @@ export default function SlackSettingsPage() {
               type="button"
               onClick={handleTestSocketMode}
               disabled={testingSocket}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-border bg-surface-elevated text-xs font-mono text-neutral-300 disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface-elevated text-xs text-neutral-300 disabled:opacity-50"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${testingSocket ? "animate-spin" : ""}`} />
-              <span>TEST SOCKET</span>
+              <span>Test socket connection</span>
             </button>
           </div>
 

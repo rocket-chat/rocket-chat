@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Hanken_Grotesk, JetBrains_Mono, Space_Grotesk } from "next/font/google";
+import { Hanken_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -24,7 +24,6 @@ import { ViewportSync } from "../components/ViewportSync";
 // cockpit makes no request to Google at runtime (it must work with no internet access).
 const sans = Hanken_Grotesk({ subsets: ["latin"], variable: "--font-hanken", display: "swap" });
 const mono = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" });
-const display = Space_Grotesk({ subsets: ["latin"], variable: "--font-space", display: "swap" });
 
 export default function RootLayout({
   children,
@@ -35,7 +34,7 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${sans.variable} ${mono.variable} ${display.variable}`}
+      className={`${sans.variable} ${mono.variable}`}
     >
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />

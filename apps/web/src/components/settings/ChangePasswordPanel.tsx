@@ -64,13 +64,13 @@ export function ChangePasswordPanel() {
         </p>
       </div>
       {error && (
-        <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+        <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
         </div>
       )}
       {done && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>Password changed</span>
         </div>
@@ -84,7 +84,7 @@ export function ChangePasswordPanel() {
           value={current}
           onChange={(e) => setCurrent(e.target.value)}
           required
-          className="px-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono"
+          className="px-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs"
         />
         <input
           type="password"
@@ -95,7 +95,7 @@ export function ChangePasswordPanel() {
           onChange={(e) => setNext(e.target.value)}
           required
           minLength={12}
-          className="px-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono"
+          className="px-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs"
         />
       </div>
       <button
