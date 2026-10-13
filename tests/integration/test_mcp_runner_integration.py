@@ -9,8 +9,6 @@ from __future__ import annotations
 import asyncio
 import pathlib
 import sys
-import threading
-import time
 from collections.abc import Iterator
 from typing import Any
 
@@ -20,13 +18,11 @@ from api.main import app
 from api.services import mcp_turn
 from api.store import InMemorySessionStore
 from httpx import ASGITransport, AsyncClient
-from mcp_runner.server import create_app
-from mcp_runner.settings import RunnerSettings
-from uvicorn import Config, Server
+
+from tests.support.runner_thread import TOKEN, start_runner
 
 SUPPORT = pathlib.Path(__file__).parents[1] / "support"
 ENV_SERVER = f"{sys.executable} {SUPPORT / 'env_mcp_server.py'}"
-TOKEN = "integration-token-0123456789"
 ORG = "runner_org"
 ADMIN = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "admin_user", "X-User-Role": "admin"}
 ALICE = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "alice", "X-User-Role": "developer"}
@@ -35,20 +31,16 @@ BOB = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "bob", "X-User-Role": "develo
 
 @pytest.fixture
 def runner(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[str]:
-    settings = RunnerSettings(token=TOKEN, cache_dir=tmp_path / "cache", work_dir=tmp_path / "work")
-    server = Server(Config(create_app(settings), host="127.0.0.1", port=0, log_level="warning"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    while not server.started:
-        time.sleep(0.02)
-    url = f"http://127.0.0.1:{server.servers[0].sockets[0].getsockname()[1]}"
+    url, stop = start_runner(tmp_path)
     monkeypatch.setenv("MCP_RUNNER_URL", url)
     monkeypatch.setenv("MCP_RUNNER_TOKEN", TOKEN)
     app.state.session_store = InMemorySessionStore()
+    # These tests run on the in-memory stores; another test's database must not leak in.
+    monkeypatch.setattr(app.state, "db_manager", None, raising=False)
+    monkeypatch.setattr(app.state, "mcp_member_tokens", None, raising=False)
     mcp_turn._mcp_servers_store.clear()
     yield url
-    server.should_exit = True
-    thread.join(timeout=10)
+    stop()
 
 
 @pytest.fixture
@@ -275,3 +267,28 @@ async def test_only_administrators_register_command_servers_and_members_are_told
     )
     assert refused.status_code == 403
     assert "Administrators" in refused.json()["detail"]
+
+
+async def test_changes_to_command_servers_are_audited(
+    runner: str, api: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorded: list[dict[str, Any]] = []
+
+    async def record(self: Any, event_type: str, **fields: Any) -> None:
+        recorded.append({"event_type": event_type, **fields})
+
+    monkeypatch.setattr("api.routers.mcp_servers.AuditService.record", record)
+    created = await api.post(
+        "/v1/mcp/servers",
+        json=_server("Audited", [{"name": "API_KEY", "value": "", "member_override": True}]),
+        headers=ADMIN,
+    )
+    await api.put(
+        f"/v1/mcp/servers/{created.json()['id']}/env",
+        json={"values": {"API_KEY": "mine"}},
+        headers=ALICE,
+    )
+
+    actions = [(e["actor_user_id"], e["metadata"]["action"]) for e in recorded]
+    assert actions == [("admin_user", "registered"), ("alice", "member values updated")]
+    assert "mine" not in str(recorded)

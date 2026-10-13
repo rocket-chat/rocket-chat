@@ -98,3 +98,20 @@ kubectl logs -f deployment/rocket-chat-backend -n rocket-chat
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
     nginx.ingress.kubernetes.io/websocket-services: "rocket-chat-backend"
   ```
+
+---
+
+### Scenario: A Command MCP Server Is Unavailable
+* **Symptom:** The MCP page shows "The MCP runner is not deployed" or "is not answering", or a command server's tools never appear.
+* **Diagnostics:**
+  ```bash
+  kubectl get deploy,pods -l app.kubernetes.io/name=rocket-chat-mcp-runner
+  kubectl logs deploy/<release>-rocket-chat-mcp-runner
+  curl -s http://<runner-service>:8100/health      # from a backend pod
+  ```
+* **Common Root Causes & Fixes:**
+  1. **Runner disabled:** `mcpRunner.enabled=false`, or `MCP_RUNNER_URL` is not set on the backend. Enable it and upgrade.
+  2. **Token mismatch:** the backend and runner must share `MCP_RUNNER_TOKEN` (the chart wires both from one Secret). A wrong token closes the socket immediately.
+  3. **NetworkPolicy:** the runner accepts connections only from backend pods; check the labels if you customised them, and that your CNI enforces policies.
+  4. **A server starts and exits:** *Test & validate connection* shows the program's own error (a missing package, a bad variable). `npx`/`uvx` need egress to their registries: mirror them and set `npm_config_registry` / `UV_INDEX_URL` as server variables when the cluster is air-gapped.
+  5. **"The runner is at capacity":** raise `mcpRunner.maxProcesses` / `maxProcessesPerOrg` or its memory limit.

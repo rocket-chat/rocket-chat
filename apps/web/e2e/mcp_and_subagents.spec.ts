@@ -24,9 +24,10 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await expect(page.getByPlaceholder("e.g. Stripe Billing MCP")).toHaveValue("Linear");
     await expect(page.getByPlaceholder("https://api.internal.service/mcp")).toHaveValue("https://mcp.linear.app/mcp");
     const note = page.getByTestId("mcp-preset-note");
+    await expect(note).toContainText("registers itself");
     await expect(note).toContainText("/v1/mcp/oauth/callback");
     await expect(note.getByRole("link", { name: /Setup guide/ })).toHaveAttribute("href", "https://linear.app/docs/mcp");
-    await expect(page.getByLabel("Authorization URL")).toHaveValue("https://linear.app/oauth/authorize");
+    await expect(page.getByLabel("Authorization URL")).toHaveValue("");
   });
 
   test("a command server is configured with environment variables", async ({ page }) => {
@@ -34,9 +35,9 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await page.getByRole("button", { name: /Add org MCP/i }).click();
     await page.getByTestId("mcp-preset").selectOption("brave-search");
 
-    await expect(page.getByLabel("Environment", { exact: true })).toHaveValue("custom_headers");
-    await expect(page.getByPlaceholder(/Variable name/)).toHaveValue("BRAVE_API_KEY");
-    await expect(page.getByText("Authentication Mode:")).toHaveCount(0);
+    await expect(page.getByLabel("Variable 1 name")).toHaveValue("BRAVE_API_KEY");
+    await expect(page.getByTestId("env-row").first().getByRole("checkbox").nth(1)).toBeChecked();
+    await expect(page.getByLabel("Authentication Mode")).toHaveCount(0);
     await expect(page.getByRole("option", { name: /OAuth/ })).toHaveCount(0);
   });
 

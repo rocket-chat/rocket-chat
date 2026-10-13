@@ -271,7 +271,13 @@ export interface McpServerConfig {
   /** 'member': each member connects their own account to this organization server. */
   oauth_mode?: "org" | "member";
   oauth_status?: string | null;
-  headers_preview?: Array<{ name: string; value: string; is_secret: boolean }>;
+  headers_preview?: Array<{ name: string; value: string; is_secret: boolean; member_override?: boolean }>;
+  /** Command servers: a script that installs the program the command runs. */
+  install_command?: string | null;
+  /** Command servers: variables each member may set for themselves. */
+  overridable_env?: string[];
+  /** Of those, the ones the signed-in member has set. */
+  member_env_set?: string[];
   has_oauth_secret?: boolean;
 }
 
@@ -338,3 +344,10 @@ export interface AgentPersonaConfig {
   max_turns?: number;
 }
 
+
+/** Whether command (stdio) MCP servers can run on this installation (the MCP runner pod). */
+export interface McpRunnerStatus {
+  configured: boolean;
+  available: boolean;
+  detail: string;
+}

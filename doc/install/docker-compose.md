@@ -70,6 +70,10 @@ All services (`rocket_postgres`, `rocket_backend`, `rocket_frontend`) must repor
 
 ---
 
+## 4a. MCP runner
+
+Both stacks include an `mcp-runner` service for command (stdio) MCP servers: read-only, non-root, no capabilities, not published on the host, with its package cache in the `mcp_runner_cache` volume. The evaluation stack uses a throwaway token; `docker-compose.prod.yml` requires `MCP_RUNNER_TOKEN` (`openssl rand -hex 24`).
+
 ## 4. Docker Sandbox Integration
 
 The backend container mounts `/var/run/docker.sock`:

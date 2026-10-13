@@ -114,6 +114,10 @@ Verification: unit tests cover quota/rate-limit allow/deny/expire on an injected
 
 ---
 
+## 4a. Command MCP servers
+
+A command (stdio) MCP server is an administrator-supplied program, so it never runs in the API pod (which holds the database credentials and the master key) or in an agent sandbox (where the agent's code could read its credentials). It runs in the MCP runner: a separate pod, non-root with a read-only root filesystem and no capabilities, no Kubernetes token, and a NetworkPolicy that accepts connections only from the backend and allows internet egress but not private networks. Each server starts with a clean environment (only the variables configured for it, never the runner's own secret), in its own process group, and is killed when its turn ends or after `maxLifetimeSeconds`. Registering one, an install script, and a member's own values (stored encrypted, never returned) are administrator/owner-only and the first two are recorded in the audit log. Servers of different organizations share the runner pod but not directories, environments or install results; run a separate release if you need hard isolation between tenants.
+
 ## 4b. Public session links
 
 A session owner can create a read-only public link (`/shared/<token>`). It is a bearer capability: anyone holding it can read the conversation's questions and answers (never tool calls, files, the terminal or reasoning) until it expires (1-30 days) or is revoked. The feature is **off by default**; enable it with `general.public_session_links`. Turning it off immediately disables every link already issued, and creating or revoking a link is recorded in the audit log. Responses carry `Cache-Control: no-store`, `X-Robots-Tag: noindex` and `Referrer-Policy: no-referrer`.

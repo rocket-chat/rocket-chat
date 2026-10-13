@@ -21,6 +21,12 @@ deploy/helm/platform/
 │   │   ├── deployment.yaml     # Next.js 15 standalone server (2+ replicas)
 │   │   └── service.yaml        # ClusterIP service on port 3000
 │   ├── ingress.yaml            # Ingress rules for Web UI and REST/WebSocket API
+│   ├── mcp-runner/             # Dedicated pod for command MCP servers (optional, on by default)
+│   │   ├── deployment.yaml     # Non-root, read-only root filesystem, caps dropped
+│   │   ├── service.yaml        # ClusterIP on port 8100
+│   │   ├── pvc.yaml            # Package-cache volume
+│   │   ├── secret.yaml         # Shared token (generated once, kept across upgrades)
+│   │   └── networkpolicy.yaml  # Ingress from the backend only; internet egress, no private networks
 │   ├── configmap.yaml          # Environment settings
 │   ├── secrets.yaml            # Database connection, encryption key, Slack tokens
 │   └── sandboxes/
@@ -304,6 +310,26 @@ Operational environment variables (rendered into the ConfigMap and consumed by t
    - Restricts egress from `agent-sandboxes`, blocking the cloud instance metadata endpoint (`169.254.169.254/32`).
    - Supports strict isolation of private networks (`blockInternalSubnets: true`) to prevent sandbox lateral movement into cluster workloads.
    - Allows explicit egress whitelisting (`allowedEgressRules`) for internal package registries (e.g., in-cluster Artifactory, internal PyPI/npm mirrors, or CoreDNS).
+
+## MCP runner values
+
+Command (stdio) MCP servers run in a dedicated pod, started per turn and stopped with the turn. Set `mcpRunner.enabled=false` to omit it entirely (nothing of it is rendered; remote MCP servers are unaffected and command servers show as unavailable in the app).
+
+| Value | Default | Meaning |
+| :--- | :--- | :--- |
+| `mcpRunner.enabled` | `true` | Deploy the runner and point the backend at it (`MCP_RUNNER_URL`, `MCP_RUNNER_TOKEN`) |
+| `mcpRunner.image.repository` / `.tag` | `ghcr.io/rocket-chat/mcp-runner` / chart version | Runner image; mirror it for private or air-gapped clusters |
+| `mcpRunner.token` | `""` | Shared secret; empty generates one and keeps it across upgrades (needs permission to read Secrets at render time, as Helm normally has) |
+| `mcpRunner.existingSecret` / `.existingSecretKey` | `""` / `MCP_RUNNER_TOKEN` | Use a Secret you manage instead |
+| `mcpRunner.maxProcesses` / `.maxProcessesPerOrg` | `32` / `8` | Servers running at once, in total and for one organization |
+| `mcpRunner.maxLifetimeSeconds` | `1800` | A server is stopped after this long |
+| `mcpRunner.persistence.enabled` / `.size` / `.storageClass` / `.existingClaim` | `true` / `5Gi` / cluster default / `""` | Volume for the package caches and installed server programs; without it they live on an emptyDir and are fetched again after a restart |
+| `mcpRunner.resources` | 100m / 256Mi, limit 2Gi memory | Sizing for the runner pod (each running server uses memory from it) |
+| `mcpRunner.networkPolicy.enabled` | `true` | Ingress only from the backend; egress to DNS and the internet |
+| `mcpRunner.networkPolicy.blockInternalSubnets` | `true` | Also forbid RFC 1918 ranges and the cloud metadata address |
+| `mcpRunner.networkPolicy.allowedEgressRules` | `[]` | Extra egress rules, e.g. an in-cluster service a server must reach |
+
+The runner holds only the secret it shares with the backend: no database credentials, no master key and no Kubernetes access (`automountServiceAccountToken: false`).
 
 ## Observability values
 
