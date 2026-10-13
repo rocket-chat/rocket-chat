@@ -28,14 +28,14 @@ export function UserHeaderCapsule() {
 
   return (
     <div className="flex items-center gap-2">
-      <div className="w-7 h-7 rounded-full bg-brand/20 border border-brand/40 flex items-center justify-center text-brand font-mono font-bold text-xs">
+      <div className="w-7 h-7 rounded-full bg-brand/20 border border-brand/40 flex items-center justify-center text-brand font-bold text-xs">
         {userInitials}
       </div>
       <div className="hidden md:flex flex-col text-left">
         <span className="text-xs font-medium text-foreground leading-tight truncate max-w-[120px]">
           {displayName}
         </span>
-        <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
+        <span className="text-[10px] text-neutral-500 dark:text-neutral-400">
           {orgId}
         </span>
       </div>

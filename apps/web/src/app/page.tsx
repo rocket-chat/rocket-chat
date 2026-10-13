@@ -36,7 +36,7 @@ export default function MissionControlPage() {
   }, [session?.session_id, session?.is_draft, initDraftSession, router]);
 
   return (
-    <div className="h-full w-full flex flex-col items-center justify-center bg-void text-foreground font-mono text-xs gap-3">
+    <div className="h-full w-full flex flex-col items-center justify-center bg-void text-foreground text-xs gap-3">
       <div className="w-8 h-8 rounded-xl border border-primary/40 bg-primary/10 flex items-center justify-center text-primary font-bold animate-pulse">
         RC
       </div>

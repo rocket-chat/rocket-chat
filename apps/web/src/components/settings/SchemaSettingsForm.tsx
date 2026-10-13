@@ -41,7 +41,7 @@ interface SchemaSettingsFormProps {
 type FieldValues = Record<string, unknown>;
 
 const inputClass =
-  "w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand disabled:opacity-60 disabled:cursor-not-allowed";
+  "w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs text-foreground focus:outline-none focus:border-brand disabled:opacity-60 disabled:cursor-not-allowed";
 
 function humanize(key: string): string {
   return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -333,7 +333,7 @@ export function SchemaSettingsForm({
       </div>
 
       {!canEdit && (
-        <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-amber-300 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-amber-300 text-xs">
           <Lock className="w-4 h-4 shrink-0" />
           <span>Read-only: these organization policies require an Administrator or Owner role.</span>
         </div>
@@ -342,7 +342,7 @@ export function SchemaSettingsForm({
       {banner && (
         <div
           role="status"
-          className={`flex items-center gap-2 p-3 rounded-xl border text-xs font-mono ${
+          className={`flex items-center gap-2 p-3 rounded-xl border text-xs ${
             banner.kind === "ok"
               ? "bg-emerald-950/60 border-emerald-800/60 text-emerald-400"
               : "bg-rose-950/60 border-rose-800/60 text-rose-400"
@@ -367,12 +367,12 @@ export function SchemaSettingsForm({
               <div className="flex items-center justify-between gap-2">
                 <label htmlFor={`settings-field-${domain}-${field.key}`} className="text-xs font-medium text-foreground">{humanize(field.key)}</label>
                 {memberLocked && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-mono text-brand bg-brand/10 px-1.5 py-0.5 rounded border border-brand/20">
+                  <span className="inline-flex items-center gap-1 text-[10px] text-brand bg-brand/10 px-1.5 py-0.5 rounded-lg border border-brand/20">
                     <Lock className="w-3 h-3" /> LOCKED BY ORG
                   </span>
                 )}
                 {mode === "org" && field.scope === "both" && canEdit && (
-                  <label className="inline-flex items-center gap-1 text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
+                  <label className="inline-flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
                     <input
                       type="checkbox"
                       data-testid={`settings-lock-${domain}-${field.key}`}
@@ -389,7 +389,7 @@ export function SchemaSettingsForm({
               </div>
               {renderControl(field)}
               <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug">{field.description}</p>
-              {issue && <p className="text-[11px] text-rose-400 font-mono">{issue}</p>}
+              {issue && <p className="text-[11px] text-rose-400">{issue}</p>}
             </div>
           );
         })}
@@ -402,7 +402,7 @@ export function SchemaSettingsForm({
             data-testid={`settings-save-${domain}`}
             onClick={save}
             disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-xs font-mono font-semibold hover:opacity-90 disabled:opacity-60"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-xs font-semibold hover:opacity-90 disabled:opacity-60"
           >
             <Save className="w-3.5 h-3.5" />
             {saving ? "Saving..." : "Save"}
@@ -411,7 +411,7 @@ export function SchemaSettingsForm({
             <button
               type="button"
               onClick={reset}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-border text-xs font-mono text-neutral-500 dark:text-neutral-400 hover:text-foreground"
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-border text-xs text-neutral-500 dark:text-neutral-400 hover:text-foreground"
             >
               <RotateCcw className="w-3.5 h-3.5" /> Reset to organization defaults
             </button>

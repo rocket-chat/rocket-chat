@@ -1,5 +1,8 @@
 "use client";
 
+import { Button } from "../../../components/ui/Button";
+import { PageHeader } from "../../../components/ui/PageHeader";
+
 import { Field, Input, Select } from "../../../components/ui/Field";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useMissionStore } from "../../../lib/store";
@@ -309,7 +312,7 @@ export default function AgentsSettingsPage() {
         }`}
       >
         <div className="flex items-start gap-2.5">
-          <div className="w-8 h-8 rounded border border-border/70 bg-void flex items-center justify-center shrink-0">
+          <div className="w-8 h-8 rounded-lg border border-border/70 bg-void flex items-center justify-center shrink-0">
             {getAgentIcon(agent.icon)}
           </div>
           <div className="flex-1 min-w-0">
@@ -319,7 +322,7 @@ export default function AgentsSettingsPage() {
               </span>
               <div className="flex items-center gap-1">
                 {isActiveInCockpit && (
-                  <span className="text-[9px] font-mono text-cyan bg-cyan/20 px-1.5 py-0.2 rounded border border-cyan/30">
+                  <span className="text-[9px] text-cyan bg-cyan/20 px-1.5 py-0.2 rounded-lg border border-cyan/30">
                     ACTIVE
                   </span>
                 )}
@@ -327,7 +330,7 @@ export default function AgentsSettingsPage() {
                   <button
                     type="button"
                     onClick={(e) => handleDeleteAgent(agent, e)}
-                    className="p-1 rounded hover:bg-rose-950/40 text-neutral-500 hover:text-rose-400"
+                    className="p-1 rounded-lg hover:bg-rose-950/40 text-neutral-500 hover:text-rose-400"
                     title="Delete agent"
                   >
                     <Trash2 className="w-3 h-3" />
@@ -335,7 +338,7 @@ export default function AgentsSettingsPage() {
                 )}
               </div>
             </div>
-            <div className="text-[10px] font-mono text-cyan/80 mt-0.5">
+            <div className="text-[10px] text-cyan/80 mt-0.5">
               {agent.role_title}
             </div>
             {agent.description && (
@@ -352,26 +355,11 @@ export default function AgentsSettingsPage() {
   return (
     <div className="max-w-6xl mx-auto space-y-6 px-4 py-8 sm:px-8">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
-        <div>
-          <h1 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2.5">
-            <Bot className="w-5 h-5 text-cyan" />
-            Custom agent personas
-          </h1>
-          <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 mt-1">
-            Personal and organization agent personas with specialized skills, MCP tools, and RAG knowledge.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => handleCreateNew("user")}
-          className="flex items-center gap-2 px-3 py-2 rounded border border-cyan/40 bg-cyan/10 hover:bg-cyan/20 text-cyan text-xs font-mono font-semibold transition-all shadow-sm shadow-cyan/5 cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>NEW AGENT PERSONA</span>
-        </button>
-      </div>
+      <PageHeader
+        title="Custom agent personas"
+        icon={<Bot className="h-5 w-5" aria-hidden="true" />}
+        description="Personal and organization agent personas with specialized skills, MCP tools, and RAG knowledge."
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left column: Two-tier Personas catalog */}
@@ -380,14 +368,10 @@ export default function AgentsSettingsPage() {
             title="Personal Agents"
             description="Private custom agents you configured."
             action={
-              <button
-                type="button"
-                onClick={() => handleCreateNew("user")}
-                className="flex items-center gap-1 px-2 py-1 rounded border border-brand/40 bg-brand/10 hover:bg-brand/20 text-brand text-xs font-mono cursor-pointer"
-              >
-                <Plus className="w-3 h-3" />
-                <span>NEW</span>
-              </button>
+              <Button size="sm" variant="secondary" onClick={() => handleCreateNew("user")}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                New agent
+              </Button>
             }
           >
             {userAgents.length > 0 ? (
@@ -395,7 +379,7 @@ export default function AgentsSettingsPage() {
                 {userAgents.map((agent) => renderAgentListItem(agent, true))}
               </div>
             ) : (
-              <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs font-mono text-muted-foreground">
+              <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs text-muted-foreground">
                 No personal agent personas yet.
               </div>
             )}
@@ -407,14 +391,10 @@ export default function AgentsSettingsPage() {
             title="Organization Agents"
             description="Shared default agents available across the workspace."
             action={
-              <button
-                type="button"
-                onClick={() => handleCreateNew("org")}
-                className="flex items-center gap-1 px-2 py-1 rounded border border-cyan/40 bg-cyan/10 hover:bg-cyan/20 text-cyan text-xs font-mono cursor-pointer"
-              >
-                <Plus className="w-3 h-3" />
-                <span>NEW</span>
-              </button>
+              <Button size="sm" variant="secondary" onClick={() => handleCreateNew("org")}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                New org agent
+              </Button>
             }
           >
             {orgAgents.length > 0 ? (
@@ -422,7 +402,7 @@ export default function AgentsSettingsPage() {
                 {orgAgents.map((agent) => renderAgentListItem(agent, isAdmin))}
               </div>
             ) : (
-              <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs font-mono text-muted-foreground">
+              <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs text-muted-foreground">
                 No organization agents defined.
               </div>
             )}
@@ -433,19 +413,19 @@ export default function AgentsSettingsPage() {
         <div className="lg:col-span-2 rounded-lg border border-border/80 bg-surface-card p-5 space-y-4">
           <div className="flex items-center justify-between border-b border-border/60 pb-3">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded border border-border/70 bg-void flex items-center justify-center">
+              <div className="w-7 h-7 rounded-lg border border-border/70 bg-void flex items-center justify-center">
                 {getAgentIcon(formData.icon)}
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-bold text-foreground font-mono">
+                  <h2 className="text-sm font-bold text-foreground">
                     EDIT: {formData.name}
                   </h2>
-                  <span className="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase bg-surface border border-border text-neutral-400">
+                  <span className="px-1.5 py-0.2 rounded-lg text-[9px] bg-surface border border-border text-neutral-400">
                     {formData.scope || "org"}
                   </span>
                 </div>
-                <span className="text-[10px] font-mono text-muted-foreground">ID: {formData.id}</span>
+                <span className="text-[10px] text-muted-foreground">ID: {formData.id}</span>
               </div>
             </div>
 
@@ -453,7 +433,7 @@ export default function AgentsSettingsPage() {
               <button
                 type="button"
                 onClick={() => selectAgent(formData)}
-                className="px-3 py-1.5 rounded border border-border hover:border-cyan/50 bg-surface text-xs font-mono text-muted-foreground hover:text-cyan transition-colors"
+                className="px-3 py-1.5 rounded-lg border border-border hover:border-cyan/50 bg-surface text-xs text-muted-foreground hover:text-cyan transition-colors"
                 title="Activate this agent in the Cockpit"
               >
                 Set Active
@@ -462,7 +442,7 @@ export default function AgentsSettingsPage() {
                 type="button"
                 onClick={handleSave}
                 disabled={isSaving}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-cyan hover:bg-cyan/90 text-slate-950 font-bold text-xs font-mono transition-all shadow-sm shadow-cyan/20 cursor-pointer disabled:opacity-50"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan hover:bg-cyan/90 text-slate-950 font-bold text-xs transition-all shadow-sm shadow-cyan/20 cursor-pointer disabled:opacity-50"
               >
                 {isSaved ? (
                   <>
@@ -472,7 +452,7 @@ export default function AgentsSettingsPage() {
                 ) : (
                   <>
                     <Save className="w-3.5 h-3.5" />
-                    <span>{isSaving ? "SAVING..." : "SAVE PERSONA"}</span>
+                    <span>{isSaving ? "Saving…" : "Save persona"}</span>
                   </>
                 )}
               </button>
@@ -481,7 +461,7 @@ export default function AgentsSettingsPage() {
 
           {/* Error Banner */}
           {saveError && (
-            <div data-testid="persona-save-error" className="p-3 bg-rose-950/60 border border-rose-500/50 rounded text-xs font-mono text-rose-300 flex items-center gap-2">
+            <div data-testid="persona-save-error" className="p-3 bg-rose-950/60 border border-rose-500/50 rounded-lg text-xs text-rose-300 flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
               <span>{saveError}</span>
             </div>
@@ -528,7 +508,7 @@ export default function AgentsSettingsPage() {
                   disabled={!canEditCurrentAgent}
                   value={formData.model}
                   onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                  className="w-full px-3 py-2 rounded border border-border bg-void text-xs font-mono text-foreground focus:outline-none focus:border-cyan disabled:opacity-60"
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-void text-xs text-foreground focus:outline-none focus:border-cyan disabled:opacity-60"
                 >
                   {availableModels.map((m) => (
                     <option key={m.id} value={m.id} className="bg-void text-foreground">
@@ -542,14 +522,14 @@ export default function AgentsSettingsPage() {
           {/* System Prompt */}
           <div>
             <div className="flex items-center justify-between mb-1">
-              <label className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground font-semibold">
+              <label className="text-[10px] text-muted-foreground font-semibold">
                 SYSTEM PROMPT & INSTRUCTION MATRIX
               </label>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
                   onClick={() => setPreviewMarkdown(false)}
-                  className={`px-2 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 ${
+                  className={`px-2 py-0.5 rounded-lg text-[10px] flex items-center gap-1 ${
                     !previewMarkdown
                       ? "bg-cyan/20 text-cyan border border-cyan/30"
                       : "text-muted-foreground hover:text-foreground"
@@ -560,7 +540,7 @@ export default function AgentsSettingsPage() {
                 <button
                   type="button"
                   onClick={() => setPreviewMarkdown(true)}
-                  className={`px-2 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 ${
+                  className={`px-2 py-0.5 rounded-lg text-[10px] flex items-center gap-1 ${
                     previewMarkdown
                       ? "bg-cyan/20 text-cyan border border-cyan/30"
                       : "text-muted-foreground hover:text-foreground"
@@ -572,7 +552,7 @@ export default function AgentsSettingsPage() {
             </div>
 
             {previewMarkdown ? (
-              <div data-testid="markdown-preview-box" className="w-full min-h-[140px] p-3 rounded border border-border bg-void/80 max-h-60 overflow-y-auto">
+              <div data-testid="markdown-preview-box" className="w-full min-h-[140px] p-3 rounded-lg border border-border bg-void/80 max-h-60 overflow-y-auto">
                 <MarkdownRenderer content={formData.system_prompt} />
               </div>
             ) : (
@@ -581,7 +561,7 @@ export default function AgentsSettingsPage() {
                 disabled={!canEditCurrentAgent}
                 value={formData.system_prompt}
                 onChange={(e) => setFormData({ ...formData, system_prompt: e.target.value })}
-                className="w-full px-3 py-2 rounded border border-border bg-void text-xs font-mono text-foreground/90 focus:outline-none focus:border-cyan leading-relaxed disabled:opacity-60"
+                className="w-full px-3 py-2 rounded-lg border border-border bg-void text-xs font-mono text-foreground/90 focus:outline-none focus:border-cyan leading-relaxed disabled:opacity-60"
                 placeholder="Enter markdown-formatted system instructions..."
               />
             )}
@@ -591,7 +571,7 @@ export default function AgentsSettingsPage() {
           <div className="space-y-2 pt-2 border-t border-border/60">
             <div className="flex items-center gap-2">
               <Code2 className="w-4 h-4 text-brand" />
-              <label className="text-xs font-mono uppercase tracking-wider text-foreground font-semibold">
+              <label className="text-xs text-foreground font-semibold">
                 CUSTOM SKILLS & PYTHON EXTENSIONS ({skillsList.length} AVAILABLE)
               </label>
             </div>
@@ -609,7 +589,7 @@ export default function AgentsSettingsPage() {
                     }`}
                   >
                     <div
-                      className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 mt-0.5 ${
+                      className={`w-4 h-4 rounded-lg border flex items-center justify-center shrink-0 mt-0.5 ${
                         isAttached ? "border-brand bg-brand text-slate-950 font-bold" : "border-border"
                       }`}
                     >
@@ -635,7 +615,7 @@ export default function AgentsSettingsPage() {
           <div className="space-y-2 pt-2 border-t border-border/60">
             <div className="flex items-center gap-2">
               <Database className="w-4 h-4 text-cyan" />
-              <label className="text-xs font-mono uppercase tracking-wider text-foreground font-semibold">
+              <label className="text-xs text-foreground font-semibold">
                 KNOWLEDGE BASES (PGVECTOR RAG) ({kbList.length} AVAILABLE)
               </label>
             </div>
@@ -653,7 +633,7 @@ export default function AgentsSettingsPage() {
                     }`}
                   >
                     <div
-                      className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 mt-0.5 ${
+                      className={`w-4 h-4 rounded-lg border flex items-center justify-center shrink-0 mt-0.5 ${
                         isAttached ? "border-cyan bg-cyan text-slate-950 font-bold" : "border-border"
                       }`}
                     >
@@ -677,7 +657,7 @@ export default function AgentsSettingsPage() {
           <div className="space-y-4 pt-2 border-t border-border/60">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2">
               <div>
-                <label className="block text-xs font-mono uppercase tracking-wider text-foreground font-semibold">
+                <label className="block text-xs text-foreground font-semibold">
                   AUTHORIZED TOOLS & MCP SERVERS
                 </label>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
@@ -688,25 +668,25 @@ export default function AgentsSettingsPage() {
               <button
                 type="button"
                 onClick={handleToggleAllowAll}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-mono transition-all cursor-pointer ${
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs transition-all cursor-pointer ${
                   isAllowAll
                     ? "bg-blue-600/20 border-blue-500 text-blue-400 font-semibold"
                     : "bg-surface hover:bg-overlay border-border text-muted-foreground"
                 }`}
               >
                 <div
-                  className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${
+                  className={`w-3.5 h-3.5 rounded-lg border flex items-center justify-center ${
                     isAllowAll ? "bg-blue-600 border-blue-500 text-white" : "border-border"
                   }`}
                 >
                   {isAllowAll && <Check className="w-2.5 h-2.5" />}
                 </div>
-                <span>ALLOW ALL TOOLS</span>
+                <span>Allow all tools</span>
               </button>
             </div>
 
             {isAllowAll && (
-              <div className="p-3 rounded-lg border border-blue-500/30 bg-blue-600/10 text-xs text-blue-300 font-mono flex items-center gap-2">
+              <div className="p-3 rounded-lg border border-blue-500/30 bg-blue-600/10 text-xs text-blue-300 flex items-center gap-2">
                 <Check className="w-4 h-4 text-blue-400 shrink-0" />
                 <span>
                   <strong>Full Access Granted:</strong> This agent is authorized with wildcard permissions (<code>*</code>) across all system sandbox tools, connected MCP servers, skills, and knowledge bases.
@@ -716,7 +696,7 @@ export default function AgentsSettingsPage() {
 
             {/* Authorized tools — driven by the live backend catalog */}
             <div className="space-y-3">
-              <span className="text-[11px] font-mono font-semibold text-foreground/90 uppercase">
+              <span className="text-[11px] font-semibold text-foreground/90">
                 AUTHORIZED TOOLS ({toolCatalog.length || SYSTEM_TOOLS.length})
               </span>
               {Object.entries(
@@ -739,7 +719,7 @@ export default function AgentsSettingsPage() {
                 }, {})
               ).map(([category, tools]) => (
                 <div key={category} className="space-y-2">
-                  <span className="text-[10px] font-mono uppercase tracking-wide text-muted-foreground">
+                  <span className="text-[10px] text-muted-foreground">
                     {category}
                   </span>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -758,7 +738,7 @@ export default function AgentsSettingsPage() {
                           }`}
                         >
                           <div
-                            className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 mt-0.5 ${
+                            className={`w-4 h-4 rounded-lg border flex items-center justify-center shrink-0 mt-0.5 ${
                               isChecked ? "border-blue-500 bg-blue-600 text-white" : "border-border"
                             }`}
                           >
@@ -770,7 +750,7 @@ export default function AgentsSettingsPage() {
                                 {tool.name}
                               </span>
                               {tool.toolset && (
-                                <span className="text-[9px] font-mono px-1 rounded bg-surface border border-border text-neutral-400 shrink-0">
+                                <span className="text-[9px] px-1 rounded-lg bg-surface border border-border text-neutral-400 shrink-0">
                                   {tool.toolset}
                                 </span>
                               )}
@@ -792,7 +772,7 @@ export default function AgentsSettingsPage() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Server className="w-3.5 h-3.5 text-cyan" />
-                  <span className="text-[11px] font-mono font-semibold text-foreground/90 uppercase">
+                  <span className="text-[11px] font-semibold text-foreground/90">
                     MCP SERVERS (MODEL CONTEXT PROTOCOL) ({mcpServers.length} Servers)
                   </span>
                 </div>
@@ -807,14 +787,14 @@ export default function AgentsSettingsPage() {
                       >
                         <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            <span className="text-xs font-mono font-semibold text-foreground">
+                            <span className="text-xs font-semibold text-foreground">
                               {server.name}
                             </span>
-                            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase bg-surface border border-border text-neutral-400">
+                            <span className="px-1.5 py-0.2 rounded-lg text-[9px] bg-surface border border-border text-neutral-400">
                               {server.scope || "org"}
                             </span>
                           </div>
-                          <span className="text-[10px] font-mono text-muted-foreground">
+                          <span className="text-[10px] text-muted-foreground">
                             {serverToolNames.length} tools
                           </span>
                         </div>
@@ -828,26 +808,26 @@ export default function AgentsSettingsPage() {
                                 <div
                                   key={toolId}
                                   onClick={() => handleToolToggle(toolId)}
-                                  className={`flex items-start gap-2 p-2 rounded border transition-colors cursor-pointer ${
+                                  className={`flex items-start gap-2 p-2 rounded-lg border transition-colors cursor-pointer ${
                                     isChecked
                                       ? "border-cyan/40 bg-cyan/5 text-foreground"
                                       : "border-border/60 bg-surface/30 text-muted-foreground hover:border-border"
                                   }`}
                                 >
                                   <div
-                                    className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 mt-0.5 ${
+                                    className={`w-3.5 h-3.5 rounded-lg border flex items-center justify-center shrink-0 mt-0.5 ${
                                       isChecked ? "border-cyan bg-cyan text-slate-950 font-bold" : "border-border"
                                     }`}
                                   >
                                     {isChecked && <Check className="w-2.5 h-2.5" />}
                                   </div>
-                                  <span className="text-xs font-mono truncate">{toolName}</span>
+                                  <span className="text-xs truncate">{toolName}</span>
                                 </div>
                               );
                             })}
                           </div>
                         ) : (
-                          <div className="text-[11px] font-mono text-neutral-500 italic">
+                          <div className="text-[11px] text-neutral-500 italic">
                             No tools discovered for this server. Probe server from MCP settings.
                           </div>
                         )}

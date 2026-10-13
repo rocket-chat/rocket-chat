@@ -60,7 +60,7 @@ export const McpMemberEnv: React.FC<McpMemberEnvProps> = ({ serverId, onChanged 
   if (variables.length === 0) return null;
 
   return (
-    <div data-testid="member-env" className="space-y-2 rounded border border-border/60 bg-surface-card p-3">
+    <div data-testid="member-env" className="space-y-2 rounded-lg border border-border/60 bg-surface-card p-3">
       <div className="flex items-center gap-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300">
         <KeyRound className="h-3.5 w-3.5" aria-hidden="true" /> Your own values
       </div>
@@ -70,7 +70,7 @@ export const McpMemberEnv: React.FC<McpMemberEnvProps> = ({ serverId, onChanged 
       </p>
       {variables.map((variable) => (
         <div key={variable.name} className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[12rem_1fr_auto]">
-          <label htmlFor={`env-${serverId}-${variable.name}`} className="font-mono text-xs text-foreground">
+          <label htmlFor={`env-${serverId}-${variable.name}`} className="text-xs text-foreground">
             {variable.name}
           </label>
           <input
@@ -78,7 +78,7 @@ export const McpMemberEnv: React.FC<McpMemberEnvProps> = ({ serverId, onChanged 
             data-testid={`member-env-${variable.name}`}
             type="password"
             autoComplete="off"
-            className="min-w-0 rounded border border-border bg-void px-2.5 py-1 font-mono text-xs"
+            className="min-w-0 rounded-lg border border-border bg-void px-2.5 py-1 text-xs"
             placeholder={
               variable.overridden
                 ? "Set - type to replace"

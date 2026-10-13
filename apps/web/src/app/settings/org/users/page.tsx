@@ -91,15 +91,15 @@ export default function OrgUsersPage() {
         <button
           type="button"
           onClick={() => void fetchUsers()}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-xs font-mono text-neutral-300 transition-all cursor-pointer"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-xs text-neutral-300 transition-all cursor-pointer"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          <span>REFRESH</span>
+          <span>Refresh</span>
         </button>
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
         </div>
@@ -107,7 +107,7 @@ export default function OrgUsersPage() {
       {notice && (
         <div
           data-testid="role-change-notice"
-          className="flex items-center gap-2 p-3 rounded-lg bg-amber-950/50 border border-amber-800/60 text-amber-300 text-xs font-mono"
+          className="flex items-center gap-2 p-3 rounded-lg bg-amber-950/50 border border-amber-800/60 text-amber-300 text-xs"
         >
           <ShieldCheck className="w-4 h-4 shrink-0" />
           <span>{notice}</span>
@@ -115,8 +115,8 @@ export default function OrgUsersPage() {
       )}
 
       <div className="rounded-lg border border-border bg-surface-card overflow-hidden">
-        <table className="w-full text-xs font-mono">
-          <thead className="bg-surface/60 text-muted-foreground uppercase text-[10px]">
+        <table className="w-full text-xs">
+          <thead className="bg-surface/60 text-muted-foreground text-[10px]">
             <tr>
               <th className="text-left px-4 py-2">Member</th>
               <th className="text-left px-4 py-2">Email</th>
@@ -147,7 +147,7 @@ export default function OrgUsersPage() {
                       disabled={!isAdmin || savingId === user.id}
                       value={user.role}
                       onChange={(e) => void changeRole(user.id, e.target.value)}
-                      className="w-full px-2 py-1 rounded border border-border bg-void text-xs font-mono text-foreground focus:outline-none focus:border-cyan disabled:opacity-60 cursor-pointer"
+                      className="w-full px-2 py-1 rounded-lg border border-border bg-void text-xs text-foreground focus:outline-none focus:border-cyan disabled:opacity-60 cursor-pointer"
                     >
                       {ROLES.map((role) => (
                         <option key={role} value={role}>
@@ -163,7 +163,7 @@ export default function OrgUsersPage() {
         </table>
       </div>
 
-      <p className="text-[11px] font-mono text-muted-foreground">
+      <p className="text-[11px] text-muted-foreground">
         A role change is written immediately but is carried in the user&apos;s session token, so
         the affected user must <span className="text-foreground">reload or sign in again</span>{" "}
         for it to take effect. The last administrator of an organization cannot be demoted.

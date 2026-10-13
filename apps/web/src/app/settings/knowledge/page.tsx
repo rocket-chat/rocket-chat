@@ -1,5 +1,8 @@
 "use client";
 
+import { Button } from "../../../components/ui/Button";
+import { PageHeader } from "../../../components/ui/PageHeader";
+
 import { Field, Input, Textarea } from "../../../components/ui/Field";
 import React, { useState, useEffect, useCallback } from "react";
 import { KnowledgeBaseConfig } from "../../../types/mission";
@@ -221,15 +224,15 @@ export default function KnowledgeSettingsPage() {
       >
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-mono font-semibold text-foreground truncate">
+            <span className="text-xs font-semibold text-foreground truncate">
               {kb.name}
             </span>
-            <span className="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase bg-surface border border-border text-neutral-400">
+            <span className="px-1.5 py-0.2 rounded-lg text-[9px] bg-surface border border-border text-neutral-400">
               {kb.documents_count ?? 0} docs
             </span>
           </div>
           {kb.description && (
-            <p className="text-[10px] font-mono text-muted-foreground truncate mt-0.5">
+            <p className="text-[10px] text-muted-foreground truncate mt-0.5">
               {kb.description}
             </p>
           )}
@@ -239,7 +242,7 @@ export default function KnowledgeSettingsPage() {
           <button
             type="button"
             onClick={(e) => handleDeleteKb(kb.id, kb.name, e)}
-            className="p-1 rounded hover:bg-rose-950/40 text-neutral-500 hover:text-rose-400 transition-colors shrink-0"
+            className="p-1 rounded-lg hover:bg-rose-950/40 text-neutral-500 hover:text-rose-400 transition-colors shrink-0"
             title="Delete collection"
           >
             <Trash2 className="w-3.5 h-3.5" />
@@ -252,27 +255,21 @@ export default function KnowledgeSettingsPage() {
   return (
     <div className="max-w-6xl mx-auto space-y-6 px-4 py-8 sm:px-8">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
-        <div>
-          <h1 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2.5">
-            <Database className="w-5 h-5 text-cyan" />
-            Knowledge bases
-          </h1>
-          <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 mt-1">
-            Personal and organization vector collections, document ingestion, and hybrid dense-sparse retrieval.
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        title="Knowledge bases"
+        icon={<Database className="h-5 w-5" aria-hidden="true" />}
+        description="Personal and organization vector collections, document ingestion, and hybrid dense-sparse retrieval."
+      />
 
       {errorBanner && (
-        <div className="flex items-center gap-2 p-3.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{errorBanner}</span>
         </div>
       )}
 
       {successBanner && (
-        <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{successBanner}</span>
         </div>
@@ -286,14 +283,10 @@ export default function KnowledgeSettingsPage() {
             title="Personal Collections"
             description="Private vector documents accessible to your sessions."
             action={
-              <button
-                type="button"
-                onClick={() => handleOpenCreateModal("user")}
-                className="flex items-center gap-1 px-2 py-1 rounded border border-brand/40 bg-brand/10 hover:bg-brand/20 text-brand text-xs font-mono cursor-pointer"
-              >
-                <Plus className="w-3 h-3" />
-                <span>NEW</span>
-              </button>
+              <Button size="sm" variant="secondary" onClick={() => handleOpenCreateModal("user")}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                New collection
+              </Button>
             }
           >
             {userKbs.length > 0 ? (
@@ -301,7 +294,7 @@ export default function KnowledgeSettingsPage() {
                 {userKbs.map((kb) => renderKbCard(kb, true))}
               </div>
             ) : (
-              <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs font-mono text-muted-foreground">
+              <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs text-muted-foreground">
                 No personal collections yet.
               </div>
             )}
@@ -313,14 +306,10 @@ export default function KnowledgeSettingsPage() {
             title="Organization Collections"
             description="Shared knowledge collections available across the entire workspace."
             action={
-              <button
-                type="button"
-                onClick={() => handleOpenCreateModal("org")}
-                className="flex items-center gap-1 px-2 py-1 rounded border border-cyan/40 bg-cyan/10 hover:bg-cyan/20 text-cyan text-xs font-mono cursor-pointer"
-              >
-                <Plus className="w-3 h-3" />
-                <span>NEW</span>
-              </button>
+              <Button size="sm" variant="secondary" onClick={() => handleOpenCreateModal("org")}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                New org collection
+              </Button>
             }
           >
             {orgKbs.length > 0 ? (
@@ -328,7 +317,7 @@ export default function KnowledgeSettingsPage() {
                 {orgKbs.map((kb) => renderKbCard(kb, isAdmin))}
               </div>
             ) : (
-              <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs font-mono text-muted-foreground">
+              <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs text-muted-foreground">
                 No organization collections registered.
               </div>
             )}
@@ -342,14 +331,14 @@ export default function KnowledgeSettingsPage() {
               <div className="flex items-center justify-between border-b border-border/60 pb-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-sm font-semibold font-mono text-foreground uppercase">
+                    <h2 className="text-sm font-semibold text-foreground">
                       {currentKb.name}
                     </h2>
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-mono uppercase bg-surface border border-border text-neutral-400">
+                    <span className="px-1.5 py-0.5 rounded-lg text-[9px] bg-surface border border-border text-neutral-400">
                       {currentKb.scope || "user"}
                     </span>
                   </div>
-                  <p className="text-xs font-mono text-muted-foreground mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     {currentKb.description || "Vector knowledge repository for RAG context injection."}
                   </p>
                 </div>
@@ -357,16 +346,16 @@ export default function KnowledgeSettingsPage() {
                 <button
                   type="button"
                   onClick={() => setShowIngestModal(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-cyan/40 bg-cyan/10 hover:bg-cyan/20 text-cyan text-xs font-mono font-semibold transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan/40 bg-cyan/10 hover:bg-cyan/20 text-cyan text-xs font-semibold transition-all cursor-pointer"
                 >
                   <UploadCloud className="w-3.5 h-3.5" />
-                  <span>INGEST DOCUMENT</span>
+                  <span>Ingest document</span>
                 </button>
               </div>
 
               {/* Live Search & Hybrid Test */}
               <div className="space-y-3">
-                <div className="text-[10px] font-mono text-muted-foreground uppercase font-semibold">
+                <div className="text-[10px] text-muted-foreground font-semibold">
                   Test Retrieval & Similarity Search:
                 </div>
                 <div className="flex gap-2">
@@ -378,14 +367,14 @@ export default function KnowledgeSettingsPage() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleQuery()}
-                      className="w-full pl-9 pr-3 py-1.5 rounded border border-border bg-void text-xs font-mono text-foreground focus:outline-none focus:border-cyan"
+                      className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-border bg-void text-xs text-foreground focus:outline-none focus:border-cyan"
                     />
                   </div>
                   <button
                     type="button"
                     onClick={handleQuery}
                     disabled={isSearching || !searchQuery.trim()}
-                    className="px-3 py-1.5 rounded border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-xs font-mono text-neutral-300 transition-all cursor-pointer disabled:opacity-50"
+                    className="px-3 py-1.5 rounded-lg border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-xs text-neutral-300 transition-all cursor-pointer disabled:opacity-50"
                   >
                     {isSearching ? "SEARCHING..." : "SEARCH"}
                   </button>
@@ -393,13 +382,13 @@ export default function KnowledgeSettingsPage() {
 
                 {searchResults.length > 0 && (
                   <div className="space-y-2 pt-2">
-                    <div className="text-[10px] font-mono text-muted-foreground uppercase font-semibold">
+                    <div className="text-[10px] text-muted-foreground font-semibold">
                       Matching Vector Chunks ({searchResults.length}):
                     </div>
                     {searchResults.map((res) => (
                       <div
                         key={res.id}
-                        className="p-3 rounded border border-border/80 bg-surface text-xs font-mono space-y-1"
+                        className="p-3 rounded-lg border border-border/80 bg-surface text-xs space-y-1"
                       >
                         <div className="flex items-center justify-between">
                           <span className="font-semibold text-brand">{res.title}</span>
@@ -417,7 +406,7 @@ export default function KnowledgeSettingsPage() {
               </div>
             </div>
           ) : (
-            <div className="p-8 rounded-lg border border-dashed border-border text-center text-xs font-mono text-muted-foreground">
+            <div className="p-8 rounded-lg border border-dashed border-border text-center text-xs text-muted-foreground">
               Select or create a knowledge collection to view details and ingest documents.
             </div>
           )}
@@ -429,13 +418,13 @@ export default function KnowledgeSettingsPage() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="w-full max-w-md p-5 rounded-lg border border-border bg-surface space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-border/60 pb-2">
-              <span className="text-xs font-mono font-bold text-cyan uppercase tracking-wider">
+              <span className="text-xs font-bold text-cyan">
                 Create {createScope === "org" ? "Organization" : "Personal"} Knowledge Base
               </span>
               <button
                 type="button"
                 onClick={() => setShowCreateModal(false)}
-                className="text-neutral-400 hover:text-white text-xs font-mono cursor-pointer"
+                className="text-neutral-400 hover:text-white text-xs cursor-pointer"
               >
                 ✕
               </button>
@@ -467,13 +456,13 @@ export default function KnowledgeSettingsPage() {
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-3 py-1.5 rounded border border-border text-xs font-mono text-neutral-400 hover:text-white cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-border text-xs text-neutral-400 hover:text-white cursor-pointer"
                 >
                   CANCEL
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-mono font-semibold transition-all cursor-pointer"
+                  className="px-4 py-1.5 rounded-lg border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-semibold transition-all cursor-pointer"
                 >
                   CREATE COLLECTION
                 </button>
@@ -488,13 +477,13 @@ export default function KnowledgeSettingsPage() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="w-full max-w-lg p-5 rounded-lg border border-border bg-surface space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-border/60 pb-2">
-              <span className="text-xs font-mono font-bold text-cyan uppercase tracking-wider">
+              <span className="text-xs font-bold text-cyan">
                 Ingest Document to {currentKb?.name}
               </span>
               <button
                 type="button"
                 onClick={() => setShowIngestModal(false)}
-                className="text-neutral-400 hover:text-white text-xs font-mono cursor-pointer"
+                className="text-neutral-400 hover:text-white text-xs cursor-pointer"
               >
                 ✕
               </button>
@@ -528,14 +517,14 @@ export default function KnowledgeSettingsPage() {
                 <button
                   type="button"
                   onClick={() => setShowIngestModal(false)}
-                  className="px-3 py-1.5 rounded border border-border text-xs font-mono text-neutral-400 hover:text-white cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-border text-xs text-neutral-400 hover:text-white cursor-pointer"
                 >
                   CANCEL
                 </button>
                 <button
                   type="submit"
                   disabled={ingesting}
-                  className="px-4 py-1.5 rounded border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-mono font-semibold transition-all cursor-pointer disabled:opacity-50"
+                  className="px-4 py-1.5 rounded-lg border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
                 >
                   {ingesting ? "CHUNKING & EMBEDDING..." : "INGEST DOCUMENT"}
                 </button>

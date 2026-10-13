@@ -127,13 +127,13 @@ function LoginForm() {
         <h1 className="text-2xl font-display font-bold text-foreground tracking-tight">
           Rocket Chat Cockpit
         </h1>
-        <p className="text-xs font-mono text-neutral-500 dark:text-neutral-400">
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
           Enterprise Autonomous AI Engineering Platform
         </p>
       </div>
 
       {errorMsg && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs">
           <ShieldAlert className="w-4 h-4 shrink-0" />
           <span>{errorMsg}</span>
         </div>
@@ -217,7 +217,7 @@ function LoginForm() {
           {providers?.local && (
             <form onSubmit={handleLocalSubmit} className="space-y-4 pt-1" data-testid="local-login">
               <div>
-                <label htmlFor="local-email" className="block text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-1">
+                <label htmlFor="local-email" className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">
                   E-mail
                 </label>
                 <input
@@ -231,7 +231,7 @@ function LoginForm() {
                 />
               </div>
               <div>
-                <label htmlFor="local-password" className="block text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-1">
+                <label htmlFor="local-password" className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">
                   Password
                 </label>
                 <input
@@ -258,7 +258,7 @@ function LoginForm() {
           {(hasAnySSO || providers?.local) && providers?.devLogin && (
             <div className="relative flex items-center justify-center my-4">
               <div className="border-t border-surface-border w-full" />
-              <span className="bg-surface-card px-3 text-[11px] font-mono text-neutral-400 absolute">
+              <span className="bg-surface-card px-3 text-[11px] text-neutral-400 absolute">
                 OR DIRECT LOGIN
               </span>
             </div>
@@ -268,7 +268,7 @@ function LoginForm() {
           {providers?.devLogin && (
             <form onSubmit={handleDevSubmit} className="space-y-4 pt-1">
               <div>
-                <label className="block text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-1">
+                <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">
                   Developer Identity
                 </label>
                 <input aria-label="Developer Identity"
@@ -282,7 +282,7 @@ function LoginForm() {
               </div>
 
               <div>
-                <label className="block text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-1">
+                <label className="block text-xs text-neutral-500 dark:text-neutral-400 mb-1">
                   Tenant Organization ID
                 </label>
                 <input aria-label="Tenant Organization ID"
@@ -307,7 +307,7 @@ function LoginForm() {
           )}
 
           {!hasAnySSO && !providers?.devLogin && !providers?.local && (
-            <div className="text-center py-6 text-xs font-mono text-neutral-400">
+            <div className="text-center py-6 text-xs text-neutral-400">
               No authentication providers are enabled for this deployment.
             </div>
           )}

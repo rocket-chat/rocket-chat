@@ -1,5 +1,8 @@
 "use client";
 
+import { Button } from "../../../components/ui/Button";
+import { PageHeader } from "../../../components/ui/PageHeader";
+
 
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -152,37 +155,21 @@ export default function McpSettingsPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
-        <div>
-          <h1 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2.5">
-            <Server className="w-5 h-5 text-cyan" />
-            Model Context Protocol servers
-          </h1>
-          <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 mt-1">
-            Connect HTTP, SSE, and STDIO tool providers. Configure write-only encrypted secrets, multi-header auth, and custom agent guidance.
-          </p>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => handleOpenAddForm("user")}
-          className="flex items-center gap-2 px-3 py-2 rounded border border-cyan/40 bg-cyan/10 hover:bg-cyan/20 text-cyan text-xs font-mono font-semibold transition-all shadow-sm shadow-cyan/5 cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Register MCP server</span>
-        </button>
-      </div>
+      <PageHeader
+        title="MCP servers"
+        icon={<Server className="h-5 w-5" aria-hidden="true" />}
+        description="Connect tool providers over HTTP, SSE or as a command. Secrets are encrypted and never shown again."
+      />
 
       {errorBanner && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{errorBanner}</span>
         </div>
       )}
 
       {successBanner && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{successBanner}</span>
         </div>
@@ -204,14 +191,10 @@ export default function McpSettingsPage() {
         title="Personal MCP Servers"
         description="Connect your private tool providers and API credentials. These tools are available to your sessions and custom agents."
         action={
-          <button
-            type="button"
-            onClick={() => handleOpenAddForm("user")}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-brand/40 bg-brand/10 hover:bg-brand/20 text-brand text-xs font-mono font-semibold transition-all cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add personal MCP</span>
-          </button>
+          <Button size="sm" variant="secondary" onClick={() => handleOpenAddForm("user")}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                Add server
+              </Button>
         }
       >
         {userServers.length > 0 ? (
@@ -221,7 +204,7 @@ export default function McpSettingsPage() {
         ) : (
           <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-2">
             <Server className="w-6 h-6 mx-auto text-neutral-500" />
-            <p className="text-xs font-mono text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               You haven&apos;t added any personal MCP servers yet.
             </p>
           </div>
@@ -236,14 +219,10 @@ export default function McpSettingsPage() {
         title="Organization MCP Servers"
         description="Shared tool providers accessible to all organization members and default fleet agents."
         action={
-          <button
-            type="button"
-            onClick={() => handleOpenAddForm("org")}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-cyan/40 bg-cyan/10 hover:bg-cyan/20 text-cyan text-xs font-mono font-semibold transition-all cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add org MCP</span>
-          </button>
+          <Button size="sm" variant="secondary" onClick={() => handleOpenAddForm("org")}>
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                Add org server
+              </Button>
         }
       >
         {orgServers.length > 0 ? (
@@ -253,7 +232,7 @@ export default function McpSettingsPage() {
         ) : (
           <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-2">
             <Shield className="w-6 h-6 mx-auto text-neutral-500" />
-            <p className="text-xs font-mono text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               No organization-wide MCP servers registered.
             </p>
           </div>
@@ -261,12 +240,12 @@ export default function McpSettingsPage() {
       </OrgScopeSection>
 
       {isAdmin && (
-        <OrgScopeSection
-          title="MCP Policy"
+        <SchemaSettingsForm
+          domain="mcp"
+          mode="org"
+          title="MCP policy"
           description="Which transports members may use and how many personal servers each may register."
-        >
-          <SchemaSettingsForm domain="mcp" mode="org" title="MCP policy" />
-        </OrgScopeSection>
+        />
       )}
     </div>
   );

@@ -333,7 +333,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                   <select aria-label={isCommand ? "Environment" : "Authentication Mode"}
                     value={authType}
                     onChange={(e) => setAuthType(e.target.value)}
-                    className="px-2 py-1 rounded border border-border bg-void text-xs font-mono text-cyan focus:outline-none focus:border-cyan"
+                    className="px-2 py-1 rounded-lg border border-border bg-void text-xs text-cyan focus:outline-none focus:border-cyan"
                   >
                     {isCommand ? (
                       <>
@@ -352,7 +352,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                 </div>}
 
                 {!isCommand && authType === "api_key" && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded bg-surface-card border border-border">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded-lg bg-surface-card border border-border">
                     <div>
                       <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1">
                         Header Name
@@ -361,7 +361,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         type="text"
                         value={authHeaderName}
                         onChange={(e) => setAuthHeaderName(e.target.value)}
-                        className="w-full px-2.5 py-1 rounded border border-border bg-surface text-xs font-mono"
+                        className="w-full px-2.5 py-1 rounded-lg border border-border bg-surface text-xs"
                       />
                     </div>
                     <div>
@@ -372,7 +372,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         type="text"
                         value={authHeaderPrefix}
                         onChange={(e) => setAuthHeaderPrefix(e.target.value)}
-                        className="w-full px-2.5 py-1 rounded border border-border bg-surface text-xs font-mono"
+                        className="w-full px-2.5 py-1 rounded-lg border border-border bg-surface text-xs"
                       />
                     </div>
                     <div>
@@ -384,20 +384,20 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         placeholder="sk_live_..."
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
-                        className="w-full px-2.5 py-1 rounded border border-border bg-surface text-xs font-mono"
+                        className="w-full px-2.5 py-1 rounded-lg border border-border bg-surface text-xs"
                       />
                     </div>
                   </div>
                 )}
 
                 {!isCommand && authType === "oauth2" && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded bg-surface-card border border-border">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-lg bg-surface-card border border-border">
                     <p className="sm:col-span-2 text-[10px] text-muted-foreground">
                       Leave the URLs and client ID empty to discover them from the server itself
                       (OAuth metadata and dynamic client registration).
                     </p>
                     {formScope === "org" && (
-                      <label className="sm:col-span-2 flex items-center gap-2 text-[11px] font-mono text-neutral-300">
+                      <label className="sm:col-span-2 flex items-center gap-2 text-[11px] text-neutral-300">
                         <input
                           type="checkbox"
                           data-testid="mcp-oauth-member-mode"
@@ -416,7 +416,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         placeholder="https://auth.example.com/oauth/authorize"
                         value={oauthAuthUrl}
                         onChange={(e) => setOauthAuthUrl(e.target.value)}
-                        className="w-full px-2.5 py-1 rounded border border-border bg-surface text-xs font-mono"
+                        className="w-full px-2.5 py-1 rounded-lg border border-border bg-surface text-xs"
                       />
                     </div>
                     <div>
@@ -428,7 +428,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         placeholder="https://auth.example.com/oauth/token"
                         value={oauthTokenUrl}
                         onChange={(e) => setOauthTokenUrl(e.target.value)}
-                        className="w-full px-2.5 py-1 rounded border border-border bg-surface text-xs font-mono"
+                        className="w-full px-2.5 py-1 rounded-lg border border-border bg-surface text-xs"
                       />
                     </div>
                     <div>
@@ -440,7 +440,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         placeholder="client_123"
                         value={oauthClientId}
                         onChange={(e) => setOauthClientId(e.target.value)}
-                        className="w-full px-2.5 py-1 rounded border border-border bg-surface text-xs font-mono"
+                        className="w-full px-2.5 py-1 rounded-lg border border-border bg-surface text-xs"
                       />
                     </div>
                     <div>
@@ -452,7 +452,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         placeholder="secret_..."
                         value={oauthClientSecret}
                         onChange={(e) => setOauthClientSecret(e.target.value)}
-                        className="w-full px-2.5 py-1 rounded border border-border bg-surface text-xs font-mono"
+                        className="w-full px-2.5 py-1 rounded-lg border border-border bg-surface text-xs"
                       />
                     </div>
                     <div className="sm:col-span-2">
@@ -464,14 +464,14 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         placeholder="read write"
                         value={oauthScopes}
                         onChange={(e) => setOauthScopes(e.target.value)}
-                        className="w-full px-2.5 py-1 rounded border border-border bg-surface text-xs font-mono"
+                        className="w-full px-2.5 py-1 rounded-lg border border-border bg-surface text-xs"
                       />
                     </div>
                   </div>
                 )}
 
                 {!isCommand && authType === "custom_headers" && (
-                  <div className="space-y-2 p-3 rounded bg-surface-card border border-border">
+                  <div className="space-y-2 p-3 rounded-lg bg-surface-card border border-border">
                     <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
                       {isCommand ? "Environment variables" : "Custom Header Pairs"}
                     </div>
@@ -481,21 +481,21 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         placeholder={isCommand ? "Variable name (e.g. GITHUB_TOKEN)" : "Header Key (e.g. X-Org-ID)"}
                         value={newHeaderKey}
                         onChange={(e) => setNewHeaderKey(e.target.value)}
-                        className="flex-1 px-2.5 py-1 rounded border border-border bg-void text-xs font-mono"
+                        className="flex-1 px-2.5 py-1 rounded-lg border border-border bg-void text-xs"
                       />
                       <input
                         type={newHeaderSecret ? "password" : "text"}
                         placeholder={isCommand ? "Value" : "Header Value"}
                         value={newHeaderVal}
                         onChange={(e) => setNewHeaderVal(e.target.value)}
-                        className="flex-1 px-2.5 py-1 rounded border border-border bg-void text-xs font-mono"
+                        className="flex-1 px-2.5 py-1 rounded-lg border border-border bg-void text-xs"
                       />
-                      <label className="flex items-center gap-1 text-[11px] font-mono text-muted-foreground cursor-pointer select-none">
+                      <label className="flex items-center gap-1 text-[11px] text-muted-foreground cursor-pointer select-none">
                         <input
                           type="checkbox"
                           checked={newHeaderSecret}
                           onChange={(e) => setNewHeaderSecret(e.target.checked)}
-                          className="rounded border-border"
+                          className="rounded-lg border-border"
                         />
                         <span>Secret</span>
                       </label>
@@ -511,7 +511,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                           setNewHeaderVal("");
                           setNewHeaderSecret(false);
                         }}
-                        className="px-2.5 py-1 rounded border border-border text-xs font-mono bg-surface-elevated text-neutral-300"
+                        className="px-2.5 py-1 rounded-lg border border-border text-xs bg-surface-elevated text-neutral-300"
                       >
                         {isCommand ? "Add variable" : "Add Header"}
                       </button>
@@ -521,7 +521,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         {customHeaders.map((h, i) => (
                           <span
                             key={i}
-                            className="px-2 py-0.5 rounded bg-surface border border-border text-[10px] font-mono flex items-center gap-1"
+                            className="px-2 py-0.5 rounded-lg bg-surface border border-border text-[10px] flex items-center gap-1"
                           >
                             <span>{h.name}{isCommand ? "=" : ": "}{h.is_secret ? "••••••••" : h.value}</span>
                             <button
@@ -541,7 +541,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                 {isCommand && (
                   <div className="space-y-3">
                     {commandBlocker && (
-                      <p data-testid="mcp-command-blocker" role="status" className="rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                      <p data-testid="mcp-command-blocker" role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300">
                         {commandBlocker}.{" "}
                         {canUseCommands
                           ? "Command servers need the MCP runner (mcpRunner.enabled in the Helm chart, the mcp-runner service in Docker Compose)."
@@ -573,7 +573,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                 {/* Validation Feedback */}
                 {validationResult && (
                   <div
-                    className={`p-3 rounded-lg border text-xs font-mono flex items-start gap-2.5 ${
+                    className={`p-3 rounded-lg border text-xs flex items-start gap-2.5 ${
                       validationResult.valid
                         ? "bg-emerald-950/40 border-emerald-800/60 text-emerald-300"
                         : "bg-rose-950/40 border-rose-800/60 text-rose-300"
@@ -609,7 +609,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                   type="button"
                   onClick={handleValidateConnection}
                   disabled={validating || !endpoint || (isCommand && commandBlocker !== null)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-xs font-mono text-neutral-300 transition-all cursor-pointer disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-xs text-neutral-300 transition-all cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${validating ? "animate-spin text-cyan" : ""}`} />
                   <span>{validating ? "PROBING..." : "TEST & VALIDATE CONNECTION"}</span>
@@ -619,7 +619,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                   <button
                     type="button"
                     onClick={() => onCancel()}
-                    className="px-3 py-1.5 rounded border border-border text-xs font-mono text-neutral-400 hover:text-white cursor-pointer"
+                    className="px-3 py-1.5 rounded-lg border border-border text-xs text-neutral-400 hover:text-white cursor-pointer"
                   >
                     CANCEL
                   </button>
@@ -627,7 +627,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                     type="button"
                     onClick={handleSaveServer}
                     disabled={isCommand && commandBlocker !== null}
-                    className="flex items-center gap-1.5 px-4 py-1.5 rounded border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-mono font-semibold transition-all cursor-pointer shadow-sm"
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-semibold transition-all cursor-pointer shadow-sm"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Probe &amp; connect server</span>
