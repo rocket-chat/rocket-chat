@@ -11,6 +11,7 @@ from fastapi import (
     HTTPException,
     Request,
 )
+from mcp_runner.protocol import is_valid_env_name
 from sqlalchemy import or_, select
 
 from api.auth.access import _get_request_identity
@@ -19,8 +20,13 @@ from api.db.models import (
 )
 from api.models import (
     CreateMcpServerRequest,
+    McpAuthInput,
+    McpRunnerStatus,
     McpServerResponseModel,
     McpToolItem,
+    MemberEnvUpdate,
+    MemberEnvVariable,
+    MemberEnvView,
     ValidateMcpServerRequest,
     ValidateMcpServerResponse,
 )
@@ -31,6 +37,12 @@ from api.services.mcp_engine import (
     OAUTH_TOKEN_KEYS,
     probe_and_fetch_tools,
 )
+from api.services.mcp_member_env import (
+    member_values,
+    overridable_names,
+    save_member_values,
+)
+from api.services.mcp_runner import runner_status
 from api.services.mcp_runtime import auth_headers as mcp_auth_headers
 from api.services.mcp_turn import (
     _canonical_transport,
@@ -39,7 +51,6 @@ from api.services.mcp_turn import (
     _member_token_store,
     _probe_timestamp,
 )
-from api.services.sandbox_stdio import is_valid_env_name
 from api.services.settings import (
     effective_settings,
 )
@@ -125,9 +136,10 @@ def _format_mcp_response(s: Any) -> McpServerResponseModel:
             {
                 "name": h["name"],
                 "value": CredentialCipher.fingerprint(h["value"])
-                if h.get("is_secret")
+                if h.get("is_secret") and h["value"]
                 else h["value"],
                 "is_secret": h.get("is_secret", False),
+                "member_override": h.get("member_override", False),
             }
         )
 
@@ -160,6 +172,8 @@ def _format_mcp_response(s: Any) -> McpServerResponseModel:
         has_oauth_secret=has_oauth,
         oauth_status=oauth_status,
         oauth_mode=str(encrypted_auth.get("oauth_mode") or "org"),
+        install_command=encrypted_auth.get("install_command"),
+        overridable_env=overridable_names(encrypted_auth),
     )
 
 
@@ -199,7 +213,86 @@ async def _with_member_connection_status(
         connected = await _member_token_store(request).connected_servers(org_id, user_id)
         for view in member_mode:
             view.oauth_status = "connected" if view.id in connected else "pending"
+    store = _member_token_store(request)
+    for view in views:
+        if view.overridable_env:
+            own = await member_values(store, org_id, view.id, user_id)
+            view.member_env_set = [name for name in view.overridable_env if name in own]
     return views
+
+
+@router.get("/mcp/runner", response_model=McpRunnerStatus)
+async def mcp_runner_status(request: Request) -> McpRunnerStatus:
+    """Whether command (stdio) MCP servers can run on this installation (the MCP runner pod)."""
+    _get_request_identity(request)
+    status = await runner_status()
+    return McpRunnerStatus(
+        configured=status.configured, available=status.available, detail=status.detail
+    )
+
+
+async def _org_server_auth(request: Request, org_id: str, server_id: str) -> dict[str, Any]:
+    """The stored auth block of an organization server the caller can see, or 404."""
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    if db_mgr:
+        async with db_mgr.session(tenant_org_id=org_id) as session:
+            entity = (
+                await session.execute(
+                    select(McpServerEntityModel).where(
+                        McpServerEntityModel.id == server_id,
+                        McpServerEntityModel.org_id == org_id,
+                        McpServerEntityModel.scope == "org",
+                    )
+                )
+            ).scalar_one_or_none()
+        auth = dict(entity.encrypted_auth or {}) if entity else None
+    else:
+        record = _mcp_servers_store.get(server_id)
+        found = (
+            record is not None and record.get("org_id") == org_id and record.get("scope") == "org"
+        )
+        auth = dict((record or {}).get("encrypted_auth") or {}) if found else None
+    if auth is None:
+        raise HTTPException(status_code=404, detail="MCP server not found")
+    return auth
+
+
+@router.get("/mcp/servers/{server_id}/env", response_model=MemberEnvView)
+async def get_member_env(server_id: str, request: Request) -> MemberEnvView:
+    """The variables of an organization command server that the caller may set for themselves."""
+    org_id, user_id, _ = _get_request_identity(request)
+    auth = await _org_server_auth(request, org_id, server_id)
+    own = await member_values(_member_token_store(request), org_id, server_id, user_id)
+    defaults = {h["name"]: bool(h.get("value")) for h in auth.get("headers") or []}
+    return MemberEnvView(
+        variables=[
+            MemberEnvVariable(name=n, has_default=defaults.get(n, False), overridden=n in own)
+            for n in overridable_names(auth)
+        ]
+    )
+
+
+@router.put("/mcp/servers/{server_id}/env", response_model=MemberEnvView)
+async def put_member_env(server_id: str, body: MemberEnvUpdate, request: Request) -> MemberEnvView:
+    """Set (or, with an empty value, clear) the caller's own values; they are stored encrypted."""
+    org_id, user_id, _ = _get_request_identity(request)
+    auth = await _org_server_auth(request, org_id, server_id)
+    allowed = set(overridable_names(auth))
+    unknown = sorted(set(body.values) - allowed)
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Not variables members may set for this server: {', '.join(unknown)}",
+        )
+    store = _member_token_store(request)
+    encrypted = await member_values(store, org_id, server_id, user_id)
+    for name, value in body.values.items():
+        if value:
+            encrypted[name] = _cipher.encrypt(value)
+        else:
+            encrypted.pop(name, None)
+    await save_member_values(store, org_id, server_id, user_id, encrypted)
+    return await get_member_env(server_id, request)
 
 
 @router.post("/mcp/servers/validate", response_model=ValidateMcpServerResponse)
@@ -208,7 +301,7 @@ async def validate_mcp_server(
     request: Request,
 ) -> ValidateMcpServerResponse:
     """Validate MCP connection and probe tools prior to saving."""
-    _, _, roles = _get_request_identity(request)
+    org_id, _, roles = _get_request_identity(request)
     is_admin = "admin" in roles or "owner" in roles
 
     if req.transport == "stdio" and not is_admin:
@@ -219,7 +312,13 @@ async def validate_mcp_server(
             error="Only Organization Administrators are authorized to configure stdio MCP servers.",
         )
 
-    # Decrypt headers if present
+    try:
+        _check_stdio_environment(req.transport, req.auth)
+    except HTTPException as err:
+        return ValidateMcpServerResponse(
+            valid=False, status="error", tools=[], error=str(err.detail)
+        )
+
     req_headers: dict[str, str] = {}
     if req.auth.api_key:
         hdr_name = req.auth.header_name or "Authorization"
@@ -233,6 +332,8 @@ async def validate_mcp_server(
         transport=req.transport,
         endpoint_or_command=req.endpoint_or_command,
         headers=req_headers,
+        org_id=org_id,
+        install_command=req.auth.install_command,
     )
 
     tools = [
@@ -300,16 +401,27 @@ async def _enforce_mcp_policy(
         )
 
 
-def _check_stdio_environment(req: CreateMcpServerRequest) -> None:
+def _check_stdio_environment(transport: str, auth: McpAuthInput) -> None:
     """A command server is configured with environment variables, nothing else."""
-    if req.transport != "stdio":
+    if transport != "stdio":
+        if auth.install_command or any(h.member_override for h in auth.headers):
+            raise HTTPException(
+                status_code=422,
+                detail="An install command and member overrides apply to command (stdio) servers only.",
+            )
         return
-    if req.auth.auth_type not in ("none", "custom_headers"):
+    if auth.auth_type not in ("none", "custom_headers"):
         raise HTTPException(
             status_code=422,
             detail="A command (stdio) server takes environment variables, not request authentication.",
         )
-    bad = [h.name for h in req.auth.headers if not is_valid_env_name(h.name)]
+    empty = [h.name for h in auth.headers if not h.value and not h.member_override]
+    if empty:
+        raise HTTPException(
+            status_code=422,
+            detail=f"No value for: {', '.join(empty)} (leave it empty only if members provide it).",
+        )
+    bad = [h.name for h in auth.headers if not is_valid_env_name(h.name)]
     if bad:
         raise HTTPException(
             status_code=422,
@@ -360,11 +472,16 @@ def _encrypted_auth_payload(req: CreateMcpServerRequest) -> dict[str, Any]:
     payload["headers"] = [
         {
             "name": header.name,
-            "value": _cipher.encrypt(header.value) if header.is_secret else header.value,
+            "value": _cipher.encrypt(header.value)
+            if header.is_secret and header.value
+            else header.value,
             "is_secret": header.is_secret,
+            "member_override": header.member_override,
         }
         for header in auth.headers
     ]
+    if auth.install_command and auth.install_command.strip():
+        payload["install_command"] = auth.install_command.strip()
     if auth.oauth_client_secret:
         payload["oauth_client_secret"] = _cipher.encrypt(auth.oauth_client_secret)
     return payload
@@ -401,7 +518,9 @@ async def _discover_oauth_settings(
         logger.info("OAuth discovery for %s did not complete: %s", req.endpoint_or_command, err)
 
 
-async def _tools_and_status(req: CreateMcpServerRequest) -> tuple[list[dict[str, Any]], str]:
+async def _tools_and_status(
+    req: CreateMcpServerRequest, org_id: str
+) -> tuple[list[dict[str, Any]], str]:
     """The tools the caller supplied, or the ones the server reports when none were given."""
     if req.tools:
         return [tool.model_dump() for tool in req.tools], "connected"
@@ -418,6 +537,8 @@ async def _tools_and_status(req: CreateMcpServerRequest) -> tuple[list[dict[str,
         transport=req.transport,
         endpoint_or_command=req.endpoint_or_command,
         headers=raw_headers,
+        org_id=org_id,
+        install_command=req.auth.install_command,
     )
     return fetched_tools or [], status
 
@@ -498,7 +619,7 @@ async def register_or_update_mcp_server(
     org_id, user_id, roles = _get_request_identity(request)
     is_admin = "admin" in roles or "owner" in roles
     _authorise_registration(req, is_admin)
-    _check_stdio_environment(req)
+    _check_stdio_environment(req.transport, req.auth)
 
     server_id = req.id or f"mcp-{uuid.uuid4().hex[:8]}"
     target_user_id = user_id if req.scope == "user" else None
@@ -506,7 +627,7 @@ async def register_or_update_mcp_server(
 
     auth_dict = _encrypted_auth_payload(req)
     await _discover_oauth_settings(req, auth_dict, request)
-    tools, status = await _tools_and_status(req)
+    tools, status = await _tools_and_status(req, org_id)
 
     db_mgr = getattr(request.app.state, "db_manager", None)
     if not db_mgr:
@@ -634,6 +755,8 @@ async def probe_mcp_server(server_id: str, request: Request) -> McpServerRespons
                 endpoint_or_command=entity.endpoint_or_command,
                 headers=req_headers,
                 auth_data=auth_data,
+                org_id=org_id,
+                install_command=auth_data.get("install_command"),
             )
             entity.status = status
             entity.last_probed = _probe_timestamp()

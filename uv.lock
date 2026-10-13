@@ -14,6 +14,7 @@ members = [
     "config-engine",
     "git-engine",
     "llm-gateway",
+    "mcp-runner",
     "rocket-chat",
     "sandbox-driver",
     "slack-assistant",
@@ -243,6 +244,7 @@ dependencies = [
     { name = "joserfc" },
     { name = "json5" },
     { name = "llm-gateway" },
+    { name = "mcp-runner", extra = ["client"] },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
     { name = "opentelemetry-instrumentation-fastapi" },
@@ -279,6 +281,7 @@ requires-dist = [
     { name = "joserfc", specifier = ">=1.0" },
     { name = "json5", specifier = ">=0.17.3" },
     { name = "llm-gateway", editable = "packages/llm-gateway" },
+    { name = "mcp-runner", extras = ["client"], editable = "packages/mcp-runner" },
     { name = "opentelemetry-api", specifier = ">=1.45.0" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.45.0" },
     { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.66b0" },
@@ -2113,6 +2116,32 @@ wheels = [
 ]
 
 [[package]]
+name = "mcp-runner"
+version = "0.2.1"
+source = { editable = "packages/mcp-runner" }
+dependencies = [
+    { name = "anyio" },
+    { name = "fastapi" },
+    { name = "uvicorn" },
+    { name = "websockets" },
+]
+
+[package.optional-dependencies]
+client = [
+    { name = "fastmcp" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", specifier = ">=4.0.0" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "fastmcp", marker = "extra == 'client'", specifier = ">=0.4.0" },
+    { name = "uvicorn", specifier = ">=0.30.0" },
+    { name = "websockets", specifier = ">=13.0" },
+]
+provides-extras = ["client"]
+
+[[package]]
 name = "mcp-types"
 version = "2.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3199,6 +3228,7 @@ dependencies = [
     { name = "config-engine" },
     { name = "git-engine" },
     { name = "llm-gateway" },
+    { name = "mcp-runner" },
     { name = "pgvector" },
     { name = "sandbox-driver" },
     { name = "slack-assistant" },
@@ -3229,6 +3259,7 @@ requires-dist = [
     { name = "config-engine", editable = "packages/config-engine" },
     { name = "git-engine", editable = "packages/git-engine" },
     { name = "llm-gateway", editable = "packages/llm-gateway" },
+    { name = "mcp-runner", editable = "packages/mcp-runner" },
     { name = "pgvector", specifier = ">=0.5.0" },
     { name = "sandbox-driver", editable = "packages/sandbox-driver" },
     { name = "slack-assistant", editable = "packages/slack-assistant" },

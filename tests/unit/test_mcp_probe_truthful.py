@@ -43,7 +43,7 @@ async def test_a_stdio_command_is_never_executed_by_the_control_plane(tmp_path) 
 
     assert not marker.exists(), "the command must not run on the control plane"
     assert status == "offline" and tools == []
-    assert "sandbox" in (error or "")
+    assert "MCP runner" in (error or "")
 
 
 @pytest.mark.asyncio

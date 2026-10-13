@@ -1,0 +1,23 @@
+[project]
+name = "mcp-runner"
+version = "0.2.1"
+description = "Dedicated runner for command (stdio) MCP servers, and the client the control plane uses to reach it"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "websockets>=13.0",
+    "anyio>=4.0.0",
+]
+
+[project.optional-dependencies]
+# The control plane side (the transport the API uses to reach a runner).
+client = ["fastmcp>=0.4.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_runner"]

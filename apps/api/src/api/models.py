@@ -192,6 +192,13 @@ class McpHeaderInput(BaseModel):
     name: str = Field(..., description="Header key")
     value: str = Field(..., description="Header value (or secret token to encrypt)")
     is_secret: bool = Field(default=False, description="Whether this header is a write-only secret")
+    member_override: bool = Field(
+        default=False,
+        description=(
+            "Command servers only: each member may set their own value for this variable. "
+            "An empty value then means the server is usable only by members who set one."
+        ),
+    )
 
 
 class McpAuthInput(BaseModel):
@@ -219,6 +226,13 @@ class McpAuthInput(BaseModel):
     )
     basic_username: str | None = None
     basic_password: str | None = None
+    install_command: str | None = Field(
+        default=None,
+        description=(
+            "Command servers only: a script that installs the program the command runs, executed "
+            "once on the MCP runner (for example downloading a release binary)."
+        ),
+    )
 
 
 class McpToolItem(BaseModel):
@@ -240,6 +254,14 @@ class ValidateMcpServerResponse(BaseModel):
     status: str
     tools: list[McpToolItem] = Field(default_factory=list)
     error: str | None = None
+
+
+class McpRunnerStatus(BaseModel):
+    """Whether command (stdio) MCP servers can run on this installation."""
+
+    configured: bool = Field(..., description="An MCP runner is part of this deployment")
+    available: bool = Field(..., description="The runner answered a health check just now")
+    detail: str = ""
 
 
 class McpServerResponseModel(BaseModel):
@@ -265,6 +287,30 @@ class McpServerResponseModel(BaseModel):
     oauth_status: str | None = None
     oauth_mode: str = "org"
     oauth_authorization_url: str | None = None
+    install_command: str | None = None
+    overridable_env: list[str] = Field(
+        default_factory=list, description="Variables members may set for themselves"
+    )
+    member_env_set: list[str] = Field(
+        default_factory=list, description="Of those, the ones the calling member has set"
+    )
+
+
+class MemberEnvVariable(BaseModel):
+    name: str
+    has_default: bool = Field(..., description="The organization provides a value")
+    overridden: bool = Field(..., description="The calling member has set their own value")
+
+
+class MemberEnvView(BaseModel):
+    variables: list[MemberEnvVariable] = Field(default_factory=list)
+
+
+class MemberEnvUpdate(BaseModel):
+    values: dict[str, str] = Field(
+        default_factory=dict,
+        description="Variable name to the member's value; an empty value removes the override",
+    )
 
 
 class CreateMcpServerRequest(BaseModel):

@@ -247,6 +247,7 @@ async def _refresh_one(server: McpServerEntityModel, cipher: CredentialCipher) -
             transport=server.transport,
             endpoint_or_command=server.endpoint_or_command,
             headers=auth_headers(server.encrypted_auth or {}, cipher),
+            org_id=server.org_id,
         )
     except Exception as err:
         logger.debug("MCP refresh of %s failed: %s", server.id, err)

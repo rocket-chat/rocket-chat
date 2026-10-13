@@ -3,6 +3,7 @@
 Supports stdio, sse, streamable_http, and websocket transports with RFC 9728/PKCE OAuth flows.
 """
 
+import asyncio
 import base64
 import hashlib
 import logging
@@ -15,14 +16,17 @@ from urllib.parse import urlencode
 import httpx
 from agent_core.tools.safe_http import resolve_public_target
 from config_engine.crypto import CredentialCipher
+from mcp_runner.client import ExitReport, RunnerError
 
 from api.auth import oauth_state
+from api.services.mcp_runner import connect_stdio, runner_config
 from api.services.mcp_runtime import (
     REMOTE_TRANSPORTS,
     McpServerTarget,
     auth_headers,
     canonical_transport,
     probe_target,
+    summarize_tool,
 )
 
 logger = logging.getLogger(__name__)
@@ -208,6 +212,8 @@ async def probe_and_fetch_tools(
     headers: dict[str, str] | None = None,
     auth_data: dict[str, Any] | None = None,
     timeout_seconds: float = 10.0,
+    org_id: str | None = None,
+    install_command: str | None = None,
 ) -> tuple[str, list[dict[str, Any]], str | None]:
     """Connect to an MCP server and list its tools; the status reflects what really happened.
 
@@ -219,7 +225,9 @@ async def probe_and_fetch_tools(
     target = endpoint_or_command.strip()
 
     if kind == "stdio":
-        return _stdio_not_probed(target)
+        return await _probe_command(
+            target, headers or {}, timeout_seconds, org_id or "default", install_command or ""
+        )
     if kind not in REMOTE_TRANSPORTS:
         return "error", [], f"Unsupported MCP transport '{transport}' (use http or sse)."
     if not target.startswith(("http://", "https://")):
@@ -233,19 +241,47 @@ async def probe_and_fetch_tools(
     )
 
 
-def _stdio_not_probed(command_line: str) -> tuple[str, list[dict[str, Any]], str | None]:
-    """A stdio server is an arbitrary command, so the control plane never launches it.
+async def _probe_command(
+    command_line: str,
+    headers: dict[str, str],
+    timeout_seconds: float,
+    org_id: str,
+    install_command: str,
+) -> tuple[str, list[dict[str, Any]], str | None]:
+    """List a command server's tools by starting it on the MCP runner (never in this process).
 
-    Probing it from the API process would let any organization's administrator run code next to
-    the database credentials and the cluster token. The command runs in a session's sandbox
-    instead (``sandbox_stdio``); its tools are listed, and the server checked, the first time a
-    turn starts with that sandbox running.
+    The command is an arbitrary program: running it here would put it next to the database
+    credentials and the master key, which is why a deployment without a runner cannot test one.
     """
     if not command_line.strip():
-        return "error", [], "Empty stdio command"
-    return (
-        "offline",
-        [],
-        "stdio servers run inside a session's sandbox, so they cannot be tested from here; "
-        "their tools appear once a session's sandbox is running.",
+        return "error", [], "Empty command"
+    config = runner_config()
+    if config is None:
+        return (
+            "offline",
+            [],
+            "Command servers need the MCP runner, which is not deployed for this installation.",
+        )
+    report = ExitReport()
+    target = McpServerTarget(
+        "probe", "probe", "stdio", command_line, headers=headers, setup=install_command
     )
+    try:
+        async with asyncio.timeout(max(timeout_seconds, 700.0 if install_command else 30.0)):
+            async with connect_stdio(config, org_id, report)(target) as client:
+                result = await client.list_tools()
+    except TimeoutError:
+        return "offline", [], "The command did not answer the MCP handshake in time."
+    except RunnerError as err:
+        return "offline", [], str(err)
+    except Exception as err:  # the SDK wraps transport failures in exception groups
+        reason = report.describe() or "; ".join(_leaf_messages(err)) or str(err)
+        return "error", [], f"The command did not start an MCP server. {reason}".strip()
+    return "connected", [summarize_tool(t) for t in result.tools], None
+
+
+def _leaf_messages(error: BaseException) -> list[str]:
+    nested = getattr(error, "exceptions", None)
+    if not nested:
+        return [str(error)]
+    return [message for inner in nested for message in _leaf_messages(inner)]

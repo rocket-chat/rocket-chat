@@ -17,6 +17,7 @@ PACKAGES = {
     "config_engine": "packages/config-engine/src/config_engine",
     "git_engine": "packages/git-engine/src/git_engine",
     "llm_gateway": "packages/llm-gateway/src/llm_gateway",
+    "mcp_runner": "packages/mcp-runner/src/mcp_runner",
     "sandbox_driver": "packages/sandbox-driver/src/sandbox_driver",
     "slack_assistant": "packages/slack-assistant/src/slack_assistant",
 }

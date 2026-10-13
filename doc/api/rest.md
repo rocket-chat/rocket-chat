@@ -472,6 +472,12 @@ to the victim's server (or the reverse).
 
 **Responses:** `200`
 
+### `GET /v1/mcp/runner`
+
+Whether command (stdio) MCP servers can run on this installation (the MCP runner pod).
+
+**Responses:** `200`
+
 ### `GET /v1/mcp/servers`
 
 List registered MCP servers scoped to tenant organization and current user.
@@ -522,6 +528,36 @@ Delete a registered MCP server.
 | Name | In | Required | Type |
 | :--- | :--- | :--- | :--- |
 | server_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/mcp/servers/{server_id}/env`
+
+The variables of an organization command server that the caller may set for themselves.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| server_id | path | yes | string |
+
+**Responses:** `200`
+
+### `PUT /v1/mcp/servers/{server_id}/env`
+
+Set (or, with an empty value, clear) the caller's own values; they are stored encrypted.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| server_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| values | object | no | Variable name to the member's value; an empty value removes the override |
 
 **Responses:** `200`
 

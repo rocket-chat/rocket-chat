@@ -239,7 +239,7 @@ class TurnRunner:
         git_bundle = await self._resolve_git(ctx, member_prefs)
         system_prompt = await build_system_prompt(ctx, git_bundle, member_prefs)
         self.state.mcp_tools = await _mcp_tools_for_turn(
-            req.db_mgr, session.tenant_org_id, session.tenant_user_id, req.session_id, req.driver
+            req.db_mgr, session.tenant_org_id, session.tenant_user_id
         )
         await self._warn_about_budget(ctx)
         attachments = await self._resolve_attachments(ctx)
