@@ -21,6 +21,7 @@ from mcp_runner.protocol import MAX_LINE_BYTES, START_TIMEOUT_SECONDS
 logger = logging.getLogger(__name__)
 
 CONNECT_TIMEOUT_SECONDS = 15.0
+EXIT_REPORT_WAIT_SECONDS = 5.0
 SETUP_WAIT_SECONDS = 660.0
 
 
@@ -61,9 +62,9 @@ async def _await_ready(socket: ClientConnection, installing: bool) -> None:
     raise RunnerError("The runner closed the connection before the server started.")
 
 
-async def _collect_exit(socket: ClientConnection, report: ExitReport) -> None:
+async def _collect_exit(socket: ClientConnection, report: ExitReport, wait: float) -> None:
     """The exit frame can still be in flight when the MCP session fails on the closed pipe."""
-    with anyio.move_on_after(0.3), contextlib.suppress(websockets.ConnectionClosed):
+    with anyio.move_on_after(wait), contextlib.suppress(websockets.ConnectionClosed):
         async for raw in socket:
             frame = json.loads(raw)
             if frame.get("t") == "exit":
@@ -134,6 +135,7 @@ async def runner_stdio_transport(
         except (websockets.ConnectionClosed, anyio.ClosedResourceError, anyio.BrokenResourceError):
             return
 
+    failed = False
     try:
         await socket.send(
             json.dumps(
@@ -155,9 +157,13 @@ async def runner_stdio_transport(
                 yield read_recv, write_send
             finally:
                 tasks.cancel_scope.cancel()
+    except BaseException:
+        failed = True
+        raise
     finally:
-        if exit_report is not None and exit_report.code is None:
-            await _collect_exit(socket, exit_report)
+        # Only a session that failed can have a reason in flight; a healthy close must not wait.
+        if failed and exit_report is not None and exit_report.code is None:
+            await _collect_exit(socket, exit_report, EXIT_REPORT_WAIT_SECONDS)
         # Closing the socket is what ends the process on the runner.
         with contextlib.suppress(Exception):
             await socket.close()

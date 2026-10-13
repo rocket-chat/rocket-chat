@@ -112,6 +112,48 @@ async def test_a_command_that_dies_reports_why(runner: tuple[str, Any]) -> None:
     assert "boom" in report.describe()
 
 
+async def test_a_slow_failure_still_reports_why(runner: tuple[str, Any]) -> None:
+    """On a loaded machine the exit frame arrives long after the MCP session noticed the closed pipe."""
+    url, _ = runner
+    report = ExitReport()
+    transport = runner_stdio_transport(
+        url,
+        TOKEN,
+        "sleep 1.2; echo slow-boom >&2; exit 5",
+        {},
+        org_id="o",
+        server_id="s",
+        exit_report=report,
+    )
+    with pytest.raises(BaseException):  # noqa: B017 - the SDK wraps the closed pipe in a group
+        async with asyncio.timeout(30):
+            async with Client(transport):
+                pass
+    assert report.code == 5 and "slow-boom" in report.stderr
+
+
+async def test_a_server_that_closes_its_output_before_exiting_still_reports_its_exit(
+    runner: tuple[str, Any],
+) -> None:
+    """Output ends before the process is reaped; the exit frame must not be lost in that gap."""
+    url, _ = runner
+    report = ExitReport()
+    transport = runner_stdio_transport(
+        url,
+        TOKEN,
+        "exec 1>&-; echo closing >&2; sleep 0.5; exit 7",
+        {},
+        org_id="o",
+        server_id="s",
+        exit_report=report,
+    )
+    with pytest.raises(BaseException):  # noqa: B017 - the SDK wraps the closed pipe in a group
+        async with asyncio.timeout(30):
+            async with Client(transport):
+                pass
+    assert report.code == 7 and "closing" in report.stderr
+
+
 async def test_closing_the_connection_ends_the_process(
     runner: tuple[str, Any], tmp_path: pathlib.Path
 ) -> None:
