@@ -50,6 +50,21 @@ export default defineConfig({
             ADMIN_DATABASE_URL: process.env.E2E_ADMIN_DATABASE_URL ?? "",
             TEST_DATABASE_URL: "",
             DEV_AUTH_BYPASS: "true",
+            // The MCP runner started below: command (stdio) servers are exercised for real.
+            MCP_RUNNER_URL: "http://127.0.0.1:8100",
+            MCP_RUNNER_TOKEN: "e2e-runner-token-0123456789",
+          },
+        },
+        {
+          command: "uv run python -m mcp_runner",
+          url: "http://127.0.0.1:8100/health",
+          reuseExistingServer: false,
+          timeout: 60000,
+          cwd: "../..",
+          env: {
+            MCP_RUNNER_TOKEN: "e2e-runner-token-0123456789",
+            MCP_RUNNER_CACHE_DIR: "/tmp/rocket-e2e-mcp-cache",
+            MCP_RUNNER_WORK_DIR: "/tmp/rocket-e2e-mcp-work",
           },
         },
         {

@@ -30,6 +30,7 @@ from api.models import (
     ValidateMcpServerRequest,
     ValidateMcpServerResponse,
 )
+from api.services.audit import AuditService
 from api.services.mcp_discovery import DiscoveryError as McpDiscoveryError
 from api.services.mcp_discovery import discover as discover_mcp_oauth
 from api.services.mcp_discovery import register_client as register_mcp_oauth_client
@@ -292,6 +293,9 @@ async def put_member_env(server_id: str, body: MemberEnvUpdate, request: Request
         else:
             encrypted.pop(name, None)
     await save_member_values(store, org_id, server_id, user_id, encrypted)
+    await _audit_command_server(
+        request, org_id, user_id, "stdio", "member values updated", server_id
+    )
     return await get_member_env(server_id, request)
 
 
@@ -399,6 +403,21 @@ async def _enforce_mcp_policy(
             status_code=400,
             detail=f"You have reached the organization limit of {limit} personal MCP servers.",
         )
+
+
+async def _audit_command_server(
+    request: Request, org_id: str, user_id: str, transport: str, action: str, server_id: str
+) -> None:
+    """Command servers run programs on the platform, so changes to them are recorded."""
+    if transport != "stdio":
+        return
+    await AuditService(getattr(request.app.state, "db_manager", None)).record(
+        "settings_change",
+        org_id=org_id,
+        actor_user_id=user_id,
+        result_summary=f"command MCP server {action}",
+        metadata={"domain": "mcp_command_server", "server_id": server_id, "action": action},
+    )
 
 
 def _check_stdio_environment(transport: str, auth: McpAuthInput) -> None:
@@ -631,9 +650,13 @@ async def register_or_update_mcp_server(
 
     db_mgr = getattr(request.app.state, "db_manager", None)
     if not db_mgr:
-        return _format_mcp_response(
+        response = _format_mcp_response(
             _store_in_memory(server_id, org_id, req, auth_dict, tools, status, target_user_id)
         )
+        await _audit_command_server(
+            request, org_id, user_id, req.transport, "registered", server_id
+        )
+        return response
 
     async with db_mgr.session() as session:
         result = await session.execute(
@@ -650,7 +673,9 @@ async def register_or_update_mcp_server(
             entity = _new_entity(server_id, org_id, req, auth_dict, tools, status, target_user_id)
             session.add(entity)
         await session.commit()
-        return _format_mcp_response(entity)
+        response = _format_mcp_response(entity)
+    await _audit_command_server(request, org_id, user_id, req.transport, "registered", server_id)
+    return response
 
 
 def _store_in_memory(

@@ -13,7 +13,8 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import { McpServerConfig } from "../../../types/mission";
+import { McpMemberEnv } from "./McpMemberEnv";
+import { McpRunnerStatus, McpServerConfig } from "../../../types/mission";
 
 function TransportIcon({ transport: t }: { transport: string }) {
   switch (t) {
@@ -40,6 +41,10 @@ interface McpServerCardProps {
   onProbe: (id: string) => void;
   onDelete: (id: string, name: string) => void;
   onAuthorize: (id: string) => void;
+  /** The MCP runner, for command servers (null while unknown). */
+  runner: McpRunnerStatus | null;
+  /** The member's own environment values changed. */
+  onMemberEnvChanged: () => void;
 }
 
 /** One connected MCP server: its status, tools and the actions its owner may take. */
@@ -52,6 +57,8 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
   onProbe,
   onDelete,
   onAuthorize,
+  runner,
+  onMemberEnvChanged,
 }) => {
   const isOAuth = server.auth_type === "oauth2";
 
@@ -155,6 +162,28 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
 
       {isExpanded && (
         <div className="px-4 py-3 border-t border-border bg-surface/40 space-y-3">
+          {server.transport === "stdio" && (
+            <div data-testid="command-details" className="space-y-1.5 text-xs text-neutral-600 dark:text-neutral-300">
+              <p>
+                Command server: started on the MCP runner for each turn that uses it and stopped when the turn ends.
+                {server.scope === "org" && (server.overridable_env?.length ?? 0) > 0 &&
+                  ` Members can set their own ${server.overridable_env?.join(", ")}.`}
+              </p>
+              {runner && !runner.available && (
+                <p role="status" className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">
+                  {runner.detail} Its tools are unavailable until the runner is.
+                </p>
+              )}
+              {canManage && server.install_command && (
+                <pre className="max-h-32 overflow-auto rounded border border-border/60 bg-surface-card p-2 font-mono text-[11px]">
+                  {server.install_command}
+                </pre>
+              )}
+            </div>
+          )}
+          {server.transport === "stdio" && server.scope === "org" && (server.overridable_env?.length ?? 0) > 0 && (
+            <McpMemberEnv serverId={server.id} onChanged={onMemberEnvChanged} />
+          )}
           {server.guidance && (
             <div>
               <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">

@@ -12,9 +12,9 @@ export interface McpPreset {
   setup: string;
   docsUrl: string;
   /** Environment variables a command server reads (stdio only). */
-  env?: string[];
-  /** OAuth endpoints, when the vendor's are fixed and known. */
-  oauth?: { authorizationUrl: string; tokenUrl: string; scopes?: string };
+  env?: Array<{ name: string; secret?: boolean; memberOverride?: boolean }>;
+  /** Script that installs the program the command runs, for servers that are not npx/uvx packages. */
+  install?: string;
 }
 
 /**
@@ -38,12 +38,7 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "http",
     endpoint: "https://mcp.linear.app/mcp",
     auth: "oauth2",
-    oauth: {
-      authorizationUrl: "https://linear.app/oauth/authorize",
-      tokenUrl: "https://api.linear.app/oauth/token",
-      scopes: "read issues:create",
-    },
-    setup: "Create an OAuth application in Linear's API settings. Alternatively choose API Key and use a Linear API key.",
+    setup: "Sign in with Linear after adding it. Alternatively choose API Key and use a Linear API key.",
     docsUrl: "https://linear.app/docs/mcp",
   },
   {
@@ -52,11 +47,7 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "http",
     endpoint: "https://mcp.notion.com/mcp",
     auth: "oauth2",
-    oauth: {
-      authorizationUrl: "https://api.notion.com/v1/oauth/authorize",
-      tokenUrl: "https://api.notion.com/v1/oauth/token",
-    },
-    setup: "Create a public integration in Notion; it only sees the pages shared with it.",
+    setup: "Sign in with Notion after adding it; it only sees the pages you share with it.",
     docsUrl: "https://developers.notion.com/docs/mcp",
   },
   {
@@ -65,12 +56,7 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "sse",
     endpoint: "https://mcp.atlassian.com/v1/sse",
     auth: "oauth2",
-    oauth: {
-      authorizationUrl: "https://auth.atlassian.com/authorize",
-      tokenUrl: "https://auth.atlassian.com/oauth/token",
-      scopes: "read:jira-work write:jira-work read:confluence-content.all",
-    },
-    setup: "Create an OAuth 2.0 (3LO) app in the Atlassian developer console.",
+    setup: "Sign in with your Atlassian account after adding it (an organization admin may need to approve the app).",
     docsUrl: "https://www.atlassian.com/platform/remote-mcp-server",
   },
   {
@@ -79,7 +65,7 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "http",
     endpoint: "https://mcp.slack.com/mcp",
     auth: "oauth2",
-    setup: "Needs a Slack app approved for your workspace; create it in the Slack API console.",
+    setup: "Sign in with Slack after adding it; your workspace may need to approve the app.",
     docsUrl: "https://docs.slack.dev/ai/mcp-server",
   },
   {
@@ -88,7 +74,7 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "http",
     endpoint: "https://mcp.sentry.dev/mcp",
     auth: "oauth2",
-    setup: "Register an OAuth application with Sentry.",
+    setup: "Sign in with Sentry after adding it.",
     docsUrl: "https://docs.sentry.io/product/sentry-mcp/",
   },
   {
@@ -115,7 +101,7 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "http",
     endpoint: "https://mcp.figma.com/mcp",
     auth: "oauth2",
-    setup: "Register an OAuth app with Figma.",
+    setup: "Sign in with Figma after adding it.",
     docsUrl: "https://help.figma.com/hc/en-us/articles/32132100833559",
   },
   {
@@ -124,7 +110,7 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "http",
     endpoint: "https://mcp.vercel.com",
     auth: "oauth2",
-    setup: "Register an OAuth app with Vercel.",
+    setup: "Sign in with Vercel after adding it.",
     docsUrl: "https://vercel.com/docs/mcp/vercel-mcp",
   },
   {
@@ -133,7 +119,7 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "http",
     endpoint: "https://mcp.supabase.com/mcp",
     auth: "api_key",
-    setup: "Use a personal access token as the API key (or register an OAuth app). Prefer a development project.",
+    setup: "Use a personal access token as the API key (or choose OAuth and sign in). Prefer a development project.",
     docsUrl: "https://supabase.com/docs/guides/getting-started/mcp",
   },
   {
@@ -187,7 +173,7 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "stdio",
     endpoint: "uvx postgres-mcp --access-mode=restricted",
     auth: "custom_headers",
-    env: ["DATABASE_URI"],
+    env: [{ name: "DATABASE_URI", secret: true }],
     setup: "Set DATABASE_URI to a connection string for a read-only role.",
     docsUrl: "https://github.com/crystaldba/postgres-mcp",
   },
@@ -197,7 +183,7 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "stdio",
     endpoint: "npx -y mongodb-mcp-server --readOnly",
     auth: "custom_headers",
-    env: ["MDB_MCP_CONNECTION_STRING"],
+    env: [{ name: "MDB_MCP_CONNECTION_STRING", secret: true }],
     setup: "Set MDB_MCP_CONNECTION_STRING to a connection string for a read-only user.",
     docsUrl: "https://github.com/mongodb-js/mongodb-mcp-server",
   },
@@ -207,9 +193,39 @@ export const MCP_PRESETS: McpPreset[] = [
     transport: "stdio",
     endpoint: "npx -y @brave/brave-search-mcp-server",
     auth: "custom_headers",
-    env: ["BRAVE_API_KEY"],
+    env: [{ name: "BRAVE_API_KEY", secret: true, memberOverride: true }],
     setup: "Set BRAVE_API_KEY from brave.com/search/api.",
     docsUrl: "https://github.com/brave/brave-search-mcp-server",
+  },
+  {
+    id: "grafana",
+    name: "Grafana",
+    transport: "stdio",
+    endpoint: "uvx mcp-grafana",
+    auth: "custom_headers",
+    env: [
+      { name: "GRAFANA_URL" },
+      { name: "GRAFANA_API_KEY", secret: true, memberOverride: true },
+    ],
+    setup: "Set GRAFANA_URL and a read-only service account token as GRAFANA_API_KEY. Members can use their own token.",
+    docsUrl: "https://github.com/grafana/mcp-grafana",
+  },
+  {
+    id: "signoz",
+    name: "SigNoz (release binary)",
+    transport: "stdio",
+    endpoint: "signoz-mcp-server",
+    auth: "custom_headers",
+    env: [
+      { name: "SIGNOZ_URL" },
+      { name: "SIGNOZ_API_KEY", secret: true, memberOverride: true },
+    ],
+    install:
+      'case "$(uname -m)" in x86_64) a=amd64;; aarch64|arm64) a=arm64;; esac\n' +
+      'curl -fsSL "https://github.com/SigNoz/signoz-mcp-server/releases/latest/download/signoz-mcp-server_linux_${a}.tar.gz" | tar xz',
+    setup:
+      "Not an npx/uvx package: the install script downloads the release binary once and the command runs it. Check the variable names and the binary's name against the project's README.",
+    docsUrl: "https://github.com/SigNoz/signoz-mcp-server",
   },
   {
     id: "kubernetes",

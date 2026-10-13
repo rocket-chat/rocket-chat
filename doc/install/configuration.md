@@ -111,6 +111,20 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | `SANDBOX_INACTIVITY_PAUSE_SECONDS` | int | `300` | Inactivity duration before stopping the Docker container while preserving its named volume. |
 | `SANDBOX_INACTIVITY_CLEANUP_SECONDS` | int | `0` (off) | Idle time after which the container and volume of a session that no longer exists are pruned. |
 
+### MCP runner (command MCP servers)
+
+Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` image. The API reaches it with the first two variables; the runner reads the rest. Without `MCP_RUNNER_URL` command servers are unavailable and remote (HTTP/SSE) servers are unaffected. The Helm chart (`mcpRunner.enabled`, on by default) and both Compose files set all of this for you.
+
+| Environment Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `MCP_RUNNER_URL` | url | *(empty)* | Where the API reaches the runner, for example `http://mcp-runner:8100`. |
+| `MCP_RUNNER_TOKEN` | secret | *(none)* | Shared secret (16+ characters) the API presents to the runner; the runner refuses to start without it. Set it on both sides. |
+| `MCP_RUNNER_CACHE_DIR` | path | `/cache` | Runner: package caches (npm, uv) and installed server programs. Mount a volume here. |
+| `MCP_RUNNER_WORK_DIR` | path | `/tmp/mcp-work` | Runner: per-organization scratch directories. |
+| `MCP_RUNNER_MAX_PROCESSES` | int | `32` | Runner: servers running at once. |
+| `MCP_RUNNER_MAX_PROCESSES_PER_ORG` | int | `8` | Runner: servers one organization may run at once. |
+| `MCP_RUNNER_MAX_LIFETIME_SECONDS` | int | `1800` | Runner: a server is stopped after this long. |
+
 ### Slack Assistant (Socket Mode)
 
 | Environment Variable | Type | Default | Description |

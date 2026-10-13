@@ -12,11 +12,14 @@ import { Field, Input, Select, Textarea } from "../../ui/Field";
 import { Disclosure } from "../../ui/Disclosure";
 import { Modal } from "../../ui/Modal";
 import { MCP_PRESETS, type McpPreset } from "./presets";
-import { McpServerConfig, McpToolSchema } from "../../../types/mission";
+import { EnvEditor, type EnvRow } from "./EnvEditor";
+import { McpRunnerStatus, McpServerConfig, McpToolSchema } from "../../../types/mission";
 
 interface McpServerFormProps {
   scope: "user" | "org";
   isAdmin: boolean;
+  /** Whether command servers can run here; null while it is still being checked. */
+  runner: McpRunnerStatus | null;
   onSaved: (server: McpServerConfig, message: string) => void;
   onCancel: () => void;
 }
@@ -25,6 +28,7 @@ interface McpServerFormProps {
 export const McpServerForm: React.FC<McpServerFormProps> = ({
   scope: formScope,
   isAdmin,
+  runner,
   onSaved,
   onCancel,
 }) => {
@@ -55,13 +59,25 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
   const [oauthScopes, setOauthScopes] = useState("");
   const [oauthMode, setOauthMode] = useState<"org" | "member">("org");
   const [customHeaders, setCustomHeaders] = useState<Array<{ name: string; value: string; is_secret: boolean }>>([]);
+  const [envRows, setEnvRows] = useState<EnvRow[]>([]);
+  const [installCommand, setInstallCommand] = useState("");
+  const isCommand = transport === "stdio";
   const [newHeaderKey, setNewHeaderKey] = useState("");
   const [newHeaderVal, setNewHeaderVal] = useState("");
   const [newHeaderSecret, setNewHeaderSecret] = useState(false);
 
   // The API takes credentials nested under `auth`; this is the single place that builds it so
   // "Test" and "Save" cannot disagree about what is sent.
-  const buildAuth = () => ({
+  const buildCommandAuth = () => {
+    const rows = envRows.filter((row) => row.name.trim());
+    return {
+      auth_type: rows.length ? "custom_headers" : "none",
+      headers: rows.map((row) => ({ ...row, name: row.name.trim() })),
+      install_command: installCommand.trim() || undefined,
+    };
+  };
+
+  const buildAuth = () => isCommand ? buildCommandAuth() : ({
     auth_type: authType,
     api_key: apiKey || undefined,
     header_name: authHeaderName || undefined,
@@ -80,8 +96,15 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
   });
 
   const canUseCommands = isAdmin && formScope === "org";
-  const presets = MCP_PRESETS.filter((p) => p.transport !== "stdio" || canUseCommands);
-  const isCommand = transport === "stdio";
+  const runnerReady = runner?.available === true;
+  const commandBlocker = !canUseCommands
+    ? "Command servers are set up by an administrator - ask yours to add it"
+    : runner && !runnerReady
+      ? runner.configured
+        ? "The MCP runner is not answering"
+        : "The MCP runner is not deployed"
+      : null;
+  const presets = MCP_PRESETS;
 
   const applyPreset = (id: string) => {
     const chosen = MCP_PRESETS.find((p) => p.id === id) ?? null;
@@ -93,10 +116,18 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
     setEndpoint(chosen.endpoint);
     setAuthType(chosen.auth);
     setCustomHeaders([]);
-    setNewHeaderKey(chosen.env?.[0] ?? "");
-    setOauthAuthUrl(chosen.oauth?.authorizationUrl ?? "");
-    setOauthTokenUrl(chosen.oauth?.tokenUrl ?? "");
-    setOauthScopes(chosen.oauth?.scopes ?? "");
+    setEnvRows(
+      (chosen.env ?? []).map((v) => ({
+        name: v.name,
+        value: "",
+        is_secret: v.secret ?? false,
+        member_override: v.memberOverride ?? false,
+      }))
+    );
+    setInstallCommand(chosen.install ?? "");
+    setOauthAuthUrl("");
+    setOauthTokenUrl("");
+    setOauthScopes("");
   };
 
   const handleValidateConnection = async () => {
@@ -187,13 +218,13 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </optgroup>
-                    {canUseCommands && (
-                      <optgroup label="Commands run in the session sandbox">
-                        {presets.filter((p) => p.transport === "stdio").map((p) => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                      </optgroup>
-                    )}
+                    <optgroup label="Commands run on the MCP runner">
+                      {presets.filter((p) => p.transport === "stdio").map((p) => (
+                        <option key={p.id} value={p.id} disabled={commandBlocker !== null}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   </Select>
                 )}
               </Field>
@@ -203,8 +234,10 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                   <p>{preset.setup}</p>
                   {preset.auth === "oauth2" && (
                     <p className="mt-1">
-                      Redirect URL for the OAuth app:{" "}
-                      <code className="font-mono">{`${typeof window === "undefined" ? "" : window.location.origin}/v1/mcp/oauth/callback`}</code>
+                      Leave the OAuth fields empty: Rocket Chat discovers the provider&apos;s endpoints and registers itself
+                      automatically. If the provider does not allow that, create an OAuth app there with the redirect URL{" "}
+                      <code className="font-mono">{`${typeof window === "undefined" ? "" : window.location.origin}/v1/mcp/oauth/callback`}</code>{" "}
+                      and enter its client ID and secret.
                     </p>
                   )}
                   <a href={preset.docsUrl} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 text-brand hover:underline">
@@ -224,7 +257,16 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                     />
                   )}
                 </Field>
-                <Field label="Transport">
+                <Field
+                  label="Transport"
+                  hint={
+                    !isAdmin
+                      ? "Command servers (npx, uvx or a program of your own) are added by an administrator - ask yours."
+                      : formScope !== "org"
+                        ? "Command servers are organization servers: use Add org MCP."
+                        : undefined
+                  }
+                >
                   {(control) => (
                     <Select
                       {...control}
@@ -239,13 +281,20 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                       <option value="sse">sse (Server-Sent Events)</option>
                       <option value="streamable_http">streamable_http (Modern MCP HTTP)</option>
                       <option value="websocket">websocket (Full-Duplex WS)</option>
-                      {isAdmin && formScope === "org" && (
-                        <option value="stdio">Command (runs in the session sandbox)</option>
-                      )}
+                      <option value="stdio" disabled={commandBlocker !== null}>
+                        Command (runs on the MCP runner){commandBlocker && !canUseCommands ? " - ask an administrator" : ""}
+                      </option>
                     </Select>
                   )}
                 </Field>
-                <Field label={isCommand ? "Command" : "Endpoint URL"} hint={isCommand ? "Started inside the session's sandbox with npx, uvx or any program its image provides. Tools appear once the sandbox is running." : undefined}>
+                <Field
+                  label={isCommand ? "Command" : "Endpoint URL"}
+                  hint={
+                    isCommand
+                      ? "Started on the MCP runner for each turn that uses it and stopped when the turn ends. npx and uvx are available; for any other program, give an install command below."
+                      : undefined
+                  }
+                >
                   {(control) => (
                     <Input
                       {...control}
@@ -277,7 +326,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
 
               {/* Auth Mode */}
               <div className="pt-2 border-t border-border/60 space-y-3">
-                <div className="flex items-center gap-3">
+                {!isCommand && <div className="flex items-center gap-3">
                   <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
                     {isCommand ? "Environment:" : "Authentication Mode:"}
                   </label>
@@ -300,9 +349,9 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                       </>
                     )}
                   </select>
-                </div>
+                </div>}
 
-                {authType === "api_key" && (
+                {!isCommand && authType === "api_key" && (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 rounded bg-surface-card border border-border">
                     <div>
                       <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1">
@@ -341,7 +390,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                   </div>
                 )}
 
-                {authType === "oauth2" && (
+                {!isCommand && authType === "oauth2" && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded bg-surface-card border border-border">
                     <p className="sm:col-span-2 text-[10px] text-muted-foreground">
                       Leave the URLs and client ID empty to discover them from the server itself
@@ -421,7 +470,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                   </div>
                 )}
 
-                {authType === "custom_headers" && (
+                {!isCommand && authType === "custom_headers" && (
                   <div className="space-y-2 p-3 rounded bg-surface-card border border-border">
                     <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
                       {isCommand ? "Environment variables" : "Custom Header Pairs"}
@@ -489,6 +538,38 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                   </div>
                 )}
 
+                {isCommand && (
+                  <div className="space-y-3">
+                    {commandBlocker && (
+                      <p data-testid="mcp-command-blocker" role="status" className="rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                        {commandBlocker}.{" "}
+                        {canUseCommands
+                          ? "Command servers need the MCP runner (mcpRunner.enabled in the Helm chart, the mcp-runner service in Docker Compose)."
+                          : "They run programs on the platform, so only administrators can add them; you can still use the ones they add."}
+                      </p>
+                    )}
+                    <EnvEditor rows={envRows} onChange={setEnvRows} />
+                    <Disclosure summary="Install command (for programs that are not npx or uvx packages)" testId="mcp-install-toggle">
+                      <Field
+                        label="Install script"
+                        hint="Runs once on the runner (and again only if you change it) to provide the program the command starts, for example downloading a release binary. It runs without this server's variables; the program is then on the command's PATH."
+                      >
+                        {(control) => (
+                          <Textarea
+                            {...control}
+                            data-testid="mcp-install-command"
+                            rows={4}
+                            className="font-mono text-xs"
+                            placeholder={'curl -fsSL https://example.com/server_linux_amd64.tar.gz | tar xz'}
+                            value={installCommand}
+                            onChange={(e) => setInstallCommand(e.target.value)}
+                          />
+                        )}
+                      </Field>
+                    </Disclosure>
+                  </div>
+                )}
+
                 {/* Validation Feedback */}
                 {validationResult && (
                   <div
@@ -527,7 +608,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                 <button
                   type="button"
                   onClick={handleValidateConnection}
-                  disabled={validating || !endpoint}
+                  disabled={validating || !endpoint || (isCommand && commandBlocker !== null)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-xs font-mono text-neutral-300 transition-all cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${validating ? "animate-spin text-cyan" : ""}`} />
@@ -545,6 +626,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                   <button
                     type="button"
                     onClick={handleSaveServer}
+                    disabled={isCommand && commandBlocker !== null}
                     className="flex items-center gap-1.5 px-4 py-1.5 rounded border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-mono font-semibold transition-all cursor-pointer shadow-sm"
                   >
                     <Plus className="w-3.5 h-3.5" />

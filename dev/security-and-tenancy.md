@@ -20,7 +20,7 @@ Sign-in methods all end in the same signed session: local accounts (`auth/local.
 
 * **Roles:** `admin`/`owner` (organization administrators), `developer`, `readonly`. Session-cookie identities have their roles re-read from the database (15-second cache), so demoting a member takes effect without waiting for the cookie to expire.
 * **Session visibility:** a session is visible to its owner, to the organization when `is_shared`, and to listed collaborators; administrators see the whole organization. Only the owner or an administrator shares or deletes. `readonly` members can observe but not write: REST writes answer 403 and the WebSocket refuses every mutating frame. `_check_session_access` (`api/auth/access.py`) is the single check.
-* **Scope of resources:** MCP servers, skills, knowledge bases and agent personas are either organization-scoped (usable by everyone, managed by administrators) or member-scoped (private to the member). Registering organization-wide or stdio MCP servers is administrator-only.
+* **Scope of resources:** MCP servers, skills, knowledge bases and agent personas are either organization-scoped (usable by everyone, managed by administrators) or member-scoped (private to the member). Registering organization-wide or command (stdio) MCP servers is administrator-only, and command servers run only in the MCP runner pod (no database credentials, master key or Kubernetes token; ingress from the backend only, no private-network egress), each process with a clean environment holding only its configured variables.
 * **Sandbox-adjacent features** (terminal, preview links, processes, workspace browsing) are gated like a write to the session, and the terminal can be disabled per organization (`sandboxes.allow_terminal`).
 * Public routes are only `/health`, `/v1/health`, `/metrics`, `/v1/ready`, `/v1/drain`, the OpenAPI pages, preview links (capability token) and webhooks (signature checked). Everything else requires an identity.
 
@@ -55,7 +55,7 @@ The model's code is untrusted. The mechanisms, from the inside out:
 
 * **GitHub webhooks:** HMAC-SHA-256 over the raw body with a constant-time compare; with no secret configured every webhook is rejected unless unsigned delivery is explicitly allowed. Comments and pull requests only trigger the agent when the author is a repository insider (`OWNER`, `MEMBER`, `COLLABORATOR`), and an organization can restrict the repositories.
 * **Slack:** the workspace maps to one organization; unlinked Slack users are rate-limited and bounded by a workspace spend quota before any turn starts, may only use what the organization's Slack policy allows, and must pair with a Rocket member for member-scoped features. Approval and Stop buttons are bound to the requester.
-* **MCP:** stdio servers execute on the host and are administrator-only; remote servers use encrypted headers or OAuth (authorization-server discovery and dynamic client registration through the MCP SDK; tokens per member when the connector asks for it).
+* **MCP:** command (stdio) servers execute in the MCP runner pod and are administrator-only (registration, changes and members' own values are audited); a member's own value for an overridable variable is encrypted, never returned, and applied only to that member's turns; remote servers use encrypted headers or OAuth (authorization-server discovery and dynamic client registration through the MCP SDK; tokens per member when the connector asks for it).
 
 ## 7. Accountability and limits
 

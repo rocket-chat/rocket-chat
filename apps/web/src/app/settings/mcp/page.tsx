@@ -3,7 +3,7 @@
 
 
 import React, { useState, useEffect, useCallback } from "react";
-import { McpServerConfig } from "../../../types/mission";
+import { McpRunnerStatus, McpServerConfig } from "../../../types/mission";
 import { Server, Plus, Shield, CheckCircle2, AlertCircle } from "lucide-react";
 import { useSession } from "../../../components/AuthProvider";
 import { McpServerCard } from "../../../components/settings/mcp/McpServerCard";
@@ -21,6 +21,7 @@ export default function McpSettingsPage() {
   const isAdmin = !session || userRoles.includes("admin") || userRoles.includes("owner");
 
   const [servers, setServers] = useState<McpServerConfig[]>([]);
+  const [runner, setRunner] = useState<McpRunnerStatus | null>(null);
   const [probingId, setProbingId] = useState<string | null>(null);
   const [expandedServerId, setExpandedServerId] = useState<string | null>(null);
 
@@ -51,6 +52,13 @@ export default function McpSettingsPage() {
   useEffect(() => {
     fetchServers();
   }, [fetchServers]);
+
+  useEffect(() => {
+    fetch("/v1/mcp/runner")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((status) => setRunner(status))
+      .catch(() => setRunner(null));
+  }, []);
 
   const userServers = servers.filter((s) => s.scope === "user" || !s.scope || s.user_id != null);
   const orgServers = servers.filter((s) => s.scope === "org" && s.user_id == null);
@@ -137,6 +145,8 @@ export default function McpSettingsPage() {
       onProbe={handleProbe}
       onDelete={handleDeleteServer}
       onAuthorize={handleOAuthAuthorize}
+      runner={runner}
+      onMemberEnvChanged={fetchServers}
     />
   );
 
@@ -182,6 +192,7 @@ export default function McpSettingsPage() {
         <McpServerForm
           scope={formScope}
           isAdmin={isAdmin}
+          runner={runner}
           onSaved={handleServerAdded}
           onCancel={() => setShowAddForm(false)}
         />
