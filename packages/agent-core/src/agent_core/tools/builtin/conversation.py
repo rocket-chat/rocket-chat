@@ -168,8 +168,12 @@ def _register_dialogue_tools(registry: "ToolRegistry") -> None:
 def _register_planning_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
-            "Update or initialize the structured checklist of tasks for the session to "
-            "track multi-step progress."
+            "Create or update the task checklist the user follows. Every call REPLACES the whole "
+            "list, so always send all tasks. Use it for work with three or more steps: create it "
+            "first, keep exactly one task in_progress, and mark each task completed as soon as "
+            "it is done, not later. Before your final answer no task may stay pending or "
+            "in_progress: mark finished work completed and abandoned work failed. Send an empty "
+            "list to clear it when it no longer helps."
         )
     )
     async def update_task_checklist(
