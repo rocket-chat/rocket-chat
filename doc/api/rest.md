@@ -1330,8 +1330,8 @@ Create or update a custom prompt skill with scoping.
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| name | string | yes | Skill name or title |
-| title | string | no | Display title |
+| name | string | no | Skill name; the title is used when omitted (one of the two) |
+| title | string | no | Display title; the name when omitted |
 | description | string | no | Skill purpose summary |
 | body | string | no | Prompt instructions and guidelines |
 | code | string | no | Legacy code fallback |

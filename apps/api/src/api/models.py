@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class AgentPersonaModel(BaseModel):
@@ -432,14 +432,22 @@ class KnowledgeQueryResponse(BaseModel):
 
 
 class CustomSkillCreateRequest(BaseModel):
-    name: str = Field(..., description="Skill name or title")
-    title: str | None = Field(default=None, description="Display title")
+    name: str | None = Field(
+        default=None, description="Skill name; the title is used when omitted (one of the two)"
+    )
+    title: str | None = Field(default=None, description="Display title; the name when omitted")
     description: str = Field(default="", description="Skill purpose summary")
     body: str | None = Field(default=None, description="Prompt instructions and guidelines")
     code: str | None = Field(default=None, description="Legacy code fallback")
     signature: str = Field(default="", description="Function signature")
     scope: str = Field(default="org", description="'org' or 'user'")
     is_active: bool = Field(default=True, description="Whether skill is active")
+
+    @model_validator(mode="after")
+    def _needs_a_name_or_title(self) -> "CustomSkillCreateRequest":
+        if not (self.name or self.title):
+            raise ValueError("A skill needs a name or a title.")
+        return self
 
 
 class CustomSkillImportRequest(BaseModel):

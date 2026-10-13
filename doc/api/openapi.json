@@ -901,9 +901,16 @@
             "type": "boolean"
           },
           "name": {
-            "description": "Skill name or title",
-            "title": "Name",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Skill name; the title is used when omitted (one of the two)",
+            "title": "Name"
           },
           "scope": {
             "default": "org",
@@ -926,13 +933,10 @@
                 "type": "null"
               }
             ],
-            "description": "Display title",
+            "description": "Display title; the name when omitted",
             "title": "Title"
           }
         },
-        "required": [
-          "name"
-        ],
         "title": "CustomSkillCreateRequest",
         "type": "object"
       },
