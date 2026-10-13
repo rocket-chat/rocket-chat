@@ -243,3 +243,31 @@ async def test_apply_diff_file_approved_applies_and_emits_diff() -> None:
         assert event.payload["path"] == "a.py"
     finally:
         current_execution_ctx.reset(token)
+
+
+async def test_a_made_up_tool_is_refused_with_the_nearest_real_names() -> None:
+    registry = ToolRegistry()
+
+    reply = await registry.call_tool("file_reed", {"path": "x"})
+
+    assert "no tool named 'file_reed'" in reply and "file_read" in reply
+    assert "search_tools" in reply and "Do not call it again" in reply
+
+
+async def test_a_made_up_tool_never_reaches_the_approval_gate() -> None:
+    registry = ToolRegistry()
+    registry._permission_refusal = AsyncMock(side_effect=AssertionError("asked a human"))  # type: ignore[method-assign]
+
+    assert "no tool named" in await registry.call_tool("totally_invented", {})
+
+
+async def test_search_tools_lists_and_filters_the_available_tools() -> None:
+    registry = ToolRegistry()
+
+    everything = await registry.call_tool("search_tools", {})
+    filtered = await registry.call_tool("search_tools", {"query": "web"})
+    nothing = await registry.call_tool("search_tools", {"query": "zzzz-nope"})
+
+    assert "- file_read:" in everything and "- search_tools:" in everything
+    assert "web_fetch" in filtered and "file_read" not in filtered
+    assert "No tool matches" in nothing
