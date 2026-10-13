@@ -1,5 +1,6 @@
 """Two-Tier FastMCP Tool Registry managing In-Process (Tier 1) and Sandbox (Tier 2) tools."""
 
+import difflib
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -347,8 +348,34 @@ class ToolRegistry:
             return False
         return name not in ctx.allowed_tools
 
+    def _is_known_tool(self, name: str) -> bool:
+        provider = self._external_provider()
+        return (
+            name in self._builtin_tools
+            or name in self._dynamic_tools
+            or (provider is not None and provider.owns(name))
+        )
+
+    def unknown_tool_message(self, name: str) -> str:
+        """Tell the model the tool does not exist, what is close, and how to find the right one.
+
+        A bare "Unknown tool" invites the model to retry the same name or guess another one;
+        naming the nearest real tools and the discovery tool ends that loop.
+        """
+        available = sorted(definition.name for definition in self.get_tool_definitions())
+        close = difflib.get_close_matches(name, available, n=3, cutoff=0.5)
+        hint = f" Did you mean: {', '.join(close)}?" if close else ""
+        return (
+            f"Error: there is no tool named '{name}'.{hint} Do not call it again. "
+            "Call `search_tools` (optionally with a keyword) to list the tools you can use, "
+            "and only call a name it returns."
+        )
+
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
         """Execute a tool by name, enforcing the plan-mode and scope-allowlist gates."""
+        # First, so a made-up name is never offered to a human for approval as a "command".
+        if not self._is_known_tool(name):
+            return self.unknown_tool_message(name)
         if self._plan_mode_blocked(name):
             return (
                 f"Blocked: '{name}' is not permitted while the session is in plan mode "

@@ -25,6 +25,7 @@ READ_TOOLS: frozenset[str] = frozenset(
         "git_diff",
         "git_log",
         "kb_search",
+        "search_tools",
         # Fetching code to read it: it adds files to the sandbox but changes no repository.
         "clone_repository",
         # Looking at, waiting for or stopping a process the session itself started.

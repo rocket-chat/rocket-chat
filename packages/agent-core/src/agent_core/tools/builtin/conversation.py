@@ -29,9 +29,46 @@ class ChecklistTask(TypedDict):
     ]
 
 
+MAX_TOOLS_LISTED = 60
+
+
 def register(registry: "ToolRegistry") -> None:
+    _register_discovery_tools(registry)
     _register_dialogue_tools(registry)
     _register_planning_tools(registry)
+
+
+def _register_discovery_tools(registry: "ToolRegistry") -> None:
+    @registry._tool(
+        description=(
+            "List the tools available to you in this session, optionally filtered by a keyword "
+            "(matched against names and descriptions). Use it when a call fails with 'no tool "
+            "named ...' or when you are unsure what exists, instead of guessing a name."
+        )
+    )
+    async def search_tools(
+        query: Annotated[
+            str, Field(description="Keyword to look for, e.g. 'github' or 'file'. Empty lists all.")
+        ] = "",
+    ) -> str:
+        needle = query.strip().lower()
+        matches = [
+            definition
+            for definition in sorted(registry.get_tool_definitions(), key=lambda d: d.name)
+            if not needle
+            or needle in definition.name.lower()
+            or needle in definition.description.lower()
+        ]
+        if not matches:
+            return f"No tool matches '{query}'. Call search_tools with no query to list them all."
+        lines = [
+            f"- {d.name}: {d.description.strip().splitlines()[0][:120]}"
+            for d in matches[:MAX_TOOLS_LISTED]
+        ]
+        more = len(matches) - MAX_TOOLS_LISTED
+        if more > 0:
+            lines.append(f"... and {more} more; narrow the search with a keyword.")
+        return "\n".join(lines)
 
 
 def _register_dialogue_tools(registry: "ToolRegistry") -> None:
