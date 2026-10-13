@@ -88,3 +88,20 @@ def test_a_malformed_document_is_a_422_not_a_500(client: TestClient) -> None:
     response = client.post("/v1/skills/import", json={"markdown": "nope"}, headers=MEMBER)
     assert response.status_code == 422
     assert "front matter" in response.json()["detail"]
+
+
+def test_a_skill_with_only_a_title_is_created_as_the_cockpit_and_agents_send_it(
+    client: TestClient,
+) -> None:
+    body = {"title": "signoz-logs-traces", "description": "d", "body": "# Steps", "scope": "user"}
+
+    created = client.post("/v1/skills", json=body, headers=MEMBER)
+
+    assert created.status_code == 200, created.text
+    assert created.json()["name"] == "signoz-logs-traces"
+
+
+def test_a_skill_with_neither_name_nor_title_is_refused_with_the_reason(client: TestClient) -> None:
+    response = client.post("/v1/skills", json={"body": "x", "scope": "user"}, headers=MEMBER)
+
+    assert response.status_code == 422 and "name or a title" in response.text
