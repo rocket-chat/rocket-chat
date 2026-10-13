@@ -12,14 +12,16 @@ import time
 from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
+import anyio.to_thread
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
 from mcp_runner.process import ServerProcess
 from mcp_runner.protocol import START_TIMEOUT_SECONDS, InvalidStart, StartRequest, validate_start
 from mcp_runner.settings import RunnerSettings
-from mcp_runner.tools import SetupFailed, ToolInstaller
+from mcp_runner.tools import SetupFailed, ToolInstaller, executable_directories
 
 logger = logging.getLogger(__name__)
 
@@ -100,12 +102,13 @@ async def _socket_to_stdin(process: ServerProcess, websocket: WebSocket) -> None
 async def _serve(
     websocket: WebSocket, settings: RunnerSettings, installer: ToolInstaller, start: StartRequest
 ) -> None:
-    tool_dir = None
+    tool_paths: list[Path] = []
     if start.setup:
         await _send(websocket, {"t": "status", "message": "Installing the server's program..."})
         tool_dir = await installer.ensure(start.org_id, start.setup)
+        tool_paths = await anyio.to_thread.run_sync(executable_directories, tool_dir)
     workdir = settings.work_dir / start.org_id / start.server_id
-    process = await ServerProcess.start(start.command, settings, workdir, start.env, tool_dir)
+    process = await ServerProcess.start(start.command, settings, workdir, start.env, tool_paths)
     await _send(websocket, {"t": "ready"})
     output = asyncio.create_task(_stdout_to_socket(process, websocket))
     pumps = [output, asyncio.create_task(_socket_to_stdin(process, websocket))]

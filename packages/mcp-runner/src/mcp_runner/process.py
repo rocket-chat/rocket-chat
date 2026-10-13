@@ -7,7 +7,7 @@ import contextlib
 import os
 import signal
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 import anyio
@@ -23,7 +23,7 @@ def build_environment(
     settings: RunnerSettings,
     workdir: Path,
     configured: Mapping[str, str],
-    tool_dir: Path | None = None,
+    tool_paths: Sequence[Path] = (),
 ) -> dict[str, str]:
     """What the server sees: the runner's own variables (above all its token) never leak in.
 
@@ -31,8 +31,8 @@ def build_environment(
     """
     cache = settings.cache_dir
     path = "/usr/local/bin:/usr/bin:/bin"
-    if tool_dir is not None:
-        path = f"{tool_dir}:{tool_dir}/bin:{path}"
+    if tool_paths:
+        path = f"{':'.join(map(str, tool_paths))}:{path}"
     return {
         "PATH": path,
         "HOME": str(workdir),
@@ -61,7 +61,7 @@ class ServerProcess:
         settings: RunnerSettings,
         workdir: Path,
         env: Mapping[str, str],
-        tool_dir: Path | None = None,
+        tool_paths: Sequence[Path] = (),
     ) -> ServerProcess:
         await anyio.Path(workdir).mkdir(parents=True, exist_ok=True)
         process = await asyncio.create_subprocess_exec(
@@ -72,7 +72,7 @@ class ServerProcess:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=workdir,
-            env=build_environment(settings, workdir, env, tool_dir),
+            env=build_environment(settings, workdir, env, tool_paths),
             limit=MAX_LINE_BYTES,
             # Its own group, so the shell and everything it spawned (npx -> node) end together.
             start_new_session=True,
