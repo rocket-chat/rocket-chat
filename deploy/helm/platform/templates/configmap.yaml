@@ -13,6 +13,9 @@ data:
   {{- if or (and .Values.ingress (not (empty .Values.ingress.tls))) (hasPrefix "https" (default "" .Values.auth.nextauthUrl)) }}
     {{- $scheme = "https" }}
   {{- end }}
+  {{- if .Values.mcpRunner.enabled }}
+  MCP_RUNNER_URL: {{ printf "http://%s-mcp-runner:8100" (include "rocket-chat.fullname" .) | quote }}
+  {{- end }}
   ROCKET_PUBLIC_URL: {{ .Values.auth.nextauthUrl | default (printf "%s://%s" $scheme .Values.global.domain) | quote }}
   {{- if .Values.backend.env.ROCKET_FALLBACK_MODELS }}
   ROCKET_FALLBACK_MODELS: {{ .Values.backend.env.ROCKET_FALLBACK_MODELS | quote }}

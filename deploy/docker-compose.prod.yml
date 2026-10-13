@@ -26,6 +26,32 @@ services:
       timeout: 5s
       retries: 5
 
+  # Runs command (stdio) MCP servers away from the API (database credentials, master key) and the
+  # agent sandboxes. Not published on the host: only the backend reaches it.
+  mcp-runner:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.mcp-runner
+    image: ghcr.io/rocket-chat/mcp-runner:latest
+    container_name: rocket_mcp_runner
+    restart: unless-stopped
+    environment:
+      MCP_RUNNER_TOKEN: ${MCP_RUNNER_TOKEN:?set MCP_RUNNER_TOKEN (openssl rand -hex 24)}
+    volumes:
+      - mcp_runner_cache:/cache
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: ..
@@ -44,6 +70,8 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       LOG_FORMAT: ${LOG_FORMAT:-json}
       DEFAULT_SANDBOX_DRIVER: docker
+      MCP_RUNNER_URL: http://mcp-runner:8100
+      MCP_RUNNER_TOKEN: ${MCP_RUNNER_TOKEN:?set MCP_RUNNER_TOKEN (openssl rand -hex 24)}
       ROCKET_DEFAULT_MODEL: ${ROCKET_DEFAULT_MODEL:-openrouter/deepseek/deepseek-v4.1-flash}
       NEXTAUTH_URL: ${NEXTAUTH_URL:?set NEXTAUTH_URL to the public https URL of the web app}
       INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
@@ -76,6 +104,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       postgres:
+        condition: service_healthy
+      mcp-runner:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
@@ -123,3 +153,4 @@ services:
 
 volumes:
   postgres_data:
+  mcp_runner_cache:

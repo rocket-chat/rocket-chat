@@ -1,0 +1,19 @@
+{{- if and .Values.mcpRunner.enabled .Values.mcpRunner.persistence.enabled (not .Values.mcpRunner.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "rocket-chat.fullname" . }}-mcp-runner-cache
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rocket-chat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-runner
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.mcpRunner.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.mcpRunner.persistence.size | default "5Gi" }}
+{{- end }}

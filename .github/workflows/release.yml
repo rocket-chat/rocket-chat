@@ -68,6 +68,14 @@ jobs:
       file: deploy/docker/Dockerfile.frontend
       tags: ${{ needs.verify.outputs.tags }}
 
+  mcp-runner:
+    needs: verify
+    uses: ./.github/workflows/image.yml
+    with:
+      image: mcp-runner
+      file: deploy/docker/Dockerfile.mcp-runner
+      tags: ${{ needs.verify.outputs.tags }}
+
   # The agent workspace images: the devbox every session starts from, and the variant with a
   # headless browser for the `browser_inspect` tool.
   sandbox:
@@ -120,7 +128,7 @@ jobs:
 
   sbom:
     name: Software bill of materials
-    needs: [verify, backend, frontend, sandbox, sandbox-browser]
+    needs: [verify, backend, frontend, mcp-runner, sandbox, sandbox-browser]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -142,7 +150,7 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$RUNNER_TEMP/bin"
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          for image in backend frontend sandbox sandbox-browser; do
+          for image in backend frontend mcp-runner sandbox sandbox-browser; do
             "$RUNNER_TEMP/bin/syft" "ghcr.io/$OWNER/$image:$TAG" -o spdx-json="sbom/$image-image.spdx.json" &
           done
           wait
@@ -153,7 +161,7 @@ jobs:
 
   github-release:
     name: Publish the GitHub release
-    needs: [verify, backend, frontend, sandbox, sandbox-browser, helm, sbom]
+    needs: [verify, backend, frontend, mcp-runner, sandbox, sandbox-browser, helm, sbom]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

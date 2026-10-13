@@ -83,3 +83,33 @@ DATABASE_URL / ADMIN_DATABASE_URL from the operator-managed secret (empty when t
       key: {{ .Values.backend.database.existingSecretAdminKey | default .Values.backend.database.existingSecretKey | default "DATABASE_URL" }}
 {{- end }}
 {{- end }}
+
+{{/*
+MCP runner selector labels
+*/}}
+{{- define "rocket-chat.mcpRunnerSelectorLabels" -}}
+app.kubernetes.io/name: {{ include "rocket-chat.name" . }}-mcp-runner
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/*
+The Secret that holds the token the backend presents to the MCP runner.
+*/}}
+{{- define "rocket-chat.mcpRunnerSecretName" -}}
+{{- .Values.mcpRunner.existingSecret | default (printf "%s-mcp-runner" (include "rocket-chat.fullname" .)) -}}
+{{- end }}
+
+{{/*
+The runner token: the configured one, else the one already in the cluster (so an upgrade does not
+rotate it and restart both pods), else a new random one.
+*/}}
+{{- define "rocket-chat.mcpRunnerToken" -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "rocket-chat.mcpRunnerSecretName" .) -}}
+{{- if .Values.mcpRunner.token -}}
+{{- .Values.mcpRunner.token -}}
+{{- else if and $existing $existing.data (index $existing.data "MCP_RUNNER_TOKEN") -}}
+{{- index $existing.data "MCP_RUNNER_TOKEN" | b64dec -}}
+{{- else -}}
+{{- randAlphaNum 48 -}}
+{{- end -}}
+{{- end }}

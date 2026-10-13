@@ -267,6 +267,44 @@ github:
   existingSecretWebhookSecretKey: "GITHUB_WEBHOOK_SECRET"
   existingSecretTokenKey: "GITHUB_TOKEN"
 
+# Dedicated pod for command (stdio) MCP servers - programs such as `npx -y <package>` or a release
+# binary that members' agents use as tools. They run here, not in the API pod (which holds the
+# database credentials and master key) and not in the agent sandboxes (whose image may lack the
+# tooling and where the agent could read the server's credentials). One process is started per
+# turn and connection and ends with the turn. Without the runner, command servers are unavailable;
+# remote (HTTP/SSE) servers are unaffected.
+mcpRunner:
+  enabled: true
+  image:
+    repository: ghcr.io/rocket-chat/mcp-runner
+    tag: "0.2.1"
+    pullPolicy: IfNotPresent
+  # Secret shared with the backend. Empty generates one and keeps it across upgrades.
+  token: ""
+  existingSecret: ""
+  existingSecretKey: "MCP_RUNNER_TOKEN"
+  maxProcesses: 32 # servers running at once
+  maxProcessesPerOrg: 8
+  maxLifetimeSeconds: 1800 # a server is stopped after this long
+  # Package caches (npm, uv) and installed server programs: kept across restarts so servers do not
+  # download everything again.
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: "" # empty uses the cluster default
+    existingClaim: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 2Gi
+  # Ingress is always limited to the backend. Egress allows the internet but not private networks.
+  networkPolicy:
+    enabled: true
+    blockInternalSubnets: true
+    allowedEgressRules: [] # e.g. a cluster-internal service a server must reach
+
 frontend:
   image:
     repository: ghcr.io/rocket-chat/frontend

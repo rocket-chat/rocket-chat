@@ -1,0 +1,52 @@
+# Rocket Chat MCP runner: hosts command (stdio) MCP servers away from the control plane and the
+# agent sandboxes. It holds only the secret it shares with the API; every server starts in a clean
+# environment as an unprivileged user, with package caches on the /cache volume.
+FROM node:22-bookworm-slim AS node
+
+FROM python:3.12-slim-bookworm AS builder
+COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /uvx /bin/
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY pyproject.toml uv.lock README.md ./
+COPY packages/agent-core/pyproject.toml packages/agent-core/
+COPY packages/config-engine/pyproject.toml packages/config-engine/
+COPY packages/git-engine/pyproject.toml packages/git-engine/
+COPY packages/llm-gateway/pyproject.toml packages/llm-gateway/
+COPY packages/mcp-runner/pyproject.toml packages/mcp-runner/
+COPY packages/sandbox-driver/pyproject.toml packages/sandbox-driver/
+COPY packages/slack-assistant/pyproject.toml packages/slack-assistant/
+COPY apps/api/pyproject.toml apps/api/
+RUN uv sync --frozen --no-install-workspace --no-dev --package mcp-runner
+COPY packages/mcp-runner/ packages/mcp-runner/
+RUN uv sync --frozen --no-dev --no-editable --package mcp-runner
+
+FROM python:3.12-slim-bookworm
+
+# What typical MCP servers need to start: git (git/GitHub servers), curl/tar/unzip (install
+# scripts that download release binaries) and certificates.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl git gzip tar unzip xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=ghcr.io/astral-sh/uv:0.11.26 /uv /uvx /usr/local/bin/
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
+RUN useradd --uid 1000 --create-home --shell /bin/bash runner \
+    && mkdir -p /cache /tmp/mcp-work \
+    && chown runner:runner /cache /tmp/mcp-work
+
+COPY --from=builder /app/.venv /app/.venv
+ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 \
+    MCP_RUNNER_CACHE_DIR=/cache MCP_RUNNER_WORK_DIR=/tmp/mcp-work
+
+USER runner
+VOLUME ["/cache"]
+EXPOSE 8100
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8100/health', timeout=3).status == 200 else 1)"
+
+CMD ["python", "-m", "mcp_runner"]

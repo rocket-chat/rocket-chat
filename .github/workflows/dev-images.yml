@@ -27,3 +27,10 @@ jobs:
       image: frontend
       file: deploy/docker/Dockerfile.frontend
       tags: ${{ inputs.tag || 'dev' }}
+
+  mcp-runner:
+    uses: ./.github/workflows/image.yml
+    with:
+      image: mcp-runner
+      file: deploy/docker/Dockerfile.mcp-runner
+      tags: ${{ inputs.tag || 'dev' }}
