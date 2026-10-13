@@ -27,7 +27,12 @@ from api.services.transcript import InMemoryTranscriptStore
 from api.store import InMemorySessionStore
 from api.turns.runner import execute_turn_background
 
-from specifications.interfaces.llm import ChatMessage, LLMGatewayProtocol, StreamChunk
+from specifications.interfaces.llm import (
+    ChatMessage,
+    LLMGatewayProtocol,
+    StreamChunk,
+    ToolDefinition,
+)
 from specifications.interfaces.session import SessionRecord
 
 ORG = "org_durable"
@@ -138,7 +143,10 @@ async def test_cancel_mid_batch_leaves_no_orphan_tool_calls() -> None:
         await asyncio.sleep(60)
         return "never"
 
-    registry._mcp.tool(name="hang")(hang)
+    registry.register_dynamic_tool(
+        ToolDefinition(name="hang", description="Never returns.", parameters_json_schema={}),
+        hang,
+    )
     gateway = RecordingGateway(script=[("hang", {})])
     orchestrator = AsyncReActOrchestrator(
         gateway=gateway, registry=registry, transcript_store=store
