@@ -77,12 +77,19 @@ spec:
             {{- end }}
             {{- end }}
           {{- $hasEnv := false }}
-          {{- if or .Values.backend.database.existingSecret (and .Values.auth.local .Values.auth.local.enabled .Values.auth.local.existingSecret) .Values.backend.encryption.existingSecret (and .Values.auth .Values.auth.enabled) .Values.auth.existingSecret .Values.backend.slack.existingSecret .Values.github.existingSecret .Values.models.openrouter.existingSecret .Values.models.anthropic.existingSecret .Values.models.openai.existingSecret .Values.models.deepseek.existingSecret .Values.models.gemini.existingSecret .Values.backend.extraEnv }}
+          {{- if or .Values.backend.database.existingSecret (and .Values.auth.local .Values.auth.local.enabled .Values.auth.local.existingSecret) .Values.backend.encryption.existingSecret (and .Values.auth .Values.auth.enabled) .Values.auth.existingSecret .Values.backend.slack.existingSecret .Values.github.existingSecret .Values.models.openrouter.existingSecret .Values.models.anthropic.existingSecret .Values.models.openai.existingSecret .Values.models.deepseek.existingSecret .Values.models.gemini.existingSecret .Values.backend.extraEnv .Values.mcpRunner.enabled }}
           {{- $hasEnv = true }}
           {{- end }}
           {{- if $hasEnv }}
           env:
             {{- include "rocket-chat.databaseEnv" . | nindent 12 }}
+            {{- if .Values.mcpRunner.enabled }}
+            - name: MCP_RUNNER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "rocket-chat.mcpRunnerSecretName" . }}
+                  key: {{ .Values.mcpRunner.existingSecretKey | default "MCP_RUNNER_TOKEN" }}
+            {{- end }}
             {{- if and .Values.auth.local .Values.auth.local.enabled .Values.auth.local.existingSecret }}
             - name: INITIAL_ADMIN_PASSWORD
               valueFrom:

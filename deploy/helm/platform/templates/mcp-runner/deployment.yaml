@@ -1,0 +1,90 @@
+{{- if .Values.mcpRunner.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rocket-chat.fullname" . }}-mcp-runner
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rocket-chat.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-runner
+spec:
+  replicas: 1
+  # The cache volume is ReadWriteOnce: the old pod must release it before the new one mounts it.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "rocket-chat.mcpRunnerSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rocket-chat.mcpRunnerSelectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mcp-runner
+    spec:
+      automountServiceAccountToken: false
+      # Servers are killed with their connection; a short grace period is enough.
+      terminationGracePeriodSeconds: 15
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp-runner
+          image: "{{ .Values.mcpRunner.image.repository }}:{{ .Values.mcpRunner.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.mcpRunner.image.pullPolicy | default "IfNotPresent" }}
+          ports:
+            - name: http
+              containerPort: 8100
+              protocol: TCP
+          env:
+            - name: MCP_RUNNER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "rocket-chat.mcpRunnerSecretName" . }}
+                  key: {{ .Values.mcpRunner.existingSecretKey | default "MCP_RUNNER_TOKEN" }}
+            - name: MCP_RUNNER_MAX_PROCESSES
+              value: {{ .Values.mcpRunner.maxProcesses | default 32 | quote }}
+            - name: MCP_RUNNER_MAX_PROCESSES_PER_ORG
+              value: {{ .Values.mcpRunner.maxProcessesPerOrg | default 8 | quote }}
+            - name: MCP_RUNNER_MAX_LIFETIME_SECONDS
+              value: {{ .Values.mcpRunner.maxLifetimeSeconds | default 1800 | quote }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 4
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.mcpRunner.resources | nindent 12 }}
+          volumeMounts:
+            - name: cache
+              mountPath: /cache
+            - name: scratch
+              mountPath: /tmp
+      volumes:
+        - name: cache
+          {{- if .Values.mcpRunner.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.mcpRunner.persistence.existingClaim | default (printf "%s-mcp-runner-cache" (include "rocket-chat.fullname" .)) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: scratch
+          emptyDir: {}
+{{- end }}
