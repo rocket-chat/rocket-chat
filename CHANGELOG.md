@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`/`api`: **Command (stdio) servers are described and configured as what they are.** The transport reads "Command (runs in the session sandbox)", the authentication choice becomes *Environment variables* (previously "Custom Headers"), and the API rejects invalid variable names and request-style authentication for a command server.
 
 ### Fixed
+- `mcp-runner`: a command server that died was sometimes reported as just "Connection closed" without its own error: the runner could miss the process's exit when its output closed first. The exit and its stderr are now always reported.
 - `web`: registering an MCP server opens in a real dialog (Escape, backdrop and a close button dismiss it; errors show inside it) instead of a block inserted into the page that the member had to scroll up to find. New shared `Modal` component.
 
 ### Security

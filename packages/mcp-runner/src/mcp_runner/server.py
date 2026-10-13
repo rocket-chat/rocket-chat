@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 CLOSE_UNAUTHORIZED = 4401
 CLOSE_BUSY = 4429
+EXIT_REAP_SECONDS = 5.0
 
 
 class Capacity:
@@ -115,12 +116,13 @@ async def _serve(
             timeout=settings.max_lifetime_seconds,
             return_when=asyncio.FIRST_COMPLETED,
         )
-        if exited in done:
+        # A server that dies closes its output before the process is reaped, so either one means
+        # it ended; the exit frame carries why.
+        if exited in done or output in done:
+            code = await asyncio.wait_for(asyncio.shield(exited), EXIT_REAP_SECONDS)
             # Whatever the server printed before it ended still goes out, then the exit frame.
             await asyncio.gather(output, return_exceptions=True)
-            await _send(
-                websocket, {"t": "exit", "code": exited.result(), "stderr": process.stderr_tail}
-            )
+            await _send(websocket, {"t": "exit", "code": code, "stderr": process.stderr_tail})
     finally:
         for task in (*pumps, exited):
             task.cancel()
