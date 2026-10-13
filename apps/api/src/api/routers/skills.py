@@ -119,7 +119,7 @@ async def create_or_update_custom_skill(
         )
 
     target_user_id = user_id if req.scope == "user" else None
-    skill_title = req.title or req.name
+    skill_title = req.title or req.name or ""
     skill_body = req.body or req.code or ""
 
     db_mgr = getattr(request.app.state, "db_manager", None)
