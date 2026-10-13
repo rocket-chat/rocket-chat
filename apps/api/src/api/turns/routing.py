@@ -1,7 +1,6 @@
 """Turn limits, model routing and agent persona resolution."""
 
 import logging
-import os
 from typing import Any
 
 from config_engine.cascading import (
@@ -16,11 +15,8 @@ from api.models import (
 from api.services.personas import (
     get_persona,
 )
-from api.services.settings import (
-    effective_settings,
-    load_org_config,
-)
-from specifications.interfaces.agent import DEFAULT_MAX_TURNS
+from api.services.settings import effective_settings, load_org_config
+from api.services.turn_limits import organization_max_turns
 
 logger = logging.getLogger(__name__)
 
@@ -30,25 +26,11 @@ async def _resolve_effective_max_turns(
     org_id: str,
     db_mgr: Any = None,
 ) -> int:
-    """Resolve turn limit cascading: Agent persona -> Org policy -> Env var -> Default."""
+    """The agent's own limit, never above the organization's; else the organization's."""
+    ceiling = await organization_max_turns(db_mgr, org_id)
     if agent and agent.max_turns is not None:
-        return int(agent.max_turns)
-
-    org_general, _ = await load_org_config(db_mgr, org_id, "general")
-    configured = org_general.get("max_turns")
-    if configured is not None:
-        try:
-            return int(configured)
-        except (TypeError, ValueError):
-            logger.warning("Ignoring invalid general.max_turns=%r for org %s", configured, org_id)
-
-    env_max = (
-        os.getenv("AGENT_MAX_TURNS") or os.getenv("ROCKET_MAX_TURNS") or os.getenv("MAX_TURNS")
-    )
-    if env_max and env_max.isdigit():
-        return int(env_max)
-
-    return DEFAULT_MAX_TURNS
+        return min(int(agent.max_turns), ceiling)
+    return ceiling
 
 
 async def _resolve_turn_routing(

@@ -1,12 +1,26 @@
 {
   "components": {
     "schemas": {
+      "AgentLimitsResponse": {
+        "properties": {
+          "max_turns": {
+            "description": "The organization's step limit: the ceiling for an agent",
+            "title": "Max Turns",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_turns"
+        ],
+        "title": "AgentLimitsResponse",
+        "type": "object"
+      },
       "AgentPersonaModel": {
         "description": "Custom Agent Persona configuration.",
         "properties": {
           "built_in": {
             "default": false,
-            "description": "Shipped with the platform: read-only; customize it by saving a copy",
+            "description": "Shipped with the platform; an administrator can edit it for the organization",
             "title": "Built In",
             "type": "boolean"
           },
@@ -15,6 +29,12 @@
             "description": "CPU cores; empty inherits the org setting",
             "title": "Cpu Limit",
             "type": "string"
+          },
+          "customized": {
+            "default": false,
+            "description": "A built-in agent whose organization edit is in effect (it can be reset)",
+            "title": "Customized",
+            "type": "boolean"
           },
           "description": {
             "default": "",
@@ -44,7 +64,7 @@
           "max_turns": {
             "anyOf": [
               {
-                "maximum": 100.0,
+                "maximum": 200.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -52,7 +72,7 @@
                 "type": "null"
               }
             ],
-            "description": "Maximum ReAct turn cycles override",
+            "description": "Maximum reasoning steps per turn for this agent; empty inherits the organization's limit, and a value above it is refused",
             "title": "Max Turns"
           },
           "memory_limit": {
@@ -5933,6 +5953,28 @@
           }
         },
         "summary": "Create Or Update Agent",
+        "tags": [
+          "Agents"
+        ]
+      }
+    },
+    "/v1/agents/limits": {
+      "get": {
+        "description": "The ceilings an agent's own settings must stay under (today: steps per turn).",
+        "operationId": "agent_limits_v1_agents_limits_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentLimitsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Agent Limits",
         "tags": [
           "Agents"
         ]

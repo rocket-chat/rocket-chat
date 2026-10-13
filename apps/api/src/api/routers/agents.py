@@ -10,6 +10,7 @@ from fastapi import (
 
 from api.auth.access import _get_request_identity, _require_admin
 from api.models import (
+    AgentLimitsResponse,
     AgentPersonaModel,
     SubagentConfigModel,
 )
@@ -24,6 +25,7 @@ from api.services.subagents import (
     list_subagent_configs,
     save_subagent_config,
 )
+from api.services.turn_limits import organization_max_turns
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Agents"])
@@ -34,6 +36,17 @@ async def list_agents(request: Request) -> list[AgentPersonaModel]:
     """List the built-in personas plus the organization's and the caller's own."""
     org_id, user_id, _ = _get_request_identity(request)
     return await list_personas(getattr(request.app.state, "db_manager", None), org_id, user_id)
+
+
+@router.get("/agents/limits", response_model=AgentLimitsResponse)
+async def agent_limits(request: Request) -> AgentLimitsResponse:
+    """The ceilings an agent's own settings must stay under (today: steps per turn)."""
+    org_id, _user_id, _roles = _get_request_identity(request)
+    return AgentLimitsResponse(
+        max_turns=await organization_max_turns(
+            getattr(request.app.state, "db_manager", None), org_id
+        )
+    )
 
 
 @router.post("/agents", response_model=AgentPersonaModel)

@@ -55,11 +55,26 @@ def test_built_in_personas_are_always_listed_next_to_custom_ones(client: TestCli
 
 
 @pytest.mark.parametrize("reserved", sorted(RESERVED_IDS))
-def test_built_in_personas_cannot_be_overwritten_or_deleted(
-    client: TestClient, reserved: str
+def test_only_administrators_edit_built_in_personas(client: TestClient, reserved: str) -> None:
+    assert client.post("/v1/agents", json=_persona(reserved), headers=MEMBER_A).status_code == 403
+    assert client.delete(f"/v1/agents/{reserved}", headers=MEMBER_A).status_code == 403
+
+
+def test_an_edit_of_a_built_in_persona_never_reaches_another_organization(
+    client: TestClient,
 ) -> None:
-    assert client.post("/v1/agents", json=_persona(reserved), headers=ADMIN_A).status_code == 409
-    assert client.delete(f"/v1/agents/{reserved}", headers=ADMIN_A).status_code == 409
+    edited = client.post(
+        "/v1/agents", json=_persona("persona-general", name="Our engineer"), headers=ADMIN_A
+    )
+    assert edited.status_code == 200
+
+    def named(headers: dict[str, str]) -> str:
+        agents = client.get("/v1/agents", headers=headers).json()
+        return next(a["name"] for a in agents if a["id"] == "persona-general")
+
+    assert named(ADMIN_A) == "Our engineer" and named(MEMBER_A) == "Our engineer"
+    assert named(ADMIN_B) == "General Software Engineer"
+    client.delete("/v1/agents/persona-general", headers=ADMIN_A)
 
 
 def test_a_persona_is_not_resolvable_by_id_from_another_organization(client: TestClient) -> None:

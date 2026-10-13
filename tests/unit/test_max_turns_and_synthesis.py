@@ -69,6 +69,10 @@ async def test_resolve_effective_max_turns_cascading() -> None:
     res_agent = await _resolve_effective_max_turns(agent=custom_agent, org_id=org_id)
     assert res_agent == 12
 
+    # 4. The organization's limit is a ceiling: lowering it later caps existing agents
+    await save_org_config(None, org_id, "general", {"max_turns": 8}, [])
+    assert await _resolve_effective_max_turns(agent=custom_agent, org_id=org_id) == 8
+
     # Cleanup
     reset_memory_settings()
 

@@ -11,7 +11,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | `company_name` | Organization | str | empty | Organization name given to the agent as context. |
 | `session_privacy_default` | Organization | `private` / `shared_org` | `private` | Whether new sessions are private to their owner or shared with the organization. |
 | `public_session_links` | Organization | bool | `False` | Let members create read-only public links to a session's conversation (anyone with the link can read it; turning this off disables links already issued). |
-| `max_turns` | Organization | min 1, max 200 | `60` | Default maximum reasoning steps per turn (an agent persona may override it). |
+| `max_turns` | Organization | min 1, max 200 | `60` | Maximum reasoning steps per turn. It is the default for agents, and the ceiling for an agent that sets its own limit. |
 | `sso_allowed_domains` | Organization | list | empty | E-mail domains allowed to sign in (enforced when sso_enforce_domain_match is on). |
 | `sso_enforce_domain_match` | Organization | bool | `False` | Block sign-in from e-mail domains outside sso_allowed_domains. |
 

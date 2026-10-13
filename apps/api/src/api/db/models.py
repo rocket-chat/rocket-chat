@@ -489,6 +489,8 @@ class AgentPersonaEntityModel(Base):
     thinking_budget_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reasoning_effort: Mapped[str | None] = mapped_column(String(50), nullable=True)
     max_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The built-in agent this row replaces for the organization (None for an ordinary agent).
+    overrides_builtin: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[int] = mapped_column(
         BigInteger, default=lambda: int(time.time()), nullable=False
     )
