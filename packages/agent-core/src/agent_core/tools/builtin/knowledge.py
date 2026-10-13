@@ -79,15 +79,20 @@ def register(registry: "ToolRegistry") -> None:
         return await memory_tools.recall(registry._on_memory_recall_callback, query, scope, limit)
 
     @registry._tool(
-        description="Execute a custom Python skill registered in the organization library."
+        description=(
+            "Load or run a skill from the organization's library (the available names are listed "
+            "under [Skills] in your instructions). An instruction skill returns its full "
+            "instructions for you to follow; a code skill runs with the given arguments. Call it "
+            "before starting work the skill covers."
+        )
     )
     async def execute_skill(
         skill_name: Annotated[
-            str, Field(description="Name of the custom Python skill function to execute.")
+            str, Field(description="Name of the skill, exactly as listed under [Skills].")
         ],
         arguments: Annotated[
             dict[str, Any],
-            Field(description="Key-value arguments dictionary to pass to the skill function."),
+            Field(description="Arguments for a code skill; pass {} for an instruction skill."),
         ],
     ) -> str:
         run_skill = registry._turn_callback("execute_skill")

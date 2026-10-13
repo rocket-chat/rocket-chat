@@ -75,3 +75,34 @@ async def _lookup_visible_skill(
                 record.get("body", ""),
             )
     return None
+
+
+async def list_visible_skills(
+    db_mgr: Any, org_id: str, user_id: str, allowed_ids: Sequence[str] = ()
+) -> list[tuple[str, str]]:
+    """``(name, description)`` of every skill the member may use, in name order.
+
+    Same visibility as ``_find_visible_skill``: organization skills and the caller's own, narrowed
+    to the persona's list when it has one. The agent can only run what it knows by name.
+    """
+    found: dict[str, tuple[str, str]] = {}
+    if db_mgr is not None:
+        async with db_mgr.session(tenant_org_id=org_id) as session:
+            result = await session.execute(
+                select(CustomSkillModel).where(
+                    CustomSkillModel.org_id == org_id,
+                    CustomSkillModel.is_active.is_(True),
+                    or_(CustomSkillModel.scope == "org", CustomSkillModel.user_id == user_id),
+                )
+            )
+            for row in result.scalars():
+                found[row.id] = (row.name, row.description or "")
+    else:
+        for skill_id, record in _memory_skills.get(org_id, {}).items():
+            if record.get("is_active", True) and (
+                record.get("scope") == "org" or record.get("user_id") == user_id
+            ):
+                found[skill_id] = (record["name"], record.get("description", ""))
+    return sorted(
+        (entry for skill_id, entry in found.items() if not allowed_ids or skill_id in allowed_ids)
+    )

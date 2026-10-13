@@ -16,6 +16,7 @@ from typing import Any
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
+from agent_core.repeats import repeated_failure_note
 from agent_core.tools.registry import ToolRegistry
 from agent_core.transcript import INTERRUPTED_TOOL_RESULT
 from specifications.interfaces.agent import AgentEvent
@@ -221,11 +222,9 @@ class ToolDispatcher:
             # Always close every call, even when the batch is cancelled or crashes: an
             # assistant message with unanswered tool calls would make every later model
             # request for this session fail.
+            earlier = list(messages)
             for tc in ordered:
-                messages.append(
-                    ChatMessage(
-                        role="tool",
-                        content=outputs.get(tc["id"], INTERRUPTED_TOOL_RESULT),
-                        tool_call_id=tc["id"],
-                    )
-                )
+                content = outputs.get(tc["id"], INTERRUPTED_TOOL_RESULT)
+                if note := repeated_failure_note(earlier, tc["name"], tc["arguments"], content):
+                    content = f"{content}\n\n{note}"
+                messages.append(ChatMessage(role="tool", content=content, tool_call_id=tc["id"]))
