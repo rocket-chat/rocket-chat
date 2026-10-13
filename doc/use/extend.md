@@ -11,6 +11,8 @@ Everything here lives under **Settings**. Items can be personal (only you) or, f
 
 A skill is a named instruction you invoke with a slash: type `/review src/` and the composer offers your skills; the agent receives the skill's text with your arguments filled in (`$ARGUMENTS`). A skill can also be a short Python function the agent runs in its sandbox. You can import skills from a repository.
 
+The agent sees the name and summary of every skill it may use and loads one with `execute_skill` when a task matches, so write a clear `description` that says when the skill applies. A persona that lists skills only sees those.
+
 ## MCP servers
 
 Connect tools from other systems through the [Model Context Protocol](https://modelcontextprotocol.io): an issue tracker, a database, an internal API. Add a server (remote over HTTP/SSE, or a command that runs inside the sandbox), give it credentials (stored encrypted, never shown again) and its tools join the agent's. An organization connector can require each member to authorize their own account. Descriptions you add under *guidance* tell the agent when to use a tool.
