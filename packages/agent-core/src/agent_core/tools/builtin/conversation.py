@@ -119,10 +119,10 @@ def _register_dialogue_tools(registry: "ToolRegistry") -> None:
 
     @registry._tool(
         description=(
-            "Update the real-time status indicator displayed to the user in the Cockpit"
-            " or Slack loader. MANDATORY PROTOCOL: You MUST call this before executing "
-            "any actionable task, tool sequence, investigation, or code modification to"
-            " keep the user informed in real time."
+            "Set the one-line status the user sees in the Cockpit or Slack loader. Call it when "
+            "you start a new phase of work (not before every tool call), in present tense and "
+            "describing what you are doing now. It is not a progress report: never use it to "
+            "claim you are nearly done."
         )
     )
     async def update_status(
