@@ -66,6 +66,20 @@ SANDBOX_GUIDANCE: tuple[str, ...] = (
     "subagents.",
 )
 
+WORKING_STYLE_GUIDANCE = (
+    "\n[Working style]\n"
+    '- Settle what "done" means before the first tool call (the question to answer, the '
+    "files to produce) and stop once that is met. Extra verification or coverage beyond it "
+    "is optional: offer it in the answer instead of doing it.\n"
+    "- Batch independent calls (several searches, reads or queries) into ONE step; one call "
+    "per step multiplies the steps you spend.\n"
+    "- Do not repeat a search that already failed with a similar query: change approach or "
+    "say what you could not find.\n"
+    "- For work of three or more steps keep `update_task_checklist` current as you go and "
+    "settled before you answer. Say you are nearly done only when the next step is the final "
+    "answer."
+)
+
 SHOWING_WORK_GUIDANCE = (
     "- Long-running commands: `bash_exec` waits for its command and kills it on timeout, so "
     "start servers, watchers and slow builds with `process_start` (it returns at once; read "
@@ -126,7 +140,12 @@ async def build_system_prompt(
     req, overlay = ctx.req, ctx.req.overlay
     base = ctx.binding.system_prompt or DEFAULT_AGENT_PROMPT
 
-    env_details = [*SANDBOX_GUIDANCE, SHOWING_WORK_GUIDANCE, *git_guidance(git_bundle)]
+    env_details = [
+        *SANDBOX_GUIDANCE,
+        WORKING_STYLE_GUIDANCE,
+        SHOWING_WORK_GUIDANCE,
+        *git_guidance(git_bundle),
+    ]
     env_details += await _organization_guidance(ctx, member_prefs)
     if req.driver is not None and ctx.session.sandbox_status == SandboxStatus.RUNNING:
         instructions = await load_project_instructions(

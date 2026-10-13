@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass, replace
 from enum import Enum
 from typing import Any
 
-from agent_core.checklist import unfinished_notice
+from agent_core.checklist import stale_notice, unfinished_notice
 from agent_core.context import (
     ContextManager,
     ExecutionContext,
@@ -973,6 +973,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                     ),
                 )
             )
+        if reminder := stale_notice(run.conversation):
+            run.conversation.append(ChatMessage(role="system", content=reminder))
         # Apply progressive context hygiene before dispatching to the model
         messages = await self._prepare_dispatch_messages_async(
             run.react_model, run.summary_model, run.seed_messages, run.conversation

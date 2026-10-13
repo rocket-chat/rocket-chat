@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from agent_core.checklist import latest_tasks, unfinished_notice
+from agent_core.checklist import STALE_AFTER_STEPS, latest_tasks, stale_notice, unfinished_notice
 from turn_harness import run_turn
 
 from specifications.interfaces.llm import ChatMessage
@@ -86,3 +86,24 @@ async def test_a_settled_checklist_is_not_questioned() -> None:
 
     assert _reminders(outcome.model.requests) == 0
     assert _agent_steps(outcome.model.requests) == 2
+
+
+def _steps(count: int) -> list[ChatMessage]:
+    return [ChatMessage(role="assistant", content="working") for _ in range(count)]
+
+
+def test_a_checklist_left_untouched_for_a_while_is_flagged_periodically() -> None:
+    base = [_update(OPEN)]
+
+    assert stale_notice(base + _steps(STALE_AFTER_STEPS - 1)) is None
+    assert "8 steps" in (stale_notice(base + _steps(STALE_AFTER_STEPS)) or "")
+    assert stale_notice(base + _steps(STALE_AFTER_STEPS + 1)) is None
+    assert stale_notice(base + _steps(2 * STALE_AFTER_STEPS)) is not None
+
+
+def test_no_stale_reminder_without_open_tasks_or_after_an_update() -> None:
+    done = [{"id": "1", "title": "x", "status": "completed"}]
+
+    assert stale_notice([_update(done), *_steps(STALE_AFTER_STEPS)]) is None
+    assert stale_notice(_steps(STALE_AFTER_STEPS)) is None
+    assert stale_notice([_update(OPEN), *_steps(STALE_AFTER_STEPS), _update(OPEN)]) is None

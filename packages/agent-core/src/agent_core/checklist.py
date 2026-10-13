@@ -16,6 +16,7 @@ from specifications.interfaces.llm import ChatMessage
 
 TOOL_NAME = "update_task_checklist"
 OPEN_STATUSES = frozenset({"pending", "in_progress"})
+STALE_AFTER_STEPS = 8
 
 
 def latest_tasks(conversation: Sequence[ChatMessage]) -> list[dict[str, Any]]:
@@ -47,4 +48,27 @@ def unfinished_notice(conversation: Sequence[ChatMessage]) -> str | None:
         "Call `update_task_checklist` now with the complete list: mark what you finished as "
         "completed, mark what you did not do or abandoned as failed (or drop it if it no "
         "longer applies), and leave nothing pending or in progress. Then give your final answer."
+    )
+
+
+def stale_notice(conversation: Sequence[ChatMessage]) -> str | None:
+    """A reminder when work has gone on for a while without the checklist being touched.
+
+    Fires on every ``STALE_AFTER_STEPS``-th assistant step after the last update, so a model that
+    ignores it hears it again later, but never on each step.
+    """
+    if not any(t.get("status") in OPEN_STATUSES for t in latest_tasks(conversation)):
+        return None
+    since = 0
+    for message in reversed(conversation):
+        if any(c.get("function", {}).get("name") == TOOL_NAME for c in message.tool_calls or []):
+            break
+        if message.role == "assistant":
+            since += 1
+    if since == 0 or since % STALE_AFTER_STEPS:
+        return None
+    return (
+        f"Reminder: you have worked {since} steps without updating your task checklist. Call "
+        "`update_task_checklist` with the complete list (finished tasks completed, the current "
+        "one in_progress), together with your next tool call."
     )
