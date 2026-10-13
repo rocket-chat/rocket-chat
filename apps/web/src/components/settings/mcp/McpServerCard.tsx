@@ -71,19 +71,19 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
           className="flex items-center gap-3 cursor-pointer flex-1 min-w-0"
           onClick={() => onToggle()}
         >
-          <div className="p-2 rounded bg-surface-elevated border border-border shrink-0">
+          <div className="p-2 rounded-lg bg-surface-elevated border border-border shrink-0">
             <TransportIcon transport={server.transport} />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-xs font-mono font-semibold text-foreground truncate">
+              <span className="text-xs font-semibold text-foreground truncate">
                 {server.name}
               </span>
-              <span className="px-1.5 py-0.2 rounded text-[9px] font-mono uppercase bg-surface border border-border text-neutral-400">
+              <span className="px-1.5 py-0.2 rounded-lg text-[9px] bg-surface border border-border text-neutral-400">
                 {server.transport}
               </span>
               <span
-                className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-mono ${
+                className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-lg text-[9px] ${
                   server.status === "connected"
                     ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
                     : server.status === "error"
@@ -99,7 +99,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
                 {server.status}
               </span>
             </div>
-            <p className="text-[10px] font-mono text-muted-foreground truncate mt-0.5">
+            <p className="text-[10px] text-muted-foreground truncate mt-0.5">
               {server.endpoint_or_command}
             </p>
           </div>
@@ -110,7 +110,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
             <button
               type="button"
               onClick={() => onAuthorize(server.id)}
-              className="px-2 py-1 rounded border border-brand/30 bg-brand/10 hover:bg-brand/20 text-brand text-[10px] font-mono font-semibold transition-all flex items-center gap-1 cursor-pointer"
+              className="px-2 py-1 rounded-lg border border-brand/30 bg-brand/10 hover:bg-brand/20 text-brand text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer"
               title="Authenticate via OAuth 2.1 PKCE"
             >
               <ExternalLink className="w-3 h-3" />
@@ -128,7 +128,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
             type="button"
             onClick={() => onProbe(server.id)}
             disabled={probing}
-            className="px-2 py-1 rounded border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-[10px] font-mono text-neutral-300 transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            className="px-2 py-1 rounded-lg border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-[10px] text-neutral-300 transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
             title="Refresh / probe active tools"
           >
             <RefreshCw
@@ -141,7 +141,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
             <button
               type="button"
               onClick={() => onDelete(server.id, server.name)}
-              className="p-1 rounded hover:bg-rose-950/40 text-neutral-500 hover:text-rose-400 transition-colors cursor-pointer"
+              className="p-1 rounded-lg hover:bg-rose-950/40 text-neutral-500 hover:text-rose-400 transition-colors cursor-pointer"
               title="Remove server"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -153,7 +153,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
             onClick={() => onToggle()}
             aria-label={isExpanded ? "Collapse server details" : "Expand server details"}
             aria-expanded={isExpanded}
-            className="p-1 rounded hover:bg-surface-elevated text-neutral-400 cursor-pointer"
+            className="p-1 rounded-lg hover:bg-surface-elevated text-neutral-400 cursor-pointer"
           >
             {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </button>
@@ -170,12 +170,12 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
                   ` Members can set their own ${server.overridable_env?.join(", ")}.`}
               </p>
               {runner && !runner.available && (
-                <p role="status" className="rounded border border-amber-500/40 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">
+                <p role="status" className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-amber-700 dark:text-amber-300">
                   {runner.detail} Its tools are unavailable until the runner is.
                 </p>
               )}
               {canManage && server.install_command && (
-                <pre className="max-h-32 overflow-auto rounded border border-border/60 bg-surface-card p-2 font-mono text-[11px]">
+                <pre className="max-h-32 overflow-auto rounded-lg border border-border/60 bg-surface-card p-2 font-mono text-[11px]">
                   {server.install_command}
                 </pre>
               )}
@@ -189,7 +189,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
               <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
                 Custom Agent Guidance:
               </span>
-              <p className="text-xs font-mono text-neutral-300 mt-0.5 bg-surface-card p-2 rounded border border-border/60">
+              <p className="text-xs text-neutral-300 mt-0.5 bg-surface-card p-2 rounded-lg border border-border/60">
                 {server.guidance}
               </p>
             </div>
@@ -204,7 +204,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
                 {server.tools.map((t, idx) => (
                   <div
                     key={idx}
-                    className="p-2 rounded bg-surface-card/80 border border-border/60 text-xs font-mono space-y-0.5"
+                    className="p-2 rounded-lg bg-surface-card/80 border border-border/60 text-xs space-y-0.5"
                   >
                     <div className="font-semibold text-brand flex items-center gap-1.5">
                       <Zap className="w-3 h-3 text-brand" />
@@ -214,7 +214,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
                       {t.description || "No description provided"}
                     </p>
                     {t.parameters_summary && (
-                      <div className="text-[9px] text-neutral-400 font-mono truncate">
+                      <div className="text-[9px] text-neutral-400 truncate">
                         {t.parameters_summary}
                       </div>
                     )}
@@ -222,7 +222,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
                 ))}
               </div>
             ) : (
-              <div className="text-xs font-mono text-neutral-500 py-1 italic">
+              <div className="text-xs text-neutral-500 py-1 italic">
                 No tools currently indexed. Run live probe to sync.
               </div>
             )}

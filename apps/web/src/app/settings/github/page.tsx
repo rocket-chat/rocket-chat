@@ -129,14 +129,14 @@ function GitHubSettingsContent() {
       </div>
 
       {errorBanner && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{errorBanner}</span>
         </div>
       )}
 
       {successBanner && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{successBanner}</span>
         </div>
@@ -156,11 +156,11 @@ function GitHubSettingsContent() {
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs font-mono font-semibold text-foreground">
+                  <span className="text-xs font-semibold text-foreground">
                     {credStatus?.is_linked ? `@${credStatus.username}` : "No GitHub Account Linked"}
                   </span>
                   <span
-                    className={`px-1.5 py-0.2 rounded text-[9px] font-mono uppercase border ${
+                    className={`px-1.5 py-0.2 rounded-lg text-[9px] border ${
                       credStatus?.is_linked
                         ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                         : "bg-neutral-500/10 text-neutral-400 border-neutral-500/20"
@@ -169,7 +169,7 @@ function GitHubSettingsContent() {
                     {credStatus?.is_linked ? "AUTHENTICATED" : "UNLINKED"}
                   </span>
                 </div>
-                <p className="text-[11px] font-mono text-muted-foreground mt-0.5">
+                <p className="text-[11px] text-muted-foreground mt-0.5">
                   {credStatus?.is_linked
                     ? `Mode: ${credStatus.auth_type} • Injection: ${credStatus.injection_mode}`
                     : "Connect via OAuth or provide a Personal Access Token below."}
@@ -182,18 +182,18 @@ function GitHubSettingsContent() {
                 <button
                   type="button"
                   onClick={handleUnlinkUserGit}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-rose-800/60 bg-rose-950/30 text-rose-400 hover:bg-rose-950/60 text-xs font-mono transition-colors cursor-pointer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-800/60 bg-rose-950/30 text-rose-400 hover:bg-rose-950/60 text-xs transition-colors cursor-pointer"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  <span>UNLINK</span>
+                  <span>Unlink</span>
                 </button>
               ) : (
                 <a
                   href="/api/auth/github/login?link_only=true&redirect_uri=/settings/github"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded border border-brand/40 bg-brand/10 hover:bg-brand/20 text-brand text-xs font-mono font-semibold transition-all shadow-sm"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand/40 bg-brand/10 hover:bg-brand/20 text-brand text-xs font-semibold transition-all shadow-sm"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>CONNECT GITHUB OAUTH</span>
+                  <span>Connect with GitHub</span>
                 </a>
               )}
             </div>
@@ -210,10 +210,10 @@ function GitHubSettingsContent() {
 
           {/* Personal Access Token (PAT) Fallback */}
           <div className="p-4 rounded-lg border border-border bg-surface-card space-y-3">
-            <div className="text-xs font-mono font-semibold text-foreground uppercase tracking-wider">
+            <div className="text-xs font-semibold text-foreground">
               Personal Access Token (PAT)
             </div>
-            <p className="text-[11px] font-mono text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               Provide a fine-grained or classic token with <code>repo</code> permissions to push branches from sandboxes.
             </p>
             <div className="flex gap-2">
@@ -223,7 +223,7 @@ function GitHubSettingsContent() {
                   placeholder="ghp_..."
                   value={patInput}
                   onChange={(e) => setPatInput(e.target.value)}
-                  className="w-full pl-3 pr-10 py-1.5 rounded border border-border bg-void text-xs font-mono text-foreground focus:outline-none focus:border-brand"
+                  className="w-full pl-3 pr-10 py-1.5 rounded-lg border border-border bg-void text-xs text-foreground focus:outline-none focus:border-brand"
                 />
                 <button
                   type="button"
@@ -237,7 +237,7 @@ function GitHubSettingsContent() {
                 type="button"
                 onClick={handleSavePat}
                 disabled={testingPat || !patInput.trim()}
-                className="px-3 py-1.5 rounded border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-xs font-mono text-neutral-300 transition-all cursor-pointer disabled:opacity-50"
+                className="px-3 py-1.5 rounded-lg border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-xs text-neutral-300 transition-all cursor-pointer disabled:opacity-50"
               >
                 {testingPat ? "VALIDATING..." : "SAVE & VERIFY PAT"}
               </button>
@@ -268,7 +268,7 @@ function GitHubSettingsContent() {
 
 export default function GitHubSettingsPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-xs font-mono text-muted-foreground">Loading settings...</div>}>
+    <Suspense fallback={<div className="p-8 text-xs text-muted-foreground">Loading settings...</div>}>
       <GitHubSettingsContent />
     </Suspense>
   );

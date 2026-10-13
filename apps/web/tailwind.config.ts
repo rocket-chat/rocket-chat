@@ -76,8 +76,7 @@ const config: Config = {
           "sans-serif",
         ],
         display: [
-          "var(--font-space)",
-          "Space Grotesk",
+          "var(--font-hanken)",
           "Hanken Grotesk",
           "sans-serif",
         ],

@@ -87,13 +87,13 @@ export function ProviderKeysPanel({ mode }: { mode: "user" | "org" }) {
       </div>
 
       {error && (
-        <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+        <div role="alert" className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
         </div>
       )}
       {notice && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs">
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{notice}</span>
         </div>
@@ -102,7 +102,7 @@ export function ProviderKeysPanel({ mode }: { mode: "user" | "org" }) {
       <ul className="divide-y divide-surface-border">
         {keys.length === 0 && <li className="py-2 text-xs text-neutral-500">No keys stored.</li>}
         {keys.map((k) => (
-          <li key={k.provider} className="py-2 flex items-center justify-between text-xs font-mono">
+          <li key={k.provider} className="py-2 flex items-center justify-between text-xs">
             <span>
               <strong>{k.provider}</strong> {k.fingerprint}
               {k.api_base ? ` - ${k.api_base}` : ""}
@@ -125,7 +125,7 @@ export function ProviderKeysPanel({ mode }: { mode: "user" | "org" }) {
           aria-label="Provider"
           value={provider}
           onChange={(e) => setProvider(e.target.value)}
-          className="px-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono"
+          className="px-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs"
         />
         <datalist id="provider-names">
           {COMMON_PROVIDERS.map((name) => (
@@ -139,14 +139,14 @@ export function ProviderKeysPanel({ mode }: { mode: "user" | "org" }) {
           placeholder="API key"
           value={apiKey}
           onChange={(e) => setApiKey(e.target.value)}
-          className="px-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono"
+          className="px-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs"
         />
         <input
           aria-label="Base URL (optional)"
           placeholder="Base URL (optional)"
           value={apiBase}
           onChange={(e) => setApiBase(e.target.value)}
-          className="px-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono"
+          className="px-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs"
         />
         <button
           type="button"

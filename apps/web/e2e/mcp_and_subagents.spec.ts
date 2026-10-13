@@ -5,7 +5,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
 
   test("the registration form is a dialog that Escape closes", async ({ page }) => {
     await page.goto("/settings/mcp");
-    await page.getByRole("button", { name: /REGISTER MCP SERVER/i }).click();
+    await page.getByRole("button", { name: /Add server/i }).click();
     const dialog = page.getByTestId("mcp-server-modal");
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAttribute("aria-modal", "true");
@@ -18,7 +18,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await page.goto("/settings/mcp");
     await expect(page.getByText("Connector catalog")).toHaveCount(0);
 
-    await page.getByRole("button", { name: /REGISTER MCP SERVER/i }).click();
+    await page.getByRole("button", { name: /Add server/i }).click();
     await page.getByTestId("mcp-preset").selectOption("linear");
 
     await expect(page.getByPlaceholder("e.g. Stripe Billing MCP")).toHaveValue("Linear");
@@ -32,7 +32,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
 
   test("a command server is configured with environment variables", async ({ page }) => {
     await page.goto("/settings/mcp");
-    await page.getByRole("button", { name: /Add org MCP/i }).click();
+    await page.getByRole("button", { name: /Add org server/i }).click();
     await page.getByTestId("mcp-preset").selectOption("brave-search");
 
     await expect(page.getByLabel("Variable 1 name")).toHaveValue("BRAVE_API_KEY");
@@ -45,8 +45,8 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await page.goto("/settings/mcp");
 
     // Header & description verification
-    await expect(page.getByRole("heading", { name: /MODEL CONTEXT PROTOCOL/i })).toBeVisible();
-    await expect(page.getByText(/Connect HTTP, SSE, and STDIO tool providers/i)).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /MCP servers/i })).toBeVisible();
+    await expect(page.getByText(/Connect tool providers over HTTP, SSE or as a command/i)).toBeVisible();
 
     // Only servers that really exist are listed - no pre-seeded "connected" built-ins.
     const mainContent = page.getByRole("main");
@@ -54,7 +54,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await expect(mainContent.getByText("GitHub Integration")).toHaveCount(0);
 
     // Click to expand "REGISTER MCP SERVER" form
-    const registerBtn = page.getByRole("button", { name: /REGISTER MCP SERVER/i });
+    const registerBtn = page.getByRole("button", { name: /Add server/i });
     await expect(registerBtn).toBeVisible();
     await registerBtn.click();
 

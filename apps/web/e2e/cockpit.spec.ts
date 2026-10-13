@@ -80,7 +80,7 @@ test.describe("Agent Cockpit E2E Verification", () => {
     // Navigate to MCP tab
     await page.getByRole("link", { name: /MCP Servers/i }).click();
     await expect(page).toHaveURL(/\/settings\/mcp/);
-    await expect(page.getByRole("heading", { name: /MODEL CONTEXT PROTOCOL/i })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /MCP servers/i })).toBeVisible();
 
     // Return to Cockpit
     await page.getByRole("link", { name: /Back to Cockpit|Cockpit/i }).first().click();

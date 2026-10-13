@@ -24,7 +24,7 @@ test("the MCP form saves credentials and per-member OAuth mode", async ({ page }
   });
 
   await page.goto("/settings/mcp");
-  await page.getByRole("button", { name: /Add org MCP/i }).click();
+  await page.getByRole("button", { name: /Add org server/i }).click();
   await page.getByPlaceholder("e.g. Stripe Billing MCP").fill("E2E Linear");
   await page.getByPlaceholder("https://api.internal.service/mcp").fill("https://mcp.example/mcp");
   await page.locator("select").filter({ hasText: /OAuth 2\.1/ }).first().selectOption("oauth2");

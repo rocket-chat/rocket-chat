@@ -199,9 +199,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
         <div className="flex-1 overflow-y-auto px-2 py-2 space-y-4">
           {/* Active / Assigned Persona Header */}
           <div className="px-2" ref={agentMenuRef}>
-            <div className="flex items-center justify-between pb-1.5 text-[11px] font-mono font-medium tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
+            <div className="flex items-center justify-between pb-1.5 text-[11px] font-medium tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
               <span>SPECIALIZED AGENT</span>
-              <span className="text-brand font-mono text-[10px]">ACTIVE</span>
+              <span className="text-brand text-[10px]">ACTIVE</span>
             </div>
 
             <div className="relative">
@@ -215,7 +215,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                   <div className="text-xs font-semibold text-foreground truncate">
                     {activeAgent?.name || "Full-Stack Engineer"}
                   </div>
-                  <div className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400 truncate">
+                  <div className="text-[10px] text-neutral-500 dark:text-neutral-400 truncate">
                     {activeAgent?.role_title || "Senior Systems Engineer"}
                   </div>
                 </div>
@@ -250,7 +250,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
 
           {/* Sessions List */}
           <div>
-            <div className="px-2 pb-1.5 flex items-center justify-between text-[11px] font-mono font-medium tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
+            <div className="px-2 pb-1.5 flex items-center justify-between text-[11px] font-medium tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
               <span>Sessions ({sessions.length})</span>
               <div className="flex items-center gap-2">
                 <button
@@ -371,7 +371,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                           <span
                             data-testid="session-archived-indicator"
                             title="Archived"
-                            className="shrink-0 ml-1 text-[9px] font-mono text-neutral-500"
+                            className="shrink-0 ml-1 text-[9px] text-neutral-500"
                           >
                             ARCH
                           </span>
@@ -432,7 +432,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                 data-testid="load-more-sessions-btn"
                 disabled={isLoadingSessions}
                 onClick={() => void loadMoreSessions()}
-                className="w-full mt-2 px-2.5 py-1.5 text-[10px] font-mono uppercase tracking-wider text-neutral-500 hover:text-foreground border border-dashed border-surface-border rounded-md transition-colors cursor-pointer disabled:opacity-50"
+                className="w-full mt-2 px-2.5 py-1.5 text-[10px] uppercase tracking-wider text-neutral-500 hover:text-foreground border border-dashed border-surface-border rounded-md transition-colors cursor-pointer disabled:opacity-50"
               >
                 {isLoadingSessions ? "Loading…" : "Load more"}
               </button>

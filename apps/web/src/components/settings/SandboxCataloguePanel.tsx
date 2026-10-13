@@ -22,7 +22,7 @@ interface Catalogue {
 }
 
 const inputClass =
-  "w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand";
+  "w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs text-foreground focus:outline-none focus:border-brand";
 
 interface FormValues {
   name: string;

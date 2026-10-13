@@ -84,7 +84,7 @@ export default function UserModelsSettingsPage() {
     <div className="flex flex-col min-h-full">
       <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
         <div className="max-w-5xl mx-auto">
-          <div className="flex items-center gap-2 text-xs font-mono text-neutral-500 dark:text-neutral-400 mb-2">
+          <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 mb-2">
             <span>Settings</span>
             <span>/</span>
             <span>User Preferences</span>
@@ -103,14 +103,14 @@ export default function UserModelsSettingsPage() {
       <div className="flex-1 p-8">
         <div className="max-w-5xl mx-auto space-y-6">
           {successBanner && (
-            <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs font-mono">
+            <div className="flex items-center gap-2 p-3.5 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-400 text-xs">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>{successBanner}</span>
             </div>
           )}
 
           {errorBanner && (
-            <div className="flex items-center gap-2 p-3.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs font-mono">
+            <div className="flex items-center gap-2 p-3.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorBanner}</span>
             </div>
@@ -123,7 +123,7 @@ export default function UserModelsSettingsPage() {
                   <Cpu className="w-3.5 h-3.5 text-brand" />
                   <span>Default LLM Selection</span>
                 </label>
-                <span className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400">
+                <span className="text-[10px] text-neutral-500 dark:text-neutral-400">
                   {availableModels.length} models available
                 </span>
               </div>
@@ -137,7 +137,7 @@ export default function UserModelsSettingsPage() {
                     value={modelFilter}
                     onChange={(e) => setModelFilter(e.target.value)}
                     placeholder="Search models by name or provider..."
-                    className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:border-brand"
+                    className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-surface-subnav border border-surface-border text-xs text-foreground placeholder:text-neutral-400 dark:placeholder:text-neutral-500 focus:outline-none focus:border-brand"
                   />
                 </div>
               )}
@@ -147,7 +147,7 @@ export default function UserModelsSettingsPage() {
                 onChange={(e) =>
                   setModelPrefs({ ...modelPrefs, preferred_model: e.target.value })
                 }
-                className="w-full max-w-md px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs font-mono text-foreground focus:outline-none focus:border-brand cursor-pointer"
+                className="w-full max-w-md px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs text-foreground focus:outline-none focus:border-brand cursor-pointer"
               >
                 {/* If the current preferred model isn't in filtered list, still show it at the top */}
                 {!availableModels.some((m) => m.id === modelPrefs.preferred_model) && (
@@ -162,7 +162,7 @@ export default function UserModelsSettingsPage() {
                       <option
                         key={m.id}
                         value={m.id}
-                        className="bg-surface-subnav font-mono font-normal text-foreground text-xs"
+                        className="bg-surface-subnav font-normal text-foreground text-xs"
                       >
                         {m.name} ({formatContextK(m.context_window)})
                       </option>
@@ -171,7 +171,7 @@ export default function UserModelsSettingsPage() {
                 ))}
               </select>
               <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-1.5 font-sans">
-                Active ID: <span className="font-mono text-neutral-700 dark:text-neutral-300">{modelPrefs.preferred_model}</span>
+                Active ID: <span className="text-neutral-700 dark:text-neutral-300">{modelPrefs.preferred_model}</span>
               </p>
             </div>
           </div>

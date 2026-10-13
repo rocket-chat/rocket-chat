@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `orchestrator`: `search_tools` lists the tools available in the session, optionally filtered by keyword, so an agent can look a tool up instead of guessing its name.
 - `orchestrator`:
 - `sandboxes`:
 - `api`:
@@ -19,8 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `web`: settings pages share one quieter look: interface text, labels and buttons are set in the sans typeface (monospace stays for code and prompts), buttons use the shared button, headings use the shared page header, and the scope badges and divider pill are gone.
+- `web`: each settings page has a single "add" action per section (the duplicate "Register MCP server" and "New agent persona" header buttons are removed; organization actions say "org").
 
 ### Fixed
+- `orchestrator`: a call to a tool that does not exist now answers "there is no tool named X", suggests the closest real names and points to the new `search_tools` tool, instead of a bare "Tool execution failed". It is refused before the approval gate, so a person is never asked to approve an invented tool.
+- `mcp-runner`: a program installed by an install script is found wherever the archive unpacked it (top level, `bin/`, or `<name>_linux_amd64/bin/`, as SigNoz's release does), instead of failing with "not found".
 
 ### Security
 
