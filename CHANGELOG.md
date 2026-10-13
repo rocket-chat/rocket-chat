@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: each settings page has a single "add" action per section (the duplicate "Register MCP server" and "New agent persona" header buttons are removed; organization actions say "org").
 
 ### Fixed
+- `web`: the agent/model picker in the composer no longer goes dead while a turn runs or waits for an approval (the button was disabled without looking disabled). It opens, and the choice applies to the next message.
 - `orchestrator`: a call to a tool that does not exist now answers "there is no tool named X", suggests the closest real names and points to the new `search_tools` tool, instead of a bare "Tool execution failed". It is refused before the approval gate, so a person is never asked to approve an invented tool.
 - `mcp-runner`: a program installed by an install script is found wherever the archive unpacked it (top level, `bin/`, or `<name>_linux_amd64/bin/`, as SigNoz's release does), instead of failing with "not found".
 

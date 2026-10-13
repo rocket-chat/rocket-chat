@@ -439,7 +439,6 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
               <button
                 type="button"
                 onClick={() => setIsModeDropdownOpen(!isModeDropdownOpen)}
-                disabled={isExecuting}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface hover:bg-elevated border border-border text-foreground hover:border-primary/40 transition-colors cursor-pointer select-none"
                 title="Select Active Language Model or Agent"
               >
@@ -471,8 +470,10 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
               {isModeDropdownOpen && (
                 <div className="absolute bottom-full mb-2 left-0 w-80 rounded-2xl border border-border bg-surface shadow-xl p-2 z-50 animate-in fade-in-50 zoom-in-95">
                   <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground px-2 py-1 border-b border-border/40 mb-1 flex items-center justify-between">
-                    <span>EXECUTION PERSONA OR MODEL</span>
-                    <span className="text-primary font-semibold">[MUTUALLY EXCLUSIVE]</span>
+                    <span>Agent or model</span>
+                    <span className="text-muted-foreground">
+                      {isExecuting ? "Applies to your next message" : "Choose one"}
+                    </span>
                   </div>
 
                   <div className="max-h-72 overflow-y-auto space-y-3 p-1">
