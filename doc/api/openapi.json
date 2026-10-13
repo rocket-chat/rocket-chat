@@ -1742,6 +1742,18 @@
             "title": "Headers",
             "type": "array"
           },
+          "install_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Command servers only: a script that installs the program the command runs, executed once on the MCP runner (for example downloading a release binary).",
+            "title": "Install Command"
+          },
           "oauth_authorization_url": {
             "anyOf": [
               {
@@ -1812,6 +1824,12 @@
             "title": "Is Secret",
             "type": "boolean"
           },
+          "member_override": {
+            "default": false,
+            "description": "Command servers only: each member may set their own value for this variable. An empty value then means the server is usable only by members who set one.",
+            "title": "Member Override",
+            "type": "boolean"
+          },
           "name": {
             "description": "Header key",
             "title": "Name",
@@ -1828,6 +1846,32 @@
           "value"
         ],
         "title": "McpHeaderInput",
+        "type": "object"
+      },
+      "McpRunnerStatus": {
+        "description": "Whether command (stdio) MCP servers can run on this installation.",
+        "properties": {
+          "available": {
+            "description": "The runner answered a health check just now",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "configured": {
+            "description": "An MCP runner is part of this deployment",
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "configured",
+          "available"
+        ],
+        "title": "McpRunnerStatus",
         "type": "object"
       },
       "McpServerResponseModel": {
@@ -1884,6 +1928,17 @@
             "title": "Id",
             "type": "string"
           },
+          "install_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Install Command"
+          },
           "is_builtin": {
             "default": false,
             "title": "Is Builtin",
@@ -1893,6 +1948,14 @@
             "default": "",
             "title": "Last Probed",
             "type": "string"
+          },
+          "member_env_set": {
+            "description": "Of those, the ones the calling member has set",
+            "items": {
+              "type": "string"
+            },
+            "title": "Member Env Set",
+            "type": "array"
           },
           "name": {
             "title": "Name",
@@ -1924,6 +1987,14 @@
               }
             ],
             "title": "Oauth Status"
+          },
+          "overridable_env": {
+            "description": "Variables members may set for themselves",
+            "items": {
+              "type": "string"
+            },
+            "title": "Overridable Env",
+            "type": "array"
           },
           "scope": {
             "default": "org",
@@ -2010,6 +2081,58 @@
           "name"
         ],
         "title": "McpToolItem",
+        "type": "object"
+      },
+      "MemberEnvUpdate": {
+        "properties": {
+          "values": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Variable name to the member's value; an empty value removes the override",
+            "title": "Values",
+            "type": "object"
+          }
+        },
+        "title": "MemberEnvUpdate",
+        "type": "object"
+      },
+      "MemberEnvVariable": {
+        "properties": {
+          "has_default": {
+            "description": "The organization provides a value",
+            "title": "Has Default",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "overridden": {
+            "description": "The calling member has set their own value",
+            "title": "Overridden",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "has_default",
+          "overridden"
+        ],
+        "title": "MemberEnvVariable",
+        "type": "object"
+      },
+      "MemberEnvView": {
+        "properties": {
+          "variables": {
+            "items": {
+              "$ref": "#/components/schemas/MemberEnvVariable"
+            },
+            "title": "Variables",
+            "type": "array"
+          }
+        },
+        "title": "MemberEnvView",
         "type": "object"
       },
       "MemberView": {
@@ -6231,6 +6354,28 @@
         ]
       }
     },
+    "/v1/mcp/runner": {
+      "get": {
+        "description": "Whether command (stdio) MCP servers can run on this installation (the MCP runner pod).",
+        "operationId": "mcp_runner_status_v1_mcp_runner_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/McpRunnerStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Mcp Runner Status",
+        "tags": [
+          "MCP"
+        ]
+      }
+    },
     "/v1/mcp/servers": {
       "get": {
         "description": "List registered MCP servers scoped to tenant organization and current user.",
@@ -6381,6 +6526,100 @@
           }
         },
         "summary": "Delete Mcp Server",
+        "tags": [
+          "MCP"
+        ]
+      }
+    },
+    "/v1/mcp/servers/{server_id}/env": {
+      "get": {
+        "description": "The variables of an organization command server that the caller may set for themselves.",
+        "operationId": "get_member_env_v1_mcp_servers__server_id__env_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberEnvView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Member Env",
+        "tags": [
+          "MCP"
+        ]
+      },
+      "put": {
+        "description": "Set (or, with an empty value, clear) the caller's own values; they are stored encrypted.",
+        "operationId": "put_member_env_v1_mcp_servers__server_id__env_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "server_id",
+            "required": true,
+            "schema": {
+              "title": "Server Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberEnvUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberEnvView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Member Env",
         "tags": [
           "MCP"
         ]

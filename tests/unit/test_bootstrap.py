@@ -157,6 +157,7 @@ async def test_a_reachable_mcp_server_is_refreshed_and_an_unreachable_one_is_lef
     def server(endpoint: str) -> Any:
         return SimpleNamespace(
             id="s",
+            org_id="o",
             transport="http",
             endpoint_or_command=endpoint,
             encrypted_auth={},

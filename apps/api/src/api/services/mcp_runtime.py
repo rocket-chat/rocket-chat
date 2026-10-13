@@ -51,6 +51,8 @@ class McpServerTarget:
     url: str
     updated_at: int = 0
     headers: dict[str, str] = field(default_factory=dict, repr=False)
+    # Command servers: the script that installs their program (run once on the MCP runner).
+    setup: str = ""
 
 
 McpConnector = Callable[[McpServerTarget], AbstractAsyncContextManager[Client]]
@@ -88,8 +90,8 @@ def build_targets(
     """Servers a turn may call: the transports the organization's policy permits.
 
     stdio servers are arbitrary commands, so they never run in the API process: they are only
-    offered when the session's sandbox is already running (``stdio_available``), and they run
-    in it. WebSocket has no SDK client.
+    offered when the deployment has an MCP runner (``stdio_available``), and they run there.
+    WebSocket has no SDK client.
     """
     org_ok = {canonical_transport(t) for t in allowed_org_transports}
     user_ok = {canonical_transport(t) for t in allowed_user_transports}
@@ -117,6 +119,7 @@ def build_targets(
                 url=url,
                 updated_at=int(_field(row, "updated_at", 0) or 0),
                 headers=auth_headers(_field(row, "encrypted_auth", {}) or {}, cipher),
+                setup=str((_field(row, "encrypted_auth", {}) or {}).get("install_command") or ""),
             )
         )
     return targets
@@ -239,8 +242,8 @@ class _Connection:
 class McpToolProvider:
     """``ExternalToolProvider`` over a set of MCP servers, built once per turn.
 
-    Connections are opened on first use and kept for the turn (a stdio server is a process in
-    the sandbox; a remote one a TLS handshake), reopened once if one breaks, and closed by
+    Connections are opened on first use and kept for the turn (a stdio server is a process on
+    the runner; a remote one a TLS handshake), reopened once if one breaks, and closed by
     :meth:`aclose` when the turn ends.
     """
 
@@ -266,7 +269,7 @@ class McpToolProvider:
     def _connector_for(self, target: McpServerTarget) -> McpConnector:
         if target.transport == STDIO:
             if self._stdio_connector is None:
-                raise RuntimeError("stdio MCP servers need a running sandbox")
+                raise RuntimeError("command (stdio) MCP servers need the MCP runner")
             return self._stdio_connector
         return self._connector
 

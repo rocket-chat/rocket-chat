@@ -1,7 +1,6 @@
 """MCP server rows -> the tools a turn may use (shared by the MCP routers and the turn engine)."""
 
 import logging
-from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime
 from typing import Any
 
@@ -9,7 +8,6 @@ from config_engine.crypto import CredentialCipher
 from fastapi import (
     Request,
 )
-from mcp import Client
 from sqlalchemy import or_, select
 
 from api.db.models import (
@@ -20,16 +18,13 @@ from api.services.mcp_engine import (
     oauth_token_needs_refresh,
     refresh_oauth_tokens,
 )
+from api.services.mcp_member_env import apply_member_values, member_values, overridable_names
 from api.services.mcp_member_tokens import McpMemberTokenStore, is_member_mode
-from api.services.mcp_runtime import McpServerTarget, McpToolProvider
+from api.services.mcp_runner import connect_stdio, runner_config
+from api.services.mcp_runtime import McpToolProvider
 from api.services.mcp_runtime import build_targets as build_mcp_targets
-from api.services.sandbox_stdio import sandbox_stdio_transport
 from api.services.settings import (
     effective_settings,
-)
-from specifications.interfaces.sandbox import (
-    SandboxDriverProtocol,
-    SandboxStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,6 +92,42 @@ async def _rows_with_member_tokens(
     return resolved
 
 
+async def _rows_with_member_env(
+    db_mgr: Any, org_id: str, user_id: str, rows: list[Any]
+) -> list[Any]:
+    """Run each command server with the caller's own values for the variables they may override.
+
+    A server the caller must supply a value for, and has not, is dropped for them. The id is made
+    member-specific whenever a value changes so that nothing cached for one member is served to
+    another.
+    """
+    store = McpMemberTokenStore(db_mgr)
+    resolved: list[Any] = []
+    for row in rows:
+        auth = _row_auth(row)
+        if not overridable_names(auth) or _row_value(row, "scope") != "org":
+            resolved.append(row)
+            continue
+        row_id = str(_row_value(row, "id"))
+        own = await member_values(store, org_id, row_id, user_id)
+        merged = apply_member_values(auth, own)
+        if merged is None:
+            continue
+        resolved.append(
+            {
+                "id": f"{row_id}:{user_id}" if own else row_id,
+                "name": _row_value(row, "name"),
+                "transport": _row_value(row, "transport"),
+                "scope": "org",
+                "endpoint_or_command": _row_value(row, "endpoint_or_command"),
+                "is_builtin": False,
+                "updated_at": _row_value(row, "updated_at") or 0,
+                "encrypted_auth": merged,
+            }
+        )
+    return resolved
+
+
 def _row_value(row: Any, name: str) -> Any:
     return row.get(name) if isinstance(row, dict) else getattr(row, name, None)
 
@@ -109,12 +140,10 @@ async def _mcp_tools_for_turn(
     db_mgr: Any,
     org_id: str,
     user_id: str,
-    session_id: str | None = None,
-    driver: SandboxDriverProtocol | None = None,
 ) -> McpToolProvider | None:
     """The turn's MCP tools: the org's servers plus the member's own, per the org's policy.
 
-    stdio servers run in the session's sandbox, so they are offered once that sandbox is up.
+    Command (stdio) servers run on the MCP runner, so they are offered when one is deployed.
     """
     policy = await effective_settings(db_mgr, org_id, "mcp")
     rows: list[Any]
@@ -143,29 +172,21 @@ async def _mcp_tools_for_turn(
             and (s.get("scope") == "org" or s.get("user_id") == user_id)
         ]
     rows = await _rows_with_member_tokens(db_mgr, org_id, user_id, rows)
-    sandbox_ready = (
-        driver is not None
-        and session_id is not None
-        and await driver.get_status(session_id) == SandboxStatus.RUNNING
-    )
+    rows = await _rows_with_member_env(db_mgr, org_id, user_id, rows)
+    runner = runner_config()
     targets = build_mcp_targets(
         rows,
         cipher=_cipher,
         allowed_org_transports=policy.get("allowed_transports") or [],
         allowed_user_transports=policy.get("user_allowed_transports") or [],
-        stdio_available=sandbox_ready,
+        stdio_available=runner is not None,
     )
     if not targets:
         return None
 
-    def run_in_sandbox(target: McpServerTarget) -> AbstractAsyncContextManager[Client]:
-        assert driver is not None and session_id is not None
-        return Client(sandbox_stdio_transport(driver, session_id, target.url, target.headers))
-
-    provider = (
-        McpToolProvider(targets, stdio_connector=run_in_sandbox)
-        if sandbox_ready
-        else McpToolProvider(targets)
+    provider = McpToolProvider(
+        targets,
+        stdio_connector=connect_stdio(runner, org_id) if runner is not None else None,
     )
     await provider.load()
     if provider.definitions():

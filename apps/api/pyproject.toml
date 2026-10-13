@@ -12,6 +12,7 @@ dependencies = [
     "sandbox-driver",
     "llm-gateway",
     "config-engine",
+    "mcp-runner[client]",
     "pydantic>=2.7.0",
     "sqlalchemy[asyncio]>=2.0.0",
     "asyncpg>=0.29.0",

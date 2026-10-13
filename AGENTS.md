@@ -19,7 +19,7 @@ Read this file first. It points to the two places where depth lives:
 ```
 apps/api/            FastAPI control plane (routers, turn engine, bootstrap, services, db)
 apps/web/            Next.js 15 / React 19 cockpit + Playwright e2e (apps/web/e2e)
-packages/            agent-core, sandbox-driver, llm-gateway, config-engine, git-engine, slack-assistant
+packages/            agent-core, sandbox-driver, llm-gateway, config-engine, git-engine, slack-assistant, mcp-runner
 specifications/      Protocols and typed payloads shared by everything (interfaces/)
 migrations/          Alembic (the only way the schema changes)
 deploy/              Dockerfiles, Compose files, Helm chart (helm/platform), Kind config

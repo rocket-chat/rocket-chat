@@ -293,6 +293,7 @@ async def mcp_oauth_callback(
                     transport=entity.transport,
                     endpoint_or_command=entity.endpoint_or_command,
                     auth_data=auth_dict,
+                    org_id=entity.org_id,
                 )
                 entity.status = status
                 entity.last_probed = _probe_timestamp()

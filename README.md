@@ -50,6 +50,7 @@ rocket-chat/
 │   ├── config-engine/       # Layered configuration & environment resolution
 │   ├── git-engine/          # Git driver with atomic commits & co-authors
 │   ├── llm-gateway/         # LiteLLM proxy router with encrypted BYOK tenancy
+│   ├── mcp-runner/          # Dedicated pod that runs command (stdio) MCP servers
 │   ├── sandbox-driver/      # Pluggable Docker & Kubernetes sandboxes
 │   └── slack-assistant/     # Slack Socket Mode bot integration
 ├── specifications/
