@@ -22,7 +22,7 @@ test.describe("Agent Cockpit E2E Verification", () => {
 
     // Open dropdown
     await modeSelector.click();
-    await expect(page.getByText("EXECUTION PERSONA OR MODEL")).toBeVisible();
+    await expect(page.getByText("Agent or model")).toBeVisible();
 
     // Verify specialized agent option is visible
     const auditorOption = page.locator("button").filter({ hasText: /Security & Penetration Auditor/i }).last();
@@ -37,12 +37,12 @@ test.describe("Agent Cockpit E2E Verification", () => {
     await page.locator("button").filter({ hasText: /Claude.*Sonnet/i }).last().click();
 
     // Dropdown closes and mode selector updates to direct model
-    await expect(page.getByText("EXECUTION PERSONA OR MODEL")).not.toBeVisible();
+    await expect(page.getByText("Agent or model")).not.toBeVisible();
     await expect(modeSelector).toContainText("Sonnet");
 
     // Re-open and select specialized agent persona
     await modeSelector.click();
-    await expect(page.getByText("EXECUTION PERSONA OR MODEL")).toBeVisible();
+    await expect(page.getByText("Agent or model")).toBeVisible();
     await page.locator("button").filter({ hasText: /Security & Penetration Auditor/i }).last().click();
     await expect(modeSelector).toContainText("Security & Penetration Auditor");
   });
