@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, replace
 from enum import Enum
 from typing import Any
 
+from agent_core.checklist import unfinished_notice
 from agent_core.context import (
     ContextManager,
     ExecutionContext,
@@ -82,6 +83,7 @@ class _TurnRun:
     whitelisted_tools: list[str] | None
     exec_ctx: ExecutionContext | None
     pending_attachments: list[AttachmentRef]
+    checklist_reminded: bool = False
 
 
 class AsyncReActOrchestrator(AgentOrchestratorProtocol):
@@ -992,6 +994,12 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         )
         if not tool_calls:
             run.conversation.append(ChatMessage(role="assistant", content=assistant_text))
+            # Once per turn: a second reminder would loop a model that cannot finish the list.
+            if not run.checklist_reminded and (reminder := unfinished_notice(run.conversation)):
+                run.checklist_reminded = True
+                run.conversation.append(ChatMessage(role="system", content=reminder))
+                await self._flush_transcript(run.session_id, run.org_id, run.conversation)
+                return False
             self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
             await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
             return True
