@@ -10,10 +10,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `mcp-runner`/`api`/`web`/`deploy`: **Command (stdio) MCP servers run in a dedicated, optional runner pod.** A new `mcp-runner` package and image host command servers (`npx`, `uvx`, release binaries) away from both the API (database credentials, master key) and the agent sandboxes (whose images may lack the tooling and where agent code could read the server's credentials). One process is started per turn and connection, with a clean environment, and is killed when the turn ends, so concurrent turns get separate processes and nothing runs while idle; package caches live on a volume. Helm: `mcpRunner.enabled` (default on) deploys it non-root with a read-only filesystem, a generated token kept across upgrades, a cache volume and a NetworkPolicy (ingress from the backend only, no private-network egress); both Compose files include the service. **Without a runner, command servers are unavailable** and the UI says so (`GET /v1/mcp/runner`); remote servers are unaffected. *Test & validate connection* now works for command servers (it starts them on the runner and shows the program's own error).
-- `api`/`web`: **Members can override a command server's environment variables.** An administrator marks a variable "Members can set their own" (leaving its value empty makes it required); each member sets theirs from the server's card, encrypted and never shown again, and only their own sessions use it. A member who lacks a required value does not get the server rather than borrowing another's credentials. Registering a command server and members' changes to their values are audited.
-- `mcp-runner`/`api`/`web`: **Install script for programs that are not npx/uvx packages.** An optional script runs once per organization on the runner (again only if changed), without the server's variables, and leaves the program on the command's `PATH` (for example downloading a release binary); a SigNoz preset shows the pattern.
-- `web`: **The MCP registration dialog starts from about 20 common servers** (GitHub, Linear, Notion, Atlassian, Slack, Sentry, Stripe, Supabase, Grafana, PostgreSQL, Brave Search, SigNoz and more) that prefill the normal form and link the vendor's setup guide. Members see the Command option with a note to ask an administrator.
 - `orchestrator`:
 - `sandboxes`:
 - `api`:
@@ -21,6 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `settings`:
 - `git`:
 - `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.2.2] - 2026-10-13
+
+### Added
+- `mcp-runner`/`api`/`web`/`deploy`: **Command (stdio) MCP servers run in a dedicated, optional runner pod.** A new `mcp-runner` package and image host command servers (`npx`, `uvx`, release binaries) away from both the API (database credentials, master key) and the agent sandboxes (whose images may lack the tooling and where agent code could read the server's credentials). One process is started per turn and connection, with a clean environment, and is killed when the turn ends, so concurrent turns get separate processes and nothing runs while idle; package caches live on a volume. Helm: `mcpRunner.enabled` (default on) deploys it non-root with a read-only filesystem, a generated token kept across upgrades, a cache volume and a NetworkPolicy (ingress from the backend only, no private-network egress); both Compose files include the service. **Without a runner, command servers are unavailable** and the UI says so (`GET /v1/mcp/runner`); remote servers are unaffected. *Test & validate connection* now works for command servers (it starts them on the runner and shows the program's own error).
+- `api`/`web`: **Members can override a command server's environment variables.** An administrator marks a variable "Members can set their own" (leaving its value empty makes it required); each member sets theirs from the server's card, encrypted and never shown again, and only their own sessions use it. A member who lacks a required value does not get the server rather than borrowing another's credentials. Registering a command server and members' changes to their values are audited.
+- `mcp-runner`/`api`/`web`: **Install script for programs that are not npx/uvx packages.** An optional script runs once per organization on the runner (again only if changed), without the server's variables, and leaves the program on the command's `PATH` (for example downloading a release binary); a SigNoz preset shows the pattern.
+- `web`: **The MCP registration dialog starts from about 20 common servers** (GitHub, Linear, Notion, Atlassian, Slack, Sentry, Stripe, Supabase, Grafana, PostgreSQL, Brave Search, SigNoz and more) that prefill the normal form and link the vendor's setup guide. Members see the Command option with a note to ask an administrator.
 
 ### Changed
 - `api`: command (stdio) MCP servers no longer run inside an agent's sandbox: that transport is removed in favour of the MCP runner. Existing command servers keep their configuration and work again once a runner is deployed (the Helm default). A command server's authentication is now a set of environment variables only; names must be valid variable names and request-style authentication is rejected.
