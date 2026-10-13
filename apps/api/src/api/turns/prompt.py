@@ -19,6 +19,7 @@ from api.services.process_tracker import (
 )
 from api.services.project_instructions import load_project_instructions
 from api.services.settings import effective_settings
+from api.services.skills_lookup import list_visible_skills
 from api.turns.context import TurnContext
 from specifications.interfaces.agent import SystemPrompt
 from specifications.interfaces.sandbox import SandboxStatus
@@ -133,6 +134,38 @@ async def _organization_guidance(ctx: TurnContext, member_prefs: dict[str, Any])
     return lines
 
 
+MAX_SKILLS_LISTED = 30
+SKILL_SUMMARY_CHARS = 220
+
+
+async def _skills_guidance(ctx: TurnContext) -> list[str]:
+    """Names and summaries of the skills this member's agent may load.
+
+    Without this the model cannot know a skill exists: ``execute_skill`` takes a name and nothing
+    else tells it which names there are.
+    """
+    skills = await list_visible_skills(
+        ctx.req.db_mgr,
+        ctx.session.tenant_org_id,
+        ctx.session.tenant_user_id,
+        ctx.binding.skill_ids,
+    )
+    if not skills:
+        return []
+    lines = [
+        "\n[Skills]",
+        "- The organization keeps skills: expert instructions for recurring work. When a task "
+        "matches one, call `execute_skill` with its name BEFORE you start; it returns the "
+        "instructions to follow (skills that are code run instead).",
+    ]
+    for name, description in skills[:MAX_SKILLS_LISTED]:
+        summary = " ".join(description.split())[:SKILL_SUMMARY_CHARS]
+        lines.append(f"  - `{name}`: {summary}")
+    if len(skills) > MAX_SKILLS_LISTED:
+        lines.append(f"  - ... and {len(skills) - MAX_SKILLS_LISTED} more.")
+    return lines
+
+
 async def build_system_prompt(
     ctx: TurnContext, git_bundle: GitCredentialBundle, member_prefs: dict[str, Any]
 ) -> SystemPrompt:
@@ -147,6 +180,7 @@ async def build_system_prompt(
         *git_guidance(git_bundle),
     ]
     env_details += await _organization_guidance(ctx, member_prefs)
+    env_details += await _skills_guidance(ctx)
     if req.driver is not None and ctx.session.sandbox_status == SandboxStatus.RUNNING:
         instructions = await load_project_instructions(
             req.driver, ctx.session_id, ctx.session.git_repo
