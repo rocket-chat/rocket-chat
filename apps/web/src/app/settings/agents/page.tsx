@@ -101,21 +101,29 @@ export default function AgentsSettingsPage() {
     }
   );
   const [previewMarkdown, setPreviewMarkdown] = useState(false);
+  const [orgMaxTurns, setOrgMaxTurns] = useState<number | null>(null);
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const prevAgentIdRef = useRef<string | null>(null);
+  const prevAgentsRef = useRef<AgentPersonaConfig[] | null>(null);
 
   // Fetch contextual tool registries
   const loadRegistries = useCallback(async () => {
     try {
-      const [mcpRes, skillsRes, kbRes, toolsRes] = await Promise.all([
+      const [mcpRes, skillsRes, kbRes, toolsRes, limitsRes] = await Promise.all([
         fetch("/v1/mcp/servers"),
         fetch("/v1/skills"),
         fetch("/v1/knowledge/bases"),
         fetch("/v1/tools"),
+        fetch("/v1/agents/limits"),
       ]);
+
+      if (limitsRes.ok) {
+        const limits = await limitsRes.json();
+        if (typeof limits.max_turns === "number") setOrgMaxTurns(limits.max_turns);
+      }
 
       if (mcpRes.ok) {
         const mcps = await mcpRes.json();
@@ -144,8 +152,11 @@ export default function AgentsSettingsPage() {
   }, [fetchAgents, loadRegistries]);
 
   useEffect(() => {
-    if (prevAgentIdRef.current !== selectedAgentId) {
+    // Also when the list is replaced (the server's version of a built-in agent arrives after the
+    // page first rendered the shipped one). Typing edits formData only, so this never eats input.
+    if (prevAgentIdRef.current !== selectedAgentId || prevAgentsRef.current !== availableAgents) {
       prevAgentIdRef.current = selectedAgentId;
+      prevAgentsRef.current = availableAgents;
       const found = availableAgents.find((a) => a.id === selectedAgentId);
       if (found) {
         setFormData(found);
@@ -158,7 +169,9 @@ export default function AgentsSettingsPage() {
   const orgAgents = availableAgents.filter((a) => a.scope === "org" || (!a.scope && a.user_id == null));
 
   const isCurrentAgentOrg = formData.scope === "org" || (!formData.scope && formData.user_id == null);
-  const canEditCurrentAgent = !isCurrentAgentOrg || isAdmin;
+  // A built-in agent is edited for the whole organization by an administrator; others save a copy.
+  const editsBuiltInInPlace = !!formData.built_in && isAdmin;
+  const canEditCurrentAgent = formData.built_in ? true : !isCurrentAgentOrg || isAdmin;
 
   const isAllowAll = formData.whitelisted_tools?.includes("*");
 
@@ -218,7 +231,7 @@ export default function AgentsSettingsPage() {
         headers: { "Content-Type": "application/json" },
         // Built-in personas are read-only; saving one stores an editable copy.
         body: JSON.stringify(
-          formData.built_in
+          formData.built_in && !editsBuiltInInPlace
             ? {
                 ...formData,
                 id: `persona-${Date.now().toString(36)}`,
@@ -256,6 +269,26 @@ export default function AgentsSettingsPage() {
       setSaveError(message);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleResetBuiltIn = async () => {
+    if (!confirm(`Restore '${formData.name}' to its shipped definition for the organization?`)) return;
+    setSaveError(null);
+    const res = await fetch(`/v1/agents/${formData.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setSaveError(body.detail || "Failed to reset the agent");
+      return;
+    }
+    const listRes = await fetch("/v1/agents");
+    if (!listRes.ok) return;
+    const agents: AgentPersonaConfig[] = await listRes.json();
+    setAvailableAgents(agents);
+    const restored = agents.find((a) => a.id === formData.id);
+    if (restored) {
+      setFormData(restored);
+      if (activeAgent.id === restored.id) selectAgent(restored);
     }
   };
 
@@ -438,6 +471,15 @@ export default function AgentsSettingsPage() {
               >
                 Set Active
               </button>
+              {editsBuiltInInPlace && formData.customized && (
+                <button
+                  type="button"
+                  onClick={handleResetBuiltIn}
+                  className="px-3 py-1.5 rounded-lg border border-border hover:border-rose-500/50 bg-surface text-xs text-muted-foreground hover:text-rose-400 transition-colors"
+                >
+                  Reset to default
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleSave}
@@ -516,6 +558,34 @@ export default function AgentsSettingsPage() {
                     </option>
                   ))}
               </Select>
+            )}
+          </Field>
+
+          {/* Step limit: empty inherits the organization's, which is also the ceiling */}
+          <Field
+            label="Max steps per turn"
+            hint={
+              orgMaxTurns !== null
+                ? `Leave empty to use the organization's limit (${orgMaxTurns}); at most ${orgMaxTurns}.`
+                : "Leave empty to use the organization's limit."
+            }
+          >
+            {(control) => (
+              <Input {...control}
+                type="number"
+                min={1}
+                max={orgMaxTurns ?? undefined}
+                disabled={!canEditCurrentAgent}
+                value={formData.max_turns ?? ""}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    max_turns: e.target.value === "" ? null : Number(e.target.value),
+                  })
+                }
+                placeholder={orgMaxTurns !== null ? String(orgMaxTurns) : "Organization limit"}
+                className="max-w-[10rem]"
+              />
             )}
           </Field>
 

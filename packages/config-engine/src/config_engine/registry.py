@@ -82,6 +82,7 @@ _TURN_CALLBACKS = "apps/api/src/api/turns/callbacks.py"
 _SANDBOX_CATALOGUE = "apps/api/src/api/services/sandbox_catalogue.py"
 _TURN_ROUTING = "apps/api/src/api/turns/routing.py"
 _TURN_PROMPT = "apps/api/src/api/turns/prompt.py"
+_TURN_LIMITS = "apps/api/src/api/services/turn_limits.py"
 _TURN_FINALISE = "apps/api/src/api/turns/finalise.py"
 _MCP_SERVERS = "apps/api/src/api/routers/mcp_servers.py"
 _SESSION_CRUD = "apps/api/src/api/routers/session_crud.py"
@@ -124,8 +125,8 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "int",
             60,
             "org",
-            _TURN_ROUTING,
-            "Default maximum reasoning steps per turn (an agent persona may override it).",
+            _TURN_LIMITS,
+            "Maximum reasoning steps per turn. It is the default for agents, and the ceiling for an agent that sets its own limit.",
             minimum=1,
             maximum=200,
         ),

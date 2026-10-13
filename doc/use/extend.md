@@ -36,7 +36,9 @@ Upload documents (architecture notes, runbooks, API docs) and the agent searches
 
 ## Agents (personas)
 
-An agent is a system prompt, a model and an optional list of allowed tools, skills and knowledge bases. The default, **General Software Engineer**, has every tool. Define narrower ones for specific jobs (a reviewer limited to read-only tools, a security auditor). A persona can also name a sandbox image, subject to your organization's catalogue.
+An agent is a system prompt, a model and an optional list of allowed tools, skills and knowledge bases. The default, **General Software Engineer**, has every tool. Administrators can edit the built-in agents for the whole organization (prompt, model, tools, step limit) and use **Reset to default** to restore the shipped version; members who want a variation save a copy. Define narrower ones for specific jobs (a reviewer limited to read-only tools, a security auditor). A persona can also name a sandbox image, subject to your organization's catalogue.
+
+Each agent can set **Max steps per turn**, from 1 up to the organization's limit (Settings > Models & routing); leave it empty to use the organization's. Lower it for a quick helper, or raise it, within the limit, for a long investigation.
 
 ## Memory
 

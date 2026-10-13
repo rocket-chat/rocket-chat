@@ -25,7 +25,11 @@ class AgentPersonaModel(BaseModel):
     user_id: str | None = Field(default=None, description="Owner user ID for personal agents")
     built_in: bool = Field(
         default=False,
-        description="Shipped with the platform: read-only; customize it by saving a copy",
+        description="Shipped with the platform; an administrator can edit it for the organization",
+    )
+    customized: bool = Field(
+        default=False,
+        description="A built-in agent whose organization edit is in effect (it can be reset)",
     )
     icon: str = Field(default="bot", description="Avatar/icon key")
     sandbox_image: str = Field(
@@ -45,8 +49,18 @@ class AgentPersonaModel(BaseModel):
         default=None, description="Reasoning effort tier override ('low', 'medium', 'high')"
     )
     max_turns: int | None = Field(
-        default=None, ge=1, le=100, description="Maximum ReAct turn cycles override"
+        default=None,
+        ge=1,
+        le=200,
+        description=(
+            "Maximum reasoning steps per turn for this agent; empty inherits the organization's "
+            "limit, and a value above it is refused"
+        ),
     )
+
+
+class AgentLimitsResponse(BaseModel):
+    max_turns: int = Field(description="The organization's step limit: the ceiling for an agent")
 
 
 class CreateSessionRequest(BaseModel):

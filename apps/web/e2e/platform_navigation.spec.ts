@@ -109,6 +109,9 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     await page.goto("/settings/agents");
     await expect(page.getByText("Custom agent personas")).toBeVisible();
 
+    // The built-in agent already allows every tool, so configure a fresh one
+    await page.getByRole("button", { name: /New agent/i }).first().click();
+
     // Verify Allow All switch is present
     const allowAllBtn = page.getByRole("button", { name: /ALLOW ALL TOOLS/i });
     await expect(allowAllBtn).toBeVisible();
