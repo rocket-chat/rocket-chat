@@ -17,7 +17,7 @@ from mcp_runner.process import ServerProcess, build_environment
 from mcp_runner.protocol import InvalidStart, validate_start
 from mcp_runner.server import Capacity, create_app
 from mcp_runner.settings import RunnerSettings
-from mcp_runner.tools import SetupFailed, ToolInstaller
+from mcp_runner.tools import SetupFailed, ToolInstaller, executable_directories
 from uvicorn import Config, Server
 
 SERVER = pathlib.Path(__file__).parents[1] / "support" / "minimal_mcp_server.py"
@@ -276,8 +276,28 @@ async def test_a_program_installed_by_the_script_is_on_the_servers_path(
         "o", "printf '#!/bin/sh\\necho from-installed-tool\\n' > mytool; chmod +x mytool"
     )
 
-    process = await ServerProcess.start("mytool", settings, tmp_path / "w", {}, tools)
+    process = await ServerProcess.start("mytool", settings, tmp_path / "w", {}, [tools])
     try:
         assert (await process.read_line()) == b"from-installed-tool\n"
     finally:
         await process.terminate()
+
+
+def test_programs_are_found_where_release_archives_put_them(tmp_path: pathlib.Path) -> None:
+    (tmp_path / "tool_linux_amd64" / "bin").mkdir(parents=True)
+    (tmp_path / "plain").mkdir()
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "file.txt").write_text("x")
+
+    found = executable_directories(tmp_path)
+
+    assert tmp_path in found and tmp_path / "bin" in found
+    assert tmp_path / "tool_linux_amd64" / "bin" in found and tmp_path / "plain" in found
+    assert len(found) == len(set(found)), "no directory is listed twice"
+
+
+def test_the_installed_directories_come_first_on_the_path(tmp_path: pathlib.Path) -> None:
+    env = build_environment(
+        _settings(tmp_path), tmp_path / "w", {}, [tmp_path / "a", tmp_path / "b"]
+    )
+    assert env["PATH"].startswith(f"{tmp_path / 'a'}:{tmp_path / 'b'}:/usr/local/bin")

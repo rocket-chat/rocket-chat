@@ -21,10 +21,12 @@ Connect tools from other systems through the [Model Context Protocol](https://mo
 
 * **Environment variables** are the server's configuration (a base URL, an API key). Names use letters, digits and underscores; a *Secret* value is stored encrypted and never shown again.
 * **Members can set their own.** Tick it on a variable (an API key, say) and each member can run the server with their own value from the server's card (*Your own values*): your sessions use yours, everyone else's keep the organization's, and no one sees anyone's value. Leave the organization's value empty to require it: members who have not set theirs do not get the server at all, rather than borrowing someone else's credentials.
-* **Install script** (optional) for a program that is not an `npx`/`uvx` package, for example `curl -fsSL https://github.com/acme/tool/releases/latest/download/tool_linux_amd64.tar.gz | tar xz`. It runs once on the runner (again only if you change it), without the server's variables, and the program is then on the command's `PATH`. Pick the build with `uname -m` if the runner may be amd64 or arm64.
+* **Install script** (optional) for a program that is not an `npx`/`uvx` package, for example `curl -fsSL https://github.com/acme/tool/releases/latest/download/tool_linux_amd64.tar.gz | tar xz`. It runs once on the runner (again only if you change it), without the server's variables, and the program is then on the command's `PATH`, wherever the archive put it: at the top, in `bin/`, or in the folder it unpacks to (`tool_linux_amd64/bin/`). Pick the build with `uname -m` if the runner may be amd64 or arm64.
 * **Testing.** *Test & validate connection* starts the command on the runner and lists its tools, including any install script, and shows the program's own error when it fails.
 * Packages are cached on the runner's volume, so they are not downloaded again after a restart.
 * If the installation has no runner (or it is not answering), command servers are disabled in the form and flagged on existing servers; remote servers keep working. See [Kubernetes](/install/kubernetes) and [Docker Compose](/install/docker-compose) for enabling it.
+
+The agent can list the tools it has with `search_tools` (optionally with a keyword). If it calls a name that does not exist, it is told which real tools are closest and to look the tool up, rather than retrying.
 
 ## Knowledge bases
 

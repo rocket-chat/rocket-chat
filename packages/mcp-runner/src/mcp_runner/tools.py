@@ -24,6 +24,22 @@ OUTPUT_TAIL_CHARS = 2000
 _READY = ".ready"
 
 
+def executable_directories(root: Path) -> list[Path]:
+    """Where an unpacked release keeps its programs: the root, ``bin``, and the same one folder down.
+
+    Release archives differ (``tool`` at the top, ``bin/tool``, or ``tool_linux_amd64/bin/tool``),
+    and the administrator should not have to know which one the command needs.
+    """
+    candidates = [root]
+    candidates += [child for child in sorted(root.iterdir()) if child.is_dir()]
+    found: dict[Path, None] = {}
+    for directory in candidates:
+        found[directory] = None
+        if (directory / "bin").is_dir():
+            found[directory / "bin"] = None
+    return list(found)
+
+
 class SetupFailed(RuntimeError):
     """The install script did not finish successfully (the message carries its output)."""
 

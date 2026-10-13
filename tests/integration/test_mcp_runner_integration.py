@@ -247,6 +247,24 @@ async def test_an_install_command_provides_a_program_once(
     assert runs.read_text().count("run") == 1, "the install script ran once, not per start"
 
 
+async def test_a_program_unpacked_into_a_release_folder_is_still_found(
+    runner: str, api: AsyncClient
+) -> None:
+    # Release tarballs such as SigNoz's unpack to <name>_linux_amd64/bin/<name>.
+    install = (
+        "mkdir -p nested_linux_amd64/bin\n"
+        f"printf '#!/bin/sh\\nexec {sys.executable} {SUPPORT / 'env_mcp_server.py'}\\n'"
+        " > nested_linux_amd64/bin/nested-mcp\n"
+        "chmod +x nested_linux_amd64/bin/nested-mcp\n"
+    )
+    body = _server("Nested", [{"name": "API_KEY", "value": "k"}], install_command=install)
+    body["endpoint_or_command"] = "nested-mcp"
+
+    created = await api.post("/v1/mcp/servers", json=body, headers=ADMIN)
+
+    assert created.json()["status"] == "connected", created.json()
+
+
 async def test_a_failing_install_command_explains_itself(runner: str, api: AsyncClient) -> None:
     body = _server("Bad install", [], install_command="echo 'download failed' >&2; exit 9")
     body["endpoint_or_command"] = "never-installed"
