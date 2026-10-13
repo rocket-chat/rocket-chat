@@ -9,6 +9,7 @@ another's, and edits are visible on every replica immediately. Without a databas
 
 from __future__ import annotations
 
+import hashlib
 import time
 import uuid
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 
 from api.db.models import AgentPersonaEntityModel
 from api.models import AgentPersonaModel
+from api.services.turn_limits import organization_max_turns
 
 DEFAULT_AGENT_PERSONAS: tuple[AgentPersonaModel, ...] = (
     AgentPersonaModel(
@@ -64,8 +66,37 @@ RESERVED_IDS = frozenset(p.id for p in DEFAULT_AGENT_PERSONAS)
 _memory: dict[str, dict[str, AgentPersonaModel]] = {}
 
 
+# Administrators' edits of built-in personas without a database: org id -> built-in id -> persona.
+_memory_overrides: dict[str, dict[str, AgentPersonaModel]] = {}
+
+
 def reset_memory_personas() -> None:
     _memory.clear()
+    _memory_overrides.clear()
+
+
+def _override_row_id(org_id: str, builtin_id: str) -> str:
+    """A stable primary key per (organization, built-in): ids are global, built-in ids are not."""
+    return "ovr-" + hashlib.sha256(f"{org_id}:{builtin_id}".encode()).hexdigest()[:24]
+
+
+def _as_builtin(persona: AgentPersonaModel, builtin_id: str) -> AgentPersonaModel:
+    """An organization's edit of a built-in, presented under the built-in's own id."""
+    return persona.model_copy(
+        update={
+            "id": builtin_id,
+            "built_in": True,
+            "customized": True,
+            "scope": "org",
+            "user_id": None,
+        }
+    )
+
+
+def _apply_overrides(
+    overrides: dict[str, AgentPersonaModel],
+) -> list[AgentPersonaModel]:
+    return [overrides.get(p.id, p) for p in DEFAULT_AGENT_PERSONAS]
 
 
 @dataclass
@@ -126,7 +157,7 @@ def _visible(scope: str, owner: str | None, user_id: str) -> bool:
 
 
 async def list_personas(db_mgr: Any, org_id: str, user_id: str) -> list[AgentPersonaModel]:
-    """Built-in personas plus the organization's and the member's own."""
+    """Built-in personas (as the organization edited them) plus the organization's and the member's own."""
     custom: list[AgentPersonaModel]
     if db_mgr is not None:
         async with db_mgr.session(tenant_org_id=org_id) as session:
@@ -139,12 +170,19 @@ async def list_personas(db_mgr: Any, org_id: str, user_id: str) -> list[AgentPer
                     ),
                 )
             )
-            custom = [_from_entity(row) for row in rows.scalars().all()]
+            entities = rows.scalars().all()
+            custom = [_from_entity(row) for row in entities if not row.overrides_builtin]
+            overrides = {
+                row.overrides_builtin: _as_builtin(_from_entity(row), row.overrides_builtin)
+                for row in entities
+                if row.overrides_builtin
+            }
     else:
         custom = [
             p for p in _memory.get(org_id, {}).values() if _visible(p.scope, p.user_id, user_id)
         ]
-    return [*DEFAULT_AGENT_PERSONAS, *custom]
+        overrides = dict(_memory_overrides.get(org_id, {}))
+    return [*_apply_overrides(overrides), *custom]
 
 
 async def get_persona(
@@ -155,7 +193,7 @@ async def get_persona(
         return None
     for default in DEFAULT_AGENT_PERSONAS:
         if default.id == persona_id:
-            return default
+            return await _builtin_for_org(db_mgr, org_id, default)
     if db_mgr is not None:
         async with db_mgr.session(tenant_org_id=org_id) as session:
             entity = (
@@ -179,6 +217,101 @@ async def get_persona(
     return found if found is not None and _visible(found.scope, found.user_id, user_id) else None
 
 
+async def _builtin_for_org(
+    db_mgr: Any, org_id: str, default: AgentPersonaModel
+) -> AgentPersonaModel:
+    if db_mgr is None:
+        return _memory_overrides.get(org_id, {}).get(default.id, default)
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        entity = (
+            (
+                await session.execute(
+                    select(AgentPersonaEntityModel).where(
+                        AgentPersonaEntityModel.org_id == org_id,
+                        AgentPersonaEntityModel.overrides_builtin == default.id,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+    return _as_builtin(_from_entity(entity), default.id) if entity is not None else default
+
+
+async def _save_builtin_override(
+    db_mgr: Any, org_id: str, is_admin: bool, persona: AgentPersonaModel
+) -> AgentPersonaModel:
+    """Store an administrator's edit of a built-in agent for the whole organization."""
+    if not is_admin:
+        raise PersonaError(
+            403,
+            "Only Organization Administrators can edit the built-in agents; save a copy instead.",
+        )
+    edited = _as_builtin(persona, persona.id)
+    if db_mgr is None:
+        _memory_overrides.setdefault(org_id, {})[persona.id] = edited
+        return edited
+    now = int(time.time())
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        entity = (
+            (
+                await session.execute(
+                    select(AgentPersonaEntityModel).where(
+                        AgentPersonaEntityModel.org_id == org_id,
+                        AgentPersonaEntityModel.overrides_builtin == persona.id,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        fields = {name: getattr(edited, name) for name in _COPIED_FIELDS}
+        if entity is None:
+            session.add(
+                AgentPersonaEntityModel(
+                    id=_override_row_id(org_id, persona.id),
+                    org_id=org_id,
+                    user_id=None,
+                    overrides_builtin=persona.id,
+                    created_at=now,
+                    updated_at=now,
+                    **fields,
+                )
+            )
+        else:
+            for name, value in fields.items():
+                setattr(entity, name, value)
+            entity.updated_at = now
+        await session.commit()
+    return edited
+
+
+async def _reset_builtin_override(
+    db_mgr: Any, org_id: str, is_admin: bool, builtin_id: str
+) -> None:
+    if not is_admin:
+        raise PersonaError(403, "Only Organization Administrators can reset the built-in agents.")
+    if db_mgr is None:
+        _memory_overrides.get(org_id, {}).pop(builtin_id, None)
+        return
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        entity = (
+            (
+                await session.execute(
+                    select(AgentPersonaEntityModel).where(
+                        AgentPersonaEntityModel.org_id == org_id,
+                        AgentPersonaEntityModel.overrides_builtin == builtin_id,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if entity is not None:
+            await session.delete(entity)
+            await session.commit()
+
+
 def _check_may_write(scope: str, owner: str | None, user_id: str, is_admin: bool) -> None:
     if scope == "org" and not is_admin:
         raise PersonaError(
@@ -186,6 +319,16 @@ def _check_may_write(scope: str, owner: str | None, user_id: str, is_admin: bool
         )
     if scope == "user" and owner != user_id and not is_admin:
         raise PersonaError(403, "Forbidden")
+
+
+async def _validate_step_limit(db_mgr: Any, org_id: str, persona: AgentPersonaModel) -> None:
+    if persona.max_turns is None:
+        return
+    ceiling = await organization_max_turns(db_mgr, org_id)
+    if persona.max_turns > ceiling:
+        raise PersonaError(
+            422, f"Max steps per turn cannot exceed the organization's limit of {ceiling}."
+        )
 
 
 async def save_persona(
@@ -198,11 +341,13 @@ async def save_persona(
     with (and thereby probe) another tenant's persona.
     """
     if persona.id in RESERVED_IDS:
-        raise PersonaError(409, f"'{persona.id}' is a built-in persona and cannot be modified.")
+        await _validate_step_limit(db_mgr, org_id, persona)
+        return await _save_builtin_override(db_mgr, org_id, is_admin, persona)
     if persona.scope == "org" and not is_admin:
         raise PersonaError(
             403, "Only Organization Administrators can configure organization-wide agent personas."
         )
+    await _validate_step_limit(db_mgr, org_id, persona)
     persona.user_id = user_id if persona.scope == "user" else None
     persona.built_in = False
     now = int(time.time())
@@ -266,7 +411,9 @@ async def delete_persona(
     db_mgr: Any, org_id: str, user_id: str, is_admin: bool, persona_id: str
 ) -> None:
     if persona_id in RESERVED_IDS:
-        raise PersonaError(409, "Built-in personas cannot be deleted.")
+        # Deleting a built-in means undoing the organization's edit: the shipped one returns.
+        await _reset_builtin_override(db_mgr, org_id, is_admin, persona_id)
+        return
     if db_mgr is None:
         existing = _memory.get(org_id, {}).get(persona_id)
         if existing is None:

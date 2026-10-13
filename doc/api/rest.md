@@ -107,7 +107,8 @@ persona carries the stored id, which can differ from the proposed one.
 | knowledge_base_ids | list of string | no | Attached knowledge base IDs |
 | scope | string | no | 'org' or 'user' |
 | user_id | string | no | Owner user ID for personal agents |
-| built_in | boolean | no | Shipped with the platform: read-only; customize it by saving a copy |
+| built_in | boolean | no | Shipped with the platform; an administrator can edit it for the organization |
+| customized | boolean | no | A built-in agent whose organization edit is in effect (it can be reset) |
 | icon | string | no | Avatar/icon key |
 | sandbox_image | string | no | Sandbox image; empty inherits the organization default |
 | cpu_limit | string | no | CPU cores; empty inherits the org setting |
@@ -115,7 +116,13 @@ persona carries the stored id, which can differ from the proposed one.
 | temperature | number | no | Sampling temperature override |
 | thinking_budget_tokens | integer | no | Extended thinking budget tokens override |
 | reasoning_effort | string | no | Reasoning effort tier override ('low', 'medium', 'high') |
-| max_turns | integer | no | Maximum ReAct turn cycles override |
+| max_turns | integer | no | Maximum reasoning steps per turn for this agent; empty inherits the organization's limit, and a value above it is refused |
+
+**Responses:** `200`
+
+### `GET /v1/agents/limits`
+
+The ceilings an agent's own settings must stay under (today: steps per turn).
 
 **Responses:** `200`
 

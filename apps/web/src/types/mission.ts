@@ -334,6 +334,8 @@ export interface AgentPersonaConfig {
   user_id?: string | null;
   org_id?: string | null;
   built_in?: boolean;
+  /** A built-in agent whose organization edit is in effect. */
+  customized?: boolean;
   icon?: string;
   sandbox_image?: string;
   cpu_limit?: string;
@@ -341,7 +343,8 @@ export interface AgentPersonaConfig {
   temperature?: number;
   thinking_budget_tokens?: number;
   reasoning_effort?: "low" | "medium" | "high";
-  max_turns?: number;
+  /** Steps per turn for this agent; empty inherits the organization's limit, its ceiling. */
+  max_turns?: number | null;
 }
 
 
