@@ -1,6 +1,6 @@
 [project]
 name = "mcp-runner"
-version = "0.2.1"
+version = "0.2.2"
 description = "Dedicated runner for command (stdio) MCP servers, and the client the control plane uses to reach it"
 readme = "README.md"
 requires-python = ">=3.12"
