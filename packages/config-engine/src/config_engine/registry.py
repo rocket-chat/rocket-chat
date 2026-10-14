@@ -448,7 +448,9 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             {"contents": "read", "pull_requests": "read"},
             "org",
             _GIT_CREDS,
-            "Permissions requested for GitHub App installation tokens.",
+            "Permissions requested for the GitHub App token the sandbox receives. Always lowered to "
+            "read: add reads such as actions, checks or statuses to let the agent follow CI; "
+            "writing goes through git_push with a token that never enters the sandbox.",
         ),
         _spec(
             "app_token_target_repositories",

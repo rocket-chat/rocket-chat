@@ -70,7 +70,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | `bot_author_name` | Organization | str | `RocketChat Bot` | Name of the bot identity used for bot commits. |
 | `bot_author_email` | Organization | str | `bot@rocketchat.internal` | E-mail of the bot identity used for bot commits. |
 | `default_branch` | Organization | str | `main` | Base branch for pull requests. |
-| `app_token_permissions` | Organization | dict | `{'contents': 'read', 'pull_requests': 'read'}` | Permissions requested for GitHub App installation tokens. |
+| `app_token_permissions` | Organization | dict | `{'contents': 'read', 'pull_requests': 'read'}` | Permissions requested for the GitHub App token the sandbox receives. Always lowered to read: add reads such as actions, checks or statuses to let the agent follow CI; writing goes through git_push with a token that never enters the sandbox. |
 | `app_token_target_repositories` | Organization | str | `all` | Repositories an App token may access: "all" or a comma-separated list. |
 
 ## MCP policy (`mcp`)
