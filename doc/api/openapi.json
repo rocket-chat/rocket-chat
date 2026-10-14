@@ -1860,14 +1860,20 @@
             "type": "string"
           },
           "value": {
-            "description": "Header value (or secret token to encrypt)",
-            "title": "Value",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Header value (or secret token to encrypt). When editing a registered server, null keeps the stored value and an empty string clears it.",
+            "title": "Value"
           }
         },
         "required": [
-          "name",
-          "value"
+          "name"
         ],
         "title": "McpHeaderInput",
         "type": "object"

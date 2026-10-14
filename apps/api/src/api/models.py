@@ -204,7 +204,13 @@ class ResetSessionsResponse(BaseModel):
 
 class McpHeaderInput(BaseModel):
     name: str = Field(..., description="Header key")
-    value: str = Field(..., description="Header value (or secret token to encrypt)")
+    value: str | None = Field(
+        default=None,
+        description=(
+            "Header value (or secret token to encrypt). When editing a registered server, "
+            "null keeps the stored value and an empty string clears it."
+        ),
+    )
     is_secret: bool = Field(default=False, description="Whether this header is a write-only secret")
     member_override: bool = Field(
         default=False,

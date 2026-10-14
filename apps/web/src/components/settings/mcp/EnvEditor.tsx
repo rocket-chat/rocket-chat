@@ -35,7 +35,7 @@ export const EnvEditor: React.FC<EnvEditorProps> = ({ rows, onChange }) => {
         their own API key). Leave its value empty to require it; fill it in to give members a default.
       </p>
       {rows.map((row, index) => (
-        <div key={index} data-testid="env-row" className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_1.4fr_auto_auto_auto]">
+        <div key={index} data-testid="env-row" className="grid grid-cols-1 items-center gap-2 sm:grid-cols-[1fr_1.4fr_auto_auto_auto_auto]">
           <input
             aria-label={`Variable ${index + 1} name`}
             className={FIELD}
@@ -70,6 +70,16 @@ export const EnvEditor: React.FC<EnvEditorProps> = ({ rows, onChange }) => {
             />
             Members can set their own
           </label>
+          {row.stored && (
+            <button
+              type="button"
+              aria-label={`Clear the stored value of variable ${index + 1}`}
+              onClick={() => update(index, { stored: false, value: "" })}
+              className="text-[11px] text-neutral-500 hover:text-rose-400"
+            >
+              Clear
+            </button>
+          )}
           <button
             type="button"
             aria-label={`Remove variable ${index + 1}`}
