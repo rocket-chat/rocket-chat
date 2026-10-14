@@ -151,17 +151,26 @@ export default function AgentsSettingsPage() {
     loadRegistries();
   }, [fetchAgents, loadRegistries]);
 
+  const formDataRef = useRef(formData);
+  formDataRef.current = formData;
+  const syncedAgentRef = useRef<AgentPersonaConfig | null>(null);
+
   useEffect(() => {
-    // Also when the list is replaced (the server's version of a built-in agent arrives after the
-    // page first rendered the shipped one). Typing edits formData only, so this never eats input.
-    if (prevAgentIdRef.current !== selectedAgentId || prevAgentsRef.current !== availableAgents) {
-      prevAgentIdRef.current = selectedAgentId;
-      prevAgentsRef.current = availableAgents;
-      const found = availableAgents.find((a) => a.id === selectedAgentId);
-      if (found) {
-        setFormData(found);
-        setSaveError(null);
-      }
+    const found = availableAgents.find((a) => a.id === selectedAgentId);
+    const agentChanged = prevAgentIdRef.current !== selectedAgentId;
+    const listReplaced = prevAgentsRef.current !== availableAgents;
+    prevAgentIdRef.current = selectedAgentId;
+    prevAgentsRef.current = availableAgents;
+    if (!found || !(agentChanged || listReplaced)) return;
+    // A refreshed list (the server's version of a built-in agent arrives after the page first
+    // rendered the shipped one) replaces the form only while the person has not started editing;
+    // otherwise a late response would silently wipe what they typed.
+    const untouched =
+      JSON.stringify(formDataRef.current) === JSON.stringify(syncedAgentRef.current);
+    if (agentChanged || untouched) {
+      syncedAgentRef.current = found;
+      setFormData(found);
+      setSaveError(null);
     }
   }, [selectedAgentId, availableAgents]);
 

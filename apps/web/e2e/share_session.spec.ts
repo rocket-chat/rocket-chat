@@ -46,6 +46,19 @@ test.describe("Sharing a session", () => {
     await afterRevoke.close();
   });
 
+  test("opens over the whole viewport, not inside the header", async ({ page, request }) => {
+    const created = await request.post(`${API}/v1/sessions`, { data: { title: "Share Fit" } });
+    const sessionId: string = (await created.json()).session_id;
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto(`/chat/${sessionId}`);
+    await page.getByTestId("share-trigger").click();
+
+    const box = await page.getByTestId("share-dialog").boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y + box!.height).toBeLessThanOrEqual(720);
+  });
+
   test("explains when the organization has turned public links off", async ({ page, request }) => {
     await allowPublicLinks(request, false);
     const created = await request.post(`${API}/v1/sessions`, { data: { title: "No Links" } });

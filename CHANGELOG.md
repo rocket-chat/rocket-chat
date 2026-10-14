@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: each settings page has a single "add" action per section (the duplicate "Register MCP server" and "New agent persona" header buttons are removed; organization actions say "org").
 
 ### Fixed
+- **The share dialog opened off-screen.** It was drawn inside the page header, whose blur made the header the dialog's frame, so it was centred on a 56px strip and cut off at the top. It now opens over the whole window.
+- **A late agent-list refresh could wipe what you were typing** on the agents settings page. The form now follows a refreshed list only while it is untouched.
 - `web`: the agents page showed the shipped definition of a built-in agent after a reload even when the server held an edited one; the form now follows the refreshed list.
 - `orchestrator`: agents now know which skills exist. The system prompt lists the skills the member's agent may load (name and summary), and `execute_skill` is described as loading instruction skills as well as running code ones. Before, nothing named the skills, so an agent could not use one unless the user typed its slash command.
 - `orchestrator`: when the identical tool call has failed twice, the third failure carries an explicit "do not send it again, change the arguments" note (the call still runs).
