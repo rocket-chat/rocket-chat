@@ -201,6 +201,43 @@ body {
   }
 }
 
+/* Logo icon: idles in place, then every 5 minutes (one full 300s loop) launches along the
+   nose's own heading until it shrinks out of sight, holds off-screen, and re-enters from the
+   opposite (bottom-left) corner — an ambient easter egg, not a hover effect. The whole launch
+   (identical to the old 2.6s hover version) is squeezed into the last ~2.6s of the cycle;
+   everything before that is just two identical "home" keyframes holding the resting pose. */
+@keyframes rocket-idle-launch {
+  0%, 99.1333% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45);
+  }
+  99.324% {
+    /* Still fully visible this far out: the fade starts late, not from frame one. */
+    transform: translate(340px, -340px) scale(0.75);
+    opacity: 1;
+  }
+  99.4627% {
+    transform: translate(620px, -620px) scale(0.6);
+    opacity: 0;
+  }
+  99.6013% {
+    /* Held off-screen, top-right, out of sight. */
+    transform: translate(620px, -620px) scale(0.6);
+    opacity: 0;
+  }
+  99.61% {
+    /* Instant reposition to the opposite corner — invisible, so no jump is seen. */
+    transform: translate(-620px, 620px) scale(0.6);
+    opacity: 0;
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  100% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+}
+
 .animate-rocket-launch {
   animation: rocket-launch 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -211,6 +248,16 @@ body {
 
 .animate-thrust-pulse {
   animation: thrust-pulse 0.2s ease-in-out;
+}
+
+.animate-rocket-idle-launch {
+  animation: rocket-idle-launch 300s infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rocket-idle-launch {
+    animation: none;
+  }
 }
 
 /* Text and fill pairings lifted to 4.5:1 on the light surfaces (WCAG AA). :where() keeps the
