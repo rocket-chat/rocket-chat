@@ -34,3 +34,11 @@ jobs:
       image: mcp-runner
       file: deploy/docker/Dockerfile.mcp-runner
       tags: ${{ inputs.tag || 'dev' }}
+
+  # The agent workspace image every session starts from (git, GnuPG for commit signing, tools).
+  sandbox:
+    uses: ./.github/workflows/image.yml
+    with:
+      image: sandbox
+      file: deploy/docker/Dockerfile.sandbox
+      tags: ${{ inputs.tag || 'dev' }}

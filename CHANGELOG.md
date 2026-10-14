@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `ci`: the manual **Dev images** workflow also builds and pushes the `sandbox` image (the agent workspace), so a branch's sandbox changes can be tried with the other `:dev` images.
 - `api`: **commits made as the member are attributed to their GitHub username and primary e-mail** (falling back to the account's `id+login@users.noreply.github.com` address) instead of their display name; the git panel shows the identity in use and the member can still override name or e-mail. Without a linked account the profile name is used as before.
 - `web`: settings pages share one quieter look: interface text, labels and buttons are set in the sans typeface (monospace stays for code and prompts), buttons use the shared button, headings use the shared page header, and the scope badges and divider pill are gone.
 - `web`: each settings page has a single "add" action per section (the duplicate "Register MCP server" and "New agent persona" header buttons are removed; organization actions say "org").
