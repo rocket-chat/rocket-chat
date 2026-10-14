@@ -290,6 +290,9 @@ class GitPolicy:
     user_name: str = ""
     user_email: str = ""
     user_token: str | None = field(default=None, repr=False)
+    # The GPG key (fingerprint) the member's commits are signed with, when they commit as
+    # themselves under ``signing_mode == "gpg_key"``.
+    signing_key_id: str = ""
     # (installation id, account login) pairs the organization mapped; the only GitHub App
     # installations a bot-authored push or pull request may use.
     app_installations: tuple[tuple[int, str], ...] = ()

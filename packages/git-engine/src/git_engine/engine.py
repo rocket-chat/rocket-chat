@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import json
 import logging
-import re
 import shlex
 import time
 from collections.abc import Sequence
@@ -15,10 +14,13 @@ import httpx
 import jwt
 
 from git_engine.config import GitEngineSettings
+from git_engine.publish import BranchPublisher, PublishError
 from git_engine.trailers import format_commit_message
 from specifications.interfaces.git import (
     CommitSpec,
     GitEngineProtocol,
+    PublishResult,
+    PublishSpec,
     RepoEvent,
     SigningMode,
     WebhookTrigger,
@@ -157,15 +159,17 @@ class GitEngine(GitEngineProtocol):
         permissions: dict[str, str] | None = None,
         repositories: list[str] | None = None,
         installation_id: int | None = None,
+        prefer_app: bool = False,
     ) -> str | None:
         """
         Retrieves a valid GitHub access token.
-        1. Returns user/PAT token if explicitly set (GITHUB_TOKEN / GITHUB_PAT).
+        1. Returns user/PAT token if explicitly set (GITHUB_TOKEN / GITHUB_PAT), unless
+           ``prefer_app`` asks for the GitHub App's own token (commits made with it are the App's).
         2. Otherwise, if GitHub App credentials are configured (GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY),
            dynamically creates a scoped installation access token.
         """
         # If explicit user token is provided, prioritize it
-        if self.settings.github_token:
+        if self.settings.github_token and not prefer_app:
             return self.settings.github_token
 
         # Fallback to dynamic GitHub App installation token
@@ -276,6 +280,29 @@ class GitEngine(GitEngineProtocol):
         login = (res.json().get("account") or {}).get("login")
         return str(login) if login else None
 
+    async def publish_branch(self, session_id: str, spec: PublishSpec) -> PublishResult:
+        """Publish the working branch: a push, or GitHub-signed commits created through the API."""
+        if not self.driver:
+            raise PublishError("There is no sandbox to publish from.")
+
+        async def mint_app_token(repository: str, installation_id: int | None) -> str | None:
+            # The App's own token first (its commits are the App's); a deployment-wide token
+            # is the fallback for installations that have no App.
+            for prefer_app in (True, False):
+                token = await self.get_github_access_token(
+                    repo=repository,
+                    permissions={"contents": "write", "pull_requests": "write"},
+                    repositories=[repository.rsplit("/", 1)[-1]],
+                    installation_id=installation_id,
+                    prefer_app=prefer_app,
+                )
+                if token:
+                    return token
+            return None
+
+        publisher = BranchPublisher(self.driver, self.settings.github_api_url, mint_app_token)
+        return await publisher.publish(session_id, spec)
+
     async def push_and_open_pr(
         self,
         session_id: str,
@@ -284,6 +311,7 @@ class GitEngine(GitEngineProtocol):
         target_branch: str = "main",
         token: str | None = None,
         installations: Sequence[tuple[int, str]] = (),
+        publish: PublishSpec | None = None,
     ) -> str:
         """Push the working branch and open a pull request through the GitHub REST API.
 
@@ -291,31 +319,11 @@ class GitEngine(GitEngineProtocol):
         credential is available, or GitHub refuses the request, this raises: a pull request
         URL is never invented.
         """
-        current_branch = "agent-fix"
-        remote_url = ""
-        if self.driver:
-            branch_res = await self.driver.exec_command(session_id, "git branch --show-current")
-            if branch_res.exit_code == 0 and branch_res.stdout.strip():
-                current_branch = branch_res.stdout.strip()
-
-            remote_res = await self.driver.exec_command(
-                session_id, "git config --get remote.origin.url"
-            )
-            if remote_res.exit_code == 0 and remote_res.stdout.strip():
-                remote_url = remote_res.stdout.strip()
-
-            push = await self.driver.exec_command(
-                session_id, f"git push -u origin {shlex.quote(current_branch)}"
-            )
-            if push.exit_code != 0:
-                raise RuntimeError(f"git push failed: {(push.stderr or push.stdout).strip()}")
-
-        match = re.search(r"github\.com[:/]([^/]+)/([^/\.]+)", remote_url)
-        if match is None:
-            raise RuntimeError(
-                "The workspace has no GitHub 'origin' remote to open a pull request on"
-            )
-        owner_repo = f"{match.group(1)}/{match.group(2)}"
+        spec = publish or PublishSpec(
+            token=token, installations=tuple(installations), default_branch=target_branch
+        )
+        published = await self.publish_branch(session_id, spec)
+        owner_repo, current_branch = published.repository, published.branch
 
         resolved_token = token or await self.get_github_access_token(
             repo=owner_repo,

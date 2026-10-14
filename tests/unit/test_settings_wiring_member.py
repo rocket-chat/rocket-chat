@@ -6,7 +6,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from api.services.settings import save_org_config, save_user_config
+from api.services.git_credentials import resolve_session_git_credentials
+from api.services.settings import effective_settings, save_org_config, save_user_config
 from api.turns.prompt import _organization_guidance
 from api.turns.shared import _turn_service
 from turn_harness import run_turn
@@ -41,8 +42,9 @@ async def test_a_members_preferred_model_beats_the_organization_default() -> Non
 async def test_the_members_identity_becomes_the_git_author() -> None:
     org = "wire_identity"
     await _prefs(org, full_name="Alice Doe")
-    named = (await _plan(org)).policy.git
-    assert (named.user_name, named.user_email) == ("Alice Doe", "")
+    prefs = await effective_settings(None, org, "user_preferences", "u1")
+    named = await resolve_session_git_credentials("u1", org, None, None, prefs)
+    assert (named.author_name, named.author_email) == ("Alice Doe", "u1@rocket-chat.internal")
 
     await _prefs(org, full_name="Alice Doe", git_author_name="Ali", git_author_email="ali@x.io")
     explicit = (await _plan(org)).policy.git

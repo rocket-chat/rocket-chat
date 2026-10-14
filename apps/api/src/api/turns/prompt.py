@@ -97,10 +97,13 @@ def git_guidance(git_bundle: GitCredentialBundle | None) -> list[str]:
     """What the agent may assume about git authentication, and any problem with it."""
     if git_bundle and git_bundle.token:
         lines = [
-            f"- Git Authentication: Pre-authenticated for GitHub (mode={git_bundle.mode}). "
+            f"- Git Authentication: Pre-authenticated for reading from GitHub (mode={git_bundle.mode}). "
             f"Committer identity: '{git_bundle.author_name}' <{git_bundle.author_email}>. "
-            "GitHub HTTPS URLs and `gh` CLI commands have valid tokens pre-configured. "
-            "You can run `git clone`, `git push`, `git fetch`, or GitHub API calls directly without asking the user for credentials."
+            "`git clone`, `git fetch` and read-only GitHub API calls work without asking the user for credentials. "
+            "Do not `git push`: it is refused here. Commit locally, then call the `git_push` tool "
+            "(or `git_open_pr` to also open the pull request); it publishes with credentials you "
+            "do not hold and signs commits as the organization requires. Changes to GitHub itself "
+            "(pull requests, comments) go through the `github_*` and `git_open_pr` tools."
         ]
     else:
         lines = [

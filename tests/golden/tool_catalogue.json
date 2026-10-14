@@ -1122,7 +1122,24 @@
     }
   },
   {
-    "description": "Push the current branch and open a pull request via the GitHub App.",
+    "description": "Publish the current branch to GitHub: the only way commits leave the sandbox (a raw `git push` is refused). Depending on the organization's signing mode the commits are re-created through GitHub's API so GitHub signs them (local commit hashes then change), or pushed as they are. Commit first; call this before git_open_pr if you only want to publish.",
+    "name": "git_push",
+    "parameters": {
+      "properties": {
+        "branch": {
+          "description": "Branch to publish (default: the checked-out one).",
+          "type": "string"
+        },
+        "force_with_lease": {
+          "description": "Allow replacing remote commits you have not fetched (rarely).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Publish the current branch and open a pull request for it on GitHub.",
     "name": "git_open_pr",
     "parameters": {
       "properties": {

@@ -71,7 +71,7 @@ class SlackAssistantSettings(BaseSettings):
         ),
     )
     slack_blocked_tools: str = Field(
-        default="git_revert,git_open_pr",
+        default="git_revert,git_open_pr,git_push",
         validation_alias="SLACK_BLOCKED_TOOLS",
         description=(
             "Comma-separated destructive tools that are always denied on the Slack path, "

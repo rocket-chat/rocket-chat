@@ -66,7 +66,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | :-- | :-- | :-- | :-- | :-- |
 | `commit_authorship_policy` | Organization | `co_authored` / `user_only` / `bot_only` | `co_authored` | co_authored = bot commits with the member as Co-authored-by, user_only = commits as the member, bot_only = commits as the bot. |
 | `pr_creation_policy` | Organization | `as_user` / `as_bot` | `as_user` | Open pull requests with the member's token (as_user) or the GitHub App (as_bot). |
-| `commit_signing_mode` | Organization | `github_app` / `gpg_key` / `none` | `github_app` | How commits are signed. |
+| `commit_signing_mode` | Organization | `github_app` / `gpg_key` / `none` | `github_app` | github_app: commits are created through GitHub's API so GitHub signs them (verified, made by the GitHub App); gpg_key: members who imported a GPG key and chose to commit as themselves sign with it, everyone else gets github_app; none: unsigned. |
 | `bot_author_name` | Organization | str | `RocketChat Bot` | Name of the bot identity used for bot commits. |
 | `bot_author_email` | Organization | str | `bot@rocketchat.internal` | E-mail of the bot identity used for bot commits. |
 | `default_branch` | Organization | str | `main` | Base branch for pull requests. |
@@ -135,9 +135,10 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | Setting | Scope | Type / values | Default | Description |
 | :-- | :-- | :-- | :-- | :-- |
 | `permission_mode` | Org default, member override | `plan` / `ask` / `auto_edit` / `auto` / `bypass` | `auto` | How much of the agent's work waits for a person: plan (read-only), ask (approve every edit, command and publish), auto_edit (approve commands and publish), auto (the agent asks when it judges an action risky), bypass (approve everything). The organization sets the default and can lock it; otherwise members and sessions choose. |
-| `full_name` | Org default, member override | str | empty | Display name; used as the commit author when no git name is set. |
-| `git_author_name` | Org default, member override | str | empty | Commit author name. |
-| `git_author_email` | Org default, member override | str | empty | Commit author e-mail. |
+| `full_name` | Org default, member override | str | empty | Display name; the commit author name when no GitHub account is linked and no git name is set (a linked account's username is used otherwise). |
+| `git_author_name` | Org default, member override | str | empty | Commit author name; empty uses the linked GitHub account's username. |
+| `git_author_email` | Org default, member override | str | empty | Commit author e-mail; empty uses the linked GitHub account's primary e-mail, then its noreply address. |
+| `commit_as_me` | Org default, member override | bool | `False` | Commit as yourself, signed with the GPG key you imported in Git & version control. Applies only when the organization's commit signing mode is gpg_key; otherwise the organization's authorship policy decides. |
 | `git_branch_prefix` | Org default, member override | str | `feat/rocket-` | Prefix the agent uses for the branches it creates. |
 | `slack_notifications_enabled` | Org default, member override | bool | `True` | Receive Slack completion notices for long-running turns. |
 | `preferred_model` | Org default, member override | str | empty | Preferred model (below the agent, above the organization default); empty uses the organization default. |

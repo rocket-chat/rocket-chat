@@ -77,6 +77,7 @@ class _Engine:
         target_branch: str = "main",
         token: str | None = None,
         installations: tuple[tuple[int, str], ...] = (),
+        publish: object = None,
     ) -> str:
         self.calls.append((target_branch, token))
         return "https://github.com/o/r/pull/1"

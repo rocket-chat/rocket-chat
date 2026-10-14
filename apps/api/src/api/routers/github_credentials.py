@@ -29,6 +29,7 @@ from api.services.credentials import (
 from api.services.git_credentials import (
     resolve_session_git_credentials,
 )
+from api.services.settings import effective_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Sessions & Telemetry"])
@@ -42,12 +43,21 @@ async def get_user_github_credentials_status(request: Request) -> GitHubCredenti
     git_engine: GitEngine | None = getattr(request.app.state, "git_engine", None)
 
     user_cred = await get_user_credential(db_mgr, user_id, "github", org_id=org_id)
+    member_prefs = await effective_settings(db_mgr, org_id, "user_preferences", user_id)
     bundle = await resolve_session_git_credentials(
         user_id=user_id,
         org_id=org_id,
         git_engine=git_engine,
         db_mgr=db_mgr,
+        user_overrides=member_prefs,
     )
+    identity = bundle.identity
+    commit_fields: dict[str, str] = {
+        "commit_name": bundle.author_name,
+        "commit_email": bundle.author_email,
+        "commit_name_source": identity.name_source if identity else "default",
+        "commit_email_source": identity.email_source if identity else "default",
+    }
 
     if user_cred and user_cred.secret:
         meta = user_cred.metadata
@@ -59,6 +69,7 @@ async def get_user_github_credentials_status(request: Request) -> GitHubCredenti
             auth_type=meta.get("auth_type", "oauth"),
             updated_at=user_cred.updated_at,
             injection_mode=bundle.mode,
+            **commit_fields,
         )
 
     return GitHubCredentialStatus(
@@ -69,6 +80,7 @@ async def get_user_github_credentials_status(request: Request) -> GitHubCredenti
         auth_type="none",
         updated_at=None,
         injection_mode=bundle.mode,
+        **commit_fields,
     )
 
 

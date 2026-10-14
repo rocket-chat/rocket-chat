@@ -49,8 +49,10 @@ FROM python:3.12-slim-bookworm AS runner
 # - git: needed by GitEngine for local git operations
 # - curl: needed for Docker container health check probes
 # - ca-certificates: TLS verification for outbound HTTPS (LLM APIs, GitHub, Slack)
+# - gnupg: validates members' imported GPG signing keys in a throwaway keyring (never signs)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
+    gnupg \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*

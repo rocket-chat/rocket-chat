@@ -85,7 +85,7 @@ data:
   SLACK_CHANNEL_HISTORY_LIMIT: {{ .Values.backend.slack.channelHistoryLimit | default 50 | quote }}
   SLACK_TEAM_ID: {{ .Values.backend.slack.teamId | default "" | quote }}
   SLACK_ALLOWED_TOOLS: {{ .Values.backend.slack.allowedTools | default "*" | quote }}
-  SLACK_BLOCKED_TOOLS: {{ .Values.backend.slack.blockedTools | default "git_revert,git_open_pr" | quote }}
+  SLACK_BLOCKED_TOOLS: {{ .Values.backend.slack.blockedTools | default "git_revert,git_open_pr,git_push" | quote }}
   SLACK_MAX_ATTACHMENTS_PER_TURN: {{ .Values.backend.slack.maxAttachmentsPerTurn | default 5 | quote }}
   SLACK_MAX_CONSECUTIVE_FAILURES: {{ .Values.backend.slack.maxConsecutiveFailures | default 3 | quote }}
   SLACK_FAILURE_COOLDOWN_SECONDS: {{ .Values.backend.slack.failureCooldownSeconds | default 300 | quote }}
