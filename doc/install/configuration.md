@@ -136,7 +136,7 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 | `SLACK_CHANNEL_HISTORY_LIMIT` | int | `50` | Maximum messages returned by the on-demand `slack_read_channel_history` tool. |
 | `SLACK_TEAM_ID` | string | `""` | Fallback Slack workspace id used to scope quotas and rate limits when an event does not carry one. |
 | `SLACK_ALLOWED_TOOLS` | string | `*` | Comma-separated tool allowlist for the unauthenticated Slack path; `*` allows every tool except `SLACK_BLOCKED_TOOLS`. Enforced server-side in `ToolRegistry.call_tool`. |
-| `SLACK_BLOCKED_TOOLS` | string | `git_revert,git_open_pr` | Destructive tools always denied on the Slack path. |
+| `SLACK_BLOCKED_TOOLS` | string | `git_revert,git_open_pr,git_push` | Destructive tools always denied on the Slack path. |
 | `SLACK_MAX_ATTACHMENTS_PER_TURN` | int | `5` | Slack files ingested per turn; the rest are skipped and reported back to the caller. |
 | `SLACK_MAX_CONSECUTIVE_FAILURES` | int | `3` | Consecutive failed turns before the abuse breaker pauses the workspace (`0` disables). |
 | `SLACK_FAILURE_COOLDOWN_SECONDS` | int | `300` | Cooldown after the failure breaker trips. |

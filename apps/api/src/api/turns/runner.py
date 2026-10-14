@@ -20,8 +20,14 @@ from api.services.audit import AuditService, GovernancePolicy
 from api.services.budgets import BudgetService
 from api.services.git_credentials import (
     GitCredentialBundle,
+    apply_signing_to_sandbox,
     inject_git_credentials_into_sandbox,
     resolve_session_git_credentials,
+)
+from api.services.git_signing import (
+    SIGNED_MODE,
+    effective_signing_policy,
+    member_signing_for_turn,
 )
 from api.services.mcp_turn import _mcp_tools_for_turn
 from api.services.redaction import RedactionPolicy, Redactor
@@ -58,6 +64,7 @@ class TurnRunner:
         self.req = request
         self.state = TurnState()
         self._org_id: str | None = None
+        self._signing_in_sandbox = False
 
     async def run(self) -> None:
         try:
@@ -326,6 +333,13 @@ class TurnRunner:
             user_overrides=member_prefs,
             repo=_repo_slug(session.git_repo),
         )
+        if ctx.binding.policy.git.signing_mode == SIGNED_MODE:
+            signing = await member_signing_for_turn(
+                req.db_mgr, session.tenant_org_id, session.tenant_user_id, member_prefs
+            )
+            if signing is not None:
+                git_bundle = replace(git_bundle, signing=signing, author_email=signing.commit_email)
+                self._signing_in_sandbox = True
         if git_bundle.warning:
             await self._publish(
                 EventType.STATUS_CHANGED, {"status": "warning", "message": git_bundle.warning}
@@ -343,14 +357,14 @@ class TurnRunner:
     def _turn_policy(ctx: TurnContext, git_bundle: GitCredentialBundle) -> Any:
         """The organization's policy completed with the member's git identity and token."""
         git = ctx.binding.policy.git
+        completed = replace(
+            git,
+            user_name=git.user_name or git_bundle.author_name,
+            user_email=git.user_email or git_bundle.author_email,
+            user_token=git_bundle.user_token,
+        )
         return replace(
-            ctx.binding.policy,
-            git=replace(
-                git,
-                user_name=git.user_name or git_bundle.author_name,
-                user_email=git.user_email or git_bundle.author_email,
-                user_token=git_bundle.token if git_bundle.mode == "user_token" else None,
-            ),
+            ctx.binding.policy, git=effective_signing_policy(completed, git_bundle.signing)
         )
 
     async def _warn_about_budget(self, ctx: TurnContext) -> None:
@@ -414,6 +428,11 @@ class TurnRunner:
             pass
 
     async def _cleanup(self) -> None:
+        if self._signing_in_sandbox and self.req.driver is not None:
+            try:
+                await apply_signing_to_sandbox(self.req.driver, self.req.session_id, None)
+            except Exception as err:
+                logger.warning("Could not remove the signing key from the sandbox: %s", err)
         if self.state.mcp_tools is not None:
             await self.state.mcp_tools.aclose()
         await persist_trace(self.state, self.req.db_mgr)

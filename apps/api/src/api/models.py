@@ -400,6 +400,47 @@ class GitHubCredentialStatus(BaseModel):
     auth_type: str = "none"  # "oauth", "pat", "none"
     updated_at: int | None = None
     injection_mode: str = "none"  # "user_token", "app_readonly", "none"
+    commit_name: str = Field(default="", description="The name commits made as the member carry")
+    commit_email: str = Field(default="", description="The e-mail commits made as the member carry")
+    commit_name_source: str = Field(
+        default="default", description="git_panel, github, profile or default"
+    )
+    commit_email_source: str = Field(
+        default="default", description="git_panel, github, github_noreply or default"
+    )
+
+
+class GitSigningImportRequest(BaseModel):
+    private_key: str = Field(
+        ..., description="Armored GPG private key (gpg --armor --export-secret-keys KEY_ID)"
+    )
+    passphrase: str = Field(default="", description="The key's passphrase, if it has one")
+    commit_email: str | None = Field(
+        default=None,
+        description="The e-mail commits carry; must be an identity of the key. Optional when "
+        "the key has exactly one.",
+    )
+
+
+class GitSigningStatus(BaseModel):
+    """A member's signing key as the page may see it: never the private key."""
+
+    available: bool = Field(..., description="This deployment can validate and use GPG keys")
+    mode: str = Field(..., description="The organization's commit signing mode")
+    configured: bool
+    fingerprint: str | None = None
+    key_id: str | None = None
+    identities: list[str] = Field(default_factory=list)
+    commit_email: str | None = None
+    algorithm: str | None = None
+    expires_at: int | None = None
+    has_passphrase: bool = False
+    public_key: str | None = Field(
+        default=None, description="Upload this to GitHub (Settings > SSH and GPG keys)"
+    )
+    commit_as_me: bool = Field(
+        default=False, description="The member chose to commit as themselves"
+    )
 
 
 class KnowledgeBaseCreateRequest(BaseModel):

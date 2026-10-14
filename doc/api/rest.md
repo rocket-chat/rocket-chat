@@ -1456,6 +1456,32 @@ Test a provided token or current stored token against GitHub API.
 
 **Responses:** `200`
 
+### `GET /v1/user/git-signing`
+
+The member's imported GPG signing key (never the private key) and whether it is in use.
+
+**Responses:** `200`
+
+### `PUT /v1/user/git-signing`
+
+Import a GPG private key: it is validated by GnuPG, then stored encrypted.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| private_key | string | yes | Armored GPG private key (gpg --armor --export-secret-keys KEY_ID) |
+| passphrase | string | no | The key's passphrase, if it has one |
+| commit_email | string | no | The e-mail commits carry; must be an identity of the key. Optional when the key has exactly one. |
+
+**Responses:** `200`
+
+### `DELETE /v1/user/git-signing`
+
+Remove the member's imported signing key.
+
+**Responses:** `200`
+
 ### `GET /v1/user/model-keys`
 
 Provider keys the signed-in member stored (fingerprints only, never the secret).

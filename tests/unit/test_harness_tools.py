@@ -148,6 +148,7 @@ class FakeGitEngine:
         target_branch: str = "main",
         token: str | None = None,
         installations: tuple[tuple[int, str], ...] = (),
+        publish: object = None,
     ) -> str:
         self.prs.append((title, body, target_branch))
         self.pr_tokens.append(token)

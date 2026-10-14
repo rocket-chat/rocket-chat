@@ -90,6 +90,8 @@ _SHARING = "apps/api/src/api/routers/sharing.py"
 _ROUTES = "apps/api/src/api/routers/settings_api.py"
 _TURN = "apps/api/src/api/services/turn_service.py"
 _GIT_CREDS = "apps/api/src/api/services/git_credentials.py"
+_GIT_IDENTITY = "apps/api/src/api/services/github_identity.py"
+_GIT_SIGNING = "apps/api/src/api/services/git_signing.py"
 _BUDGETS = "apps/api/src/api/services/budgets.py"
 
 _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
@@ -411,7 +413,9 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "github_app",
             "org",
             "apps/api/src/api/services/turn_service.py",
-            "How commits are signed.",
+            "github_app: commits are created through GitHub's API so GitHub signs them (verified, "
+            "made by the GitHub App); gpg_key: members who imported a GPG key and chose to "
+            "commit as themselves sign with it, everyone else gets github_app; none: unsigned.",
             choices=("github_app", "gpg_key", "none"),
         ),
         _spec(
@@ -771,24 +775,36 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "str",
             "",
             "both",
-            _TURN,
-            "Display name; used as the commit author when no git name is set.",
+            _GIT_IDENTITY,
+            "Display name; the commit author name when no GitHub account is linked and no git "
+            "name is set (a linked account's username is used otherwise).",
         ),
         _spec(
             "git_author_name",
             "str",
             "",
             "both",
-            _GIT_CREDS,
-            "Commit author name.",
+            _GIT_IDENTITY,
+            "Commit author name; empty uses the linked GitHub account's username.",
         ),
         _spec(
             "git_author_email",
             "str",
             "",
             "both",
-            _GIT_CREDS,
-            "Commit author e-mail.",
+            _GIT_IDENTITY,
+            "Commit author e-mail; empty uses the linked GitHub account's primary e-mail, then its "
+            "noreply address.",
+        ),
+        _spec(
+            "commit_as_me",
+            "bool",
+            False,
+            "both",
+            _GIT_SIGNING,
+            "Commit as yourself, signed with the GPG key you imported in Git & version control. "
+            "Applies only when the organization's commit signing mode is gpg_key; otherwise the "
+            "organization's authorship policy decides.",
         ),
         _spec(
             "git_branch_prefix",

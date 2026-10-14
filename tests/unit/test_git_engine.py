@@ -226,6 +226,7 @@ def _pr_driver() -> AsyncMock:
             exit_code=0, stdout="git@github.com:myorg/custom-repo.git\n", stderr="", duration_ms=5
         ),
         ExecResult(exit_code=0, stdout="", stderr="", duration_ms=10),  # git push
+        ExecResult(exit_code=0, stdout="abc123\n", stderr="", duration_ms=5),  # rev-parse HEAD
     ]
     return driver
 
@@ -302,7 +303,6 @@ async def test_pr_requires_a_github_origin_remote() -> None:
     driver.exec_command.side_effect = [
         ExecResult(exit_code=0, stdout="b\n", stderr="", duration_ms=1),
         ExecResult(exit_code=1, stdout="", stderr="", duration_ms=1),  # no origin url
-        ExecResult(exit_code=0, stdout="", stderr="", duration_ms=1),
     ]
     with pytest.raises(RuntimeError, match="origin"):
         await GitEngine(

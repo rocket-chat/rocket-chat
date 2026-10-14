@@ -153,7 +153,7 @@ A channel can have its own persona, house rules, tool scope and sandbox image. S
 
 ### Safety limits (deployment-wide)
 
-Environment variables bound what an unlinked Slack user can cost or break: `SLACK_USER_TURNS_PER_MINUTE`, `SLACK_CHANNEL_TURNS_PER_MINUTE`, `SLACK_MAX_ATTACHMENTS_PER_TURN`, `SLACK_MAX_CONSECUTIVE_FAILURES` / `SLACK_FAILURE_COOLDOWN_SECONDS` (a circuit breaker), `SLACK_ALLOWED_TOOLS` / `SLACK_BLOCKED_TOOLS` (by default `git_revert` and `git_open_pr` are blocked on the unauthenticated path), `SLACK_PROACTIVE_NOTIFY_AFTER_SECONDS` (a completion notice for long turns, which members can switch off) and `SLACK_HEALTH_CHECK_SECONDS` (below). The settings reference lists every key.
+Environment variables bound what an unlinked Slack user can cost or break: `SLACK_USER_TURNS_PER_MINUTE`, `SLACK_CHANNEL_TURNS_PER_MINUTE`, `SLACK_MAX_ATTACHMENTS_PER_TURN`, `SLACK_MAX_CONSECUTIVE_FAILURES` / `SLACK_FAILURE_COOLDOWN_SECONDS` (a circuit breaker), `SLACK_ALLOWED_TOOLS` / `SLACK_BLOCKED_TOOLS` (by default `git_revert`, `git_open_pr` and `git_push` are blocked on the unauthenticated path), `SLACK_PROACTIVE_NOTIFY_AFTER_SECONDS` (a completion notice for long turns, which members can switch off) and `SLACK_HEALTH_CHECK_SECONDS` (below). The settings reference lists every key.
 
 ---
 

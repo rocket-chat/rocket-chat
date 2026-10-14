@@ -1222,6 +1222,30 @@
             ],
             "title": "Avatar Url"
           },
+          "commit_email": {
+            "default": "",
+            "description": "The e-mail commits made as the member carry",
+            "title": "Commit Email",
+            "type": "string"
+          },
+          "commit_email_source": {
+            "default": "default",
+            "description": "git_panel, github, github_noreply or default",
+            "title": "Commit Email Source",
+            "type": "string"
+          },
+          "commit_name": {
+            "default": "",
+            "description": "The name commits made as the member carry",
+            "title": "Commit Name",
+            "type": "string"
+          },
+          "commit_name_source": {
+            "default": "default",
+            "description": "git_panel, github, profile or default",
+            "title": "Commit Name Source",
+            "type": "string"
+          },
           "injection_mode": {
             "default": "none",
             "title": "Injection Mode",
@@ -1345,6 +1369,149 @@
           }
         },
         "title": "GitHubTestPATRequest",
+        "type": "object"
+      },
+      "GitSigningImportRequest": {
+        "properties": {
+          "commit_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The e-mail commits carry; must be an identity of the key. Optional when the key has exactly one.",
+            "title": "Commit Email"
+          },
+          "passphrase": {
+            "default": "",
+            "description": "The key's passphrase, if it has one",
+            "title": "Passphrase",
+            "type": "string"
+          },
+          "private_key": {
+            "description": "Armored GPG private key (gpg --armor --export-secret-keys KEY_ID)",
+            "title": "Private Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "private_key"
+        ],
+        "title": "GitSigningImportRequest",
+        "type": "object"
+      },
+      "GitSigningStatus": {
+        "description": "A member's signing key as the page may see it: never the private key.",
+        "properties": {
+          "algorithm": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Algorithm"
+          },
+          "available": {
+            "description": "This deployment can validate and use GPG keys",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "commit_as_me": {
+            "default": false,
+            "description": "The member chose to commit as themselves",
+            "title": "Commit As Me",
+            "type": "boolean"
+          },
+          "commit_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit Email"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fingerprint"
+          },
+          "has_passphrase": {
+            "default": false,
+            "title": "Has Passphrase",
+            "type": "boolean"
+          },
+          "identities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Identities",
+            "type": "array"
+          },
+          "key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Id"
+          },
+          "mode": {
+            "description": "The organization's commit signing mode",
+            "title": "Mode",
+            "type": "string"
+          },
+          "public_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Upload this to GitHub (Settings > SSH and GPG keys)",
+            "title": "Public Key"
+          }
+        },
+        "required": [
+          "available",
+          "mode",
+          "configured"
+        ],
+        "title": "GitSigningStatus",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -10022,6 +10189,88 @@
           }
         },
         "summary": "Test User Github Token",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/user/git-signing": {
+      "delete": {
+        "description": "Remove the member's imported signing key.",
+        "operationId": "remove_git_signing_v1_user_git_signing_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitSigningStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Remove Git Signing",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      },
+      "get": {
+        "description": "The member's imported GPG signing key (never the private key) and whether it is in use.",
+        "operationId": "get_git_signing_v1_user_git_signing_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitSigningStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Git Signing",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      },
+      "put": {
+        "description": "Import a GPG private key: it is validated by GnuPG, then stored encrypted.",
+        "operationId": "import_git_signing_v1_user_git_signing_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitSigningImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitSigningStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Git Signing",
         "tags": [
           "Sessions & Telemetry"
         ]

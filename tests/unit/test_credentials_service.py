@@ -97,7 +97,7 @@ async def test_resolve_git_credentials_priority_user_token() -> None:
 
     assert bundle.mode == "user_token"
     assert bundle.token == token
-    assert bundle.author_name == "Major Tom"
+    assert bundle.author_name == "astro-dev", "the GitHub username, not the display name"
     assert bundle.source_details["username"] == "astro-dev"
 
 

@@ -14,6 +14,7 @@ import {
   GitPullRequest,
 } from "lucide-react";
 import { GithubInstallationsPanel } from "../../../components/settings/GithubInstallationsPanel";
+import { GitSigningPanel } from "../../../components/settings/GitSigningPanel";
 import {
   UserScopeSection,
   ScopeDivider,
@@ -28,7 +29,19 @@ interface GitHubCredentialStatus {
   auth_type?: string;
   updated_at?: number | null;
   injection_mode: string;
+  commit_name?: string;
+  commit_email?: string;
+  commit_name_source?: string;
+  commit_email_source?: string;
 }
+
+const IDENTITY_SOURCES: Record<string, string> = {
+  git_panel: "your",
+  github: "your GitHub account's",
+  github_noreply: "your GitHub account's private",
+  profile: "your profile's",
+  default: "a placeholder",
+};
 
 function GitHubSettingsContent() {
   const searchParams = useSearchParams();
@@ -199,6 +212,17 @@ function GitHubSettingsContent() {
             </div>
           </div>
 
+          {credStatus?.commit_name && (
+            <p data-testid="commit-identity" className="text-xs text-muted-foreground">
+              Commits made as you are attributed to{" "}
+              <strong className="text-foreground">
+                {credStatus.commit_name} &lt;{credStatus.commit_email}&gt;
+              </strong>
+              {" "}({IDENTITY_SOURCES[credStatus.commit_name_source ?? "default"]} name,{" "}
+              {IDENTITY_SOURCES[credStatus.commit_email_source ?? "default"]} e-mail). Set either below to change it.
+            </p>
+          )}
+
           {/* Committer identity & branch prefix (member-scoped registry settings) */}
           <SchemaSettingsForm
             domain="user_preferences"
@@ -207,6 +231,8 @@ function GitHubSettingsContent() {
             description="Who commits are attributed to and how the agent names its branches. Organization policy decides whether the bot or you is the committer."
             only={["git_author_name", "git_author_email", "git_branch_prefix"]}
           />
+
+          <GitSigningPanel />
 
           {/* Personal Access Token (PAT) Fallback */}
           <div className="p-4 rounded-lg border border-border bg-surface-card space-y-3">

@@ -217,6 +217,7 @@ class _PullRequests:
         body: str,
         target: str,
         token: str | None = None,
+        publish: object = None,
         **_: Any,
     ) -> str:
         self.calls.append((target, token))

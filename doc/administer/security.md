@@ -38,7 +38,7 @@ Rocket Chat is built with defense-in-depth principles for enterprise compliance 
 +-----------------------------------------------------------------------------+
 | LAYER 5: SUPPLY CHAIN & COMMIT ATTESTATION                                  |
 | - Mandatory Co-authored-by git trailers attribute human and AI contributors |
-| - Cryptographic signing via GitHub App Installation Tokens or GPG           |
+| - Signed commits (GitHub API or GPG), published only through git_push       |
 +-----------------------------------------------------------------------------+
 ```
 
@@ -106,7 +106,7 @@ The Slack bot is intentionally reachable by **anyone in the workspace**, with no
 
 * **Per-workspace quotas** (`slack_workspace_quotas`, migration `007`, RLS-scoped by `org_id`) cap monthly model spend, turns per rolling hour, and concurrent sessions. The check runs **before** any orchestrator call, so an over-limit request costs zero model tokens and never creates a session.
 * **Token-bucket rate limits** per `(team, user)` and `(team, channel)` bound bursts; the buckets live in a bounded in-process LRU so they cannot grow without bound. Rejection counters are exposed on `GET /v1/slack/status`.
-* **Server-side tool enforcement:** the Slack tool allowlist and destructive-tool blocklist (`git_revert`, `git_open_pr` by default) are enforced in `ToolRegistry.call_tool`, the same gate that enforces plan mode. The model is never asked to police itself.
+* **Server-side tool enforcement:** the Slack tool allowlist and destructive-tool blocklist (`git_revert`, `git_open_pr`, `git_push` by default) are enforced in `ToolRegistry.call_tool`, the same gate that enforces plan mode. The model is never asked to police itself.
 * **Abuse guardrails:** a per-turn attachment cap and a consecutive-failure circuit breaker stop a failing or abusive workspace from burning budget on retries.
 * **Observable denials:** every rejection produces an ephemeral reply to the caller (ephemeral messages are used where Slack supports them) and a status-endpoint counter, so a limit is never an invisible empty response.
 

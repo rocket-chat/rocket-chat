@@ -144,7 +144,7 @@ backend:
     # reach the bot, so these caps bound runaway cost and destructive actions.
     teamId: "" # Fallback workspace id when an event does not carry one.
     allowedTools: "*" # Comma-separated allowlist; '*' allows all except blockedTools.
-    blockedTools: "git_revert,git_open_pr" # Destructive tools always denied on Slack.
+    blockedTools: "git_revert,git_open_pr,git_push" # Destructive tools always denied on Slack.
     maxAttachmentsPerTurn: 5 # Slack files ingested per turn; the rest are skipped.
     maxConsecutiveFailures: 3 # Consecutive failed turns before the abuse breaker trips.
     failureCooldownSeconds: 300 # Cooldown once the failure breaker trips.

@@ -29,7 +29,7 @@ __all__ = [
 # Tools that mutate the workspace or reach external systems destructively. They are
 # blocked on the unauthenticated Slack path by default; an operator can tighten (or, if
 # they accept the risk, relax) the list via ``SLACK_BLOCKED_TOOLS``.
-DEFAULT_BLOCKED_TOOLS: tuple[str, ...] = ("git_revert", "git_open_pr")
+DEFAULT_BLOCKED_TOOLS: tuple[str, ...] = ("git_revert", "git_open_pr", "git_push")
 
 
 def parse_tool_csv(raw: str | None) -> frozenset[str]:
