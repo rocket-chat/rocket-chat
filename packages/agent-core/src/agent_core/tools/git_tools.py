@@ -90,7 +90,10 @@ def commit_spec_for_policy(
 
 
 def publish_spec_for_policy(
-    policy: GitPolicy, branch: str | None = None, force_with_lease: bool = False
+    policy: GitPolicy,
+    branch: str | None = None,
+    force_with_lease: bool = False,
+    path: str | None = None,
 ) -> PublishSpec:
     """How the branch leaves the sandbox under the member's effective policy.
 
@@ -107,6 +110,8 @@ def publish_spec_for_policy(
         branch=branch or "",
         signing_mode=signing,
         token=policy.user_token if as_member else None,
+        fallback_token=policy.user_token,
+        path=path or "",
         installations=policy.app_installations,
         default_branch=policy.default_branch,
         force_with_lease=force_with_lease,
@@ -271,11 +276,12 @@ async def git_push(
     force_with_lease: bool = False,
     git_engine: CommitCapable | None = None,
     policy: GitPolicy | None = None,
+    path: str | None = None,
 ) -> str:
     """Publish the branch: the one way commits leave the sandbox (see ``BranchPublisher``)."""
     if git_engine is None:
         return "Error: GitHub is not configured; cannot publish the branch."
-    spec = publish_spec_for_policy(policy or GitPolicy(), branch, force_with_lease)
+    spec = publish_spec_for_policy(policy or GitPolicy(), branch, force_with_lease, path)
     try:
         result = await git_engine.publish_branch(session_id, spec)
     except Exception as err:
@@ -308,6 +314,7 @@ async def git_open_pr(
     target_branch: str | None = None,
     git_engine: CommitCapable | None = None,
     policy: GitPolicy | None = None,
+    path: str | None = None,
 ) -> str:
     """Push the working branch and open a pull request per the organization's PR policy."""
     if git_engine is None:
@@ -322,7 +329,7 @@ async def git_open_pr(
             target_branch or effective.default_branch,
             token=token,
             installations=effective.app_installations,
-            publish=publish_spec_for_policy(effective),
+            publish=publish_spec_for_policy(effective, path=path),
         )
         return f"Pull request opened: {url}"
     except Exception as err:

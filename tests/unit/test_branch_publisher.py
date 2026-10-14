@@ -257,3 +257,81 @@ async def test_a_plain_push_hands_the_token_to_that_command_only(rig: Rig) -> No
     assert git(rig.bare, "rev-parse", "refs/heads/feat/plain") == git(rig.work, "rev-parse", "HEAD")
     session_env = [env for _, env in rig.driver.calls if "GITHUB_TOKEN" in env]
     assert len(session_env) == 1 and session_env[0]["GITHUB_TOKEN"] == "gho_member"
+
+
+async def test_a_repository_cloned_into_a_subfolder_is_found_and_published(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (tmp_path / "work").rename(workspace / "backend-services")
+    rig.driver.workdir = workspace  # /workspace now holds the clone, not a repository itself
+    rig.work = workspace / "backend-services"
+    git(rig.work, "checkout", "-q", "-b", "feat/sub")
+    rig.commit("a.txt", "1\n", "First")
+
+    result = await rig.publisher().publish("s1", API)
+
+    assert result.commits == 1 and result.branch == "feat/sub"
+    assert git(rig.bare, "rev-parse", "refs/heads/feat/sub") == git(rig.work, "rev-parse", "HEAD")
+
+
+async def test_a_named_folder_decides_between_several_repositories(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (tmp_path / "work").rename(workspace / "one")
+    (workspace / "two").mkdir()
+    git(workspace / "two", "init", "-q")
+    rig.driver.workdir = workspace
+    git(workspace / "one", "checkout", "-q", "-b", "feat/pick")
+    (workspace / "one" / "a.txt").write_text("1\n")
+    git(workspace / "one", "add", "-A")
+    git(workspace / "one", "commit", "-q", "-m", "First")
+
+    with pytest.raises(PublishError, match="one, two"):
+        await rig.publisher().publish("s1", API)
+    named = PublishSpec(
+        signing_mode=SigningMode.GITHUB_APP, installations=((7, "acme"),), path="one"
+    )
+    assert (await rig.publisher().publish("s1", named)).commits == 1
+
+
+async def test_without_a_repository_the_agent_is_told_to_clone_one(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    rig.driver.workdir = empty
+
+    with pytest.raises(PublishError, match="clone one first"):
+        await rig.publisher().publish("s1", API)
+
+
+async def test_the_members_own_token_publishes_when_no_app_installation_can(rig: Rig) -> None:
+    git(rig.work, "checkout", "-q", "-b", "feat/fallback")
+    rig.commit("a.txt", "1\n", "First")
+    rig.app_token = None
+
+    result = await rig.publisher().publish(
+        "s1",
+        PublishSpec(signing_mode=SigningMode.GITHUB_APP, fallback_token="gho_member"),
+    )
+
+    assert set(rig.github.tokens) == {"Bearer gho_member"} and result.commits == 1
+    assert any("Published with your GitHub account" in note for note in result.notices)
+
+
+async def test_the_missing_credential_error_says_what_to_check(rig: Rig) -> None:
+    git(rig.work, "checkout", "-q", "-b", "feat/nothing")
+    rig.commit("a.txt", "1\n", "First")
+    rig.app_token = None
+
+    with pytest.raises(PublishError) as raised:
+        await rig.publisher().publish("s1", API)
+
+    assert "installation mapped" in str(raised.value) and "link one" in str(raised.value)

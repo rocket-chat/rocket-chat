@@ -195,6 +195,14 @@ def _register_git_publish_tools(registry: "ToolRegistry") -> None:
             bool,
             Field(description="Allow replacing remote commits you have not fetched (rarely)."),
         ] = False,
+        path: Annotated[
+            str | None,
+            Field(
+                description="Repository folder when it is not /workspace itself, e.g. "
+                "'backend-services' for /workspace/backend-services (found automatically when "
+                "there is only one)."
+            ),
+        ] = None,
     ) -> str:
         target = registry._sandbox_target("git_push")
         if not target:
@@ -207,6 +215,7 @@ def _register_git_publish_tools(registry: "ToolRegistry") -> None:
             force_with_lease,
             registry._git_engine,
             policy=registry._git_policy(),
+            path=path,
         )
 
     @registry._tool(
@@ -217,6 +226,10 @@ def _register_git_publish_tools(registry: "ToolRegistry") -> None:
         body: Annotated[str, Field(description="Pull request description.")],
         target_branch: Annotated[
             str | None, Field(description="Base branch to merge into (default: main).")
+        ] = None,
+        path: Annotated[
+            str | None,
+            Field(description="Repository folder when it is not /workspace itself (see git_push)."),
         ] = None,
     ) -> str:
         target = registry._sandbox_target("git_open_pr")
@@ -232,6 +245,7 @@ def _register_git_publish_tools(registry: "ToolRegistry") -> None:
             target_branch,
             registry._git_engine,
             policy=registry._git_policy(),
+            path=path,
         )
         follow = registry._turn_callback("github_watch")
         if follow and (pull := git_tools.parse_pull_request_url(result)):

@@ -23,7 +23,10 @@ _BASE64_SHIM = (
 
 
 class LocalGitDriver:
-    """Just enough of the sandbox driver: ``exec_command`` in a working directory."""
+    """Just enough of the sandbox driver: ``exec_command`` in a working directory.
+
+    ``workdir`` stands for ``/workspace``: that path and anything under it map into it.
+    """
 
     def __init__(self, workdir: pathlib.Path, shim_dir: pathlib.Path) -> None:
         self.workdir = workdir
@@ -48,7 +51,14 @@ class LocalGitDriver:
         env: dict[str, str] | None = None,
         on_stdout_chunk: Any = None,
     ) -> ExecResult:
+        # Commands name /workspace literally (clone_repository does); it is this directory here.
+        command = command.replace("/workspace", str(self.workdir))
         self.calls.append((command, dict(env or {})))
+        cwd = self.workdir
+        if workdir.startswith("/workspace/"):
+            cwd = self.workdir / workdir.removeprefix("/workspace/")
+        elif workdir and workdir != "/workspace":
+            cwd = pathlib.Path(workdir)
         environment = {
             **os.environ,
             "PATH": self._path,
@@ -60,7 +70,7 @@ class LocalGitDriver:
         }
         process = await asyncio.create_subprocess_shell(
             command,
-            cwd=self.workdir,
+            cwd=cwd,
             env=environment,
             executable="/bin/bash",
             stdout=asyncio.subprocess.PIPE,

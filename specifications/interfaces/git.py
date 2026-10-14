@@ -49,6 +49,12 @@ class PublishSpec:
     signing_mode: SigningMode = SigningMode.NONE
     # The member's own write token; the GitHub App's is minted when this is None.
     token: str | None = None
+    # Used only when no GitHub App token can be minted (no installation is mapped to the
+    # organization): the member's own token, so their access to the repository is enough.
+    fallback_token: str | None = None
+    # The repository folder, absolute or relative to /workspace. Empty: /workspace itself, or
+    # the one repository found under it.
+    path: str = ""
     installations: tuple[tuple[int, str], ...] = ()
     default_branch: str = "main"
     force_with_lease: bool = False
