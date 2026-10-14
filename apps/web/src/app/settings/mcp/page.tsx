@@ -30,6 +30,7 @@ export default function McpSettingsPage() {
 
   // The registration form is mounted fresh each time it opens, so it needs no reset.
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingServer, setEditingServer] = useState<McpServerConfig | null>(null);
   const [formScope, setFormScope] = useState<"user" | "org">("user");
 
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
@@ -78,8 +79,13 @@ export default function McpSettingsPage() {
 
   // A server was added (by the form): list it and check what it exposes.
   const handleServerAdded = (server: McpServerConfig, message: string) => {
-    setServers((prev) => [...prev, server]);
+    setServers((prev) =>
+      prev.some((s) => s.id === server.id)
+        ? prev.map((s) => (s.id === server.id ? server : s))
+        : [...prev, server]
+    );
     setShowAddForm(false);
+    setEditingServer(null);
     showSuccess(message);
     handleProbe(server.id);
   };
@@ -147,6 +153,7 @@ export default function McpSettingsPage() {
       onToggle={() => setExpandedServerId(expandedServerId === server.id ? null : server.id)}
       onProbe={handleProbe}
       onDelete={handleDeleteServer}
+      onEdit={(target) => setEditingServer(target)}
       onAuthorize={handleOAuthAuthorize}
       runner={runner}
       onMemberEnvChanged={fetchServers}
@@ -173,6 +180,18 @@ export default function McpSettingsPage() {
           <CheckCircle2 className="w-4 h-4 shrink-0" />
           <span>{successBanner}</span>
         </div>
+      )}
+
+      {editingServer && (
+        <McpServerForm
+          key={editingServer.id}
+          scope={editingServer.scope === "user" ? "user" : "org"}
+          isAdmin={isAdmin}
+          runner={runner}
+          editing={editingServer}
+          onSaved={handleServerAdded}
+          onCancel={() => setEditingServer(null)}
+        />
       )}
 
       {showAddForm && (

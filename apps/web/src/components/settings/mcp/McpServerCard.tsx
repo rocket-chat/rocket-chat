@@ -6,6 +6,7 @@ import {
   ChevronRight,
   ExternalLink,
   Globe,
+  Pencil,
   Radio,
   RefreshCw,
   Server,
@@ -40,6 +41,8 @@ interface McpServerCardProps {
   onToggle: () => void;
   onProbe: (id: string) => void;
   onDelete: (id: string, name: string) => void;
+  /** Open the edit form (command servers). */
+  onEdit: (server: McpServerConfig) => void;
   onAuthorize: (id: string) => void;
   /** The MCP runner, for command servers (null while unknown). */
   runner: McpRunnerStatus | null;
@@ -56,6 +59,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
   onToggle,
   onProbe,
   onDelete,
+  onEdit,
   onAuthorize,
   runner,
   onMemberEnvChanged,
@@ -136,6 +140,18 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
             />
             <span>{server.tools_count ?? 0} TOOLS</span>
           </button>
+
+          {canManage && server.transport === "stdio" && (
+            <button
+              type="button"
+              onClick={() => onEdit(server)}
+              className="p-1 rounded-lg hover:bg-surface-elevated text-neutral-500 hover:text-foreground transition-colors cursor-pointer"
+              title="Edit server"
+              aria-label={`Edit ${server.name}`}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
 
           {canManage && (
             <button
