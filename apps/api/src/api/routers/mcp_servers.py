@@ -330,7 +330,7 @@ async def validate_mcp_server(
         req_headers[hdr_name] = f"{prefix} {req.auth.api_key}".strip()
 
     for h in req.auth.headers:
-        req_headers[h.name] = h.value
+        req_headers[h.name] = h.value or ""
 
     status, tools_data, err_msg = await probe_and_fetch_tools(
         transport=req.transport,
@@ -554,10 +554,10 @@ def _open_secret(stored: str, is_secret: bool) -> str | None:
 
 
 def _keep_stored_secrets(req: CreateMcpServerRequest, stored: dict[str, Any]) -> None:
-    """Fill a secret the edit left blank with the one already stored.
+    """Fill a secret the edit left out (``null``) with the one already stored.
 
-    Secrets are never sent back to the page, so an edit cannot show them; a blank field means
-    "unchanged". An HTTP server whose address changed keeps nothing: the old credential would
+    Secrets are never sent back to the page, so an edit cannot show them; ``null`` means
+    "unchanged" and an empty string means "none" (a variable members must provide). An HTTP server whose address changed keeps nothing: the old credential would
     otherwise be sent to a new host without anyone retyping it. A command server may keep its
     variables, since the administrator already chooses what runs.
     """
@@ -576,9 +576,8 @@ def _keep_stored_secrets(req: CreateMcpServerRequest, stored: dict[str, Any]) ->
     before = {h["name"]: h for h in previous.get("headers") or []}
     for header in auth.headers:
         old = before.get(header.name)
-        if header.value or header.member_override or not old or not old.get("value"):
-            continue
-        header.value = _open_secret(old["value"], bool(old.get("is_secret"))) or ""
+        if header.value is None and old and old.get("value"):
+            header.value = _open_secret(old["value"], bool(old.get("is_secret")))
 
 
 async def _discover_oauth_settings(
@@ -625,7 +624,7 @@ async def _tools_and_status(
         prefix = req.auth.header_prefix or "Bearer"
         raw_headers[header_name] = f"{prefix} {req.auth.api_key}".strip()
     for header in req.auth.headers:
-        raw_headers[header.name] = header.value
+        raw_headers[header.name] = header.value or ""
 
     status, fetched_tools, _ = await probe_and_fetch_tools(
         transport=req.transport,
@@ -717,6 +716,8 @@ async def register_or_update_mcp_server(
         stored = await _stored_server_for_update(request, org_id, user_id, is_admin, req.id)
         if stored is not None:
             _keep_stored_secrets(req, stored)
+    for header in req.auth.headers:
+        header.value = header.value or ""
     _check_stdio_environment(req.transport, req.auth)
 
     server_id = req.id or f"mcp-{uuid.uuid4().hex[:8]}"

@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `web`, `api`: administrators can **edit an organization command server** (pencil on its card): command, install script, variables, member overrides and guidance. Secrets are never sent back to the page; leaving one empty keeps the stored value (kept only if the caller may modify the server, and for a remote server only while its address is unchanged). Members' own values survive the edit.
+- `web`, `api`: administrators can **edit an organization command server** (pencil on its card): command, install script, variables, member overrides and guidance. Secrets are never sent back to the page; sending `null` for a header keeps its stored value and an empty string clears it (kept only if the caller may modify the server, and for a remote server only while its address is unchanged). Members' own values survive the edit.
 - `web`, `api`: administrators can edit the built-in agents (for example **General Software Engineer**) for the whole organization, and **Reset to default** restores the shipped definition. The edit is stored as an organization row that replaces the built-in (migration 027), is applied to every turn and never leaks to another organization; members keep saving their own copy. `DELETE /v1/agents/{built-in id}` resets it.
 - `web`, `api`: a custom agent can set its own "Max steps per turn" in its settings form, from 1 up to the organization's `max_turns`; empty inherits the organization's limit. A higher value is refused with the ceiling in the message, an agent is also capped at run time if the organization later lowers its limit, and `GET /v1/agents/limits` reports the ceiling. The persona API now accepts up to 200 (it stopped at 100 before).
 - `orchestrator`: `search_tools` lists the tools available in the session, optionally filtered by keyword, so an agent can look a tool up instead of guessing its name.
@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: each settings page has a single "add" action per section (the duplicate "Register MCP server" and "New agent persona" header buttons are removed; organization actions say "org").
 
 ### Fixed
+- `api`: editing a command server could lose a secret: the organization's default of a variable members may override was blanked on every save, and probing a variable with no value failed with a decryption error instead of running the server with the variable empty.
 - **The share dialog opened off-screen.** It was drawn inside the page header, whose blur made the header the dialog's frame, so it was centred on a 56px strip and cut off at the top. It now opens over the whole window.
 - **A late agent-list refresh could wipe what you were typing** on the agents settings page. The form now follows a refreshed list only while it is untouched.
 - `web`: the agents page showed the shipped definition of a built-in agent after a reload even when the server held an edited one; the form now follows the refreshed list.

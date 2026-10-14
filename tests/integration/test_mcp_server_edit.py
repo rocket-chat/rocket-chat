@@ -64,7 +64,7 @@ async def test_an_admin_edits_a_command_server_without_retyping_its_secret(
     edit = _command_server(id=created["id"], endpoint_or_command="tool serve --fast")
     edit["auth"]["install_command"] = "curl -L https://example.test/v2 > tool"
     edit["auth"]["headers"] = [
-        {"name": "API_KEY", "value": "", "is_secret": True},
+        {"name": "API_KEY", "value": None, "is_secret": True},
         {"name": "REGION", "value": "us", "is_secret": False},
     ]
     saved = await api.post("/v1/mcp/servers", json=edit, headers=ADMIN)
@@ -120,7 +120,7 @@ async def test_members_keep_their_own_values_when_the_server_is_edited(api: Asyn
 async def test_a_member_cannot_edit_an_organization_server(api: AsyncClient) -> None:
     created = (await api.post("/v1/mcp/servers", json=_command_server(), headers=ADMIN)).json()
     edit = _command_server(id=created["id"], endpoint_or_command="evil")
-    edit["auth"]["headers"][0]["value"] = ""
+    edit["auth"]["headers"][0]["value"] = None
 
     denied = await api.post("/v1/mcp/servers", json=edit, headers=ALICE)
 

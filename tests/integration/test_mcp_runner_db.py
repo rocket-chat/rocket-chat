@@ -175,7 +175,7 @@ def test_editing_a_server_keeps_its_stored_secret_and_refuses_a_member(
             edit = {**server, "id": server_id, "endpoint_or_command": "tool serve --fast"}
             edit["auth"] = {
                 "auth_type": "custom_headers",
-                "headers": [{"name": "API_KEY", "value": "", "is_secret": True}],
+                "headers": [{"name": "API_KEY", "value": None, "is_secret": True}],
             }
             saved = client.post("/v1/mcp/servers", json=edit, headers=ADMIN)
             assert saved.status_code == 200, saved.text
@@ -185,3 +185,75 @@ def test_editing_a_server_keeps_its_stored_secret_and_refuses_a_member(
             assert client.post("/v1/mcp/servers", json=edit, headers=MEMBER).status_code == 403
         finally:
             client.delete(f"/v1/mcp/servers/{server_id}", headers=ADMIN)
+
+
+def test_an_edited_server_on_postgresql_still_runs_with_its_secret(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url, stop = start_runner(tmp_path)
+    monkeypatch.setenv("MCP_RUNNER_URL", url)
+    monkeypatch.setenv("MCP_RUNNER_TOKEN", TOKEN)
+
+    def server(headers: list[dict[str, object]], **extra: object) -> dict[str, object]:
+        return {
+            "name": f"Edited {uuid.uuid4().hex[:6]}",
+            "transport": "stdio",
+            "endpoint_or_command": f"{sys.executable} {SERVER}",
+            "scope": "org",
+            "auth": {"auth_type": "custom_headers", "headers": headers},
+            **extra,
+        }
+
+    try:
+        with TestClient(app) as client:
+            manager = app.state.db_manager
+
+            async def provision() -> None:
+                async with manager.session(tenant_org_id="test_org") as session:
+                    await ensure_tenant_identity(session, "test_org", "mcp_env_admin")
+
+            async def runs_with() -> str:
+                current_tenant_org_id.set("test_org")
+                provider = await mcp_turn._mcp_tools_for_turn(manager, "test_org", "mcp_env_admin")
+                assert provider is not None
+                try:
+                    mine = [d for d in provider.definitions() if "whoami" in d.name]
+                    return await provider.call(mine[0].name, {})
+                finally:
+                    await provider.aclose()
+
+            client.portal.call(provision)
+            first = server(
+                [
+                    {"name": "BASE_URL", "value": "https://one.example"},
+                    {"name": "API_KEY", "value": "org-key", "is_secret": True},
+                ]
+            )
+            created = client.post("/v1/mcp/servers", json=first, headers=ADMIN)
+            assert created.status_code == 200, created.text
+            server_id = created.json()["id"]
+            try:
+                edit = {
+                    **first,
+                    "id": server_id,
+                    "auth": {
+                        "auth_type": "custom_headers",
+                        "headers": [
+                            {"name": "BASE_URL", "value": "https://two.example"},
+                            {"name": "API_KEY", "value": None, "is_secret": True},
+                        ],
+                    },
+                }
+                saved = client.post("/v1/mcp/servers", json=edit, headers=ADMIN)
+                assert saved.status_code == 200, saved.text
+                assert saved.json()["status"] == "connected", saved.json()
+
+                probed = client.post(f"/v1/mcp/servers/{server_id}/probe", headers=ADMIN)
+                assert probed.json()["status"] == "connected", probed.json()
+                output = client.portal.call(runs_with)
+                assert "key=org-key" in output and "two.example" in output
+            finally:
+                client.delete(f"/v1/mcp/servers/{server_id}", headers=ADMIN)
+    finally:
+        app.state.mcp_member_tokens = None
+        stop()
