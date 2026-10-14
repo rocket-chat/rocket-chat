@@ -29,6 +29,8 @@ MAX_COMMIT_PAYLOAD_BYTES = 20 * 1024 * 1024
 REMOTE = re.compile(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$")
 SYMLINK_MODE, SUBMODULE_MODE, EXECUTABLE_MODE = "120000", "160000", "100755"
 
+WORKSPACE = "/workspace"
+REPOSITORY_SEARCH_DEPTH = 3
 AppTokenMinter = Callable[[str, int | None], Awaitable[str | None]]
 
 
@@ -69,8 +71,10 @@ class BranchPublisher:
         self._driver = driver
         self._api_url = api_url.rstrip("/")
         self._mint_app_token = mint_app_token
+        self._cwd = WORKSPACE
 
     async def publish(self, session_id: str, spec: PublishSpec) -> PublishResult:
+        self._cwd = await self._repository_dir(session_id, spec.path)
         branch = spec.branch or await self._current_branch(session_id)
         repository = repository_of(
             await self._git(session_id, "git config --get remote.origin.url")
@@ -89,7 +93,42 @@ class BranchPublisher:
     async def _run(
         self, session_id: str, command: str, env: dict[str, str] | None = None
     ) -> ExecResult:
-        return await self._driver.exec_command(session_id, command, timeout_seconds=300, env=env)
+        return await self._driver.exec_command(
+            session_id, command, workdir=self._cwd, timeout_seconds=300, env=env
+        )
+
+    async def _repository_dir(self, session_id: str, requested: str) -> str:
+        """The folder holding the repository: named, /workspace itself, or the one under it.
+
+        ``clone_repository`` puts a repository in ``/workspace/<name>``, so the sandbox's own
+        working directory is usually not the repository.
+        """
+        if requested:
+            return requested if requested.startswith("/") else f"{WORKSPACE}/{requested.strip('/')}"
+        inside = await self._driver.exec_command(
+            session_id, "git rev-parse --show-toplevel", workdir=WORKSPACE, timeout_seconds=30
+        )
+        if inside.exit_code == 0 and inside.stdout.strip():
+            return inside.stdout.strip()
+        found = await self._driver.exec_command(
+            session_id,
+            f"find . -maxdepth {REPOSITORY_SEARCH_DEPTH} -name .git -not -path '*/node_modules/*'"
+            " -prune -print",
+            workdir=WORKSPACE,
+            timeout_seconds=30,
+        )
+        folders = sorted(
+            line[2:].removesuffix("/.git") for line in found.stdout.splitlines() if "/.git" in line
+        )
+        if len(folders) == 1:
+            return f"{WORKSPACE}/{folders[0]}"
+        if not folders:
+            raise PublishError(f"There is no git repository under {WORKSPACE}: clone one first.")
+        raise PublishError(
+            "There are several repositories under /workspace ("
+            + ", ".join(folders)
+            + "): say which one with the path argument."
+        )
 
     async def _current_branch(self, session_id: str) -> str:
         branch = await self._git(session_id, "git branch --show-current")
@@ -97,24 +136,33 @@ class BranchPublisher:
             raise PublishError("No branch is checked out (detached HEAD); create or switch to one.")
         return branch
 
-    async def _write_token(self, repository: str, spec: PublishSpec) -> str:
+    async def _write_token(self, repository: str, spec: PublishSpec) -> tuple[str, str | None]:
+        """The credential to publish with, and a notice when it is not the usual one."""
         if spec.token:
-            return spec.token
+            return spec.token, None
         installation = next(
             (i for i, login in spec.installations if repository.startswith(f"{login}/")), None
         )
         token = await self._mint_app_token(repository, installation)
-        if not token:
-            raise PublishError(
-                "No GitHub credential can write to this repository: link your GitHub account, or "
-                "ask an administrator to give the GitHub App 'Contents: Read & write' on it."
+        if token:
+            return token, None
+        if spec.fallback_token:
+            return spec.fallback_token, (
+                "Published with your GitHub account: no GitHub App installation can write to "
+                f"{repository} (map the App's installation to your organization under Settings > "
+                "GitHub to have the App publish instead)."
             )
-        return token
+        raise PublishError(
+            f"No GitHub credential can write to {repository}. The GitHub App gave no token (is its "
+            "installation mapped to your organization under Settings > GitHub, with 'Contents: "
+            "Read & write' on the repository?) and you have no linked GitHub account: link one "
+            "under Settings > Git & version control."
+        )
 
     async def _push(
         self, session_id: str, repository: str, branch: str, spec: PublishSpec
     ) -> PublishResult:
-        token = await self._write_token(repository, spec)
+        token, notice = await self._write_token(repository, spec)
         # The credential helper reads the token from the command's own environment, so it is
         # present for this push only.
         env = {
@@ -126,13 +174,15 @@ class BranchPublisher:
         force = " --force-with-lease" if spec.force_with_lease else ""
         await self._git(session_id, f"git push{force} -u origin {shlex.quote(branch)}", env=env)
         head = await self._git(session_id, "git rev-parse HEAD")
-        return PublishResult(repository, branch, head, via="git_push")
+        return PublishResult(
+            repository, branch, head, via="git_push", notices=[notice] if notice else []
+        )
 
     async def _replay_through_api(
         self, session_id: str, repository: str, branch: str, spec: PublishSpec
     ) -> PublishResult:
-        token = await self._write_token(repository, spec)
-        await self._git(session_id, "git fetch --quiet origin")
+        token, token_notice = await self._write_token(repository, spec)
+        await self._fetch_branch(session_id, branch, required=False)
         remote_head, created = await self._remote_head(session_id, repository, branch, spec, token)
         commits = (
             await self._git(session_id, f"git rev-list --reverse {remote_head}..HEAD")
@@ -146,7 +196,7 @@ class BranchPublisher:
                 "replay. Rebase onto the base branch (git rebase) and publish again."
             )
 
-        notices: list[str] = []
+        notices: list[str] = [token_notice] if token_notice else []
         head = remote_head
         for sha in commits:
             head = await self._create_commit(
@@ -174,9 +224,10 @@ class BranchPublisher:
                     "(git rebase origin/" + branch + "), then publish again."
                 )
             return head, False
+        default = await self._default_branch(session_id, spec.default_branch)
+        await self._fetch_branch(session_id, default, required=True)
         base = await self._git(
-            session_id,
-            f"git merge-base HEAD refs/remotes/origin/{shlex.quote(spec.default_branch)}",
+            session_id, f"git merge-base HEAD refs/remotes/origin/{shlex.quote(default)}"
         )
         await self._rest(
             "POST",
@@ -259,12 +310,33 @@ class BranchPublisher:
             changes.append(_FileChange(status, path, new_mode, new_blob))
         return changes
 
+    async def _fetch_branch(self, session_id: str, branch: str, *, required: bool) -> None:
+        """Bring one remote branch into ``origin/<branch>``.
+
+        An explicit refspec, because ``clone_repository`` makes a shallow single-branch clone
+        whose fetch configuration only tracks the default branch: a plain ``git fetch origin
+        <branch>`` would update FETCH_HEAD and leave ``origin/<branch>`` unknown.
+        """
+        quoted = shlex.quote(branch)
+        command = f"git fetch --quiet origin +refs/heads/{quoted}:refs/remotes/origin/{quoted}"
+        if required:
+            await self._git(session_id, command)
+        else:
+            await self._run(session_id, command)
+
+    async def _default_branch(self, session_id: str, configured: str) -> str:
+        """The repository's own default branch (from the clone), else the organization's setting."""
+        result = await self._run(session_id, "git symbolic-ref --short refs/remotes/origin/HEAD")
+        name = result.stdout.strip().removeprefix("origin/")
+        return name if result.exit_code == 0 and name else configured
+
     async def _resync(self, session_id: str, branch: str) -> None:
         """Move the local branch onto the commits GitHub created, keeping uncommitted work."""
         quoted = shlex.quote(branch)
+        await self._fetch_branch(session_id, branch, required=True)
         await self._git(
             session_id,
-            f"git fetch --quiet origin {quoted} && git reset --quiet --mixed origin/{quoted}"
+            f"git reset --quiet --mixed origin/{quoted}"
             f" && (git branch --set-upstream-to=origin/{quoted} >/dev/null 2>&1 || true)",
         )
 

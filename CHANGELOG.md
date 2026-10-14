@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: each settings page has a single "add" action per section (the duplicate "Register MCP server" and "New agent persona" header buttons are removed; organization actions say "org").
 
 ### Fixed
+- `git`: **`git_push` and `git_open_pr` work on a repository cloned into a subfolder** (where `clone_repository` puts it): they find the repository under `/workspace` (or take a `path`) instead of only looking in `/workspace` itself.
+- `git`: **`git_push` works on the shallow, single-branch clones `clone_repository` makes**: it fetches the branches it needs with explicit refspecs and takes the base branch from the clone's own `origin/HEAD`, instead of failing to find `origin/<branch>` after publishing.
+- `git`: **publishing no longer fails when the GitHub App has no installation mapped to the organization**: with no App token available, the branch is published with the member's own linked GitHub account (and the result says so); with neither, the error names what to check.
 - `api`: editing a command server could lose a secret: the organization's default of a variable members may override was blanked on every save, and probing a variable with no value failed with a decryption error instead of running the server with the variable empty.
 - **The share dialog opened off-screen.** It was drawn inside the page header, whose blur made the header the dialog's frame, so it was centred on a 56px strip and cut off at the top. It now opens over the whole window.
 - **A late agent-list refresh could wipe what you were typing** on the agents settings page. The form now follows a refreshed list only while it is untouched.
