@@ -147,3 +147,97 @@ async def test_an_http_server_that_moves_must_have_its_secret_retyped(api: Async
     moved = {**same_host, "endpoint_or_command": "https://elsewhere.example.test/a"}
     after = await api.post("/v1/mcp/servers", json=moved, headers=ADMIN)
     assert after.json()["has_api_key"] is False
+
+
+def _remote_server(**auth: Any) -> dict[str, Any]:
+    return {
+        "name": "Remote",
+        "transport": "http",
+        "endpoint_or_command": "https://mcp.example.test/a",
+        "scope": "org",
+        "tools": TOOLS,
+        "auth": auth,
+    }
+
+
+async def test_the_response_carries_what_an_edit_form_needs(api: AsyncClient) -> None:
+    created = await api.post(
+        "/v1/mcp/servers",
+        json=_remote_server(
+            auth_type="oauth2",
+            oauth_authorization_url="https://auth.example.test/authorize",
+            oauth_token_url="https://auth.example.test/token",
+            oauth_client_id="client-1",
+            oauth_client_secret="client-secret",
+            oauth_scopes=["read", "write"],
+        ),
+        headers=ADMIN,
+    )
+    body = created.json()
+    assert body["oauth_authorization_url"] == "https://auth.example.test/authorize"
+    assert body["oauth_token_url"] == "https://auth.example.test/token"
+    assert body["oauth_client_id"] == "client-1"
+    assert body["oauth_scopes"] == ["read", "write"]
+    assert body["has_oauth_secret"] is True and "client-secret" not in created.text
+
+
+async def test_a_remote_server_keeps_its_oauth_account_unless_it_is_pointed_elsewhere(
+    api: AsyncClient,
+) -> None:
+    oauth = {
+        "auth_type": "oauth2",
+        "oauth_authorization_url": "https://auth.example.test/authorize",
+        "oauth_token_url": "https://auth.example.test/token",
+        "oauth_client_id": "client-1",
+    }
+    created = (
+        await api.post("/v1/mcp/servers", json=_remote_server(**oauth), headers=ADMIN)
+    ).json()
+    record = mcp_turn._mcp_servers_store[created["id"]]
+    record["encrypted_auth"]["access_token_enc"] = _cipher.encrypt("account-token")
+
+    from api.services.mcp_member_tokens import McpMemberTokenStore
+
+    await McpMemberTokenStore(None).put(ORG, created["id"], "alice", {"access_token_enc": "x"})
+
+    rename = {**_remote_server(**oauth), "id": created["id"], "name": "Renamed"}
+    await api.post("/v1/mcp/servers", json=rename, headers=ADMIN)
+    assert await McpMemberTokenStore(None).get(ORG, created["id"], "alice") is not None
+
+    moved = {**rename, "endpoint_or_command": "https://elsewhere.example.test/a"}
+    await api.post("/v1/mcp/servers", json=moved, headers=ADMIN)
+    assert await McpMemberTokenStore(None).get(ORG, created["id"], "alice") is None
+
+
+async def test_validating_an_edit_uses_the_stored_secret_and_obeys_the_same_access_rules(
+    api: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    created = (
+        await api.post(
+            "/v1/mcp/servers",
+            json=_remote_server(auth_type="api_key", api_key="remote-secret"),
+            headers=ADMIN,
+        )
+    ).json()
+    seen: dict[str, Any] = {}
+
+    async def fake_probe(**kwargs: Any) -> tuple[str, list[dict[str, Any]], str | None]:
+        seen.update(kwargs)
+        return "connected", [], None
+
+    monkeypatch.setattr("api.routers.mcp_servers.probe_and_fetch_tools", fake_probe)
+    body = {
+        "id": created["id"],
+        "transport": "http",
+        "endpoint_or_command": "https://mcp.example.test/a",
+        "scope": "org",
+        "auth": {"auth_type": "api_key"},
+    }
+
+    allowed = await api.post("/v1/mcp/servers/validate", json=body, headers=ADMIN)
+    assert allowed.json()["valid"] is True
+    assert seen["headers"]["Authorization"] == "Bearer remote-secret"
+
+    seen.clear()
+    denied = await api.post("/v1/mcp/servers/validate", json=body, headers=ALICE)
+    assert denied.json()["valid"] is False and not seen, "a member's test sent nothing anywhere"

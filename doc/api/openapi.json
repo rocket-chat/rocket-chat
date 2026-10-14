@@ -1946,6 +1946,28 @@
             "title": "Has Oauth Secret",
             "type": "boolean"
           },
+          "header_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Header Name"
+          },
+          "header_prefix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Header Prefix"
+          },
           "headers_preview": {
             "items": {
               "additionalProperties": true,
@@ -2002,10 +2024,28 @@
             ],
             "title": "Oauth Authorization Url"
           },
+          "oauth_client_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oauth Client Id"
+          },
           "oauth_mode": {
             "default": "org",
             "title": "Oauth Mode",
             "type": "string"
+          },
+          "oauth_scopes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Oauth Scopes",
+            "type": "array"
           },
           "oauth_status": {
             "anyOf": [
@@ -2017,6 +2057,17 @@
               }
             ],
             "title": "Oauth Status"
+          },
+          "oauth_token_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oauth Token Url"
           },
           "overridable_env": {
             "description": "Variables members may set for themselves",
@@ -4432,6 +4483,18 @@
           "endpoint_or_command": {
             "title": "Endpoint Or Command",
             "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A registered server being edited: secrets left out of `auth` are kept.",
+            "title": "Id"
           },
           "scope": {
             "default": "org",
