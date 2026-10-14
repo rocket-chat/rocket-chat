@@ -96,6 +96,19 @@ const config: Config = {
         "thrust-pulse": "thrust-pulse 0.2s ease-in-out",
         "spin-slow": "spin 3s linear infinite",
       },
+      // Default Tailwind sizes (xs=12px) read as too small across the dense cockpit UI
+      // (326 uses of text-xs alone). Scaled up ~10-15% app-wide instead of touching every
+      // component; keep line-heights proportional so density-sensitive layouts don't jump.
+      // Avionics readability call — pending Captain Perriolat's sign-off as mission pilot.
+      fontSize: {
+        xs: ["0.875rem", { lineHeight: "1.25rem" }],
+        sm: ["1rem", { lineHeight: "1.5rem" }],
+        base: ["1.125rem", { lineHeight: "1.75rem" }],
+        lg: ["1.25rem", { lineHeight: "1.875rem" }],
+        xl: ["1.375rem", { lineHeight: "1.875rem" }],
+        "2xl": ["1.625rem", { lineHeight: "2.125rem" }],
+        "3xl": ["2rem", { lineHeight: "2.5rem" }],
+      },
     },
   },
   plugins: [],
