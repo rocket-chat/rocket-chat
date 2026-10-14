@@ -215,6 +215,18 @@ async def _linked_user_credential(
     return await with_github_identity(db_mgr, user_cred, api_url), None
 
 
+def read_only_permissions(requested: Mapping[str, Any]) -> dict[str, str]:
+    """Every permission asked for, lowered to ``read``.
+
+    This token goes into the sandbox, so it must not be able to write whatever the
+    organization's ``app_token_permissions`` says: an administrator may add reads (``actions``,
+    ``checks``, ``statuses``) for the agent to follow CI, but a ``write`` or ``admin`` there
+    would silently remove the guarantee that nothing in the sandbox can push. Writing is done
+    by ``git_push`` with a token minted outside the sandbox.
+    """
+    return {str(name): "read" for name in requested}
+
+
 async def _app_read_token(
     db_mgr: DatabaseSessionManager | None,
     org_id: str,
@@ -231,7 +243,9 @@ async def _app_read_token(
     if not git_engine:
         return None
     try:
-        permissions = org_github.get("app_token_permissions") or {"contents": "read"}
+        permissions = read_only_permissions(
+            org_github.get("app_token_permissions") or {"contents": "read"}
+        )
         installation_id = pick_installation(
             [
                 (i.installation_id, i.account_login)
@@ -253,7 +267,7 @@ async def _app_read_token(
         if token and (
             repo is None or await _token_reads_repo(token, repo, git_engine.settings.github_api_url)
         ):
-            return token, dict(permissions)
+            return token, permissions
     except Exception as ex:
         logger.debug("Failed minting GitHub App fallback token: %s", ex)
     return None

@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `mcp-runner`: a program installed by an install script is found wherever the archive unpacked it (top level, `bin/`, or `<name>_linux_amd64/bin/`, as SigNoz's release does), instead of failing with "not found".
 
 ### Security
+- `api`: the GitHub App token given to a sandbox is **always read-only**: whatever `github.app_token_permissions` asks for is lowered to `read` before the token is requested, so an administrator's `write` or `admin` there can no longer give the agent a way to push around `git_push`. Reads such as `actions`, `checks` and `statuses` can still be added.
 
 ## [0.2.2] - 2026-10-13
 
