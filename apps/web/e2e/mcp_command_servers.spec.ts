@@ -128,6 +128,7 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
           headers: [
             { name: "BASE_URL", value: "https://grafana.example", is_secret: false },
             { name: "API_KEY", value: "org-readonly-key", is_secret: true, member_override: false },
+            { name: "TEAM_KEY", value: "team-default", is_secret: true, member_override: true },
           ],
         },
       },
@@ -140,6 +141,7 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
       const dialog = page.getByTestId("mcp-server-modal");
       await expect(dialog.getByRole("heading", { name: `Edit ${name}` })).toBeVisible();
       await expect(page.getByLabel("Variable 2 value")).toHaveAttribute("placeholder", /Unchanged/);
+      await expect(page.getByLabel("Variable 3 value")).toHaveAttribute("placeholder", /Unchanged/);
 
       await page.getByLabel("Variable 1 value").fill("https://grafana.example/v2");
       await page.getByRole("button", { name: /Probe & connect server/i }).click();
@@ -152,6 +154,8 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
       expect(after.headers_preview.find((h) => h.name === "BASE_URL")?.value).toBe("https://grafana.example/v2");
       // Never shown, but still there: saving without retyping it did not blank it.
       expect(after.headers_preview.find((h) => h.name === "API_KEY")?.value).toBeTruthy();
+      // The organization's default for a variable members may override is kept too.
+      expect(after.headers_preview.find((h) => h.name === "TEAM_KEY")?.value).toBeTruthy();
     } finally {
       await removeServer(page, name);
     }

@@ -310,3 +310,57 @@ async def test_changes_to_command_servers_are_audited(
     actions = [(e["actor_user_id"], e["metadata"]["action"]) for e in recorded]
     assert actions == [("admin_user", "registered"), ("alice", "member values updated")]
     assert "mine" not in str(recorded)
+
+
+async def test_an_edited_server_still_runs_with_the_secret_nobody_retyped(
+    runner: str, api: AsyncClient
+) -> None:
+    headers = [
+        {"name": "BASE_URL", "value": "https://grafana.example"},
+        {"name": "API_KEY", "value": "org-secret", "is_secret": True},
+    ]
+    created = (
+        await api.post("/v1/mcp/servers", json=_server("Edited", headers), headers=ADMIN)
+    ).json()
+
+    edit = _server(
+        "Edited",
+        [
+            {"name": "BASE_URL", "value": "https://grafana.example/v2"},
+            {"name": "API_KEY", "value": None, "is_secret": True},
+        ],
+    )
+    saved = await api.post("/v1/mcp/servers", json={**edit, "id": created["id"]}, headers=ADMIN)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["status"] == "connected"
+
+    probed = await api.post(f"/v1/mcp/servers/{created['id']}/probe", headers=ADMIN)
+    assert probed.json()["status"] == "connected"
+    text = await _whoami("alice")
+    assert text is not None and "key=org-secret" in text and "grafana.example/v2" in text
+
+
+async def test_editing_keeps_the_default_of_a_variable_members_may_override(
+    runner: str, api: AsyncClient
+) -> None:
+    secret = {"name": "API_KEY", "is_secret": True, "member_override": True}
+    created = (
+        await api.post(
+            "/v1/mcp/servers",
+            json=_server("Default", [{**secret, "value": "org-default"}]),
+            headers=ADMIN,
+        )
+    ).json()
+
+    untouched = _server("Default", [{**secret, "value": None}])
+    saved = await api.post(
+        "/v1/mcp/servers", json={**untouched, "id": created["id"]}, headers=ADMIN
+    )
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["status"] == "connected"
+    text = await _whoami("alice")
+    assert text is not None and "key=org-default" in text
+
+    cleared = _server("Default", [{**secret, "value": ""}])
+    await api.post("/v1/mcp/servers", json={**cleared, "id": created["id"]}, headers=ADMIN)
+    assert await _whoami("alice") is None, "no default left: members must set their own"

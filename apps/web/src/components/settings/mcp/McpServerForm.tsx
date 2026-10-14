@@ -69,7 +69,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
       value: h.is_secret ? "" : h.value,
       is_secret: h.is_secret,
       member_override: h.member_override ?? false,
-      stored: h.is_secret && !h.member_override,
+      stored: h.is_secret && !!h.value,
     }))
   );
   const [installCommand, setInstallCommand] = useState(editing?.install_command ?? "");
@@ -86,7 +86,8 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
       auth_type: rows.length ? "custom_headers" : "none",
       headers: rows.map((row) => ({
         name: row.name.trim(),
-        value: row.value,
+        // null = keep what is stored; an empty string = no value (members provide it).
+        value: row.stored && row.value === "" ? null : row.value,
         is_secret: row.is_secret,
         member_override: row.member_override,
       })),

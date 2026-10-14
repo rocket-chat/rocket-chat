@@ -135,7 +135,9 @@ def auth_headers(auth: dict[str, Any], cipher: CredentialCipher) -> dict[str, st
             f"{prefix} {cipher.decrypt(api_key)}".strip()
         )
     for header in auth.get("headers") or []:
-        value = cipher.decrypt(header["value"]) if header.get("is_secret") else header["value"]
+        # An empty secret is a variable left for members to provide; there is nothing to decrypt.
+        is_sealed = header.get("is_secret") and header["value"]
+        value = cipher.decrypt(header["value"]) if is_sealed else header["value"]
         headers[header["name"]] = value
     token = (
         cipher.decrypt(auth["access_token_enc"])
