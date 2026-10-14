@@ -519,6 +519,7 @@ Validate MCP connection and probe tools prior to saving.
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
+| id | string | no | A registered server being edited: secrets left out of `auth` are kept. |
 | transport | string | no |  |
 | endpoint_or_command | string | yes |  |
 | scope | string | no |  |

@@ -95,6 +95,7 @@ def _format_mcp_response(s: Any) -> McpServerResponseModel:
         headers_enc = s.get("headers_encrypted") or encrypted_auth.get("headers", [])
         has_oauth = bool(
             s.get("oauth_client_secret_encrypted")
+            or encrypted_auth.get("oauth_client_secret")
             or encrypted_auth.get("access_token_enc")
             or encrypted_auth.get("access_token")
         )
@@ -173,6 +174,12 @@ def _format_mcp_response(s: Any) -> McpServerResponseModel:
         has_oauth_secret=has_oauth,
         oauth_status=oauth_status,
         oauth_mode=str(encrypted_auth.get("oauth_mode") or "org"),
+        oauth_authorization_url=encrypted_auth.get("oauth_authorization_url"),
+        header_name=encrypted_auth.get("header_name"),
+        header_prefix=encrypted_auth.get("header_prefix"),
+        oauth_token_url=encrypted_auth.get("oauth_token_url"),
+        oauth_client_id=encrypted_auth.get("oauth_client_id"),
+        oauth_scopes=[str(x) for x in encrypted_auth.get("oauth_scopes") or []],
         install_command=encrypted_auth.get("install_command"),
         overridable_env=overridable_names(encrypted_auth),
     )
@@ -305,9 +312,18 @@ async def validate_mcp_server(
     request: Request,
 ) -> ValidateMcpServerResponse:
     """Validate MCP connection and probe tools prior to saving."""
-    org_id, _, roles = _get_request_identity(request)
+    org_id, user_id, roles = _get_request_identity(request)
     is_admin = "admin" in roles or "owner" in roles
 
+    if req.id:
+        try:
+            stored = await _stored_server_for_update(request, org_id, user_id, is_admin, req.id)
+        except HTTPException as err:
+            return ValidateMcpServerResponse(
+                valid=False, status="error", tools=[], error=str(err.detail)
+            )
+        if stored is not None:
+            _keep_stored_secrets(req, stored)
     if req.transport == "stdio" and not is_admin:
         return ValidateMcpServerResponse(
             valid=False,
@@ -553,7 +569,9 @@ def _open_secret(stored: str, is_secret: bool) -> str | None:
         return None
 
 
-def _keep_stored_secrets(req: CreateMcpServerRequest, stored: dict[str, Any]) -> None:
+def _keep_stored_secrets(
+    req: CreateMcpServerRequest | ValidateMcpServerRequest, stored: dict[str, Any]
+) -> None:
     """Fill a secret the edit left out (``null``) with the one already stored.
 
     Secrets are never sent back to the page, so an edit cannot show them; ``null`` means
@@ -636,6 +654,29 @@ async def _tools_and_status(
     return fetched_tools or [], status
 
 
+def _connection_changed(req: CreateMcpServerRequest, stored: dict[str, Any] | None) -> bool:
+    """Whether the edit points the server somewhere else, so tokens issued for the old one must go.
+
+    An OAuth token belongs to one server and one client; keeping it after either changed would
+    present it to a party that never issued it.
+    """
+    # A command server has no account to disconnect; its members' own values stay.
+    if stored is None or req.transport == "stdio":
+        return False
+    previous = stored.get("encrypted_auth") or {}
+    return (
+        req.endpoint_or_command != stored.get("endpoint_or_command")
+        or req.transport != stored.get("transport")
+        or _differs(req.auth.oauth_client_id, previous.get("oauth_client_id"))
+        or _differs(req.auth.oauth_token_url, previous.get("oauth_token_url"))
+    )
+
+
+def _differs(supplied: str | None, stored: str | None) -> bool:
+    """A value the edit leaves out is unchanged; only one it sets differently counts."""
+    return bool(supplied) and supplied != stored
+
+
 def _assert_may_modify(entity: McpServerEntityModel, user_id: str, is_admin: bool) -> None:
     if is_admin:
         return
@@ -650,6 +691,7 @@ def _update_entity(
     tools: list[dict[str, Any]],
     status: str,
     target_user_id: str | None,
+    keep_oauth_tokens: bool = True,
 ) -> None:
     entity.name = req.name
     entity.description = req.description
@@ -661,7 +703,7 @@ def _update_entity(
     carried = {
         key: value
         for key, value in (entity.encrypted_auth or {}).items()
-        if key in OAUTH_TOKEN_KEYS and key not in auth_dict
+        if keep_oauth_tokens and key in OAUTH_TOKEN_KEYS and key not in auth_dict
     }
     entity.encrypted_auth = {**carried, **auth_dict}
     entity.tools = tools
@@ -712,10 +754,12 @@ async def register_or_update_mcp_server(
     org_id, user_id, roles = _get_request_identity(request)
     is_admin = "admin" in roles or "owner" in roles
     _authorise_registration(req, is_admin)
+    stored = None
     if req.id:
         stored = await _stored_server_for_update(request, org_id, user_id, is_admin, req.id)
         if stored is not None:
             _keep_stored_secrets(req, stored)
+    reconnected = _connection_changed(req, stored)
     for header in req.auth.headers:
         header.value = header.value or ""
     _check_stdio_environment(req.transport, req.auth)
@@ -733,6 +777,8 @@ async def register_or_update_mcp_server(
         response = _format_mcp_response(
             _store_in_memory(server_id, org_id, req, auth_dict, tools, status, target_user_id)
         )
+        if reconnected:
+            await _member_token_store(request).delete_for_server(org_id, server_id)
         await _audit_command_server(
             request, org_id, user_id, req.transport, "registered", server_id
         )
@@ -748,12 +794,22 @@ async def register_or_update_mcp_server(
         entity = result.scalar_one_or_none()
         if entity:
             _assert_may_modify(entity, user_id, is_admin)
-            _update_entity(entity, req, auth_dict, tools, status, target_user_id)
+            _update_entity(
+                entity,
+                req,
+                auth_dict,
+                tools,
+                status,
+                target_user_id,
+                keep_oauth_tokens=not reconnected,
+            )
         else:
             entity = _new_entity(server_id, org_id, req, auth_dict, tools, status, target_user_id)
             session.add(entity)
         await session.commit()
         response = _format_mcp_response(entity)
+    if reconnected:
+        await _member_token_store(request).delete_for_server(org_id, server_id)
     await _audit_command_server(request, org_id, user_id, req.transport, "registered", server_id)
     return response
 

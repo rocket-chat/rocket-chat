@@ -279,6 +279,13 @@ export interface McpServerConfig {
   /** Of those, the ones the signed-in member has set. */
   member_env_set?: string[];
   has_oauth_secret?: boolean;
+  /** Non-secret connection settings, so an edit starts from what is stored. */
+  header_name?: string | null;
+  header_prefix?: string | null;
+  oauth_authorization_url?: string | null;
+  oauth_token_url?: string | null;
+  oauth_client_id?: string | null;
+  oauth_scopes?: string[];
 }
 
 export interface SubagentConfig {

@@ -41,7 +41,7 @@ interface McpServerCardProps {
   onToggle: () => void;
   onProbe: (id: string) => void;
   onDelete: (id: string, name: string) => void;
-  /** Open the edit form (command servers). */
+  /** Open the edit form. */
   onEdit: (server: McpServerConfig) => void;
   onAuthorize: (id: string) => void;
   /** The MCP runner, for command servers (null while unknown). */
@@ -141,7 +141,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
             <span>{server.tools_count ?? 0} TOOLS</span>
           </button>
 
-          {canManage && server.transport === "stdio" && (
+          {canManage && !server.is_builtin && (
             <button
               type="button"
               onClick={() => onEdit(server)}

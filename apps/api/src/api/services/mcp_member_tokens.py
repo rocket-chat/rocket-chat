@@ -102,3 +102,16 @@ class McpMemberTokenStore:
                 )
             )
             return bool(getattr(result, "rowcount", 0))
+
+    async def delete_for_server(self, org_id: str, server_id: str) -> int:
+        """Forget every member's tokens for a server whose connection changed."""
+        if self._db is None:
+            gone = [k for k in self._memory if k[0] == org_id and k[1] == server_id]
+            for key in gone:
+                del self._memory[key]
+            return len(gone)
+        async with self._db.session(tenant_org_id=org_id) as session:
+            result = await session.execute(
+                delete(McpMemberTokenModel).where(McpMemberTokenModel.server_id == server_id)
+            )
+            return int(getattr(result, "rowcount", 0) or 0)
