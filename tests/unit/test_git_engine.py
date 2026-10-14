@@ -221,6 +221,7 @@ async def test_webhook_issue_comment_created() -> None:
 def _pr_driver() -> AsyncMock:
     driver = AsyncMock()
     driver.exec_command.side_effect = [
+        ExecResult(exit_code=0, stdout="/workspace\n", stderr="", duration_ms=5),  # toplevel
         ExecResult(exit_code=0, stdout="feat/auth-patch\n", stderr="", duration_ms=5),
         ExecResult(
             exit_code=0, stdout="git@github.com:myorg/custom-repo.git\n", stderr="", duration_ms=5
@@ -301,6 +302,7 @@ async def test_pr_surfaces_a_github_refusal(monkeypatch: pytest.MonkeyPatch) -> 
 async def test_pr_requires_a_github_origin_remote() -> None:
     driver = AsyncMock()
     driver.exec_command.side_effect = [
+        ExecResult(exit_code=0, stdout="/workspace\n", stderr="", duration_ms=1),  # toplevel
         ExecResult(exit_code=0, stdout="b\n", stderr="", duration_ms=1),
         ExecResult(exit_code=1, stdout="", stderr="", duration_ms=1),  # no origin url
     ]

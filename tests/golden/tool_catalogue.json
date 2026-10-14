@@ -1133,6 +1133,10 @@
         "force_with_lease": {
           "description": "Allow replacing remote commits you have not fetched (rarely).",
           "type": "boolean"
+        },
+        "path": {
+          "description": "Repository folder when it is not /workspace itself, e.g. 'backend-services' for /workspace/backend-services (found automatically when there is only one).",
+          "type": "string"
         }
       },
       "type": "object"
@@ -1145,6 +1149,10 @@
       "properties": {
         "body": {
           "description": "Pull request description.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Repository folder when it is not /workspace itself (see git_push).",
           "type": "string"
         },
         "target_branch": {
