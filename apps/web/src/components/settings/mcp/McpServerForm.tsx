@@ -22,11 +22,21 @@ interface McpServerFormProps {
   runner: McpRunnerStatus | null;
   onSaved: (server: McpServerConfig, message: string) => void;
   onCancel: () => void;
-  /** Edit this command server instead of registering a new one. */
+  /** Edit this registered server instead of registering a new one. */
   editing?: McpServerConfig;
 }
 
-/** Registers a new MCP server: transport, endpoint, credentials, a connection test. */
+const AUTH_OPTIONS = ["none", "api_key", "custom_headers", "oauth2"];
+
+/** The authentication mode the form opens with: a stored server's own, else none. */
+function initialAuthType(editing?: McpServerConfig): string {
+  if (!editing) return "none";
+  if (editing.transport === "stdio") return "custom_headers";
+  const stored = editing.auth_type === "oauth" ? "oauth2" : editing.auth_type;
+  return stored && AUTH_OPTIONS.includes(stored) ? stored : "none";
+}
+
+/** Registers a new MCP server, or edits a registered one: transport, endpoint, credentials, a connection test. */
 export const McpServerForm: React.FC<McpServerFormProps> = ({
   scope: formScope,
   isAdmin,
@@ -51,17 +61,29 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
   const [transport, setTransport] = useState<"http" | "sse" | "streamable_http" | "websocket" | "stdio">(editing?.transport ?? "http");
   const [endpoint, setEndpoint] = useState(editing?.endpoint_or_command ?? "");
   const [guidance, setGuidance] = useState(editing?.guidance ?? "");
-  const [authType, setAuthType] = useState<string>(editing ? "custom_headers" : "none");
+  const [authType, setAuthType] = useState<string>(initialAuthType(editing));
   const [apiKey, setApiKey] = useState("");
-  const [authHeaderName, setAuthHeaderName] = useState("Authorization");
-  const [authHeaderPrefix, setAuthHeaderPrefix] = useState("Bearer");
-  const [oauthAuthUrl, setOauthAuthUrl] = useState("");
-  const [oauthTokenUrl, setOauthTokenUrl] = useState("");
-  const [oauthClientId, setOauthClientId] = useState("");
+  const [authHeaderName, setAuthHeaderName] = useState(editing?.header_name || "Authorization");
+  const [authHeaderPrefix, setAuthHeaderPrefix] = useState(editing?.header_prefix ?? "Bearer");
+  const [oauthAuthUrl, setOauthAuthUrl] = useState(editing?.oauth_authorization_url ?? "");
+  const [oauthTokenUrl, setOauthTokenUrl] = useState(editing?.oauth_token_url ?? "");
+  const [oauthClientId, setOauthClientId] = useState(editing?.oauth_client_id ?? "");
   const [oauthClientSecret, setOauthClientSecret] = useState("");
-  const [oauthScopes, setOauthScopes] = useState("");
-  const [oauthMode, setOauthMode] = useState<"org" | "member">("org");
-  const [customHeaders, setCustomHeaders] = useState<Array<{ name: string; value: string; is_secret: boolean }>>([]);
+  const [oauthScopes, setOauthScopes] = useState((editing?.oauth_scopes ?? []).join(" "));
+  const [oauthMode, setOauthMode] = useState<"org" | "member">(editing?.oauth_mode ?? "org");
+  const [customHeaders, setCustomHeaders] = useState<
+    Array<{ name: string; value: string; is_secret: boolean; stored?: boolean }>
+  >(() =>
+    editing && editing.transport !== "stdio"
+      ? (editing.headers_preview ?? []).map((h) => ({
+          name: h.name,
+          // A stored secret is never sent to the page; untouched, it is kept as it is.
+          value: h.is_secret ? "" : h.value,
+          is_secret: h.is_secret,
+          stored: h.is_secret,
+        }))
+      : []
+  );
   const [envRows, setEnvRows] = useState<EnvRow[]>(() =>
     (editing?.headers_preview ?? []).map((h) => ({
       name: h.name,
@@ -100,7 +122,12 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
     api_key: apiKey || undefined,
     header_name: authHeaderName || undefined,
     header_prefix: authHeaderPrefix || undefined,
-    headers: customHeaders,
+    headers: customHeaders.map((h) => ({
+      name: h.name,
+      // null = keep what is stored; an empty string never means "keep".
+      value: h.stored && h.value === "" ? null : h.value,
+      is_secret: h.is_secret,
+    })),
     ...(authType === "oauth2"
       ? {
           oauth_authorization_url: oauthAuthUrl.trim() || undefined,
@@ -157,6 +184,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
     setValidationResult(null);
     try {
       const payload = {
+        id: editing?.id,
         transport,
         endpoint_or_command: endpoint,
         scope: formScope,
@@ -335,7 +363,15 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                           : "https://api.internal.service/mcp"
                       }
                       value={endpoint}
-                      onChange={(e) => setEndpoint(e.target.value)}
+                      onChange={(e) => {
+                        setEndpoint(e.target.value);
+                        // A new address means a new authorization server: let it be discovered again.
+                        if (editing && e.target.value !== editing.endpoint_or_command) {
+                          setOauthAuthUrl("");
+                          setOauthTokenUrl("");
+                          setOauthClientId("");
+                        }
+                      }}
                     />
                   )}
                 </Field>
@@ -412,7 +448,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                       </label>
                       <input aria-label="Secret API Key (Write-Only)"
                         type="password"
-                        placeholder="sk_live_..."
+                        placeholder={editing?.has_api_key ? "Unchanged (type to replace)" : "sk_live_..."}
                         value={apiKey}
                         onChange={(e) => setApiKey(e.target.value)}
                         className="w-full px-2.5 py-1 rounded-lg border border-border bg-surface text-xs"
@@ -480,7 +516,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                       </label>
                       <input aria-label="Client Secret (Optional for Public PKCE)"
                         type="password"
-                        placeholder="secret_..."
+                        placeholder={editing?.has_oauth_secret ? "Unchanged (type to replace)" : "secret_..."}
                         value={oauthClientSecret}
                         onChange={(e) => setOauthClientSecret(e.target.value)}
                         className="w-full px-2.5 py-1 rounded-lg border border-border bg-surface text-xs"

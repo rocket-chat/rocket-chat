@@ -263,6 +263,10 @@ class McpToolItem(BaseModel):
 
 
 class ValidateMcpServerRequest(BaseModel):
+    id: str | None = Field(
+        default=None,
+        description="A registered server being edited: secrets left out of `auth` are kept.",
+    )
     transport: str = "stdio"
     endpoint_or_command: str
     scope: str = "org"
@@ -307,6 +311,12 @@ class McpServerResponseModel(BaseModel):
     oauth_status: str | None = None
     oauth_mode: str = "org"
     oauth_authorization_url: str | None = None
+    # Non-secret connection settings, so an edit form can start from what is stored.
+    header_name: str | None = None
+    header_prefix: str | None = None
+    oauth_token_url: str | None = None
+    oauth_client_id: str | None = None
+    oauth_scopes: list[str] = Field(default_factory=list)
     install_command: str | None = None
     overridable_env: list[str] = Field(
         default_factory=list, description="Variables members may set for themselves"
