@@ -21,6 +21,14 @@ from agent_core.context import (
 )
 from agent_core.dispatcher import ToolDispatcher
 from agent_core.interaction import DecisionGateManager
+from agent_core.leaked_calls import (
+    LEAK_GIVE_UP,
+    LEAK_NOTICE,
+    MAX_LEAK_RETRIES,
+    LeakFilter,
+    contains_leaked_calls,
+    strip_leaked_calls,
+)
 from agent_core.subagents import SubagentRunner
 from agent_core.tools.registry import ToolRegistry
 from agent_core.transcript import RecordingList, repair_tool_pairs
@@ -84,6 +92,7 @@ class _TurnRun:
     exec_ctx: ExecutionContext | None
     pending_attachments: list[AttachmentRef]
     checklist_reminded: bool = False
+    leak_retries: int = 0
 
 
 class AsyncReActOrchestrator(AgentOrchestratorProtocol):
@@ -497,6 +506,20 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
 
         return _generator()
 
+    @staticmethod
+    async def _emit_answer_text(
+        session_id: str, event_queue: asyncio.Queue[AgentEvent | None], text: str
+    ) -> None:
+        """Stream a piece of the answer to the client (nothing for an empty or withheld piece)."""
+        if text:
+            await event_queue.put(
+                AgentEvent(
+                    event_type="thought",
+                    session_id=session_id,
+                    payload={"delta": text, "is_reasoning": False},
+                )
+            )
+
     async def _stream_model_step(
         self,
         session_id: str,
@@ -539,6 +562,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
 
         assistant_text = ""
         tool_calls_raw: dict[int, dict[str, Any]] = {}
+        leak_filter = LeakFilter()
 
         reported_usage: dict[str, int] | None = None
         async for chunk in self._gateway.chat_stream(request):
@@ -557,12 +581,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 await asyncio.sleep(0)
             if chunk.text_delta:
                 assistant_text += chunk.text_delta
-                await event_queue.put(
-                    AgentEvent(
-                        event_type="thought",
-                        session_id=session_id,
-                        payload={"delta": chunk.text_delta, "is_reasoning": False},
-                    )
+                await self._emit_answer_text(
+                    session_id, event_queue, leak_filter.feed(chunk.text_delta)
                 )
                 await asyncio.sleep(0)
             if chunk.tool_call_delta:
@@ -578,6 +598,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                     tool_calls_raw[idx]["name"] = func["name"]
                 if func.get("arguments"):
                     tool_calls_raw[idx]["arguments"] += func["arguments"]
+
+        await self._emit_answer_text(session_id, event_queue, leak_filter.finish())
 
         # Record usage telemetry into gateway ledger for org and user accounting
         cur_ctx = current_execution_ctx.get()
@@ -994,6 +1016,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             whitelisted_tools=run.whitelisted_tools,
             role="react",
         )
+        if not tool_calls and contains_leaked_calls(assistant_text):
+            return await self._handle_leaked_calls(run, assistant_text)
         if not tool_calls:
             run.conversation.append(ChatMessage(role="assistant", content=assistant_text))
             # Once per turn: a second reminder would loop a model that cannot finish the list.
@@ -1010,6 +1034,37 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         )
         await self._flush_transcript(run.session_id, run.org_id, run.conversation)
         return False
+
+    async def _handle_leaked_calls(self, run: _TurnRun, assistant_text: str) -> bool:
+        """The model wrote tool calls as text: ask for a real call, or say so and stop.
+
+        The markup is kept out of the conversation, so it neither confuses the next request nor
+        reaches a person as an answer. Returns True once the turn is over.
+        """
+        if run.leak_retries < MAX_LEAK_RETRIES:
+            run.leak_retries += 1
+            logger.warning(
+                "Model %s wrote tool calls as text in %s (retry %d)",
+                run.react_model,
+                run.session_id,
+                run.leak_retries,
+            )
+            run.conversation.append(ChatMessage(role="system", content=LEAK_NOTICE))
+            await self._flush_transcript(run.session_id, run.org_id, run.conversation)
+            return False
+        said = strip_leaked_calls(assistant_text)
+        answer = f"{said}\n\n{LEAK_GIVE_UP}".strip()
+        await run.event_queue.put(
+            AgentEvent(
+                event_type="thought",
+                session_id=run.session_id,
+                payload={"delta": LEAK_GIVE_UP, "is_reasoning": False},
+            )
+        )
+        run.conversation.append(ChatMessage(role="assistant", content=answer))
+        self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
+        await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
+        return True
 
     async def _synthesize_after_budget(self, run: _TurnRun) -> None:
         """The turn budget ran out while tools were still being dispatched: answer anyway."""
