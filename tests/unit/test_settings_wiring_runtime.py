@@ -249,7 +249,12 @@ async def test_the_app_token_is_requested_with_the_configured_scope() -> None:
         org,
         "github",
         {
-            "app_token_permissions": {"contents": "write", "pull_requests": "write"},
+            "app_token_permissions": {
+                "contents": "write",
+                "actions": "read",
+                "statuses": "write",
+                "administration": "admin",
+            },
             "app_token_target_repositories": "acme/api, acme/web",
         },
         [],
@@ -264,7 +269,15 @@ async def test_the_app_token_is_requested_with_the_configured_scope() -> None:
 
     assert bundle.token == "app-token"
     kwargs = engine.get_github_access_token.call_args.kwargs
-    assert kwargs["permissions"] == {"contents": "write", "pull_requests": "write"}
+    # What the sandbox receives is always read-only, whatever the setting asks for: a write
+    # here would let the agent push around the platform's git_push.
+    assert kwargs["permissions"] == {
+        "contents": "read",
+        "actions": "read",
+        "statuses": "read",
+        "administration": "read",
+    }
+    assert bundle.source_details["permissions"] == kwargs["permissions"]
     assert kwargs["repositories"] == ["api", "web"]
 
 
