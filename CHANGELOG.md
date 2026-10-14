@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `web`/`doc`: Refreshed the Rocket Chat logo and favicons from the current design across every copy in the repo (`apps/web/public`, the Next.js convention icons in `apps/web/src/app`, and `doc/assets`), and raised the app-wide type scale (`text-xs`…`text-3xl`) for readability.
 - `slack-assistant`: **No leftover "Done" message in Slack threads.** The live progress message, with its recent steps and Stop button, is now removed when a turn finishes, after the answer is posted. The answer ends with one line: the session link and what the turn did ("Done in 41s · Edited 2 files · Ran 3 commands"). A stopped or failed turn keeps the message, saying why; a workspace that refuses the deletion gets the old "Done" message.
 - `api`: **The agent is told how its environment really works.** The system prompt now covers:
   - the workspace: repositories in `/workspace/<name>`, the active repository as the default for tools, shells and relative paths, a fresh shell per command, clamped output and reading by range;
@@ -43,6 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: each settings page has a single "add" action per section (the duplicate "Register MCP server" and "New agent persona" header buttons are removed; organization actions say "org").
 
 ### Fixed
+- `web`: `RocketChatIcon` now renders the shared `/favicon.svg` asset instead of a second, hand-coded copy of the artwork, so the two can no longer drift out of sync; the auth middleware's static-asset allowlist was missing the `public/` logo files, so it now also exempts them.
 - `slack-assistant`, `agent-core`: **MCP tools (SigNoz, Atlassian, Grafana…) were missing on Slack.** With `allowed_tools` set to `*`, Slack built a list of the tools registered before the turn. MCP tools are attached only when the turn starts, so none of them reached the model, and the agent said it had no SigNoz access. `*` now stays unrestricted, and Slack's blocked tools are enforced separately (`TurnOverlay.denied_tools`): they are neither offered nor run.
 - `api`: **Pairing a Slack account no longer claims the database is missing.** When the signed-in member's row is not in their organization, `/v1/slack/pair` now answers 409 and says so. Sign-in now logs an error when a member's row is in a different organization from the one sign-in assigns (for example after `ROCKET_SSO_ORG_MODE` changed), instead of a quiet warning.
 - `agent-core`: **No `<tool_calls>` fragments in answers.** When a model writes its tool calls as plain `<tool_calls>`/`<invoke>` tags, the opening tag is now recognised as markup too. Before, it passed the stream filter and every discarded attempt left one `<tool_calls>` line in front of the "wrote a tool call as text" message.

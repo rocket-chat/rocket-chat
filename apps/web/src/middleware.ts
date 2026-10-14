@@ -32,8 +32,9 @@ export const config = {
      * - /shared/:token (a public session link: its signed token is the credential)
      * - /api/auth/:path* (SSO and authentication routes)
      * - /_next/:path* (Next.js assets and client bundles)
-     * - /favicon.ico, /icon.svg, /apple-icon.png (static icons)
+     * - /favicon.ico, /icon.svg, /apple-icon.png (Next.js convention icons)
+     * - the public/ logo assets (components fetch these directly, e.g. RocketChatIcon)
      */
-    "/((?!login|shared/|api/auth|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png).*)",
+    "/((?!login|shared/|api/auth|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|favicon.svg|favicon-16x16.png|favicon-32x32.png|apple-touch-icon.png|logo.svg).*)",
   ],
 };
