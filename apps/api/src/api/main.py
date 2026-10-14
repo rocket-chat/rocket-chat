@@ -28,6 +28,7 @@ from api.routers.checkpoints import router as checkpoints_router
 from api.routers.dev import router as dev_router
 from api.routers.diffs import router as diffs_router
 from api.routers.fork import router as fork_router
+from api.routers.git_signing import router as git_signing_router
 from api.routers.github_app import router as github_app_router
 from api.routers.github_credentials import router as github_credentials_router
 from api.routers.knowledge import router as knowledge_router
@@ -259,6 +260,7 @@ for _router in (
     slack_status_router,
     model_keys_router,
     github_credentials_router,
+    git_signing_router,
     session_turns_router,
     models_catalog_router,
     session_ws_router,

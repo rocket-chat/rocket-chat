@@ -96,13 +96,13 @@ Rocket Chat implements a two-tier hybrid GitHub engine designed for enterprise c
 ### Layer 1: Organization GitHub App (System Infrastructure)
 * **Scope**: Org-wide installation on managed repositories.
 * **Role**: Primary webhook ingress, automated branch triggers (e.g. `ai-fix` label), repo structure indexing, and fallback execution.
-* **Commit Signing**: Cryptographically signed commits using the GitHub App's private key, earning GitHub's green **Verified** badge.
-* **Dynamic Installation Tokens**: When a user is unauthenticated or has not linked a personal OAuth token, the backend dynamically requests an ephemeral installation access token from the GitHub App with granular repository permissions configurable in Organization Settings (defaulting to `contents:read`, `pull_requests:read`).
+* **Commit Signing**: with `commit_signing_mode: github_app` the agent's commits are re-created through GitHub's API when the branch is published, so GitHub signs them and they earn the green **Verified** badge, made by the App (see *Publishing and signing* below). This needs the App to have **Contents: Read & write**.
+* **Dynamic Installation Tokens**: the backend requests an ephemeral, read-only installation access token (granular permissions configurable in Organization Settings, defaulting to `contents:read`, `pull_requests:read`) for every session whose repository the App can read, whether or not the member linked a personal token. Publishing mints a separate, short-lived token with `contents: write` for the one repository, outside the sandbox.
 
 ### Layer 2: User Personal OAuth & Git Credential Broker
 * **Scope**: Individual developer accounts linked via the Cockpit Settings UI (`/settings/github`).
-* **Role**: Allows the AI agent to open Pull Requests and push commits **as the authenticated user**, preserving developer identity in git log and PR metrics.
-* **Loopback Credential Broker**: Inside sandboxes, git credentials are not stored as plain-text tokens on disk. Instead, git operations query a loopback credential helper (`http://127.0.0.1:4099/git-credentials`) backed by ephemeral, scoped bearer tokens.
+* **Role**: Allows the AI agent to open Pull Requests and publish commits **as the authenticated user**, preserving developer identity in git log and PR metrics. Commits made as the member carry their GitHub **username** and e-mail by default (their primary e-mail, else the account's `id+login@users.noreply.github.com` address); the member can change either under **Settings → Git & version control**.
+* **Credentials never rest in the sandbox**: git reads the token from the command's environment through a credential helper, so nothing is written to disk. Where the GitHub App can read the repository, the sandbox holds only the App's read-only token and the member's own token stays on the platform.
 
 ---
 
@@ -110,15 +110,15 @@ Rocket Chat implements a two-tier hybrid GitHub engine designed for enterprise c
 
 Each developer can configure their personal git workflow preferences, which automatically inherit from organization-wide defaults set by administrators:
 
-1. **Commit Authorship Policy**:
-   - `hybrid_coauthor` (*Default*): Main commit authored by user with `Co-authored-by: Rocket Chat <bot@rocket-chat.dev>`.
-   - `user_oauth`: 100% authored and committed by the logged-in user.
-   - `app`: Authored and pushed directly as the GitHub App bot.
+1. **Commit Authorship Policy** (`commit_authorship_policy`):
+   - `co_authored` (*Default*): the bot commits and the member is credited with a `Co-authored-by` trailer.
+   - `user_only`: committed as the member.
+   - `bot_only`: committed as the bot.
 
-2. **Commit Signing Policy**:
-   - `app_verified`: Use GitHub App key for automated **Verified** badges.
-   - `user_gpg`: Inject the developer's GPG signing key for personal signatures.
-   - `disabled`: Standard unsigned git commits.
+2. **Commit Signing** (`commit_signing_mode`):
+   - `github_app` (*Default*): commits are created through GitHub's API when published, so GitHub signs them (**Verified**, made by the GitHub App).
+   - `gpg_key`: a member who imported a GPG key (**Settings → Git & version control → Commit signing**) and turned on **Commit as me** commits as themselves, signed with that key; everyone else gets the `github_app` behaviour, so commits are verified either way.
+   - `none`: standard unsigned commits, pushed as they are.
 
 3. **Pull Request Routing**:
    - Customizable default target branches (e.g. `main`, `develop`).
@@ -178,3 +178,19 @@ Work through these in order; the agent's own explanation in the session usually 
 2. **The linked GitHub token expired.** A GitHub App user token lives eight hours (OAuth Apps' tokens do not expire). Rocket Chat stores the expiry and an encrypted single-use refresh token when you link GitHub and renews the token before it is used, so a link made with this version keeps working. A link made earlier, or one GitHub revoked, is detected (`GET /user` is rejected), **withheld from the sandbox**, reported in the session ("Your linked GitHub token is no longer valid…") and the App installation token is used instead. Re-link under **Settings > Git & version control**.
 3. **No App installation is mapped to the organization.** The App fallback only mints tokens for installations mapped under **Settings > GitHub > GitHub App installations**. A single-organization deployment that predates mapping can set `GITHUB_APP_ALLOW_UNMAPPED_INSTALLATIONS=true` (the Helm chart's `github.allowUnmappedInstallations`); never enable it on a multi-organization deployment.
 4. **The image has no `git`.** Minimal images such as `python:3.12-slim` ship without it. Cloning installs `git` and CA certificates first (`apt-get` or `apk`, which needs a root sandbox); with `sandboxes.require_non_root` use an image that already includes git, such as the published devbox.
+
+---
+
+## 10. Publishing and signing
+
+The agent never pushes with its own credentials. Commits leave the sandbox through the **`git_push`** tool (and `git_open_pr`, which publishes first), which holds the write credential on the platform:
+
+* A raw `git push` in the sandbox is refused with a message pointing at `git_push` (a hook), and, where the GitHub App can read the repository, the sandbox's token is read-only, so it could not push anyway. If the App cannot read a repository, the sandbox receives the member's own token (it cannot be narrowed) and only the hook and the agent's instructions stand in the way; install the App on the repository to make it a hard block.
+* **`github_app` mode** replays the branch's new commits through GitHub's GraphQL `createCommitOnBranch` mutation, in order, with the same messages (including `Co-authored-by` trailers). GitHub signs them. The App needs **Contents: Read & write**; without it the tool says so. Limits: symbolic links and submodules cannot be created this way (the tool refuses and says which file), a new executable file loses its executable bit (reported), merge commits must be rebased away, and one commit's file contents are limited to about 20 MB. Afterwards the sandbox's branch is moved onto the commits GitHub created, so local hashes change; uncommitted work is untouched.
+* **`gpg_key` and `none` modes** push the commits the sandbox made, with the member's token (else the App's).
+
+### Member signing keys (`gpg_key` mode)
+
+A member imports an armored private key under **Settings → Git & version control → Commit signing**. The key is checked by GnuPG itself in a throwaway keyring (it must be a usable, unexpired signing key; its passphrase must work; the commit e-mail must be one of its identities), stored encrypted, and never shown again; the page shows the fingerprint, the identities and the **public key** to add to GitHub (*Settings → SSH and GPG keys*). GitHub marks a commit **Verified** only when that public key is on the author's account and the commit e-mail is verified there.
+
+While a turn runs, the key is in the sandbox, in a memory-backed keyring, because GnuPG must sign `git commit` there; it is removed when the turn ends and is never written to the workspace volume. A sandbox the agent controls can read it during that time, so tell members to use **a key made only for signing commits**. Deployments need GnuPG in the API image (included) and in the sandbox image (included in `Dockerfile.sandbox`; rebuild custom sandbox images).

@@ -62,7 +62,9 @@ EDIT_TOOLS: frozenset[str] = frozenset(
     {"file_write", "file_edit", "apply_patch", "apply_diff_file"}
 )
 # Publishing changes leaves the sandbox: commits, branches, pull requests.
-PUBLISH_TOOLS: frozenset[str] = frozenset({"git_commit", "git_branch", "git_open_pr", "git_revert"})
+PUBLISH_TOOLS: frozenset[str] = frozenset(
+    {"git_commit", "git_branch", "git_push", "git_open_pr", "git_revert"}
+)
 
 MODES_GATING_EDITS: frozenset[str] = frozenset({"ask"})
 MODES_GATING_COMMANDS: frozenset[str] = frozenset({"ask", "auto_edit"})

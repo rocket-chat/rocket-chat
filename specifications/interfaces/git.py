@@ -3,6 +3,7 @@ Interface definitions for Git Operations & GitHub Webhook Ingress.
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -32,6 +33,36 @@ class CommitSpec:
     # Identity recorded as author/committer; None falls back to the engine's bot identity.
     committer_name: str | None = None
     committer_email: str | None = None
+
+
+@dataclass
+class PublishSpec:
+    """How a branch leaves the sandbox: the one path that holds write credentials.
+
+    ``GITHUB_APP`` replays the branch's new commits through GitHub's API so GitHub signs them
+    (verified as the App, or as the member when ``token`` is the member's own); any other mode
+    pushes the commits the sandbox made, which are already signed (or not) locally.
+    """
+
+    # Empty means "the branch that is currently checked out".
+    branch: str = ""
+    signing_mode: SigningMode = SigningMode.NONE
+    # The member's own write token; the GitHub App's is minted when this is None.
+    token: str | None = None
+    installations: tuple[tuple[int, str], ...] = ()
+    default_branch: str = "main"
+    force_with_lease: bool = False
+
+
+@dataclass
+class PublishResult:
+    repository: str
+    branch: str
+    head_sha: str
+    via: str  # "github_api" | "git_push"
+    commits: int = 0
+    # Things the member should know about what was published, e.g. a lost executable bit.
+    notices: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -85,6 +116,15 @@ class GitEngineProtocol(ABC):
         pass
 
     @abstractmethod
+    async def publish_branch(self, session_id: str, spec: PublishSpec) -> PublishResult:
+        """Pushes the working branch to GitHub, signed by GitHub when ``spec`` asks for it.
+
+        Raises with the reason when the branch cannot be published; never reports a
+        publication that did not happen.
+        """
+        pass
+
+    @abstractmethod
     async def push_and_open_pr(
         self,
         session_id: str,
@@ -92,6 +132,8 @@ class GitEngineProtocol(ABC):
         body: str,
         target_branch: str = "main",
         token: str | None = None,
+        installations: Sequence[tuple[int, str]] = (),
+        publish: PublishSpec | None = None,
     ) -> str:
         """Pushes the working branch and opens a Pull Request, returning its URL.
 

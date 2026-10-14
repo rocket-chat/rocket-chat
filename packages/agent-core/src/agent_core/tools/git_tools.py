@@ -16,7 +16,13 @@ from typing import Protocol
 from agent_core.tools.clamp import clamp_output
 from agent_core.tools.tier2 import _sh_quote
 from specifications.interfaces.agent import GitPolicy
-from specifications.interfaces.git import CoAuthor, CommitSpec, SigningMode
+from specifications.interfaces.git import (
+    CoAuthor,
+    CommitSpec,
+    PublishResult,
+    PublishSpec,
+    SigningMode,
+)
 from specifications.interfaces.sandbox import ExecResult, SandboxDriverProtocol
 
 CHECKPOINT_TAG_PREFIX = "rocket-checkpoint-"
@@ -27,6 +33,8 @@ class CommitCapable(Protocol):
 
     async def create_commit(self, session_id: str, spec: CommitSpec) -> str: ...
 
+    async def publish_branch(self, session_id: str, spec: PublishSpec) -> PublishResult: ...
+
     async def push_and_open_pr(
         self,
         session_id: str,
@@ -35,6 +43,7 @@ class CommitCapable(Protocol):
         target_branch: str = "main",
         token: str | None = None,
         installations: Sequence[tuple[int, str]] = (),
+        publish: PublishSpec | None = None,
     ) -> str: ...
 
 
@@ -74,8 +83,33 @@ def commit_spec_for_policy(
         branch=branch or "",
         co_authors=co_authors,
         signing_mode=signing,
+        gpg_key_id=policy.signing_key_id or None,
         committer_name=policy.user_name if use_user_identity else policy.bot_name,
         committer_email=policy.user_email if use_user_identity else policy.bot_email,
+    )
+
+
+def publish_spec_for_policy(
+    policy: GitPolicy, branch: str | None = None, force_with_lease: bool = False
+) -> PublishSpec:
+    """How the branch leaves the sandbox under the member's effective policy.
+
+    GitHub-signed commits are the App's unless the member commits as themselves, in which case
+    their own token makes GitHub sign them as the member. Locally made commits are pushed with
+    the member's token, else the App's.
+    """
+    try:
+        signing = SigningMode(policy.signing_mode)
+    except ValueError:
+        signing = SigningMode.NONE
+    as_member = policy.authorship == "user_only" or signing != SigningMode.GITHUB_APP
+    return PublishSpec(
+        branch=branch or "",
+        signing_mode=signing,
+        token=policy.user_token if as_member else None,
+        installations=policy.app_installations,
+        default_branch=policy.default_branch,
+        force_with_lease=force_with_lease,
     )
 
 
@@ -231,6 +265,41 @@ async def git_revert(
     return _format_result(result, f"Restored tracked files from {reference}.")
 
 
+async def git_push(
+    session_id: str,
+    branch: str | None = None,
+    force_with_lease: bool = False,
+    git_engine: CommitCapable | None = None,
+    policy: GitPolicy | None = None,
+) -> str:
+    """Publish the branch: the one way commits leave the sandbox (see ``BranchPublisher``)."""
+    if git_engine is None:
+        return "Error: GitHub is not configured; cannot publish the branch."
+    spec = publish_spec_for_policy(policy or GitPolicy(), branch, force_with_lease)
+    try:
+        result = await git_engine.publish_branch(session_id, spec)
+    except Exception as err:
+        return f"Error: could not publish the branch: {err}"
+    return describe_publication(result)
+
+
+def describe_publication(result: PublishResult) -> str:
+    if result.via == "github_api":
+        how = "created through GitHub's API, so GitHub signed them"
+        if result.commits == 0:
+            return (
+                f"Nothing to publish: {result.branch} is already up to date on {result.repository}."
+            )
+        lines = [
+            f"Published {result.commits} commit(s) to {result.repository}@{result.branch} ({how})."
+            f" Head: {result.head_sha[:12]}."
+        ]
+    else:
+        lines = [f"Pushed {result.repository}@{result.branch}. Head: {result.head_sha[:12]}."]
+    lines.extend(result.notices)
+    return "\n".join(lines)
+
+
 async def git_open_pr(
     driver: SandboxDriverProtocol,
     session_id: str,
@@ -253,6 +322,7 @@ async def git_open_pr(
             target_branch or effective.default_branch,
             token=token,
             installations=effective.app_installations,
+            publish=publish_spec_for_policy(effective),
         )
         return f"Pull request opened: {url}"
     except Exception as err:

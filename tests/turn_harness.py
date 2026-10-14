@@ -81,6 +81,7 @@ async def run_turn(
     driver: FakeSandboxDriver | None = None,
     user: str = "u1",
     final_text: str = "All done.",
+    git_engine: Any = None,
 ) -> TurnOutcome:
     """Run a web-cockpit style turn for ``org`` and return what happened."""
     session_id = f"session_{org}"
@@ -88,6 +89,8 @@ async def run_turn(
     driver = driver or FakeSandboxDriver()
     model = ScriptedModel(script=script or [], final_text=final_text)
     registry = ToolRegistry(driver=driver, session_id=session_id)
+    if git_engine is not None:
+        registry.bind_git_engine(git_engine)
     orchestrator = AsyncReActOrchestrator(
         gateway=model, registry=registry, transcript_store=InMemoryTranscriptStore()
     )
@@ -110,6 +113,7 @@ async def run_turn(
             driver=driver,
             registry=registry,
             store=store,
+            git_engine=git_engine,
         )
     finally:
         current_tenant_org_id.reset(token)

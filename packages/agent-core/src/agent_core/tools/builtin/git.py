@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 def register(registry: "ToolRegistry") -> None:
     _register_git_inspection_tools(registry)
     _register_git_change_tools(registry)
+    _register_git_publish_tools(registry)
 
 
 def _register_git_inspection_tools(registry: "ToolRegistry") -> None:
@@ -175,8 +176,41 @@ def _register_git_change_tools(registry: "ToolRegistry") -> None:
         await registry._ensure_sandbox(session_id)
         return await git_tools.git_revert(driver, session_id, reference, mode)
 
+
+def _register_git_publish_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
-        description="Push the current branch and open a pull request via the GitHub App."
+        description=(
+            "Publish the current branch to GitHub: the only way commits leave the sandbox (a raw"
+            " `git push` is refused). Depending on the organization's signing mode the commits"
+            " are re-created through GitHub's API so GitHub signs them (local commit hashes then"
+            " change), or pushed as they are. Commit first; call this before git_open_pr if you"
+            " only want to publish."
+        )
+    )
+    async def git_push(
+        branch: Annotated[
+            str | None, Field(description="Branch to publish (default: the checked-out one).")
+        ] = None,
+        force_with_lease: Annotated[
+            bool,
+            Field(description="Allow replacing remote commits you have not fetched (rarely)."),
+        ] = False,
+    ) -> str:
+        target = registry._sandbox_target("git_push")
+        if not target:
+            return "Error: Sandbox not initialized for git_push"
+        _, session_id = target
+        await registry._ensure_sandbox(session_id)
+        return await git_tools.git_push(
+            session_id,
+            branch,
+            force_with_lease,
+            registry._git_engine,
+            policy=registry._git_policy(),
+        )
+
+    @registry._tool(
+        description="Publish the current branch and open a pull request for it on GitHub."
     )
     async def git_open_pr(
         title: Annotated[str, Field(description="Pull request title.")],

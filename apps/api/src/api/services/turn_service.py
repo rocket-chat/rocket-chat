@@ -204,7 +204,9 @@ class TurnService:
             default_branch=str(github["default_branch"]),
             bot_name=str(github["bot_author_name"]),
             bot_email=str(github["bot_author_email"]),
-            user_name=str(prefs.get("git_author_name") or prefs.get("full_name") or ""),
+            # The member's own override only; the linked GitHub account or profile fills the rest
+            # when the turn's git credentials are resolved (see ``commit_identity``).
+            user_name=str(prefs.get("git_author_name") or ""),
             user_email=str(prefs.get("git_author_email") or ""),
             app_installations=tuple(
                 (i.installation_id, i.account_login)
