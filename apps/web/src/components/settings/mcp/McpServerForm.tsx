@@ -22,6 +22,8 @@ interface McpServerFormProps {
   runner: McpRunnerStatus | null;
   onSaved: (server: McpServerConfig, message: string) => void;
   onCancel: () => void;
+  /** Edit this command server instead of registering a new one. */
+  editing?: McpServerConfig;
 }
 
 /** Registers a new MCP server: transport, endpoint, credentials, a connection test. */
@@ -31,6 +33,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
   runner,
   onSaved,
   onCancel,
+  editing,
 }) => {
   const [validating, setValidating] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -44,11 +47,11 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
   } | null>(null);
 
   // Server Form Fields
-  const [serverName, setServerName] = useState("");
-  const [transport, setTransport] = useState<"http" | "sse" | "streamable_http" | "websocket" | "stdio">("http");
-  const [endpoint, setEndpoint] = useState("");
-  const [guidance, setGuidance] = useState("");
-  const [authType, setAuthType] = useState<string>("none");
+  const [serverName, setServerName] = useState(editing?.name ?? "");
+  const [transport, setTransport] = useState<"http" | "sse" | "streamable_http" | "websocket" | "stdio">(editing?.transport ?? "http");
+  const [endpoint, setEndpoint] = useState(editing?.endpoint_or_command ?? "");
+  const [guidance, setGuidance] = useState(editing?.guidance ?? "");
+  const [authType, setAuthType] = useState<string>(editing ? "custom_headers" : "none");
   const [apiKey, setApiKey] = useState("");
   const [authHeaderName, setAuthHeaderName] = useState("Authorization");
   const [authHeaderPrefix, setAuthHeaderPrefix] = useState("Bearer");
@@ -59,8 +62,17 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
   const [oauthScopes, setOauthScopes] = useState("");
   const [oauthMode, setOauthMode] = useState<"org" | "member">("org");
   const [customHeaders, setCustomHeaders] = useState<Array<{ name: string; value: string; is_secret: boolean }>>([]);
-  const [envRows, setEnvRows] = useState<EnvRow[]>([]);
-  const [installCommand, setInstallCommand] = useState("");
+  const [envRows, setEnvRows] = useState<EnvRow[]>(() =>
+    (editing?.headers_preview ?? []).map((h) => ({
+      name: h.name,
+      // A stored secret is never sent to the page; empty keeps it, typing replaces it.
+      value: h.is_secret ? "" : h.value,
+      is_secret: h.is_secret,
+      member_override: h.member_override ?? false,
+      stored: h.is_secret && !h.member_override,
+    }))
+  );
+  const [installCommand, setInstallCommand] = useState(editing?.install_command ?? "");
   const isCommand = transport === "stdio";
   const [newHeaderKey, setNewHeaderKey] = useState("");
   const [newHeaderVal, setNewHeaderVal] = useState("");
@@ -72,7 +84,12 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
     const rows = envRows.filter((row) => row.name.trim());
     return {
       auth_type: rows.length ? "custom_headers" : "none",
-      headers: rows.map((row) => ({ ...row, name: row.name.trim() })),
+      headers: rows.map((row) => ({
+        name: row.name.trim(),
+        value: row.value,
+        is_secret: row.is_secret,
+        member_override: row.member_override,
+      })),
       install_command: installCommand.trim() || undefined,
     };
   };
@@ -176,6 +193,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
     setFormError(null);
     try {
       const payload: Record<string, unknown> = {
+        id: editing?.id,
         name: serverName.trim(),
         transport,
         endpoint_or_command: endpoint.trim(),
@@ -196,7 +214,12 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
       }
 
       const created: McpServerConfig = await res.json();
-      onSaved(created, `Registered MCP server '${created.name}' (${formScope} scope)`);
+      onSaved(
+        created,
+        editing
+          ? `Updated MCP server '${created.name}'`
+          : `Registered MCP server '${created.name}' (${formScope} scope)`
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error saving MCP server";
       setFormError(msg);
@@ -205,11 +228,17 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
 
   return (
     <Modal
-      title={formScope === "org" ? "Register an organization MCP server" : "Register a personal MCP server"}
+      title={
+        editing
+          ? `Edit ${editing.name}`
+          : formScope === "org"
+            ? "Register an organization MCP server"
+            : "Register a personal MCP server"
+      }
       onClose={onCancel}
       testId="mcp-server-modal"
     >
-              <Field label="Start from a common server (optional)" hint="Fills in the fields below; you can change anything.">
+              {!editing && <Field label="Start from a common server (optional)" hint="Fills in the fields below; you can change anything.">
                 {(control) => (
                   <Select {...control} data-testid="mcp-preset" value={preset?.id ?? ""} onChange={(e) => applyPreset(e.target.value)}>
                     <option value="">Custom server</option>
@@ -227,7 +256,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                     </optgroup>
                   </Select>
                 )}
-              </Field>
+              </Field>}
 
               {preset && (
                 <div data-testid="mcp-preset-note" className="rounded-lg border border-surface-border bg-surface-card p-3 text-xs leading-relaxed text-neutral-600 dark:text-neutral-300">
@@ -271,6 +300,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                     <Select
                       {...control}
                       value={transport}
+                      disabled={!!editing}
                       onChange={(e) => {
                         const next = e.target.value as "http" | "sse" | "streamable_http" | "websocket" | "stdio";
                         setTransport(next);

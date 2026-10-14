@@ -506,6 +506,81 @@ def _encrypted_auth_payload(req: CreateMcpServerRequest) -> dict[str, Any]:
     return payload
 
 
+async def _stored_server_for_update(
+    request: Request, org_id: str, user_id: str, is_admin: bool, server_id: str
+) -> dict[str, Any] | None:
+    """The stored record being replaced (``None`` for a new server), after the access check.
+
+    Done before anything is probed or decrypted: a secret kept from the stored server must
+    never be sent anywhere on behalf of a caller who may not modify that server.
+    """
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    if db_mgr:
+        async with db_mgr.session(tenant_org_id=org_id) as session:
+            entity = (
+                await session.execute(
+                    select(McpServerEntityModel).where(
+                        McpServerEntityModel.id == server_id,
+                        McpServerEntityModel.org_id == org_id,
+                    )
+                )
+            ).scalar_one_or_none()
+        if entity is None:
+            return None
+        _assert_may_modify(entity, user_id, is_admin)
+        return {
+            "endpoint_or_command": entity.endpoint_or_command,
+            "transport": entity.transport,
+            "encrypted_auth": dict(entity.encrypted_auth or {}),
+        }
+    record = _mcp_servers_store.get(server_id)
+    if record is None or record.get("org_id") != org_id:
+        return None
+    if not is_admin and (
+        record.get("scope") == "org"
+        or (record.get("scope") == "user" and record.get("user_id") != user_id)
+    ):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return record
+
+
+def _open_secret(stored: str, is_secret: bool) -> str | None:
+    if not is_secret:
+        return stored
+    try:
+        return _cipher.decrypt(stored)
+    except Exception:
+        return None
+
+
+def _keep_stored_secrets(req: CreateMcpServerRequest, stored: dict[str, Any]) -> None:
+    """Fill a secret the edit left blank with the one already stored.
+
+    Secrets are never sent back to the page, so an edit cannot show them; a blank field means
+    "unchanged". An HTTP server whose address changed keeps nothing: the old credential would
+    otherwise be sent to a new host without anyone retyping it. A command server may keep its
+    variables, since the administrator already chooses what runs.
+    """
+    previous = stored.get("encrypted_auth") or {}
+    moved = req.transport != "stdio" and (
+        req.endpoint_or_command != stored.get("endpoint_or_command")
+        or req.transport != stored.get("transport")
+    )
+    if moved:
+        return
+    auth = req.auth
+    if not auth.api_key and previous.get("api_key"):
+        auth.api_key = _open_secret(previous["api_key"], True)
+    if not auth.oauth_client_secret and previous.get("oauth_client_secret"):
+        auth.oauth_client_secret = _open_secret(previous["oauth_client_secret"], True)
+    before = {h["name"]: h for h in previous.get("headers") or []}
+    for header in auth.headers:
+        old = before.get(header.name)
+        if header.value or header.member_override or not old or not old.get("value"):
+            continue
+        header.value = _open_secret(old["value"], bool(old.get("is_secret"))) or ""
+
+
 async def _discover_oauth_settings(
     req: CreateMcpServerRequest, auth_dict: dict[str, Any], request: Request
 ) -> None:
@@ -638,6 +713,10 @@ async def register_or_update_mcp_server(
     org_id, user_id, roles = _get_request_identity(request)
     is_admin = "admin" in roles or "owner" in roles
     _authorise_registration(req, is_admin)
+    if req.id:
+        stored = await _stored_server_for_update(request, org_id, user_id, is_admin, req.id)
+        if stored is not None:
+            _keep_stored_secrets(req, stored)
     _check_stdio_environment(req.transport, req.auth)
 
     server_id = req.id or f"mcp-{uuid.uuid4().hex[:8]}"

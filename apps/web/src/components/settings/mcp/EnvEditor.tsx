@@ -10,6 +10,8 @@ export interface EnvRow {
   is_secret: boolean;
   /** Each member may set their own value; an empty value then means they must. */
   member_override: boolean;
+  /** Editing: a value is already stored (never shown); leaving the field empty keeps it. */
+  stored?: boolean;
 }
 
 interface EnvEditorProps {
@@ -45,7 +47,13 @@ export const EnvEditor: React.FC<EnvEditorProps> = ({ rows, onChange }) => {
             aria-label={`Variable ${index + 1} value`}
             className={FIELD}
             type={row.is_secret ? "password" : "text"}
-            placeholder={row.member_override ? "Empty: each member provides it" : "Value"}
+            placeholder={
+              row.stored
+                ? "Unchanged (type to replace)"
+                : row.member_override
+                  ? "Empty: each member provides it"
+                  : "Value"
+            }
             autoComplete="off"
             value={row.value}
             onChange={(e) => update(index, { value: e.target.value })}

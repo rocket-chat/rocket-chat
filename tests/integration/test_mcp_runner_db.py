@@ -132,3 +132,56 @@ def test_a_members_key_is_encrypted_used_for_their_turn_and_removed_with_the_ser
     finally:
         app.state.mcp_member_tokens = None  # it caches the manager of the client that just closed
         stop()
+
+
+def test_editing_a_server_keeps_its_stored_secret_and_refuses_a_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.db.models import McpServerEntityModel
+    from api.services.mcp_turn import _cipher
+
+    name = f"Editable {uuid.uuid4().hex[:6]}"
+    server = {
+        "name": name,
+        "transport": "stdio",
+        "endpoint_or_command": "tool serve",
+        "scope": "org",
+        "tools": [{"name": "echo", "description": "Echo"}],
+        "auth": {
+            "auth_type": "custom_headers",
+            "headers": [{"name": "API_KEY", "value": "org-key", "is_secret": True}],
+        },
+    }
+    with TestClient(app) as client:
+        manager = app.state.db_manager
+
+        async def provision() -> None:
+            async with manager.session(tenant_org_id="test_org") as session:
+                await ensure_tenant_identity(session, "test_org", "mcp_env_admin")
+                await ensure_tenant_identity(session, "test_org", "mcp_env_member")
+
+        async def stored_secret(server_id: str) -> str:
+            async with manager.session(tenant_org_id="test_org") as session:
+                entity = (
+                    await session.execute(
+                        select(McpServerEntityModel).where(McpServerEntityModel.id == server_id)
+                    )
+                ).scalar_one()
+                return str(_cipher.decrypt(entity.encrypted_auth["headers"][0]["value"]))
+
+        client.portal.call(provision)
+        server_id = client.post("/v1/mcp/servers", json=server, headers=ADMIN).json()["id"]
+        try:
+            edit = {**server, "id": server_id, "endpoint_or_command": "tool serve --fast"}
+            edit["auth"] = {
+                "auth_type": "custom_headers",
+                "headers": [{"name": "API_KEY", "value": "", "is_secret": True}],
+            }
+            saved = client.post("/v1/mcp/servers", json=edit, headers=ADMIN)
+            assert saved.status_code == 200, saved.text
+            assert saved.json()["endpoint_or_command"] == "tool serve --fast"
+            assert client.portal.call(stored_secret, server_id) == "org-key"
+
+            assert client.post("/v1/mcp/servers", json=edit, headers=MEMBER).status_code == 403
+        finally:
+            client.delete(f"/v1/mcp/servers/{server_id}", headers=ADMIN)

@@ -114,4 +114,46 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
     await expect(page.locator("option[value=stdio]")).toBeDisabled();
     await expect(page.getByText(/added by an administrator - ask yours/)).toBeVisible();
   });
+
+  test("an administrator edits an organization command server and keeps its secret", async ({ page }) => {
+    const name = `E2E Editable ${Date.now()}`;
+    const created = await page.request.post(`${API}/v1/mcp/servers`, {
+      data: {
+        name,
+        transport: "stdio",
+        endpoint_or_command: `python3 ${ENV_SERVER}`,
+        scope: "org",
+        auth: {
+          auth_type: "custom_headers",
+          headers: [
+            { name: "BASE_URL", value: "https://grafana.example", is_secret: false },
+            { name: "API_KEY", value: "org-readonly-key", is_secret: true, member_override: false },
+          ],
+        },
+      },
+    });
+    expect(created.ok()).toBeTruthy();
+
+    try {
+      await page.goto("/settings/mcp");
+      await page.getByRole("button", { name: `Edit ${name}` }).click();
+      const dialog = page.getByTestId("mcp-server-modal");
+      await expect(dialog.getByRole("heading", { name: `Edit ${name}` })).toBeVisible();
+      await expect(page.getByLabel("Variable 2 value")).toHaveAttribute("placeholder", /Unchanged/);
+
+      await page.getByLabel("Variable 1 value").fill("https://grafana.example/v2");
+      await page.getByRole("button", { name: /Probe & connect server/i }).click();
+      await expect(dialog).toBeHidden({ timeout: 30000 });
+
+      const servers: { name: string; headers_preview: { name: string; value: string }[] }[] = await (
+        await page.request.get(`${API}/v1/mcp/servers`)
+      ).json();
+      const after = servers.find((s) => s.name === name)!;
+      expect(after.headers_preview.find((h) => h.name === "BASE_URL")?.value).toBe("https://grafana.example/v2");
+      // Never shown, but still there: saving without retyping it did not blank it.
+      expect(after.headers_preview.find((h) => h.name === "API_KEY")?.value).toBeTruthy();
+    } finally {
+      await removeServer(page, name);
+    }
+  });
 });
