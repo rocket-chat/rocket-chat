@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- `web`: the header's Rocket logo rendered small inside a boxed border, and the hover highlight filled that box solid orange instead of just outlining it. The icon now sits unboxed at full size, with a thin orange ring that hugs its own squircle shape from the outside on hover.
 
 ### Security
 
