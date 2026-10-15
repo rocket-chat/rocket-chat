@@ -19,8 +19,9 @@ LEAK_MARKERS: tuple[str, ...] = (
     "<|DSML|",
     f"<{_BAR}tool{_JOIN}calls{_JOIN}begin{_BAR}",
     f"<{_BAR}tool_calls_begin{_BAR}",
-    "<function_calls>",
-    "<tool_call>",
+    # Open-ended on purpose: models write <tool_call>, <tool_calls> and attributed variants.
+    "<function_calls",
+    "<tool_call",
     "<invoke ",
 )
 

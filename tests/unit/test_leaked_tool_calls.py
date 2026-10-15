@@ -20,6 +20,14 @@ DSML = (
 )
 
 
+# What deepseek-v4-pro wrote in production: plain tags, plural, no DeepSeek delimiters.
+PLAIN = (
+    '<tool_calls>\n<invoke name="update_status">\n<parameter name="status">Recherche des logs'
+    '</parameter>\n</invoke>\n<invoke name="execute_skill">\n<parameter name="skill">'
+    "signoz-logs-traces</parameter>\n</invoke>\n</tool_calls>"
+)
+
+
 def _react_requests(outcome: Any) -> list[Any]:
     """The model calls that take tools: the turn's steps, not its follow-up suggestions."""
     return [request for request in outcome.model.requests if request.tools]
@@ -76,3 +84,29 @@ async def test_a_model_that_keeps_leaking_ends_with_a_clear_message_not_markup()
         str(m) for m in outcome.session.conversation_history
     )
     assert LEAK_GIVE_UP in shown and "DSML" not in shown and "unreached" not in shown
+
+
+def test_plain_plural_and_attributed_tags_are_markup_too() -> None:
+    for text in (PLAIN, '<tool_call name="x">{}</tool_call>', "<function_calls>\n<invoke"):
+        assert contains_leaked_calls(text), text
+        assert strip_leaked_calls(text) == ""
+
+
+def test_the_stream_filter_shows_nothing_of_a_plain_tool_calls_block() -> None:
+    shown = ""
+    stream = LeakFilter()
+    for piece in ["<tool", "_calls", ">\n", "<inv", 'oke name="update_status">', "</tool_calls>"]:
+        shown += stream.feed(piece)
+    shown += stream.finish()
+
+    assert shown == ""
+
+
+async def test_repeated_plain_markup_ends_with_only_the_clear_message() -> None:
+    outcome = await run_turn("leak_plain", leaks=[PLAIN, PLAIN, PLAIN], final_text="unreached")
+
+    shown = outcome.text_of_events() + " ".join(
+        str(m) for m in outcome.session.conversation_history
+    )
+    assert LEAK_GIVE_UP in shown
+    assert "<tool_calls>" not in shown and "<invoke" not in shown, "no markup fragment shown"
