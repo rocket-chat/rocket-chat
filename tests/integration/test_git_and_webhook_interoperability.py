@@ -12,6 +12,7 @@ import uuid
 import pytest
 from agent_core.orchestrator import AsyncReActOrchestrator
 from agent_core.tools.registry import ToolRegistry
+from agent_core.tools.repository import ensure_git_available
 from api.events import AsyncIOEventBus
 from api.main import app
 from api.store import InMemorySessionStore
@@ -124,7 +125,9 @@ async def test_git_and_webhook_interoperability(
             status = await driver.get_status(expected_session_id)
             assert status == SandboxStatus.RUNNING
 
-            # A blank sandbox has no repository; committing never creates one implicitly.
+            # A blank sandbox has no repository; committing never creates one implicitly. The
+            # bare Python image has no git either: install it the way clone_repository does.
+            assert await ensure_git_available(driver, expected_session_id) is None
             init = await driver.exec_command(expected_session_id, "git init -q -b main")
             assert init.exit_code == 0, init.stderr
 
