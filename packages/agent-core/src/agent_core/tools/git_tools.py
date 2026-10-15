@@ -47,8 +47,12 @@ class CommitCapable(Protocol):
     ) -> str: ...
 
 
-async def _exec(driver: SandboxDriverProtocol, session_id: str, command: str) -> ExecResult:
-    return await driver.exec_command(session_id=session_id, command=command, timeout_seconds=60)
+async def _exec(
+    driver: SandboxDriverProtocol, session_id: str, command: str, workdir: str = "/workspace"
+) -> ExecResult:
+    return await driver.exec_command(
+        session_id=session_id, command=command, workdir=workdir, timeout_seconds=60
+    )
 
 
 def _format_result(result: ExecResult, success_message: str) -> str:
@@ -115,6 +119,7 @@ def publish_spec_for_policy(
         installations=policy.app_installations,
         default_branch=policy.default_branch,
         force_with_lease=force_with_lease,
+        signing_key=policy.signing_key if signing == SigningMode.GPG_KEY else None,
     )
 
 
@@ -126,9 +131,11 @@ async def git_commit(
     co_authors: list[str] | None = None,
     git_engine: CommitCapable | None = None,
     policy: GitPolicy | None = None,
+    workdir: str = "/workspace",
 ) -> str:
     """Create a commit that follows the organization's authorship and signing policy."""
     spec = commit_spec_for_policy(message, branch, co_authors, policy or GitPolicy())
+    spec.path = workdir
     if git_engine is not None:
         try:
             sha = await git_engine.create_commit(session_id, spec)
@@ -137,14 +144,14 @@ async def git_commit(
             return f"Error: git commit failed via GitEngine: {err}"
 
     if branch:
-        await _exec(driver, session_id, f"git checkout -B {_sh_quote(branch)}")
-    await _exec(driver, session_id, "git add -A")
-    result = await _exec(driver, session_id, f"git commit -m {_sh_quote(message)}")
+        await _exec(driver, session_id, f"git checkout -B {_sh_quote(branch)}", workdir)
+    await _exec(driver, session_id, "git add -A", workdir)
+    result = await _exec(driver, session_id, f"git commit -m {_sh_quote(message)}", workdir)
     combined = f"{result.stdout or ''}{result.stderr or ''}"
     if result.exit_code != 0 and "nothing to commit" in combined:
-        rev = await _exec(driver, session_id, "git rev-parse HEAD")
+        rev = await _exec(driver, session_id, "git rev-parse HEAD", workdir)
         return f"Nothing to commit. HEAD: {(rev.stdout or '').strip()}"
-    rev = await _exec(driver, session_id, "git rev-parse HEAD")
+    rev = await _exec(driver, session_id, "git rev-parse HEAD", workdir)
     return _format_result(result, f"Committed. SHA: {(rev.stdout or '').strip()}")
 
 
@@ -153,10 +160,11 @@ async def git_branch(
     session_id: str,
     name: str,
     from_ref: str | None = None,
+    workdir: str = "/workspace",
 ) -> str:
     """Create and switch to a new branch, optionally from a specific ref."""
     base = f" {_sh_quote(from_ref)}" if from_ref else ""
-    result = await _exec(driver, session_id, f"git checkout -b {_sh_quote(name)}{base}")
+    result = await _exec(driver, session_id, f"git checkout -b {_sh_quote(name)}{base}", workdir)
     return _format_result(result, f"Switched to new branch '{name}'.")
 
 
@@ -198,10 +206,11 @@ async def git_checkpoint(
     driver: SandboxDriverProtocol,
     session_id: str,
     label: str | None = None,
+    workdir: str = "/workspace",
 ) -> str:
     """Snapshot the workspace (including uncommitted work) as a restorable checkpoint."""
     listed = await _exec(
-        driver, session_id, f"git tag -l {_sh_quote(CHECKPOINT_TAG_PREFIX + '*')} | wc -l"
+        driver, session_id, f"git tag -l {_sh_quote(CHECKPOINT_TAG_PREFIX + '*')} | wc -l", workdir
     )
     try:
         next_index = int((listed.stdout or "0").strip()) + 1
@@ -218,6 +227,7 @@ async def git_checkpoint(
             prefix=CHECKPOINT_TAG_PREFIX,
             keep=MAX_CHECKPOINTS + 1,
         ),
+        workdir,
     )
     sha = (result.stdout or "").strip().splitlines()[-1] if result.exit_code == 0 else ""
     return _format_result(result, f"Checkpoint '{tag}' created at {sha[:12]}.")
@@ -229,14 +239,17 @@ def _safe_label(label: str) -> str:
     return cleaned.strip("-.")[:40]
 
 
-async def list_checkpoints(driver: SandboxDriverProtocol, session_id: str) -> list[Checkpoint]:
-    """Checkpoints of the workspace, newest first (empty outside a git repository)."""
+async def list_checkpoints(
+    driver: SandboxDriverProtocol, session_id: str, workdir: str = "/workspace"
+) -> list[Checkpoint]:
+    """Checkpoints of the repository in ``workdir``, newest first (empty outside a repository)."""
     result = await _exec(
         driver,
         session_id,
         "git for-each-ref --sort=-creatordate "
         "--format='%(refname:strip=2)\t%(objectname:short)\t%(creatordate:unix)' "
         f"{_sh_quote('refs/tags/' + CHECKPOINT_TAG_PREFIX + '*')}",
+        workdir,
     )
     if result.exit_code != 0:
         return []
@@ -248,8 +261,10 @@ async def list_checkpoints(driver: SandboxDriverProtocol, session_id: str) -> li
     return checkpoints
 
 
-async def is_git_workspace(driver: SandboxDriverProtocol, session_id: str) -> bool:
-    return (await _exec(driver, session_id, "git rev-parse --git-dir")).exit_code == 0
+async def is_git_workspace(
+    driver: SandboxDriverProtocol, session_id: str, workdir: str = "/workspace"
+) -> bool:
+    return (await _exec(driver, session_id, "git rev-parse --git-dir", workdir)).exit_code == 0
 
 
 async def git_revert(
@@ -257,6 +272,7 @@ async def git_revert(
     session_id: str,
     reference: str,
     mode: str = "files",
+    workdir: str = "/workspace",
 ) -> str:
     """Restore the workspace to a checkpoint/commit.
 
@@ -264,9 +280,11 @@ async def git_revert(
     the whole worktree and MUST only be reached after human approval.
     """
     if mode == "hard":
-        result = await _exec(driver, session_id, f"git reset --hard {_sh_quote(reference)}")
+        result = await _exec(
+            driver, session_id, f"git reset --hard {_sh_quote(reference)}", workdir
+        )
         return _format_result(result, f"Hard reset to {reference}.")
-    result = await _exec(driver, session_id, f"git checkout {_sh_quote(reference)} -- .")
+    result = await _exec(driver, session_id, f"git checkout {_sh_quote(reference)} -- .", workdir)
     return _format_result(result, f"Restored tracked files from {reference}.")
 
 

@@ -20,10 +20,10 @@ from api.services.audit import AuditService, GovernancePolicy
 from api.services.budgets import BudgetService
 from api.services.git_credentials import (
     GitCredentialBundle,
-    apply_signing_to_sandbox,
     inject_git_credentials_into_sandbox,
     resolve_session_git_credentials,
 )
+from api.services.git_gateway_env import github_api_url_of
 from api.services.git_signing import (
     SIGNED_MODE,
     effective_signing_policy,
@@ -32,7 +32,12 @@ from api.services.git_signing import (
 from api.services.mcp_turn import _mcp_tools_for_turn
 from api.services.redaction import RedactionPolicy, Redactor
 from api.services.sandbox_catalogue import SandboxCatalogue
-from api.services.session_support import _new_message_id, _repo_slug, _session_toolsets
+from api.services.session_support import (
+    _new_message_id,
+    _repo_slug,
+    _session_toolsets,
+    active_repository_of,
+)
 from api.services.settings import effective_settings, load_org_config
 from api.services.title import TITLE_SOURCE_AUTO
 from api.services.turn_trace import (
@@ -64,7 +69,6 @@ class TurnRunner:
         self.req = request
         self.state = TurnState()
         self._org_id: str | None = None
-        self._signing_in_sandbox = False
 
     async def run(self) -> None:
         try:
@@ -339,18 +343,22 @@ class TurnRunner:
             )
             if signing is not None:
                 git_bundle = replace(git_bundle, signing=signing, author_email=signing.commit_email)
-                self._signing_in_sandbox = True
         if git_bundle.warning:
             await self._publish(
                 EventType.STATUS_CHANGED, {"status": "warning", "message": git_bundle.warning}
             )
-        # Refresh the live sandbox's credentials at the start of every turn. Credentials are
-        # otherwise injected only once at sandbox creation, but a sandbox outlives many turns
-        # and a GitHub App installation token expires after ~1 hour (a user PAT can be
-        # revoked/rotated) - so a long-lived sandbox would run git with a dead token.
+        # Renew the live sandbox's git setup at the start of every turn: the gateway capability
+        # lasts an hour and a sandbox outlives many turns.
         # Best-effort: a refresh failure must never break the turn.
         if req.driver is not None and session.sandbox_status == SandboxStatus.RUNNING:
-            await inject_git_credentials_into_sandbox(req.driver, req.session_id, git_bundle)
+            await inject_git_credentials_into_sandbox(
+                req.driver,
+                req.session_id,
+                git_bundle,
+                org_id=session.tenant_org_id,
+                user_id=session.tenant_user_id,
+                api_url=github_api_url_of(req.git_engine),
+            )
         return git_bundle
 
     @staticmethod
@@ -364,7 +372,9 @@ class TurnRunner:
             user_token=git_bundle.user_token,
         )
         return replace(
-            ctx.binding.policy, git=effective_signing_policy(completed, git_bundle.signing)
+            ctx.binding.policy,
+            git=effective_signing_policy(completed, git_bundle.signing),
+            active_repository=active_repository_of(ctx.session),
         )
 
     async def _warn_about_budget(self, ctx: TurnContext) -> None:
@@ -428,11 +438,6 @@ class TurnRunner:
             pass
 
     async def _cleanup(self) -> None:
-        if self._signing_in_sandbox and self.req.driver is not None:
-            try:
-                await apply_signing_to_sandbox(self.req.driver, self.req.session_id, None)
-            except Exception as err:
-                logger.warning("Could not remove the signing key from the sandbox: %s", err)
         if self.state.mcp_tools is not None:
             await self.state.mcp_tools.aclose()
         await persist_trace(self.state, self.req.db_mgr)

@@ -14,6 +14,7 @@ from agent_core.tools.builtin import (
     conversation,
     files,
     git,
+    github,
     knowledge,
     repository,
     web,
@@ -22,7 +23,7 @@ from agent_core.tools.builtin import (
 if TYPE_CHECKING:
     from agent_core.tools.registry import ToolRegistry
 
-_DOMAINS = (web, conversation, knowledge, repository, files, commands, background, git)
+_DOMAINS = (web, conversation, knowledge, repository, github, files, commands, background, git)
 
 
 def register_all(registry: ToolRegistry) -> None:

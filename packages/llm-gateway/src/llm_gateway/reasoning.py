@@ -1,5 +1,7 @@
 """Parser and filter for extracting reasoning tokens from streaming LLM responses."""
 
+from typing import Any
+
 
 class ReasoningStreamFilter:
     """
@@ -81,3 +83,24 @@ class ReasoningStreamFilter:
             if tag.startswith(text[-i:]):
                 return i
         return 0
+
+
+def merge_reasoning_blocks(blocks: list[dict[str, Any]], pieces: list[dict[str, Any]]) -> None:
+    """Fold streamed pieces into whole reasoning blocks, in place.
+
+    A thinking block streams as text pieces followed by a piece carrying only its signature; a
+    redacted block arrives whole. Providers verify the signature against the full text, so the
+    pieces must be joined exactly.
+    """
+    for piece in pieces:
+        kind = piece.get("type", "thinking")
+        last = blocks[-1] if blocks else None
+        open_thinking = (
+            last is not None and last.get("type") == "thinking" and not last.get("signature")
+        )
+        if kind == "thinking" and open_thinking and last is not None:
+            last["thinking"] = str(last.get("thinking") or "") + str(piece.get("thinking") or "")
+            if piece.get("signature"):
+                last["signature"] = piece["signature"]
+        else:
+            blocks.append(dict(piece))

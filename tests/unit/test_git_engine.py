@@ -10,7 +10,13 @@ from git_engine.config import GitEngineSettings
 from git_engine.engine import GitEngine
 from git_engine.trailers import format_commit_message, parse_co_authors
 
-from specifications.interfaces.git import CoAuthor, CommitSpec, SigningMode
+from specifications.interfaces.git import (
+    CoAuthor,
+    CommitSpec,
+    PublishResult,
+    PublishSpec,
+    SigningMode,
+)
 from specifications.interfaces.sandbox import ExecResult
 
 
@@ -73,7 +79,7 @@ async def test_create_commit_offline_fallback() -> None:
 
 
 @pytest.mark.asyncio
-async def test_create_commit_gpg_signing_mode() -> None:
+async def test_a_gpg_mode_commit_is_not_signed_in_the_sandbox() -> None:
     driver = AsyncMock()
     # Mock git rev-parse HEAD returning a 40-char SHA
     driver.exec_command.return_value = ExecResult(
@@ -94,11 +100,12 @@ async def test_create_commit_gpg_signing_mode() -> None:
     sha = await engine.create_commit("session_gpg", spec)
     assert sha == "a1b2c3d4e5f607182930415263748596a7b8c9d0"
 
-    # Verify driver calls include gpg configurations
+    # The sandbox holds no key: the platform signs the commits when the branch is published.
     commands = [call.args[1] for call in driver.exec_command.call_args_list]
-    assert any("user.signingkey" in cmd and "3AA5C34371567BD2" in cmd for cmd in commands)
-    assert any("commit.gpgsign true" in cmd for cmd in commands)
-    assert any("git commit -S -m" in cmd for cmd in commands)
+    assert not any(
+        "signingkey" in cmd or "gpgsign true" in cmd or " -S " in cmd for cmd in commands
+    )
+    assert any("git commit --no-gpg-sign -m" in cmd for cmd in commands)
 
 
 @pytest.mark.asyncio
@@ -125,7 +132,7 @@ async def test_create_commit_github_app_mode() -> None:
     # The deployment's own bot identity - never another product's.
     assert any("RocketChat Bot" in cmd for cmd in commands)
     assert not any("github-actions" in cmd for cmd in commands)
-    assert any("git commit -m" in cmd for cmd in commands)
+    assert any("git commit --no-gpg-sign -m" in cmd for cmd in commands)
 
 
 @pytest.mark.asyncio
@@ -218,18 +225,16 @@ async def test_webhook_issue_comment_created() -> None:
     assert trigger.prompt_text == "@RocketChat please run pytest and fix failing tests."
 
 
-def _pr_driver() -> AsyncMock:
-    driver = AsyncMock()
-    driver.exec_command.side_effect = [
-        ExecResult(exit_code=0, stdout="/workspace\n", stderr="", duration_ms=5),  # toplevel
-        ExecResult(exit_code=0, stdout="feat/auth-patch\n", stderr="", duration_ms=5),
-        ExecResult(
-            exit_code=0, stdout="git@github.com:myorg/custom-repo.git\n", stderr="", duration_ms=5
-        ),
-        ExecResult(exit_code=0, stdout="", stderr="", duration_ms=10),  # git push
-        ExecResult(exit_code=0, stdout="abc123\n", stderr="", duration_ms=5),  # rev-parse HEAD
-    ]
-    return driver
+def _pr_engine(settings: GitEngineSettings) -> GitEngine:
+    """An engine whose publication succeeds; publishing itself is tested with real git in
+    ``test_branch_publisher.py``, these tests are about the pull request."""
+    engine = GitEngine(driver=AsyncMock(), settings=settings)
+
+    async def published(session_id: str, spec: PublishSpec) -> PublishResult:
+        return PublishResult("myorg/custom-repo", "feat/auth-patch", "abc123", "git_push", 1)
+
+    engine.publish_branch = published  # type: ignore[method-assign]
+    return engine
 
 
 class _FakeResponse:
@@ -268,7 +273,7 @@ def _patch_github(
 
 @pytest.mark.asyncio
 async def test_pr_without_any_credential_is_an_error_not_a_fabricated_link() -> None:
-    engine = GitEngine(driver=_pr_driver(), settings=GitEngineSettings(github_token=None))
+    engine = _pr_engine(GitEngineSettings())
     with pytest.raises(RuntimeError, match="No GitHub credential"):
         await engine.push_and_open_pr("s", "title", "body", "main")
 
@@ -281,9 +286,7 @@ async def test_pr_uses_the_members_token_and_returns_the_real_url(
         monkeypatch,
         _FakeResponse(201, {"html_url": "https://github.com/myorg/custom-repo/pull/42"}),
     )
-    engine = GitEngine(
-        driver=_pr_driver(), settings=GitEngineSettings(github_token="deployment-token")
-    )
+    engine = _pr_engine(GitEngineSettings())
     url = await engine.push_and_open_pr("s", "title", "body", "develop", token="members-own-token")
     assert url.endswith("/pull/42")
     assert calls[0]["headers"]["Authorization"] == "Bearer members-own-token"  # type: ignore[index]
@@ -293,9 +296,9 @@ async def test_pr_uses_the_members_token_and_returns_the_real_url(
 @pytest.mark.asyncio
 async def test_pr_surfaces_a_github_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_github(monkeypatch, _FakeResponse(422, {"message": "Validation Failed"}))
-    engine = GitEngine(driver=_pr_driver(), settings=GitEngineSettings(github_token="t"))
+    engine = _pr_engine(GitEngineSettings())
     with pytest.raises(RuntimeError, match="422"):
-        await engine.push_and_open_pr("s", "title", "body")
+        await engine.push_and_open_pr("s", "title", "body", token="members-own-token")
 
 
 @pytest.mark.asyncio
@@ -307,9 +310,7 @@ async def test_pr_requires_a_github_origin_remote() -> None:
         ExecResult(exit_code=1, stdout="", stderr="", duration_ms=1),  # no origin url
     ]
     with pytest.raises(RuntimeError, match="origin"):
-        await GitEngine(
-            driver=driver, settings=GitEngineSettings(github_token="t")
-        ).push_and_open_pr("s", "t", "b")
+        await GitEngine(driver=driver, settings=GitEngineSettings()).push_and_open_pr("s", "t", "b")
 
 
 def test_generate_app_jwt_validity() -> None:

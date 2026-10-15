@@ -43,7 +43,10 @@ async def test_a_repository_is_cloned_into_its_own_folder_and_described() -> Non
     assert "Cloned acme/api into /workspace/api" in result
     assert "abc1234 Initial" in result and "README.md" in result
     command = driver.commands[-1]
-    assert "git clone --depth 50 https://github.com/acme/api.git /workspace/api" in command
+    assert (
+        "git clone --filter=blob:none --single-branch https://github.com/acme/api.git /workspace/api"
+        in command
+    )
     assert "ALREADY_CLONED" in command, "an existing clone is fetched, not an error"
     assert "&& ( git rev-parse" in command, "the summary must be gated by the clone's success"
 

@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Protocol
 
+from specifications.interfaces.git import SigningKey
 from specifications.interfaces.llm import AttachmentRef, ModelRouterProtocol, ToolDefinition
 
 
@@ -34,7 +35,7 @@ class SubagentConfig:
     description: str
     system_prompt: str
     model: str | None = None
-    max_turns: int = 5
+    max_turns: int = 12
     whitelisted_tools: list[str] = field(default_factory=lambda: ["*"])
     temperature: float = 0.2
     can_ask_user: bool = False
@@ -167,6 +168,9 @@ class GithubAccess:
 
     token: str | None
     api_url: str = "https://api.github.com"
+    # Who acts on GitHub with this credential, for the agent and the audit trail
+    # (e.g. "the GitHub App" or "@octocat").
+    actor: str = ""
 
 
 @dataclass
@@ -190,9 +194,15 @@ class TurnCallbacks:
     external_tools: ExternalToolProvider | None = None
     # Credential for the read-only GitHub tools (find repositories, read files, issues).
     github_access: Callable[[], Awaitable[GithubAccess]] | None = None
+    # Credential for changes on GitHub (comments, reviews, merges, issues) in one repository,
+    # resolved on the platform from the organization's policy; never given to a sandbox.
+    github_write_access: Callable[[str], Awaitable[GithubAccess]] | None = None
     # Called with (session id, folder) after the agent cloned a repository; returns a note for
     # the agent (for example the outcome of the repository's own setup script) or None.
     repository_cloned: Callable[[str, str], Awaitable[str | None]] | None = None
+    # Called with (session id, folder) when the agent makes another repository the active one,
+    # so later turns start there too.
+    active_repository_chosen: Callable[[str, str], Awaitable[None]] | None = None
     # Follow a pull request or branch: (repo, pull request, branch, wake) -> a note for the agent.
     github_watch: Callable[[str, int | None, str | None, bool], Awaitable[str]] | None = None
     # Stop following: (repo, pull request, branch) -> a note for the agent.
@@ -269,6 +279,9 @@ class GenerationParams:
     thinking_budget_tokens: int | None = None
     reasoning_effort: str | None = None
     fallback_models: tuple[str, ...] = ()
+    # The organization's own context-window sizes, as (model name or fnmatch pattern, tokens),
+    # for models the provider library does not know (a BYOK or self-hosted model).
+    context_windows: tuple[tuple[str, int], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -293,6 +306,8 @@ class GitPolicy:
     # The GPG key (fingerprint) the member's commits are signed with, when they commit as
     # themselves under ``signing_mode == "gpg_key"``.
     signing_key_id: str = ""
+    # That key, used on the platform when the branch is published; never given to a sandbox.
+    signing_key: SigningKey | None = field(default=None, repr=False)
     # (installation id, account login) pairs the organization mapped; the only GitHub App
     # installations a bot-authored push or pull request may use.
     app_installations: tuple[tuple[int, str], ...] = ()
@@ -338,6 +353,9 @@ class TurnPolicy:
     # What the session's sandbox image declares it can do (for example "browser"). ``None``
     # means unknown and nothing is hidden; a set hides tools whose capability is missing.
     sandbox_capabilities: frozenset[str] | None = None
+    # The session's active repository folder (``/workspace/<name>``): where git, test and build
+    # tools act when the agent names no folder. Empty until the session clones one.
+    active_repository: str = ""
 
 
 @dataclass(frozen=True)

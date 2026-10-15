@@ -16,8 +16,10 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import os
 import socket
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from kubernetes_asyncio import client
 
@@ -61,6 +63,44 @@ async def resolve_destinations(entries: Iterable[str]) -> list[str]:
 INTERNAL_RANGES = ("169.254.169.254/32", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 
 
+@dataclass(frozen=True)
+class PlatformPeer:
+    """The platform's own pods a sandbox must reach whatever its policy (the git gateway).
+
+    A NetworkPolicy is enforced after a Service's address is translated to a pod's, so the rule
+    names the API pods (namespace and labels) and their container port, never the Service.
+    """
+
+    namespace: str
+    labels: dict[str, str]
+    port: int
+
+    @classmethod
+    def from_env(cls) -> PlatformPeer | None:
+        namespace = os.getenv("ROCKET_PLATFORM_NAMESPACE", "").strip()
+        raw_labels = os.getenv("ROCKET_PLATFORM_POD_LABELS", "")
+        labels = dict(
+            pair.split("=", 1) for pair in raw_labels.split(",") if "=" in pair and pair.strip()
+        )
+        port = os.getenv("ROCKET_PLATFORM_POD_PORT", "8000").strip()
+        if not namespace or not labels or not port.isdigit():
+            return None
+        return cls(namespace, {k.strip(): v.strip() for k, v in labels.items()}, int(port))
+
+    def rule(self) -> client.V1NetworkPolicyEgressRule:
+        return client.V1NetworkPolicyEgressRule(
+            to=[
+                client.V1NetworkPolicyPeer(
+                    namespace_selector=client.V1LabelSelector(
+                        match_labels={"kubernetes.io/metadata.name": self.namespace}
+                    ),
+                    pod_selector=client.V1LabelSelector(match_labels=self.labels),
+                )
+            ],
+            ports=[client.V1NetworkPolicyPort(protocol="TCP", port=self.port)],
+        )
+
+
 def is_restricted(spec: WorkspaceSpec) -> bool:
     """Whether the organization's governance asks for a per-sandbox policy at all."""
     return bool(spec.egress_allowlist) or spec.block_internal_subnets
@@ -74,11 +114,12 @@ def build_egress_policy(
     cidrs: list[str],
     labels: dict[str, str],
     internet_except_internal: bool = False,
+    platform_peer: PlatformPeer | None = None,
 ) -> client.V1NetworkPolicy:
     """A NetworkPolicy allowing one pod DNS plus connections to ``cidrs``, nothing else.
 
     With ``internet_except_internal`` (no explicit allowlist) the pod may reach the public
-    internet but none of the private ranges.
+    internet but none of the private ranges. ``platform_peer`` is always reachable.
     """
     rules = [
         client.V1NetworkPolicyEgressRule(
@@ -88,6 +129,8 @@ def build_egress_policy(
             ]
         )
     ]
+    if platform_peer is not None:
+        rules.append(platform_peer.rule())
     if internet_except_internal:
         rules.append(
             client.V1NetworkPolicyEgressRule(

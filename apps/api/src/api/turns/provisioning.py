@@ -10,6 +10,7 @@ from api.services.git_credentials import (
     inject_git_credentials_into_sandbox,
     resolve_session_git_credentials,
 )
+from api.services.git_gateway_env import gateway_endpoint, github_api_url_of
 from api.services.repo_setup import find_setup_plan, run_setup
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.sandbox_quota import enforce_running_sandbox_quota
@@ -181,10 +182,19 @@ async def provision_session_sandbox(
             egress_allowlist=list(egress_allowed_cidrs),
             block_internal_subnets=block_internal_subnets,
             require_non_root=bool(sandbox_cfg["require_non_root"]),
+            # Git reaches GitHub through the platform's gateway, whatever the egress policy.
+            platform_endpoints=[gateway_endpoint()],
         )
     )
     await _start_sandbox_or_report(driver, event_bus, session_id)
-    await inject_git_credentials_into_sandbox(driver, session_id, git_bundle)
+    await inject_git_credentials_into_sandbox(
+        driver,
+        session_id,
+        git_bundle,
+        org_id=t_org,
+        user_id=t_user,
+        api_url=github_api_url_of(git_engine),
+    )
     if s_rec:
 
         def mark_running(record: SessionRecord) -> None:

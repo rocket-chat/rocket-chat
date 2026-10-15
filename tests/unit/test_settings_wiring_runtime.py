@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from agent_core.tools.git_tools import commit_spec_for_policy, git_open_pr
-from api.services.git_credentials import resolve_session_git_credentials
+from api.services.git_credentials import GitCredentialBundle, resolve_session_git_credentials
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.settings import save_org_config
 from api.store import InMemorySessionStore
@@ -115,8 +115,8 @@ def _turn(org: str, driver: Any = None) -> Any:
     )
 
 
-def _bundle() -> Any:
-    return SimpleNamespace(token=None)
+def _bundle() -> GitCredentialBundle:
+    return GitCredentialBundle(token=None, mode="public", author_name="a", author_email="a@x")
 
 
 @pytest.mark.setting("sandboxes.max_background_processes")

@@ -22,6 +22,19 @@ class CoAuthor:
     email: str
 
 
+@dataclass(frozen=True)
+class SigningKey:
+    """A member's GPG key the platform signs their published commits with.
+
+    It is used on the platform only, in a throwaway keyring, when ``git_push`` publishes: it is
+    never given to a sandbox.
+    """
+
+    fingerprint: str
+    private_key: str = field(repr=False)
+    passphrase: str = field(default="", repr=False)
+
+
 @dataclass
 class CommitSpec:
     message: str
@@ -33,15 +46,19 @@ class CommitSpec:
     # Identity recorded as author/committer; None falls back to the engine's bot identity.
     committer_name: str | None = None
     committer_email: str | None = None
+    # The repository folder, absolute or relative to /workspace. Empty: the session's active
+    # repository, /workspace itself, or the one repository found under it.
+    path: str = ""
 
 
 @dataclass
 class PublishSpec:
     """How a branch leaves the sandbox: the one path that holds write credentials.
 
-    ``GITHUB_APP`` replays the branch's new commits through GitHub's API so GitHub signs them
-    (verified as the App, or as the member when ``token`` is the member's own); any other mode
-    pushes the commits the sandbox made, which are already signed (or not) locally.
+    The sandbox hands over a bundle of the branch's new commits; everything else happens on the
+    platform. ``GITHUB_APP`` replays them through GitHub's API so GitHub signs them (verified as
+    the App, or as the member when ``token`` is the member's own); ``GPG_KEY`` with a
+    ``signing_key`` re-creates them signed with it; any other mode pushes them as they are.
     """
 
     # Empty means "the branch that is currently checked out".
@@ -58,6 +75,7 @@ class PublishSpec:
     installations: tuple[tuple[int, str], ...] = ()
     default_branch: str = "main"
     force_with_lease: bool = False
+    signing_key: SigningKey | None = field(default=None, repr=False)
 
 
 @dataclass

@@ -8,7 +8,12 @@ import time
 from fastapi import FastAPI
 
 from api.db.session import current_tenant_org_id
-from api.services.github_watches import MAX_WAKES_PER_WATCH, GithubWatch, GithubWatchStore
+from api.services.github_watches import (
+    MAX_WAKES_PER_WATCH,
+    GithubWatch,
+    GithubWatchStore,
+    next_step_hint,
+)
 from api.turns.tasks import start_turn_on_session
 from specifications.interfaces.event_payloads import GithubEventPayload
 from specifications.interfaces.events import EventType, SessionEvent
@@ -68,8 +73,12 @@ async def _deliver(
         at=int(time.time()),
         woke=False,
     )
+    hint = next_step_hint(event.kind, event.outcome, event.repo_full_name, pr_number)
     woke = may_wake and await start_turn_on_session(
-        app, watch.org_id, watch.session_id, _WAKE_PREAMBLE + event.summary + _link(event)
+        app,
+        watch.org_id,
+        watch.session_id,
+        _WAKE_PREAMBLE + event.summary + _link(event) + (f"\n{hint}" if hint else ""),
     )
     await state.event_bus.publish(
         SessionEvent(

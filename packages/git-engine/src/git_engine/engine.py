@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 import jwt
+from sandbox_driver.workspace import resolve_repository_dir
 
 from git_engine.config import GitEngineSettings
 from git_engine.publish import BranchPublisher, PublishError
@@ -22,10 +23,9 @@ from specifications.interfaces.git import (
     PublishResult,
     PublishSpec,
     RepoEvent,
-    SigningMode,
     WebhookTrigger,
 )
-from specifications.interfaces.sandbox import SandboxDriverProtocol
+from specifications.interfaces.sandbox import ExecResult, SandboxDriverProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -75,65 +75,33 @@ class GitEngine(GitEngineProtocol):
             sha = hashlib.sha1(formatted_message.encode("utf-8")).hexdigest()
             return sha
 
-        # 1. Ensure git binary is available inside the execution container
-        check_git = await self.driver.exec_command(session_id, "which git")
-        if check_git.exit_code != 0:
-            await self.driver.exec_command(
-                session_id,
-                "apt-get update -y && apt-get install -y --no-install-recommends git || apk add --no-cache git || true",
-            )
+        # The repository is resolved, never created: committing in a folder that is not a
+        # repository used to `git init` /workspace and swallow the real clone as a gitlink.
+        repository = await resolve_repository_dir(self.driver, session_id, spec.path or None)
 
-        # 2. Ensure git repository is initialized
-        check_repo = await self.driver.exec_command(
-            session_id, "git rev-parse --is-inside-work-tree"
-        )
-        if check_repo.exit_code != 0:
-            init_cmd = f"git init -b {shlex.quote(spec.branch or self.settings.default_branch)}"
-            await self.driver.exec_command(session_id, init_cmd)
+        async def run(command: str) -> ExecResult:
+            assert self.driver is not None
+            return await self.driver.exec_command(session_id, command, workdir=repository)
 
-        # 3. Configure the committer identity: the caller's (policy-resolved) identity, else
-        # this deployment's own bot. Never another product's identity.
+        # The caller's (policy-resolved) identity, else this deployment's own bot.
         author_name = spec.committer_name or self.settings.bot_author_name
         author_email = spec.committer_email or self.settings.bot_author_email
-
-        await self.driver.exec_command(
-            session_id,
+        await run(
             f"git config user.name {shlex.quote(author_name)} && "
-            f"git config user.email {shlex.quote(author_email)}",
+            f"git config user.email {shlex.quote(author_email)}"
         )
-
-        # 3. Checkout target branch
         if spec.branch:
-            await self.driver.exec_command(
-                session_id, f"git checkout -B {shlex.quote(spec.branch)}"
-            )
+            checkout = await run(f"git checkout -B {shlex.quote(spec.branch)}")
+            if checkout.exit_code != 0:
+                raise RuntimeError(f"git checkout failed: {checkout.stderr.strip()}")
+        await run("git add -A")
 
-        # 4. Stage all modified and new files
-        await self.driver.exec_command(session_id, "git add -A")
-
-        # 5. Handle Cryptographic Signing Mode
-        if spec.signing_mode == SigningMode.GPG_KEY:
-            if spec.gpg_key_id:
-                await self.driver.exec_command(
-                    session_id,
-                    f"git config user.signingkey {shlex.quote(spec.gpg_key_id)}",
-                )
-            await self.driver.exec_command(session_id, "git config commit.gpgsign true")
-            commit_cmd = f"git commit -S -m {shlex.quote(formatted_message)}"
-        else:
-            commit_cmd = f"git commit -m {shlex.quote(formatted_message)}"
-
-        res = await self.driver.exec_command(session_id, commit_cmd)
-        if res.exit_code != 0:
-            # Check if there was nothing to commit
-            if "nothing to commit" in res.stdout or "nothing to commit" in res.stderr:
-                rev_res = await self.driver.exec_command(session_id, "git rev-parse HEAD")
-                return rev_res.stdout.strip()
+        # Never signed here: the sandbox holds no key. ``gpg_key`` commits are signed on the
+        # platform when the branch is published (``host_repo.HostRepository.resign``).
+        res = await run(f"git commit --no-gpg-sign -m {shlex.quote(formatted_message)}")
+        if res.exit_code != 0 and "nothing to commit" not in res.stdout + res.stderr:
             raise RuntimeError(f"git commit failed (exit {res.exit_code}): {res.stderr}")
-
-        # 6. Retrieve committed SHA
-        sha_res = await self.driver.exec_command(session_id, "git rev-parse HEAD")
-        return sha_res.stdout.strip()
+        return (await run("git rev-parse HEAD")).stdout.strip()
 
     def generate_app_jwt(self) -> str:
         """Generates an RS256 JWT for GitHub App authentication valid for 10 minutes."""
@@ -159,20 +127,16 @@ class GitEngine(GitEngineProtocol):
         permissions: dict[str, str] | None = None,
         repositories: list[str] | None = None,
         installation_id: int | None = None,
-        prefer_app: bool = False,
+        inherit_permissions: bool = False,
     ) -> str | None:
-        """
-        Retrieves a valid GitHub access token.
-        1. Returns user/PAT token if explicitly set (GITHUB_TOKEN / GITHUB_PAT), unless
-           ``prefer_app`` asks for the GitHub App's own token (commits made with it are the App's).
-        2. Otherwise, if GitHub App credentials are configured (GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY),
-           dynamically creates a scoped installation access token.
-        """
-        # If explicit user token is provided, prioritize it
-        if self.settings.github_token and not prefer_app:
-            return self.settings.github_token
+        """A GitHub App installation token scoped to ``permissions``, or ``None``.
 
-        # Fallback to dynamic GitHub App installation token
+        ``inherit_permissions`` asks for whatever the installation was granted (asking for a
+        permission it lacks makes GitHub refuse the token), still limited to ``repositories``.
+
+        There is no deployment-wide token: work for an organization uses its mapped App
+        installation or its member's own linked account, never a credential shared by tenants.
+        """
         if not (self.settings.github_app_id and self.settings.github_app_private_key):
             return None
 
@@ -226,7 +190,9 @@ class GitEngine(GitEngineProtocol):
                         "pull_requests": "read",
                     }
                 )
-                payload: dict[str, Any] = {"permissions": token_perms}
+                payload: dict[str, Any] = (
+                    {} if inherit_permissions else {"permissions": token_perms}
+                )
                 if repositories:
                     # Least privilege: restrict the token to the named repositories.
                     payload["repositories"] = repositories
@@ -286,21 +252,19 @@ class GitEngine(GitEngineProtocol):
             raise PublishError("There is no sandbox to publish from.")
 
         async def mint_app_token(repository: str, installation_id: int | None) -> str | None:
-            # The App's own token first (its commits are the App's); a deployment-wide token
-            # is the fallback for installations that have no App.
-            for prefer_app in (True, False):
-                token = await self.get_github_access_token(
-                    repo=repository,
-                    permissions={"contents": "write", "pull_requests": "write"},
-                    repositories=[repository.rsplit("/", 1)[-1]],
-                    installation_id=installation_id,
-                    prefer_app=prefer_app,
-                )
-                if token:
-                    return token
-            return None
+            return await self.get_github_access_token(
+                repo=repository,
+                permissions={"contents": "write", "pull_requests": "write"},
+                repositories=[repository.rsplit("/", 1)[-1]],
+                installation_id=installation_id,
+            )
 
-        publisher = BranchPublisher(self.driver, self.settings.github_api_url, mint_app_token)
+        publisher = BranchPublisher(
+            self.driver,
+            self.settings.github_api_url,
+            mint_app_token,
+            git_base_url=self.settings.git_base_url or None,
+        )
         return await publisher.publish(session_id, spec)
 
     async def push_and_open_pr(

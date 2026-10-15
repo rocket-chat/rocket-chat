@@ -57,11 +57,13 @@ async def _drain(orchestrator: AsyncReActOrchestrator, session_id: str, prompt: 
 
 
 def _memory_message(request: ModelRequest) -> Any:
-    return next((message for message in request.messages if message.content == MEMORY_BLOCK), None)
+    return next(
+        (message for message in request.messages if MEMORY_BLOCK in (message.content or "")), None
+    )
 
 
 @pytest.mark.asyncio
-async def test_memory_goes_in_dynamic_suffix_and_prefix_stays_byte_stable() -> None:
+async def test_memory_goes_after_the_conversation_and_the_prefix_stays_byte_stable() -> None:
     gateway = CapturingGateway()
     registry = ToolRegistry()
 
@@ -91,11 +93,13 @@ async def test_memory_goes_in_dynamic_suffix_and_prefix_stays_byte_stable() -> N
     assert first.messages[0].cacheable is True
     assert last.messages[0].cacheable is True
 
-    # The memory is present in the first turn, in a non-cacheable message, and absent later.
+    # The memory rides the first turn's volatile context, after the conversation and outside any
+    # cache breakpoint, and is absent later; only the leading message is a system message.
     memory_message = _memory_message(first)
     assert memory_message is not None
     assert memory_message.cacheable is False
-    assert memory_message.role == "system"
+    assert memory_message.role == "user" and first.messages.index(memory_message) > 0
+    assert [m.role for m in first.messages].count("system") == 1
     assert _memory_message(last) is None
 
 

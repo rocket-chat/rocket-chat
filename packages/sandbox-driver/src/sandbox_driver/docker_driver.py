@@ -15,6 +15,7 @@ import docker.models.containers
 
 from sandbox_driver.blocking import run_blocking
 from sandbox_driver.docker_egress import (
+    HOST_GATEWAY,
     POLICY_LABEL,
     ensure_egress,
     is_restricted,
@@ -192,6 +193,7 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                     environment=environment,
                     labels=labels,
                     network=network,
+                    extra_hosts=HOST_GATEWAY,
                     nano_cpus=nano_cpus,
                     mem_limit=mem_bytes,
                     pids_limit=256,
@@ -288,7 +290,9 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         workdir: str,
         env: dict[str, str] | None,
         on_stdout_chunk: Callable[[str], None] | None,
-    ) -> tuple[int, str, str]:
+        stdout_buffer: BoundedOutput,
+        stderr_buffer: BoundedOutput,
+    ) -> int:
         exec_instance = self._client.api.exec_create(
             container_id,
             cmd=["/bin/sh", "-c", command],
@@ -297,9 +301,6 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         )
         exec_id: str = exec_instance["Id"]
         stream = self._client.api.exec_start(exec_id, stream=True, demux=True)
-
-        stdout_buffer = BoundedOutput()
-        stderr_buffer = BoundedOutput()
 
         for stdout_bytes, stderr_bytes in stream:
             if stdout_bytes:
@@ -312,8 +313,7 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                 stderr_buffer.append(chunk)
 
         inspect_data = self._client.api.exec_inspect(exec_id)
-        exit_code = int(inspect_data.get("ExitCode", 0))
-        return exit_code, stdout_buffer.text(), stderr_buffer.text()
+        return int(inspect_data.get("ExitCode", 0))
 
     @traced_exec
     async def exec_command(
@@ -337,8 +337,10 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         container_id: str = container.id
 
         start_time = time.monotonic()
+        # Owned here, not in the worker thread, so a timeout can still report what was printed.
+        stdout_buffer, stderr_buffer = BoundedOutput(), BoundedOutput()
         try:
-            exit_code, stdout_str, stderr_str = await asyncio.wait_for(
+            exit_code = await asyncio.wait_for(
                 run_blocking(
                     self._sync_stream_exec,
                     container_id,
@@ -346,17 +348,24 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                     workdir,
                     self.merged_env(session_id, env),
                     on_stdout_chunk,
+                    stdout_buffer,
+                    stderr_buffer,
                 ),
                 timeout=timeout_seconds + CLIENT_DEADLINE_MARGIN_SECONDS,
             )
         except TimeoutError as err:
             raise SandboxTimeoutError(
-                f"Command timed out after {timeout_seconds} seconds: {command}"
+                f"Command timed out after {timeout_seconds} seconds: {command}",
+                stdout_buffer.text(),
+                stderr_buffer.text(),
             ) from err
+        stdout_str, stderr_str = stdout_buffer.text(), stderr_buffer.text()
 
         if hit_deadline(exit_code, time.monotonic() - start_time, timeout_seconds):
             raise SandboxTimeoutError(
-                f"Command timed out after {timeout_seconds} seconds: {command}"
+                f"Command timed out after {timeout_seconds} seconds: {command}",
+                stdout_str,
+                stderr_str,
             )
 
         duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -411,19 +420,29 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         if container is None or container.status != "running":
             raise SandboxNotFoundError(f"Container for session {session_id} is not running.")
 
-        def _sync_write() -> None:
-            if not overwrite:
-                try:
-                    container.get_archive(target_path)
-                    raise FileExistsError(f"Path already exists and overwrite=False: {path}")
-                except docker.errors.NotFound:
-                    pass
+        def _stat(target: str) -> tuple[int, int, int] | None:
+            """(uid, gid, mode) of ``target`` as the sandbox sees it, or None if missing."""
+            code, output = container.exec_run(["stat", "-c", "%u %g %a", target])
+            text = output.decode(errors="replace") if isinstance(output, bytes) else ""
+            fields = text.split() if code == 0 else []
+            if len(fields) != 3 or not all(f.isdigit() for f in fields[:2]):
+                return None
+            return int(fields[0]), int(fields[1]), int(fields[2], 8)
 
+        def _sync_write() -> None:
+            existing = _stat(target_path)
+            if existing is not None and not overwrite:
+                raise FileExistsError(f"Path already exists and overwrite=False: {path}")
             parent_dir = os.path.dirname(target_path)
             filename = os.path.basename(target_path)
-            # Create parent directories before archiving
+            # Created as the sandbox's own user, so the agent can work in it afterwards.
             container.exec_run(["mkdir", "-p", parent_dir])
-            archive_bytes = create_tar_archive(filename, content.encode("utf-8"))
+            if existing is not None:
+                uid, gid, mode = existing  # an edit keeps the file's owner and its +x bit
+            else:
+                uid, gid, _ = _stat(parent_dir) or (0, 0, 0)
+                mode = 0o644
+            archive_bytes = create_tar_archive(filename, content.encode("utf-8"), mode, uid, gid)
             container.put_archive(parent_dir, io.BytesIO(archive_bytes))
 
         await run_blocking(_sync_write)

@@ -164,7 +164,7 @@ Override a subagent role for this organization (admin only; other orgs are unaff
 | description | string | yes |  |
 | system_prompt | string | yes |  |
 | model | string | no |  |
-| max_turns | integer | no |  |
+| max_turns | integer | no | Steps the subagent may take before it must report. |
 | whitelisted_tools | list of string | no |  |
 | temperature | number | no |  |
 | enabled | boolean | no |  |

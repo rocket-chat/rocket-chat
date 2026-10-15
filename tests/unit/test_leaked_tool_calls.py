@@ -56,8 +56,9 @@ async def test_a_leaked_call_is_discarded_and_the_model_gets_another_go() -> Non
 
     steps = _react_requests(outcome)
     assert len(steps) == 2, "one retry after the markup"
-    nudge = [m for m in steps[1].messages if m.role == "system"][-1]
-    assert "wrote tool calls as text" in nudge.content
+    nudge = steps[1].messages[-1]
+    assert nudge.role == "user" and "<system-reminder>" in (nudge.content or "")
+    assert "wrote tool calls as text" in (nudge.content or "")
     assert not any("DSML" in (m.content or "") for m in steps[1].messages if m is not nudge), (
         "the discarded markup is not in what the model sees next"
     )

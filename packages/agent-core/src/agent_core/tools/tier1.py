@@ -9,8 +9,24 @@ from markdownify import markdownify
 from agent_core.tools.safe_http import UnsafeURLError, safe_get
 from agent_core.tools.search_providers import SearchProviderError, provider_from_env
 
+WEB_PAGE_CHARS = 20_000
 
-async def web_fetch(url: str, timeout_seconds: float = 15.0) -> str:
+
+def _page(text: str, url: str, start: int, max_chars: int) -> str:
+    """One window of a page's text, saying where it is and how to read on."""
+    size = max(1_000, min(max_chars, WEB_PAGE_CHARS))
+    begin = max(0, start)
+    window = text[begin : begin + size]
+    end = begin + len(window)
+    if begin == 0 and end >= len(text):
+        return window
+    more = f"call web_fetch with start={end} to continue" if end < len(text) else "end of page"
+    return f"{window}\n\n[{url}: characters {begin:,}-{end:,} of {len(text):,}; {more}]"
+
+
+async def web_fetch(
+    url: str, timeout_seconds: float = 15.0, start: int = 0, max_chars: int = WEB_PAGE_CHARS
+) -> str:
     """Fetch content from a URL and convert HTML pages into clean Markdown."""
     clean_url = url.strip()
     if not clean_url.startswith(("http://", "https://")):
@@ -36,10 +52,9 @@ async def web_fetch(url: str, timeout_seconds: float = 15.0) -> str:
 
     if "application/json" in content_type:
         try:
-            parsed = json.loads(text)
-            return json.dumps(parsed, indent=2)
+            return _page(json.dumps(json.loads(text), indent=2), clean_url, start, max_chars)
         except json.JSONDecodeError:
-            return text
+            return _page(text, clean_url, start, max_chars)
 
     # Strip script and styling noise before markdown transformation
     soup = BeautifulSoup(text, "html.parser")
@@ -49,12 +64,7 @@ async def web_fetch(url: str, timeout_seconds: float = 15.0) -> str:
     html_str = str(soup)
     markdown_text = markdownify(html_str, heading_style="ATX").strip()
 
-    # Truncate oversized page content to protect downstream model context limits
-    max_chars = 100_000
-    if len(markdown_text) > max_chars:
-        return markdown_text[:max_chars] + f"\n\n[Content truncated at {max_chars} characters]"
-
-    return markdown_text or text
+    return _page(markdown_text or text, clean_url, start, max_chars)
 
 
 async def web_search(query: str, max_results: int = 5) -> str:

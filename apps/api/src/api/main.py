@@ -28,6 +28,7 @@ from api.routers.checkpoints import router as checkpoints_router
 from api.routers.dev import router as dev_router
 from api.routers.diffs import router as diffs_router
 from api.routers.fork import router as fork_router
+from api.routers.git_gateway import router as git_gateway_router
 from api.routers.git_signing import router as git_signing_router
 from api.routers.github_app import router as github_app_router
 from api.routers.github_credentials import router as github_credentials_router
@@ -233,6 +234,7 @@ app.include_router(admin_audit_router)
 app.include_router(admin_users_router)
 app.include_router(attachments_router)
 app.include_router(checkpoints_router)
+app.include_router(git_gateway_router)
 app.include_router(auth_router)
 app.include_router(dev_router)
 app.include_router(diffs_router)

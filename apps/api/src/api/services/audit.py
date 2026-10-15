@@ -77,6 +77,7 @@ AUDIT_EVENT_TYPES: tuple[str, ...] = (
     "credential_change",
     "settings_change",
     "login",
+    "git_publish",
 )
 APPROVAL_DECISIONS: tuple[str, ...] = ("approved", "denied")
 APPROVAL_RISK_LEVELS: tuple[str, ...] = ("low", "medium", "high", "critical")
@@ -494,6 +495,26 @@ class AuditService:
             redacted=redacted,
             redaction_count=redaction_count,
             metadata={"duration_ms": duration_ms, "status": status},
+        )
+
+    async def record_git_publish(
+        self,
+        *,
+        org_id: str,
+        actor_user_id: str | None,
+        session_id: str,
+        tool_name: str,
+        outcome: str,
+    ) -> AuditEvent:
+        """A branch left a sandbox: which tool, and the publication's own one-line summary."""
+        return await self.record(
+            "git_publish",
+            org_id=org_id,
+            actor_user_id=actor_user_id,
+            session_id=session_id,
+            tool_name=tool_name,
+            result_summary=outcome[:500],
+            metadata={"tool": tool_name},
         )
 
     async def record_model_call(

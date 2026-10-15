@@ -12,6 +12,7 @@ from api.services.repository_validation import (
 )
 from specifications.interfaces.session import (
     SessionRecord,
+    SessionStoreProtocol,
 )
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,56 @@ def _repo_slug(git_repo: str | None) -> str | None:
         return parse_repository(git_repo).slug
     except InvalidRepositoryError:
         return None
+
+
+ACTIVE_REPOSITORY_KEY = "active_repository"
+
+
+def active_repository_of(session: SessionRecord) -> str:
+    """The folder git, test and build tools default to: the one recorded, else the folder the
+    repository named by the session's template, schedule or webhook is cloned into, else none."""
+    metadata = session.metadata if isinstance(session.metadata, dict) else {}
+    if recorded := str(metadata.get(ACTIVE_REPOSITORY_KEY) or ""):
+        return recorded
+    slug = _repo_slug(session.git_repo)
+    return f"/workspace/{slug.rsplit('/', 1)[-1]}" if slug else ""
+
+
+async def remember_active_repository(
+    store: SessionStoreProtocol, session_id: str, org_id: str, folder: str
+) -> None:
+    """Record ``folder`` as the active repository unless the session already has one."""
+
+    def set_if_missing(record: SessionRecord) -> None:
+        metadata = dict(record.metadata) if isinstance(record.metadata, dict) else {}
+        if not metadata.get(ACTIVE_REPOSITORY_KEY):
+            metadata[ACTIVE_REPOSITORY_KEY] = folder
+            record.metadata = metadata
+
+    await store.mutate_session(session_id, org_id, set_if_missing)
+
+
+async def choose_active_repository(
+    store: SessionStoreProtocol, session_id: str, org_id: str, folder: str
+) -> None:
+    """Make ``folder`` the session's active repository, replacing any earlier choice."""
+
+    def choose(record: SessionRecord) -> None:
+        metadata = dict(record.metadata) if isinstance(record.metadata, dict) else {}
+        metadata[ACTIVE_REPOSITORY_KEY] = folder
+        record.metadata = metadata
+
+    await store.mutate_session(session_id, org_id, choose)
+
+
+def apply_sharing(record: SessionRecord, is_shared: bool, collaborators: list[str]) -> None:
+    """Share ``record`` (a ``mutate_session`` step: it changes nothing else)."""
+    record.is_shared = is_shared
+    record.collaborators = collaborators
+    metadata = dict(record.metadata) if isinstance(record.metadata, dict) else {}
+    metadata["is_shared"] = is_shared
+    metadata["collaborators"] = collaborators
+    record.metadata = metadata
 
 
 # Metadata keys a client may set on its own session. Everything else (toolsets, fork and

@@ -129,6 +129,7 @@ async def run_check(
     kind: CheckKind,
     command: str | None = None,
     timeout_seconds: int = 600,
+    workdir: str = "/workspace",
 ) -> str:
     """Run a lint/typecheck/build check and return a compact, parsed verdict."""
     if command:
@@ -139,7 +140,10 @@ async def run_check(
         runner = "auto"
 
     result = await driver.exec_command(
-        session_id=session_id, command=check_command, timeout_seconds=timeout_seconds
+        session_id=session_id,
+        command=check_command,
+        workdir=workdir,
+        timeout_seconds=timeout_seconds,
     )
     raw = "\n".join(
         part for part in ((result.stdout or "").strip(), (result.stderr or "").strip()) if part

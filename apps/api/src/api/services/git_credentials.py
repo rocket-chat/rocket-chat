@@ -1,7 +1,6 @@
 """Service resolving and injecting Git credentials into running sandbox environments."""
 
 import asyncio
-import base64
 import hashlib
 import logging
 import os
@@ -14,6 +13,7 @@ from typing import Any
 import httpx
 from git_engine.engine import GitEngine, pick_installation
 
+from api.auth import git_gateway_token
 from api.db.session import DatabaseSessionManager
 from api.services.credentials import (
     UserCredentialData,
@@ -22,6 +22,7 @@ from api.services.credentials import (
     get_user_credential,
     store_user_credential,
 )
+from api.services.git_gateway_env import sandbox_git_environment
 from api.services.git_signing import MemberSigning
 from api.services.github_identity import (
     GITHUB_API,
@@ -41,13 +42,16 @@ class GitCredentialBundle:
     """Resolved Git credential bundle ready for machine injection."""
 
     token: str | None
-    mode: str  # "user_token", "app_readonly", "none"
+    # How the platform reads GitHub for this member: "app" (the GitHub App's read-only
+    # installation token), "member" (their own linked token) or "public" (no credential).
+    mode: str
     author_name: str
     author_email: str
     source_details: dict[str, Any] = field(default_factory=dict)
     identity: CommitIdentity | None = None
     # The member's own write token, kept on the platform: only ``git_push`` and pull request
-    # creation use it. ``token`` is what the sandbox receives, and is read-only when it can be.
+    # creation use it. ``token`` is the read credential the git gateway and the GitHub read tools
+    # use on the platform's side; the sandbox receives neither (see ``services/git_gateway.py``).
     user_token: str | None = field(default=None, repr=False)
     # The member's GPG signing key, present when they chose to commit as themselves signed.
     signing: MemberSigning | None = None
@@ -196,6 +200,12 @@ def _target_repositories(raw: object) -> list[str] | None:
     return [part.strip().rsplit("/", 1)[-1] for part in text.split(",") if part.strip()]
 
 
+def app_may_act_on(org_github: Mapping[str, Any], repository: str) -> bool:
+    """Whether the organization lets its GitHub App's tokens reach ``owner/name``."""
+    allowed = _target_repositories(org_github.get("app_token_target_repositories"))
+    return allowed is None or repository.rsplit("/", 1)[-1] in allowed
+
+
 async def _linked_user_credential(
     db_mgr: DatabaseSessionManager | None,
     user_id: str,
@@ -233,13 +243,8 @@ async def _app_read_token(
     git_engine: GitEngine | None,
     org_github: Mapping[str, Any],
     repo: str | None,
-    allow_deployment_token: bool,
 ) -> tuple[str, dict[str, Any]] | None:
-    """A read-only GitHub App token that can see ``repo``, with the permissions it carries.
-
-    A deployment-wide token (``GITHUB_TOKEN``) stands in for the App only for a member who has
-    linked nothing of their own, as it always has.
-    """
+    """A read-only GitHub App token that can see ``repo``, with the permissions it carries."""
     if not git_engine:
         return None
     try:
@@ -253,23 +258,18 @@ async def _app_read_token(
             ],
             repo,
         )
-        token = None
-        for prefer_app in (True, False) if allow_deployment_token else (True,):
-            token = await git_engine.get_github_access_token(
-                repo=repo,
-                permissions={str(k): str(v) for k, v in permissions.items()},
-                repositories=_target_repositories(org_github.get("app_token_target_repositories")),
-                installation_id=installation_id,
-                prefer_app=prefer_app,
-            )
-            if token:
-                break
+        token = await git_engine.get_github_access_token(
+            repo=repo,
+            permissions={str(k): str(v) for k, v in permissions.items()},
+            repositories=_target_repositories(org_github.get("app_token_target_repositories")),
+            installation_id=installation_id,
+        )
         if token and (
             repo is None or await _token_reads_repo(token, repo, git_engine.settings.github_api_url)
         ):
             return token, permissions
     except Exception as ex:
-        logger.debug("Failed minting GitHub App fallback token: %s", ex)
+        logger.debug("Failed minting GitHub App read token: %s", ex)
     return None
 
 
@@ -294,17 +294,14 @@ async def resolve_session_git_credentials(
     user_overrides: dict[str, Any] | None = None,
     repo: str | None = None,
 ) -> GitCredentialBundle:
-    """
-    Resolves the Git credentials a session workspace receives, and the member's commit identity.
+    """How the platform reads GitHub for this member, and the member's commit identity.
 
-    The sandbox gets a **read-only** token whenever the GitHub App can read the repository, so
-    nothing in it can push: writing goes through ``git_push`` with credentials that never enter
-    the sandbox. Without such an App, the sandbox gets the member's own token (it cannot be
-    narrowed) and the platform's own write guards are the only line.
+    Every credential here is used on the platform's side only (the git gateway, the GitHub read
+    tools, publishing); the sandbox receives none.
 
-    1. The GitHub App's read-only installation token (the member's token stays host-side).
-    2. The member's linked GitHub account (OAuth token or PAT).
-    3. Unauthenticated local fallback.
+    1. ``app``: the organization's GitHub App, read-only, when it can see the repository.
+    2. ``member``: the member's linked GitHub account (OAuth token or PAT).
+    3. ``public``: no credential.
     """
     overrides = user_overrides or {}
     org_github = await effective_settings(db_mgr, org_id, "github")
@@ -318,15 +315,13 @@ async def resolve_session_git_credentials(
         "scopes": (github_meta or {}).get("scopes", []),
     }
 
-    app = await _app_read_token(
-        db_mgr, org_id, git_engine, org_github, repo, allow_deployment_token=user_cred is None
-    )
+    app = await _app_read_token(db_mgr, org_id, git_engine, org_github, repo)
     if app is not None and git_engine is not None:
         token, permissions = app
         commits_as_bot = user_cred is None
         return GitCredentialBundle(
             token=token,
-            mode="app_readonly",
+            mode="app",
             author_name=git_engine.settings.bot_author_name if commits_as_bot else identity.name,
             author_email=git_engine.settings.bot_author_email if commits_as_bot else identity.email,
             source_details={"auth_type": "github_app", "permissions": permissions},
@@ -337,7 +332,7 @@ async def resolve_session_git_credentials(
     if user_cred and member_token:
         return GitCredentialBundle(
             token=member_token,
-            mode="user_token",
+            mode="member",
             author_name=identity.name,
             author_email=identity.email,
             source_details=member_details,
@@ -346,7 +341,7 @@ async def resolve_session_git_credentials(
         )
     return GitCredentialBundle(
         token=None,
-        mode="none",
+        mode="public",
         author_name=identity.name,
         author_email=identity.email,
         identity=identity,
@@ -355,29 +350,23 @@ async def resolve_session_git_credentials(
     )
 
 
-# git asks this helper for credentials; it reads the token from the command's own environment
-# so no secret is ever written to the workspace, a dotfile or the container/pod spec.
-_CREDENTIAL_HELPER = (
-    '!f() { test "$1" = get || exit 0; echo username=x-access-token; '
-    'echo "password=${GITHUB_TOKEN:-$GH_TOKEN}"; }; f'
-)
-
 # Remove what earlier versions persisted on long-lived workspace volumes.
 _LEGACY_CLEANUP = (
     'rm -f "$HOME/.git-credentials" /root/.git-credentials 2>/dev/null; '
     "sed -i '/^export GITHUB_TOKEN=/d;/^export GH_TOKEN=/d' \"$HOME/.bashrc\" 2>/dev/null; "
     "sed -i '/^GITHUB_TOKEN=/d;/^GH_TOKEN=/d' /etc/environment 2>/dev/null; "
-    "git config --global --unset-all url.https://github.com/.insteadof 2>/dev/null; true"
+    "git config --global --unset-all url.https://github.com/.insteadof 2>/dev/null; "
+    # Earlier versions installed a helper reading GITHUB_TOKEN; the sandbox holds no token now.
+    "git config --global --unset-all credential.helper 2>/dev/null; true"
 )
 
 
 # A raw ``git push`` is refused with the way forward: commits leave the sandbox through the
-# ``git_push`` tool, which holds the write credentials and applies the signing policy. The
-# publisher sets ROCKET_PUBLISH for its own push. This explains the refusal; the credentials
-# the sandbox holds (read-only where the GitHub App can read the repository) enforce it.
+# ``git_push`` tool, which publishes from the platform with the organization's signing policy.
+# The sandbox holds no credential that could push anyway (the git gateway serves reads only);
+# the hook only makes the refusal say what to do.
 _PUSH_GUARD_HOOK = (
     "#!/bin/sh\n"
-    '[ -n "$ROCKET_PUBLISH" ] && exit 0\n'
     "echo \"Direct 'git push' is not available in this workspace. Commit, then call the "
     "git_push tool (or git_open_pr to also open the pull request): it publishes with the "
     "organization's signing policy.\" >&2\n"
@@ -391,117 +380,56 @@ _PUSH_GUARD_SETUP = (
 )
 
 
-# The member's signing key lives in a memory-backed keyring while a turn runs: GnuPG needs it
-# there to sign ``git commit`` for the agent. Never on the workspace volume, and removed when
-# the turn ends. The wrapper adds what git cannot: the keyring and the passphrase, loopback.
-SIGNING_HOME = "/dev/shm/rocket-gnupg"
-
-
-def _signing_script(home: str, fingerprint: str) -> str:
-    wrapper = (
-        "#!/bin/sh\n"
-        f"exec gpg --homedir {shlex.quote(home)} --batch --no-tty --pinentry-mode loopback "
-        f'--passphrase-file {shlex.quote(home + "/pass")} "$@"\n'
-    )
-    return " && ".join(
-        [
-            "umask 077",
-            f"rm -rf {shlex.quote(home)}",
-            f"mkdir -p {shlex.quote(home)}",
-            f"chmod 700 {shlex.quote(home)}",
-            f'printf %s "$ROCKET_SIGNING_PASSPHRASE" > {shlex.quote(home + "/pass")}',
-            f"printf %b {shlex.quote(wrapper)} > {shlex.quote(home + '/gpg-sign')}",
-            f"chmod 700 {shlex.quote(home + '/gpg-sign')}",
-            'printf %s "$ROCKET_SIGNING_KEY" | base64 -d | '
-            f"{shlex.quote(home + '/gpg-sign')} --import 2>/dev/null",
-            f"git config --global user.signingkey {shlex.quote(fingerprint)}",
-            "git config --global commit.gpgsign true",
-            f"git config --global gpg.program {shlex.quote(home + '/gpg-sign')}",
-        ]
-    )
-
-
-def _signing_cleanup_script(home: str) -> str:
-    return (
-        f"rm -rf {shlex.quote(home)}; git config --global --unset-all user.signingkey; "
-        "git config --global --unset-all commit.gpgsign; "
-        "git config --global --unset-all gpg.program; true"
-    )
-
-
-async def apply_signing_to_sandbox(
-    driver: SandboxDriverProtocol, session_id: str, signing: MemberSigning | None
-) -> None:
-    """Set the sandbox up to sign commits as the member, or remove any key left behind."""
-    if signing is None:
-        await driver.exec_command(session_id, _signing_cleanup_script(SIGNING_HOME))
-        return
-    encoded = base64.b64encode(signing.private_key.encode()).decode()
-    result = await driver.exec_command(
-        session_id,
-        _signing_script(SIGNING_HOME, signing.fingerprint),
-        env={"ROCKET_SIGNING_KEY": encoded, "ROCKET_SIGNING_PASSPHRASE": signing.passphrase},
-    )
-    if result.exit_code != 0:
-        # Commits then stay unsigned rather than failing; the member learns from the warning.
-        logger.warning(
-            "Could not set up commit signing in %s (exit %d)", session_id, result.exit_code
-        )
-        await driver.exec_command(session_id, _signing_cleanup_script(SIGNING_HOME))
+# Earlier versions put the member's signing key in a memory-backed keyring in the sandbox for
+# the length of a turn. Signing now happens on the platform at publication; this removes what a
+# sandbox started by such a version may still hold.
+_LEGACY_SIGNING_HOME = "/dev/shm/rocket-gnupg"
+_LEGACY_SIGNING_CLEANUP = (
+    f"rm -rf {_LEGACY_SIGNING_HOME}; git config --global --unset-all user.signingkey; "
+    "git config --global --unset-all commit.gpgsign; "
+    "git config --global --unset-all gpg.program; true"
+)
 
 
 async def inject_git_credentials_into_sandbox(
     driver: SandboxDriverProtocol | None,
     session_id: str,
     bundle: GitCredentialBundle,
+    *,
+    org_id: str,
+    user_id: str,
+    api_url: str,
 ) -> None:
-    """Configure git identity and credential access for ``session_id`` without storing secrets.
+    """Configure git in ``session_id``'s sandbox: the committer identity and the git gateway.
 
-    The committer identity and a token-less credential helper go into the sandbox's git
-    config; the token itself is handed to the driver as per-session environment, supplied to
-    each command at execution time and never persisted (see ``SessionEnvMixin``). Called at
-    every turn start, so token rotation (GitHub App tokens expire hourly) needs no cleanup.
+    The sandbox receives no GitHub credential. Its git reaches GitHub through the gateway, which
+    adds the credential on the platform; the sandbox only holds a session-scoped, read-only
+    gateway capability, handed to the driver as per-session environment (supplied to each command,
+    never written to the workspace). Called at every turn start, so the capability is renewed
+    before its hour runs out.
     """
     if not driver:
         return
 
     try:
-        driver.set_session_env(
-            session_id,
-            (
-                {
-                    "GITHUB_TOKEN": bundle.token,
-                    "GH_TOKEN": bundle.token,
-                    "GIT_TERMINAL_PROMPT": "0",
-                }
-                if bundle.token
-                else {"GIT_TERMINAL_PROMPT": "0"}
-            ),
-        )
+        capability = git_gateway_token.mint(session_id, org_id, user_id)
+        driver.set_session_env(session_id, sandbox_git_environment(capability, api_url))
         setup = " && ".join(
             [
                 f"git config --global user.name {shlex.quote(bundle.author_name)}",
                 f"git config --global user.email {shlex.quote(bundle.author_email)}",
                 "git config --global init.defaultBranch main",
-                (
-                    f"git config --global credential.helper {shlex.quote(_CREDENTIAL_HELPER)}"
-                    if bundle.token
-                    else "git config --global --unset-all credential.helper || true"
-                ),
                 _PUSH_GUARD_SETUP,
             ]
         )
-        # A turn without a signing key must not inherit one a previous turn (another member of a
-        # shared session) left configured, so the removal rides along with the setup.
-        leftovers = "" if bundle.signing else f"; {_signing_cleanup_script(SIGNING_HOME)}"
-        result = await driver.exec_command(session_id, f"{setup}; {_LEGACY_CLEANUP}{leftovers}")
-        if bundle.signing:
-            await apply_signing_to_sandbox(driver, session_id, bundle.signing)
+        result = await driver.exec_command(
+            session_id, f"{setup}; {_LEGACY_CLEANUP}; {_LEGACY_SIGNING_CLEANUP}"
+        )
         if result.exit_code != 0:
             logger.warning(
-                "Git sandbox credential setup failed (exit %d): %s", result.exit_code, result.stderr
+                "Git sandbox setup failed (exit %d): %s", result.exit_code, result.stderr
             )
         else:
-            logger.info("Configured git access for session %s (mode=%s)", session_id, bundle.mode)
+            logger.info("Configured git for session %s (mode=%s)", session_id, bundle.mode)
     except Exception as err:
-        logger.warning("Exception configuring git access for session %s: %s", session_id, err)
+        logger.warning("Exception configuring git for session %s: %s", session_id, err)

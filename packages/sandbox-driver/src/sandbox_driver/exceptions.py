@@ -18,7 +18,16 @@ class SandboxStartError(SandboxExecutionError):
 
 
 class SandboxTimeoutError(SandboxError):
-    """Raised when an operation or command execution exceeds allowed timeout."""
+    """Raised when an operation or command execution exceeds allowed timeout.
+
+    Carries what the command printed before it was stopped: the last lines before a hang are
+    usually what explains it.
+    """
+
+    def __init__(self, message: str, stdout: str = "", stderr: str = "") -> None:
+        super().__init__(message)
+        self.stdout = stdout
+        self.stderr = stderr
 
 
 class SandboxFilesystemError(SandboxError):

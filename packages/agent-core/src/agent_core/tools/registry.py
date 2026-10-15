@@ -3,15 +3,28 @@
 import difflib
 import json
 import logging
+import posixpath
+import shlex
 from collections.abc import Awaitable, Callable
 from fnmatch import fnmatch
 from typing import Any, ClassVar
 
 from fastmcp import FastMCP
 from fastmcp.tools.function_tool import FunctionTool
+from sandbox_driver.workspace import (
+    WORKSPACE,
+    list_repositories,
+    resolve_project_dir,
+    resolve_repository_dir,
+)
 
 from agent_core.context import current_execution_ctx
-from agent_core.permissions import approval_needed, changes_workspace
+from agent_core.permissions import (
+    ACTION_CLASSIFIED_TOOLS,
+    approval_needed,
+    changes_workspace,
+    is_read_call,
+)
 from agent_core.tools import git_tools, memory_tools
 from agent_core.tools.builtin import register_all
 from agent_core.tools.schema import definition_from_tool
@@ -81,9 +94,10 @@ class ToolRegistry:
             "git_log",
             "kb_search",
             "clone_repository",
+            "set_active_repository",
             "github_find_repositories",
             "github_read_file",
-            "github_issues",
+            "github_search",
             "recall",
             "web_fetch",
             "web_search",
@@ -279,12 +293,80 @@ class ToolRegistry:
             return None
         return self._driver, session_id
 
-    def _plan_mode_blocked(self, name: str) -> bool:
+    def _plan_mode_blocked(self, name: str, arguments: dict[str, Any]) -> bool:
         """Whether a tool call must be rejected because the session is in plan mode."""
         ctx = current_execution_ctx.get()
         if not ctx or not ctx.plan_mode:
             return False
+        if name in ACTION_CLASSIFIED_TOOLS:
+            return not is_read_call(name, arguments)
         return name not in self.PLAN_READ_ONLY_TOOLS
+
+    @staticmethod
+    def _active_repository() -> str | None:
+        ctx = current_execution_ctx.get()
+        return (ctx.active_repository or None) if ctx is not None else None
+
+    async def repository_dir(self, session_id: str, path: str | None) -> str:
+        """The repository a git tool acts on; raises ``RepositoryNotFoundError`` with the reason."""
+        assert self._driver is not None
+        return await resolve_repository_dir(
+            self._driver, session_id, path, self._active_repository()
+        )
+
+    async def project_dir(self, session_id: str, path: str | None) -> str:
+        """The folder a test, lint, build or install command runs in."""
+        assert self._driver is not None
+        return await resolve_project_dir(self._driver, session_id, path, self._active_repository())
+
+    async def shell_dir(self, session_id: str) -> str:
+        """Where a shell command runs when the agent names no folder: the active repository.
+
+        Unlike ``project_dir`` it never fails: a shell is useful anywhere, ``/workspace`` included.
+        """
+        active = self._active_repository()
+        if active is None or self._driver is None:
+            return WORKSPACE
+        probe = await self._driver.exec_command(
+            session_id, f"test -d {shlex.quote(active)}", timeout_seconds=15
+        )
+        return active if probe.exit_code == 0 else WORKSPACE
+
+    def workspace_file(self, path: str) -> str:
+        """The absolute path a file tool acts on. A relative path is inside the active
+        repository, so it means the same file as in ``bash_exec``, which runs there."""
+        cleaned = path.strip() or "."
+        if cleaned.startswith("/"):
+            return posixpath.normpath(cleaned)
+        return posixpath.normpath(posixpath.join(self._active_repository() or WORKSPACE, cleaned))
+
+    def explain_missing(self, path: str, result: str) -> str:
+        """``result``, with a hint when a relative path missed because of the active repository."""
+        active = self._active_repository()
+        missed = any(sign in result.lower() for sign in ("not found", "no such file"))
+        if not active or path.strip().startswith("/") or not missed:
+            return result
+        return (
+            f"{result}\nRelative paths are inside the active repository {active}; give an "
+            f"absolute path (for example {posixpath.join(WORKSPACE, path.strip())}) for another "
+            "folder."
+        )
+
+    @staticmethod
+    def choose_active_repository(folder: str) -> None:
+        """Make ``folder`` the turn's active repository, replacing any earlier one."""
+        ctx = current_execution_ctx.get()
+        if ctx is not None:
+            ctx.active_repository = folder
+
+    @staticmethod
+    def remember_active_repository(folder: str) -> bool:
+        """Make ``folder`` the turn's active repository when it has none; True if it did."""
+        ctx = current_execution_ctx.get()
+        if ctx is None or ctx.active_repository:
+            return False
+        ctx.active_repository = folder
+        return True
 
     async def _checkpoint_before_first_change(self, name: str, arguments: dict[str, Any]) -> None:
         """Snapshot the workspace before a turn first changes it, so any turn can be rewound.
@@ -304,8 +386,9 @@ class ToolRegistry:
         driver, session_id = target
         try:
             await self._ensure_sandbox(session_id)
-            if await git_tools.is_git_workspace(driver, session_id):
-                await git_tools.git_checkpoint(driver, session_id, label="turn")
+            # Every repository, not only the active one: a turn may change any clone.
+            for repository in await list_repositories(driver, session_id):
+                await git_tools.git_checkpoint(driver, session_id, label="turn", workdir=repository)
             ctx.checkpointed = True
         except Exception as err:
             logger.debug("Skipping automatic checkpoint for %s: %s", session_id, err)
@@ -376,7 +459,7 @@ class ToolRegistry:
         # First, so a made-up name is never offered to a human for approval as a "command".
         if not self._is_known_tool(name):
             return self.unknown_tool_message(name)
-        if self._plan_mode_blocked(name):
+        if self._plan_mode_blocked(name, arguments):
             return (
                 f"Blocked: '{name}' is not permitted while the session is in plan mode "
                 "(read-only). Finish investigating, then call `exit_plan_mode` to request "
@@ -465,15 +548,20 @@ class ToolRegistry:
         return str(result)
 
     def get_tool_definitions(self) -> list[ToolDefinition]:
-        """Return ToolDefinitions formatted for ModelRequest consumption."""
+        """Return ToolDefinitions formatted for ModelRequest consumption.
+
+        The order is stable for a session (built-ins in registration order, then dynamic and
+        external tools by name): tool schemas are part of the cached request prefix, so an MCP
+        server answering its tool list in another order must not invalidate it.
+        """
         return [
             *(
                 definition_from_tool(tool)
                 for name, tool in self._builtin_tools.items()
                 if self._capability_missing(name) is None
             ),
-            *self.visible_dynamic_tools(),
-            *self._external_definitions(),
+            *sorted(self.visible_dynamic_tools(), key=lambda definition: definition.name),
+            *sorted(self._external_definitions(), key=lambda definition: definition.name),
         ]
 
     def _external_provider(self) -> ExternalToolProvider | None:

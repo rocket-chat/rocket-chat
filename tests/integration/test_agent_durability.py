@@ -334,7 +334,8 @@ async def test_model_summary_replaces_the_compacted_middle() -> None:
     compacted = await manager.compact_with_summary(
         _sample_transcript(), summarize, recent_turns_to_preserve=2
     )
-    assert any("summary of" in (m.content or "") for m in compacted if m.role == "system")
+    assert any("summary of" in (m.content or "") for m in compacted if m.role == "user")
+    assert all(m.role != "system" for m in compacted[1:]), "only the leading message is system"
     assert_valid_pairing(compacted)
 
     async def broken(_: list[ChatMessage]) -> str:
@@ -343,7 +344,7 @@ async def test_model_summary_replaces_the_compacted_middle() -> None:
     fallback = await manager.compact_with_summary(
         _sample_transcript(), broken, recent_turns_to_preserve=2
     )
-    assert any("Compacted" in (m.content or "") for m in fallback if m.role == "system")
+    assert any("Compacted" in (m.content or "") for m in fallback if m.role == "user")
 
 
 def test_recording_list_tracks_appends_but_not_compaction_rewrites() -> None:

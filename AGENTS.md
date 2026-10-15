@@ -113,7 +113,7 @@ affinity = prefer_node(previous_node_name)
 * **Python:** strict `mypy`; no `Any` escape hatches — use `TypeVar`, Pydantic models, `TypedDict`, `Protocol`. **TypeScript:** `strict` with `noImplicitAny`; no `@ts-ignore` and no `any` unless wrapping an untyped library (say why in a comment).
 
 ### D. Context hygiene (the agent's own context)
-Tools never emit unbounded output into the session: results are clamped head-and-tail (`clamp_output`), old tool payloads are pruned to receipts past 70% of the window, and compaction at 85% keeps the system prompt, the goal, the checklist and the latest turns. Reasoning blocks and `tool_call_id` pairing are never dropped.
+Tools never emit unbounded output into the session: results are clamped head-and-tail (`clamp_output`), old tool payloads are pruned to receipts past 70% of the window, and compaction at 85% keeps the system prompt, the current request (verbatim), the checklist and the latest whole steps. Reasoning blocks and `tool_call_id` pairing are never dropped.
 
 ### E. Concurrency
 * `asyncio` throughout. No blocking I/O in async paths (`time.sleep`, sync `requests`, raw file I/O): use `asyncio.sleep`, `httpx.AsyncClient`, `anyio.to_thread.run_sync`. **Every external network call has an explicit timeout** (Docker, Kubernetes, LiteLLM, HTTP).

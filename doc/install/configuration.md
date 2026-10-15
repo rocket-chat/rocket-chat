@@ -30,9 +30,10 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | `ROCKET_ATTACHMENT_INLINE_BYTES` | int | `65536` (64 KiB) | Byte budget for inlining a text attachment's content into the model prompt; longer files are truncated with a marker. |
 | `ROCKET_ATTACHMENT_SIGNING_KEY` | secret | *(ephemeral)* | HMAC key for signed attachment retrieval. When unset, an ephemeral per-process key is generated (tokens do not survive a restart or span replicas). |
 | `ROCKET_MEMORY_SUMMARY_MODEL` | string | `""` | Optional pinned model for the per-session memory summary written on turn completion; defaults to the turn's effective model. |
-| `ROCKET_TOOL_MAX_CONCURRENCY` | int | `8` | Process-wide ceiling on concurrent tool executions within one fan-out; extra calls queue on the semaphore. |
+| `ROCKET_TOOL_MAX_CONCURRENCY` | int | `8` | How many tool calls of **one session** run at once; extra calls of that session queue. |
+| `ROCKET_TOOL_PROCESS_CONCURRENCY` | int | `64` | How many tool calls run at once in one API process, all sessions together. A call waiting for a person (a question or an approval) holds neither limit. |
 | `ROCKET_WEB_FETCH_ALLOW_PRIVATE` | bool | `false` | Lets the agent's `web_fetch` reach private, loopback and link-local addresses. Off by default so a prompt-injected agent cannot read cloud metadata or internal services; enable only for trusted single-tenant installs that need internal docs. |
-| `ROCKET_TOOL_TIMEOUT_SECONDS` | int | `600` | Per-tool wall-clock budget; an over-budget tool is recorded with `status="timeout"` rather than failing the whole batch. |
+| `ROCKET_TOOL_TIMEOUT_SECONDS` | int | `600` | Per-tool working-time budget; an over-budget tool is recorded with `status="timeout"` rather than failing the whole batch. Time spent waiting for a person (a question or an approval) does not count: those wait as long as it takes. |
 | `ROCKET_GLOBAL_CONCURRENCY_LIMIT` | int | `16` | Process-wide maximum number of concurrent turns. |
 | `ROCKET_SESSION_LOCK_CAPACITY` | int | `256` | Maximum number of per-session single-writer locks retained (bounded registry). |
 | `ROCKET_DB_PING_TIMEOUT_SECONDS` | int | `2` | Deadline for the `/v1/ready` PostgreSQL ping. |
@@ -103,6 +104,9 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | `K8S_WARMED_POOL_SIZE` | int | `0` | Number of pre-warmed idle Pods to maintain in the sandbox namespace for instant turn startup. |
 | `K8S_WARMED_IMAGE` | string | Same as default | Container image used for pre-warmed pool pods. |
 | `K8S_IMAGE_PULL_SECRETS` | string | `None` | Comma-delimited list of Kubernetes Secret names for pulling sandbox images from private container registries. |
+| `ROCKET_PLATFORM_NAMESPACE` | string | `None` | Namespace of the API pods. With the two below, every restricted sandbox's NetworkPolicy allows the API's git gateway (and nothing else of the platform). Set by the Helm chart. |
+| `ROCKET_PLATFORM_POD_LABELS` | string | `None` | `key=value,key=value` labels selecting the API pods. |
+| `ROCKET_PLATFORM_POD_PORT` | int | `8000` | The API container's port. |
 
 ### Docker Sandbox Driver (`DockerSandboxDriver`)
 
@@ -155,7 +159,7 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 | :--- | :--- | :--- | :--- |
 | `GITHUB_APP_ID` | string | `None` | GitHub App ID used for authenticating API calls and generating installation tokens. |
 | `GITHUB_APP_SLUG` | string | `None` | The App's URL slug; enables the "Install on a GitHub account" link in Settings > GitHub. |
-| `ROCKET_DEFAULT_SANDBOX_IMAGE` | string | `ghcr.io/rocket-chat/sandbox:latest` | Default image for new sandboxes (`sandboxes.default_image`): the devbox with git, Python, Node, uv, gh and ripgrep. Set it to a mirror in your own registry for private or air-gapped installs. |
+| `ROCKET_DEFAULT_SANDBOX_IMAGE` | string | `ghcr.io/rocket-chat/sandbox:latest` | Default image for new sandboxes (`sandboxes.default_image`): the devbox with git, Python, Node, uv and ripgrep (its `gh` only points the agent to the `github_*` tools, since the sandbox holds no GitHub credential). Set it to a mirror in your own registry for private or air-gapped installs. |
 | `GITHUB_APP_ALLOW_UNMAPPED_INSTALLATIONS` | bool | `false` | Legacy single-organization mode: mint App tokens for an installation no organization has mapped. Leave off when organizations share the platform. |
 | `GITHUB_APP_PRIVATE_KEY` | string | `None` | RSA private key PEM for the GitHub App. |
 | `GITHUB_WEBHOOK_SECRET` | string | `None` | HMAC SHA-256 secret configured in GitHub App settings to verify webhook payloads. |
@@ -163,6 +167,7 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 | `GIT_BOT_NAME` | string | `RocketChat Bot` | Author name injected into Git commits. |
 | `GIT_BOT_EMAIL` | string | `bot@rocketchat.internal` | Author email injected into Git commits. |
 | `GIT_DEFAULT_BRANCH` | string | `main` | Default target branch for repository checkouts. |
+| `ROCKET_GIT_GATEWAY_URL` | string | `http://host.docker.internal:8000` | The API's address **as a sandbox reaches it**, for the git gateway: sandboxes hold no GitHub credential and clone and fetch through `<url>/v1/git/…`. The Docker driver maps `host.docker.internal` to the host on every engine, so the default works when the API publishes port 8000 on the host; the Helm chart sets the backend Service's in-cluster address. |
 
 ---
 

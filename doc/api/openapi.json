@@ -421,7 +421,7 @@
             "type": "integer"
           },
           "event_type": {
-            "description": "tool_call | approval_request | approval_decision | model_call | credential_change | settings_change",
+            "description": "tool_call | approval_request | approval_decision | model_call | credential_change | settings_change | git_publish",
             "title": "Event Type",
             "type": "string"
           },
@@ -605,7 +605,7 @@
       "CheckpointList": {
         "properties": {
           "available": {
-            "description": "False when the sandbox is not running or the workspace is not a git repo",
+            "description": "False when the sandbox is not running or holds no git repository",
             "title": "Available",
             "type": "boolean"
           },
@@ -615,6 +615,18 @@
             },
             "title": "Checkpoints",
             "type": "array"
+          },
+          "repository": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The repository folder the checkpoints belong to",
+            "title": "Repository"
           }
         },
         "required": [
@@ -1247,7 +1259,7 @@
             "type": "string"
           },
           "injection_mode": {
-            "default": "none",
+            "default": "public",
             "title": "Injection Mode",
             "type": "string"
           },
@@ -3800,7 +3812,10 @@
             "type": "string"
           },
           "max_turns": {
-            "default": 5,
+            "default": 12,
+            "description": "Steps the subagent may take before it must report.",
+            "maximum": 60.0,
+            "minimum": 1.0,
             "title": "Max Turns",
             "type": "integer"
           },

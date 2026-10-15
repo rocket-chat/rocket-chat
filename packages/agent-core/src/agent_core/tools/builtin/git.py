@@ -4,14 +4,20 @@ import logging
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import Field
+from sandbox_driver.workspace import RepositoryNotFoundError
 
-from agent_core.context import current_execution_ctx
 from agent_core.tools import git_tools, tier2
 
 if TYPE_CHECKING:
     from agent_core.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+PATH_DESCRIPTION = (
+    "Repository folder, e.g. 'my-app' for /workspace/my-app. Default: the session's active "
+    "repository (the first one cloned), or the only repository under /workspace."
+)
+RepositoryPath = Annotated[str | None, Field(description=PATH_DESCRIPTION)]
 
 
 def register(registry: "ToolRegistry") -> None:
@@ -20,29 +26,45 @@ def register(registry: "ToolRegistry") -> None:
     _register_git_publish_tools(registry)
 
 
+async def _repository(
+    registry: "ToolRegistry", tool: str, path: str | None
+) -> tuple[str, str] | str:
+    """``(session_id, repository folder)`` for a git tool, or the error text for the agent."""
+    target = registry._sandbox_target(tool)
+    if not target:
+        return f"Error: Sandbox not initialized for {tool}"
+    _, session_id = target
+    await registry._ensure_sandbox(session_id)
+    try:
+        return session_id, await registry.repository_dir(session_id, path)
+    except RepositoryNotFoundError as err:
+        return f"Error: {err}"
+
+
 def _register_git_inspection_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
             "Return the porcelain git status (current branch + changed/untracked files)"
-            " of the workspace."
+            " of a repository."
         )
     )
-    async def git_status() -> str:
-        ctx = current_execution_ctx.get()
-        s_id = ctx.session_id if ctx else registry._session_id
-        if not registry._driver or not s_id:
-            return "Error: Sandbox not initialized for git_status"
-        await registry._ensure_sandbox(s_id)
-        return await tier2.git_status(registry._driver, s_id)
+    async def git_status(path: RepositoryPath = None) -> str:
+        resolved = await _repository(registry, "git_status", path)
+        if isinstance(resolved, str):
+            return resolved
+        session_id, folder = resolved
+        assert registry._driver is not None
+        return f"[{folder}]\n" + await tier2.git_status(registry._driver, session_id, folder)
 
     @registry._tool(
         description=(
-            "Show the current unified git diff (optionally staged, scoped to a path, or stat-only)."
+            "Show the current unified git diff (optionally staged, scoped to a file, or stat-only)."
         )
     )
     async def git_diff(
-        path: Annotated[
-            str | None, Field(description="Optional file path to scope the diff to.")
+        file: Annotated[
+            str | None,
+            Field(description="Optional file, relative to the repository, to scope the diff to."),
         ] = None,
         staged: Annotated[
             bool, Field(description="Show staged (cached) changes instead (default: false).")
@@ -50,13 +72,14 @@ def _register_git_inspection_tools(registry: "ToolRegistry") -> None:
         stat_only: Annotated[
             bool, Field(description="Return only a diffstat summary (default: false).")
         ] = False,
+        path: RepositoryPath = None,
     ) -> str:
-        ctx = current_execution_ctx.get()
-        s_id = ctx.session_id if ctx else registry._session_id
-        if not registry._driver or not s_id:
-            return "Error: Sandbox not initialized for git_diff"
-        await registry._ensure_sandbox(s_id)
-        return await tier2.git_diff(registry._driver, s_id, path, staged, stat_only)
+        resolved = await _repository(registry, "git_diff", path)
+        if isinstance(resolved, str):
+            return resolved
+        session_id, folder = resolved
+        assert registry._driver is not None
+        return await tier2.git_diff(registry._driver, session_id, file, staged, stat_only, folder)
 
     @registry._tool(
         description=(
@@ -67,24 +90,26 @@ def _register_git_inspection_tools(registry: "ToolRegistry") -> None:
         max_count: Annotated[
             int, Field(description="Maximum commits to return (default 20, max 100).")
         ] = 20,
-        path: Annotated[
-            str | None, Field(description="Optional path to scope the history to.")
+        file: Annotated[
+            str | None, Field(description="Optional file or folder to scope the history to.")
         ] = None,
         author: Annotated[str | None, Field(description="Optional author filter.")] = None,
+        path: RepositoryPath = None,
     ) -> str:
-        target = registry._sandbox_target("git_log")
-        if not target:
-            return "Error: Sandbox not initialized for git_log"
-        driver, session_id = target
-        await registry._ensure_sandbox(session_id)
-        return await tier2.git_log(driver, session_id, max_count, path, author)
+        resolved = await _repository(registry, "git_log", path)
+        if isinstance(resolved, str):
+            return resolved
+        session_id, folder = resolved
+        assert registry._driver is not None
+        return await tier2.git_log(registry._driver, session_id, max_count, file, author, folder)
 
 
 def _register_git_change_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
-            "Create a git commit (signed with co-author trailers when the GitHub App is"
-            " configured). Prefer a checkpoint first for destructive work."
+            "Commit every change in a repository, following the organization's authorship and"
+            " signing policy (co-author trailers included). Prefer a checkpoint first for"
+            " destructive work."
         )
     )
     async def git_commit(
@@ -96,20 +121,22 @@ def _register_git_change_tools(registry: "ToolRegistry") -> None:
         co_authors: Annotated[
             list[str] | None, Field(description="Optional co-author names to credit.")
         ] = None,
+        path: RepositoryPath = None,
     ) -> str:
-        target = registry._sandbox_target("git_commit")
-        if not target:
-            return "Error: Sandbox not initialized for git_commit"
-        driver, session_id = target
-        await registry._ensure_sandbox(session_id)
+        resolved = await _repository(registry, "git_commit", path)
+        if isinstance(resolved, str):
+            return resolved
+        session_id, folder = resolved
+        assert registry._driver is not None
         return await git_tools.git_commit(
-            driver,
+            registry._driver,
             session_id,
             message,
             branch,
             co_authors,
             registry._git_engine,
             policy=registry._git_policy(),
+            workdir=folder,
         )
 
     @registry._tool(description="Create and switch to a new git branch.")
@@ -118,35 +145,37 @@ def _register_git_change_tools(registry: "ToolRegistry") -> None:
         from_ref: Annotated[
             str | None, Field(description="Optional base commit/branch to branch from.")
         ] = None,
+        path: RepositoryPath = None,
     ) -> str:
-        target = registry._sandbox_target("git_branch")
-        if not target:
-            return "Error: Sandbox not initialized for git_branch"
-        driver, session_id = target
-        await registry._ensure_sandbox(session_id)
-        return await git_tools.git_branch(driver, session_id, name, from_ref)
+        resolved = await _repository(registry, "git_branch", path)
+        if isinstance(resolved, str):
+            return resolved
+        session_id, folder = resolved
+        assert registry._driver is not None
+        return await git_tools.git_branch(registry._driver, session_id, name, from_ref, folder)
 
     @registry._tool(
         description=(
-            "Tag the current HEAD as a restorable checkpoint. Cheap undo point before "
-            "large or risky edits."
+            "Snapshot a repository, uncommitted work included, as a restorable checkpoint. "
+            "Cheap undo point before large or risky edits."
         )
     )
     async def git_checkpoint(
         label: Annotated[
             str | None, Field(description="Optional human-readable label suffix.")
         ] = None,
+        path: RepositoryPath = None,
     ) -> str:
-        target = registry._sandbox_target("git_checkpoint")
-        if not target:
-            return "Error: Sandbox not initialized for git_checkpoint"
-        driver, session_id = target
-        await registry._ensure_sandbox(session_id)
-        return await git_tools.git_checkpoint(driver, session_id, label)
+        resolved = await _repository(registry, "git_checkpoint", path)
+        if isinstance(resolved, str):
+            return resolved
+        session_id, folder = resolved
+        assert registry._driver is not None
+        return await git_tools.git_checkpoint(registry._driver, session_id, label, folder)
 
     @registry._tool(
         description=(
-            "Restore the workspace to a checkpoint or commit. mode='files' restores "
+            "Restore a repository to a checkpoint or commit. mode='files' restores "
             "tracked files safely; mode='hard' discards all changes and requires "
             "approval."
         )
@@ -159,22 +188,23 @@ def _register_git_change_tools(registry: "ToolRegistry") -> None:
             Literal["files", "hard"],
             Field(description="Restore tracked files (default) or hard reset."),
         ] = "files",
+        path: RepositoryPath = None,
     ) -> str:
-        target = registry._sandbox_target("git_revert")
-        if not target:
-            return "Error: Sandbox not initialized for git_revert"
+        resolved = await _repository(registry, "git_revert", path)
+        if isinstance(resolved, str):
+            return resolved
+        session_id, folder = resolved
         approve = registry._turn_callback("approval")
         if mode == "hard" and approve:
             decision = await approve(
                 "git_revert_hard",
-                f"Destructively reset the worktree to {reference} (discards uncommitted work).",
+                f"Destructively reset {folder} to {reference} (discards uncommitted work).",
                 "critical",
             )
             if not decision.startswith("Approved"):
                 return f"Hard revert not approved: {decision}"
-        driver, session_id = target
-        await registry._ensure_sandbox(session_id)
-        return await git_tools.git_revert(driver, session_id, reference, mode)
+        assert registry._driver is not None
+        return await git_tools.git_revert(registry._driver, session_id, reference, mode, folder)
 
 
 def _register_git_publish_tools(registry: "ToolRegistry") -> None:
@@ -195,27 +225,19 @@ def _register_git_publish_tools(registry: "ToolRegistry") -> None:
             bool,
             Field(description="Allow replacing remote commits you have not fetched (rarely)."),
         ] = False,
-        path: Annotated[
-            str | None,
-            Field(
-                description="Repository folder when it is not /workspace itself, e.g. "
-                "'backend-services' for /workspace/backend-services (found automatically when "
-                "there is only one)."
-            ),
-        ] = None,
+        path: RepositoryPath = None,
     ) -> str:
-        target = registry._sandbox_target("git_push")
-        if not target:
-            return "Error: Sandbox not initialized for git_push"
-        _, session_id = target
-        await registry._ensure_sandbox(session_id)
+        resolved = await _repository(registry, "git_push", path)
+        if isinstance(resolved, str):
+            return resolved
+        session_id, folder = resolved
         return await git_tools.git_push(
             session_id,
             branch,
             force_with_lease,
             registry._git_engine,
             policy=registry._git_policy(),
-            path=path,
+            path=folder,
         )
 
     @registry._tool(
@@ -227,25 +249,22 @@ def _register_git_publish_tools(registry: "ToolRegistry") -> None:
         target_branch: Annotated[
             str | None, Field(description="Base branch to merge into (default: main).")
         ] = None,
-        path: Annotated[
-            str | None,
-            Field(description="Repository folder when it is not /workspace itself (see git_push)."),
-        ] = None,
+        path: RepositoryPath = None,
     ) -> str:
-        target = registry._sandbox_target("git_open_pr")
-        if not target:
-            return "Error: Sandbox not initialized for git_open_pr"
-        driver, session_id = target
-        await registry._ensure_sandbox(session_id)
+        resolved = await _repository(registry, "git_open_pr", path)
+        if isinstance(resolved, str):
+            return resolved
+        session_id, folder = resolved
+        assert registry._driver is not None
         result = await git_tools.git_open_pr(
-            driver,
+            registry._driver,
             session_id,
             title,
             body,
             target_branch,
             registry._git_engine,
             policy=registry._git_policy(),
-            path=path,
+            path=folder,
         )
         follow = registry._turn_callback("github_watch")
         if follow and (pull := git_tools.parse_pull_request_url(result)):

@@ -71,6 +71,16 @@ class DecisionGateManager:
     def get_approval_decision(self, action_id: str) -> bool:
         return self._approval_decisions.get(action_id, False)
 
+    def forget_question(self, question_id: str) -> tuple[list[str], str | None]:
+        """Drop an answered or abandoned question; returns its answer (empty when none)."""
+        self._pending_questions.pop(question_id, None)
+        return self._question_answers.pop(question_id, ([], None))
+
+    def forget_approval(self, action_id: str) -> bool:
+        """Drop a decided or abandoned approval; returns whether it was approved."""
+        self._pending_approvals.pop(action_id, None)
+        return self._approval_decisions.pop(action_id, False)
+
     def cancel_session_gates(self, session_id: str) -> None:
         """Unblock any waiters belonging to the cancelled session."""
         for q_session_id, q_event, _ in self._pending_questions.values():

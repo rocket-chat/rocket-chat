@@ -112,10 +112,16 @@ async def test_soft_budget_notice_is_injected_before_the_cap() -> None:
 
     await _run(orchestrator, "sess_budget_notice", limit=5)
 
-    sent_system_prompts = [
-        message.content
+    trailing = [request.messages[-1] for request in gateway.requests]
+    assert any(
+        m.role == "user"
+        and "<system-reminder>" in (m.content or "")
+        and "Budget notice" in m.content
+        for m in trailing
+    ), "the notice rides at the end of the request"
+    assert not any(
+        "Budget notice" in (m.content or "")
         for request in gateway.requests
-        for message in request.messages
-        if message.role == "system" and message.content
-    ]
-    assert any("Budget notice" in prompt for prompt in sent_system_prompts)
+        for m in request.messages
+        if m.role == "system"
+    ), "never as a system message"
