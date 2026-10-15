@@ -1,9 +1,11 @@
-"""One live progress message per turn: an activity summary, the current step and a Stop button.
+"""One live progress message per turn: the current step, the recent ones and a Stop button.
 
-Slack's status loader only shows a single line and disappears; a message that is updated in
-place gives the thread a lasting record of what the turn did, and a Stop button to end it.
-Updates are throttled (Slack rate-limits ``chat.update``), and any failure turns the message
-off for the rest of the turn instead of breaking it.
+Slack's status loader shows one line and offers no way to stop the turn; this message, updated
+in place, adds the recent steps and a Stop button while the turn runs. A finished turn deletes
+it: the answer carries the session link and what the turn did, so the thread keeps no
+"Done" leftovers. A stopped or failed turn keeps it, saying why. Updates are throttled (Slack
+rate-limits ``chat.update``), and any failure turns the message off for the rest of the turn
+instead of breaking it.
 """
 
 from __future__ import annotations
@@ -89,8 +91,15 @@ class ProgressMessage:
         self._current = message
         await self._flush()
 
+    def outcome_line(self) -> str:
+        """What the turn did, for the line under its answer: "Done in 42s · Edited 2 files"."""
+        elapsed = int(self._clock() - self._started_at)
+        return " · ".join(part for part in (f"Done in {elapsed}s", self._summary()) if part)
+
     async def finish(self, *, ok: bool, error: str | None = None) -> None:
         if not self.active:
+            return
+        if ok and await self._delete():
             return
         elapsed = int(self._clock() - self._started_at)
         if ok:
@@ -101,6 +110,17 @@ class ProgressMessage:
             headline = f":stop_button: *Stopped* after {elapsed}s"
         summary = self._summary()
         await self._update(headline, [summary] if summary else [], stop=False)
+
+    async def _delete(self) -> bool:
+        try:
+            await self._client.chat_delete(channel=self._channel, ts=self.ts)
+        except Exception as err:
+            # Deleting needs nothing beyond chat:write for the bot's own message, but a
+            # workspace may still refuse: leave the message saying "Done" instead.
+            logger.info("Could not remove the progress message: %s", err)
+            return False
+        self.ts = None
+        return True
 
     def _summary(self) -> str:
         parts = []

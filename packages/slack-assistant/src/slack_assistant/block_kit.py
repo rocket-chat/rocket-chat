@@ -348,14 +348,16 @@ def build_question_blocks(question: InteractiveQuestion) -> list[dict[str, Any]]
 STOP_ACTION_ID = "stop_turn"
 
 
-def open_in_rocket_context(link_url: str | None) -> dict[str, Any] | None:
-    """A context block linking the thread to its session in the web cockpit."""
-    if not link_url:
+def open_in_rocket_context(
+    link_url: str | None, detail: str | None = None
+) -> dict[str, Any] | None:
+    """A context line under an answer: the session link and what the turn did."""
+    parts = [f":rocket: <{link_url}|Open in Rocket Chat>"] if link_url else []
+    if detail:
+        parts.append(detail)
+    if not parts:
         return None
-    return {
-        "type": "context",
-        "elements": [{"type": "mrkdwn", "text": f":rocket: <{link_url}|Open in Rocket Chat>"}],
-    }
+    return {"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(parts)}]}
 
 
 def build_progress_blocks(

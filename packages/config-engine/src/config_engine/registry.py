@@ -557,7 +557,8 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             True,
             "org",
             "packages/slack-assistant/src/slack_assistant/policy.py",
-            "Show one live progress message per turn, updated in place, with a Stop button.",
+            "While a turn runs, show a progress message with its recent steps and a Stop button "
+            "(removed when the turn finishes; kept when it is stopped or fails).",
         ),
         _spec(
             "long_output_to_file",

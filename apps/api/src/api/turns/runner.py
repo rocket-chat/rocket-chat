@@ -16,6 +16,7 @@ from agent_core.orchestrator import AsyncReActOrchestrator
 from agent_core.tools.registry import ToolRegistry
 from git_engine.engine import GitEngine
 
+from api.db.store import _auto_provision_tenants_enabled
 from api.services.audit import AuditService, GovernancePolicy
 from api.services.budgets import BudgetService
 from api.services.git_credentials import (
@@ -128,6 +129,10 @@ class TurnRunner:
         session = await req.store.get_session(req.session_id)
         if session:
             return session
+        if not _auto_provision_tenants_enabled():
+            # Every entry point creates its session before the turn. Inventing one here would
+            # hand it to a development identity in another organization.
+            raise LookupError(f"Session {req.session_id} does not exist")
         clean_prompt = " ".join(req.prompt.strip().split())
         title = clean_prompt[:45].strip() + ("..." if len(clean_prompt) > 45 else "")
         session = SessionRecord(
@@ -282,7 +287,7 @@ class TurnRunner:
             enabled_toolsets=self._toolsets(session),
             policy=self._turn_policy(ctx, git_bundle),
             whitelisted_tools=(
-                overlay.tool_scope(ctx.binding.whitelisted_tools)
+                overlay.tool_scope(_restriction(ctx.binding.whitelisted_tools))
                 if overlay is not None and overlay.tool_scope is not None
                 else ...
             ),
@@ -489,3 +494,8 @@ async def execute_turn_background(
             resume_attempt=resume_attempt,
         )
     ).run()
+
+
+def _restriction(whitelist: list[str] | None) -> list[str] | None:
+    """An agent's tool list as ``TurnOverlay.tool_scope`` expects it: ``None`` when unrestricted."""
+    return None if whitelist is None or "*" in whitelist else whitelist

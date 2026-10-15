@@ -69,6 +69,8 @@ class _Admitted:
     """A request that passed admission: who it is for and under which policy it runs."""
 
     prompt: str
+    # The request as the person wrote it, without the speaker attribution: what titles use.
+    title_text: str
     team_scope: str
     is_dm: bool
     session_user_id: str
@@ -104,6 +106,7 @@ class SlackAssistant(
         bind_tenant_fn: Callable[[str], None] | None = None,
         resolve_workspace_org_fn: Callable[[str], Awaitable[str | None]] | None = None,
         resolve_user_fn: Callable[..., Any] | None = None,
+        guest_user_fn: Callable[[str, str, str | None], Awaitable[str]] | None = None,
         begin_pairing_fn: Callable[[str, str], Awaitable[str | None]] | None = None,
         resolve_slack_policy_fn: Callable[[str], Awaitable[SlackOrgPolicy]] | None = None,
         notifications_enabled_fn: Callable[[str, str], Awaitable[bool]] | None = None,
@@ -182,6 +185,9 @@ class SlackAssistant(
         self.session_store: SessionStoreProtocol | None = session_store
         self.db_manager: Any = db_manager
         self.resolve_user_fn: Callable[..., Any] | None = resolve_user_fn
+        # (org, team, Slack user or None for the workspace) -> the guest member that owns
+        # what an unlinked user, or a shared channel thread, starts.
+        self.guest_user_fn = guest_user_fn
 
         self._last_activity: dict[str, float] = {}
         self._user_pairings: dict[str, str] = {}
@@ -517,7 +523,7 @@ class SlackAssistant(
             session_id=session_id,
             org_id=admitted.session_org_id,
             owner_id=admitted.session_user_id,
-            title_source=admitted.prompt,
+            title_source=admitted.title_text,
             is_dm=admitted.is_dm,
             channel_id=channel_id,
             thread_ts=thread_ts,
@@ -563,6 +569,7 @@ class SlackAssistant(
         """Who is asking, under which organization, and is the request allowed at all."""
         session_id = self.get_session_id(channel_id, thread_ts)
         prompt = clean_mention_text(raw_text) or "Hello! How can I help you today?"
+        title_text = prompt
         resolved_team_id = team_id or self.team_id or self.settings.slack_team_id or ""
         is_dm = channel_type == "im"
         workspace_org = await self._workspace_org(resolved_team_id)
@@ -572,7 +579,7 @@ class SlackAssistant(
             return None
 
         rocket_user_id, rocket_org_id = await self._resolve_identity(
-            user_id, workspace_org, org_policy
+            user_id, workspace_org, org_policy, resolved_team_id
         )
         if user_id:
             speaker_name = await self._resolve_slack_user_name(user_id)
@@ -580,7 +587,9 @@ class SlackAssistant(
 
         # Private DMs belong to the paired member; shared channel threads belong to the
         # workspace and never borrow a member's credentials.
-        session_user_id = rocket_user_id if is_dm else "slack_global"
+        session_user_id = (
+            rocket_user_id if is_dm else await self._guest(workspace_org, resolved_team_id, None)
+        )
         session_org_id = rocket_org_id if is_dm else workspace_org
         self._bind_tenant(session_org_id)
         if session_org_id != workspace_org:
@@ -611,6 +620,7 @@ class SlackAssistant(
         profile = org_policy.profile_for(channel_id)
         return _Admitted(
             prompt=prompt,
+            title_text=title_text,
             team_scope=resolved_team_id or session_id,
             is_dm=is_dm,
             session_user_id=session_user_id,
@@ -680,9 +690,9 @@ class SlackAssistant(
         finally:
             self._active_turns.discard(session_id)
             await self._safely_update_status(view.status_fn, "")
-        if view.progress is not None:
-            await view.progress.finish(ok=error is None, error=error)
         if error:
+            if view.progress is not None:
+                await view.progress.finish(ok=False, error=error)
             self._failures.record_failure(admitted.team_scope, self._clock())
             await view.say_fn(
                 text=f"⚠️ I encountered an error while processing your request: {error}",
@@ -691,6 +701,9 @@ class SlackAssistant(
             return
         self._failures.record_success(admitted.team_scope)
         await self._post_result(view, admitted.org_policy)
+        # Removed only once the answer is in the thread, so the thread is never left empty.
+        if view.progress is not None:
+            await view.progress.finish(ok=True)
         await self._maybe_notify(
             view.outcome,
             view.channel_id,
@@ -732,8 +745,25 @@ class SlackAssistant(
         if self._bind_tenant_fn is not None:
             self._bind_tenant_fn(org_id)
 
+    async def _guest(self, org_id: str, team_id: str, slack_user_id: str | None) -> str:
+        """The guest member for an unlinked Slack user, or for the workspace's shared threads.
+
+        Without the platform's callback (tests, no database) the bare Slack identity is used.
+        """
+        if self.guest_user_fn is None:
+            return slack_user_id or "slack_global"
+        try:
+            return await self.guest_user_fn(org_id, team_id, slack_user_id)
+        except Exception as err:
+            logger.warning("Could not provision the Slack guest for %s: %s", slack_user_id, err)
+            return slack_user_id or "slack_global"
+
     async def _resolve_identity(
-        self, slack_user_id: str | None, workspace_org: str, org_policy: SlackOrgPolicy
+        self,
+        slack_user_id: str | None,
+        workspace_org: str,
+        org_policy: SlackOrgPolicy,
+        team_id: str = "",
     ) -> tuple[str, str]:
         """The Rocket member behind a Slack user, or the anonymous workspace identity.
 
@@ -741,17 +771,18 @@ class SlackAssistant(
         organization enables it) a match on the member's e-mail inside this workspace's own
         organization, links the two - never an e-mail typed in Slack.
         """
-        anonymous = (slack_user_id or "slack_user", workspace_org)
-        if not slack_user_id or self.resolve_user_fn is None:
-            return anonymous
-        resolved = await self.resolve_user_fn(slack_user_id, None, workspace_org)
-        if not resolved and org_policy.auto_link_by_verified_email:
-            profile = await self._fetch_slack_user(slack_user_id)
-            email = (profile or {}).get("profile", {}).get("email") if profile else None
-            if email:
-                resolved = await self.resolve_user_fn(slack_user_id, email, workspace_org)
+        if not slack_user_id:
+            return "slack_user", workspace_org
+        resolved = None
+        if self.resolve_user_fn is not None:
+            resolved = await self.resolve_user_fn(slack_user_id, None, workspace_org)
+            if not resolved and org_policy.auto_link_by_verified_email:
+                profile = await self._fetch_slack_user(slack_user_id)
+                email = (profile or {}).get("profile", {}).get("email") if profile else None
+                if email:
+                    resolved = await self.resolve_user_fn(slack_user_id, email, workspace_org)
         if not resolved:
-            return anonymous
+            return await self._guest(workspace_org, team_id, slack_user_id), workspace_org
         member_id, member_org = resolved
         self._user_pairings[slack_user_id] = member_id
         return member_id, member_org
@@ -790,6 +821,8 @@ class SlackAssistant(
                         "slack_thread_ts": thread_ts,
                         "slack_user_id": slack_user_id,
                         "slack_is_dm": is_dm,
+                        # A placeholder: the AI titler names the session after the first answer.
+                        "title_source": "auto",
                         # Slack tools stay available for every later turn of this session.
                         "toolsets": ["slack"],
                     },
