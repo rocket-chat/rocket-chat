@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `orchestrator`:
+- `sandboxes`:
+- `api`:
+- `web`:
+- `settings`:
+- `git`:
+- `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.3.0] - 2026-10-15
+
+### Added
 - `slack-assistant`: **The agent can look up Slack teams and people.** New tools: `slack_list_user_groups` and `slack_get_user_group_members` (user groups such as `@backend`, with their members and how to mention them), `slack_get_user` (name, title, timezone, status and groups, never the e-mail), `slack_list_channel_members` and `slack_get_permalink`. `slack_read_thread` and `slack_read_channel_history` can now read another public or allowlisted conversation. `slack_resolve_user` searches the whole workspace and returns the closest candidates for a partial name. Slack reads are classified as reads (no approval, allowed in *Plan* mode); sending messages, DMs and reactions counts as publishing. The Slack app needs the `usergroups:read` scope for user groups.
 - `agent-core`: **One working folder for every tool.** Relative paths given to the file tools now resolve inside the session's active repository, the folder `bash_exec` and the git tools already use, and results show the absolute path. A path that misses says how to reach another folder. The new `set_active_repository` tool switches the active repository for the rest of the session.
 - `agent-core`, `api`: **The agent works on GitHub without `gh`.** The sandbox holds no GitHub credential, so it has no working `gh` CLI. Platform-side tools cover what `gh` was used for. `github_pull_request` reads a pull request's files, paged diff, checks and review threads, and edits, reviews, comments on, replies to and resolves threads, closes, reopens and merges it. `github_actions` lists runs, shows a run's failed steps, reads the end of a job's log, and re-runs, cancels or starts workflows. `github_releases` and `github_search` cover releases and search. `github_issues` can now create, comment on, edit, close and reopen issues. `github_api` makes any other REST or GraphQL call, and refuses secrets, keys, webhooks, installations, access, protection and administration. Changes use the member's account or the organization's App installation for that repository, following `pr_creation`; the App acts only on the repositories `app_token_target_repositories` allows. Each result says who acted. Reads need no approval; changes are publishes; merging and `DELETE` always ask except in *Bypass*. Notices about CI failures and reviews on a followed pull request name the tool that answers them.
@@ -20,18 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`, `api`: administrators can edit the built-in agents (for example **General Software Engineer**) for the whole organization, and **Reset to default** restores the shipped definition. The edit is stored as an organization row that replaces the built-in (migration 027), is applied to every turn and never leaks to another organization; members keep saving their own copy. `DELETE /v1/agents/{built-in id}` resets it.
 - `web`, `api`: a custom agent can set its own "Max steps per turn" in its settings form, from 1 up to the organization's `max_turns`; empty inherits the organization's limit. A higher value is refused with the ceiling in the message, an agent is also capped at run time if the organization later lowers its limit, and `GET /v1/agents/limits` reports the ceiling. The persona API now accepts up to 200 (it stopped at 100 before).
 - `orchestrator`: `search_tools` lists the tools available in the session, optionally filtered by keyword, so an agent can look a tool up instead of guessing its name.
-- `orchestrator`:
-- `sandboxes`:
-- `api`:
-- `web`:
-- `settings`:
-- `git`:
-- `helm`:
 
 ### Changed
 - `web`/`doc`: Refreshed the Rocket Chat logo and favicons from the current design across every copy in the repo (`apps/web/public`, the Next.js convention icons in `apps/web/src/app`, and `doc/assets`), and raised the app-wide type scale (`text-xs`…`text-3xl`) for readability.
 - `slack-assistant`: **No leftover "Done" message in Slack threads.** The live progress message, with its recent steps and Stop button, is now removed when a turn finishes, after the answer is posted. The answer ends with one line: the session link and what the turn did ("Done in 41s · Edited 2 files · Ran 3 commands"). A stopped or failed turn keeps the message, saying why; a workspace that refuses the deletion gets the old "Done" message.
-- `api`: **The agent is told how its environment really works.** The system prompt now covers:
   - the workspace: repositories in `/workspace/<name>`, the active repository as the default for tools, shells and relative paths, a fresh shell per command, clamped output and reading by range;
   - how to edit (`file_edit`/`apply_patch`, `file_write` for new files) and verify;
   - the git workflow: never commit to the default branch, publish with `git_push`/`git_open_pr`, the organization's signing mode, and the `github_*` tools in place of `gh`.
