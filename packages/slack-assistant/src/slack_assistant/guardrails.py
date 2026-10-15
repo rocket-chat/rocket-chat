@@ -22,7 +22,6 @@ __all__ = [
     "QuotaDecision",
     "WorkspaceQuotaGate",
     "parse_tool_csv",
-    "resolve_allowed_tools",
     "tool_enforcement_message",
 ]
 
@@ -37,31 +36,6 @@ def parse_tool_csv(raw: str | None) -> frozenset[str]:
     if not raw:
         return frozenset()
     return frozenset(part.strip() for part in raw.split(",") if part.strip())
-
-
-def resolve_allowed_tools(
-    *,
-    registered: list[str],
-    allowed_raw: str | None,
-    blocked_raw: str | None,
-) -> tuple[list[str] | None, frozenset[str]]:
-    """Resolve the effective allowlist for the Slack path.
-
-    Returns ``(whitelisted_tools, blocked_tools)``. ``whitelisted_tools`` is an explicit
-    list (never the ``"*"`` wildcard) whenever the registry catalog is known, so the
-    execution layer can enforce it — a wildcard would re-open every tool, including the
-    blocklisted ones. When the catalog is unknown it returns ``None`` (advisory filter
-    only) while still reporting the blocklist.
-    """
-    allowed = parse_tool_csv(allowed_raw) or frozenset({"*"})
-    blocked = parse_tool_csv(blocked_raw) or frozenset(DEFAULT_BLOCKED_TOOLS)
-    if not registered:
-        return None, blocked
-    wildcard = "*" in allowed
-    selected = [
-        name for name in registered if name not in blocked and (wildcard or name in allowed)
-    ]
-    return selected, blocked
 
 
 def tool_enforcement_message(name: str) -> str:

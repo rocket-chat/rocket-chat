@@ -886,6 +886,7 @@ class SlackAssistant(
             or org_policy.default_agent_persona
             or None,
             tool_scope=lambda base: self._slack_whitelisted_tools(base=base, org_allowed=allowed),
+            denied_tools=self._slack_tool_selection(allowed)[1],
         )
 
     async def hibernate_inactive_sessions(self, timeout_seconds: int | None = None) -> list[str]:

@@ -61,8 +61,16 @@ async def complete_slack_pairing(body: PairRequest, request: Request) -> dict[st
             status_code=403, detail="This Slack workspace belongs to another organization"
         )
     db_mgr = getattr(request.app.state, "db_manager", None)
-    if not await link_member(db_mgr, user_id, org_id, slack_user_id):
+    if db_mgr is None:
         raise HTTPException(status_code=503, detail="Account linking needs the PostgreSQL store")
+    if not await link_member(db_mgr, user_id, org_id, slack_user_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Your account is not a member of the organization you are signed in to, so it "
+                "cannot be linked. Ask an administrator to check your organization."
+            ),
+        )
     adopted = await adopt_guest_sessions(db_mgr, org_id, team_id, slack_user_id, user_id)
     await AuditService(db_mgr).record(
         "credential_change",

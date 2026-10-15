@@ -94,6 +94,7 @@ class OrchestratorPipeline:
                     stable=f"{persona}\n{overlay.stable_suffix}".strip(), dynamic=overlay.dynamic
                 ),
                 whitelisted_tools=tools,
+                denied_tools=overlay.denied_tools,
                 max_turns=binding.max_turns if binding else None,
                 enabled_toolsets=overlay.enabled_toolsets,
             ):

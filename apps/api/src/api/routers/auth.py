@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from api.auth import oauth_state
 from api.auth.context import RequestContext
@@ -208,6 +209,21 @@ async def _ensure_db_user_and_org(
             session.add(user)
             await session.flush()
             return effective_roles
+    except IntegrityError:
+        # Row-level security hides a member row of another organization, so the insert
+        # collides with it: the member exists, but not where this sign-in places them
+        # (ROCKET_SSO_ORG_MODE / ROCKET_DEFAULT_ORG_ID changed since they first signed in).
+        # Everything that needs their row in this organization (pairing, linked accounts)
+        # will fail until an operator moves it.
+        logger.error(
+            "Member %s already exists in another organization than %s, where this sign-in "
+            "places them; move the member (and their data) to one organization",
+            user_id,
+            org_id,
+        )
+        if matches_admin_email:
+            return admin_roles
+        return [role] if role else ["developer"]
     except Exception as err:
         logger.warning("Failed ensuring user/org in database: %s", err)
         if matches_admin_email:
