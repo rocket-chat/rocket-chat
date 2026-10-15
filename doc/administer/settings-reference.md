@@ -92,7 +92,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | `dm_policy` | Organization | `none` / `paired` / `all` | `paired` | Who the agent may direct-message. |
 | `outbound_channels` | Organization | list | empty | Channel ids the agent may post or react in; empty limits it to the conversation it was invoked from. |
 | `web_base_url` | Organization | str | empty | Public address of the Rocket Chat web app (for example https://rocket.example.com); every Slack thread links to its session there. Empty falls back to ROCKET_PUBLIC_URL. |
-| `live_progress` | Organization | bool | `True` | Show one live progress message per turn, updated in place, with a Stop button. |
+| `live_progress` | Organization | bool | `True` | While a turn runs, show a progress message with its recent steps and a Stop button (removed when the turn finishes; kept when it is stopped or fails). |
 | `long_output_to_file` | Organization | bool | `True` | Attach long answers and large diffs as Slack files instead of splitting them into many messages. |
 | `long_output_chars` | Organization | min 500, max 20000 | `3500` | Answers longer than this many characters are summarised in the thread and attached in full as a file. |
 | `channel_profiles` | Organization | dict | `{}` | Per-channel behaviour, keyed by channel id: \{agent_persona, instructions, allowed_tools, sandbox_image\}. A channel with a profile uses its persona and house rules; allowed_tools narrows the organization's tool scope for that channel. |

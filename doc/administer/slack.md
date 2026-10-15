@@ -130,7 +130,7 @@ Invite the bot to a channel (`/invite @Rocket`) and ask for something:
 | `allowed_tools` | Which tools the Slack path may use (`*` means every tool except the deployment's blocked list). |
 | `auto_link_by_verified_email` | Link Slack users to members by their verified e-mail. |
 | `web_base_url` | The public address of Rocket Chat, for "Open in Rocket Chat" links (falls back to `ROCKET_PUBLIC_URL`). |
-| `live_progress` | The live progress message with a Stop button. |
+| `live_progress` | The progress message with recent steps and a Stop button while a turn runs. It is removed when the turn finishes and kept, saying why, when it is stopped or fails. Switched off, only Slack's own status line shows progress. |
 | `long_output_to_file`, `long_output_chars` | Attach long answers and large diffs as files, and the length that counts as long. |
 | `channel_profiles` | Per-channel behaviour (below). |
 
@@ -150,6 +150,15 @@ A channel can have its own persona, house rules, tool scope and sandbox image. S
 ```
 
 `allowed_tools` can only narrow what the organization allows. `sandbox_image` must be an image the organization permits (**Settings → Organization → Sandboxes**). Direct messages never use a channel profile.
+
+### Who owns Slack sessions
+
+A direct message from a linked Slack user belongs to that member. Everything else belongs to a **guest member** the Slack bridge creates on first contact, in the workspace's organization:
+
+* `slack:<team>:<user>` for an unlinked Slack user's direct messages;
+* `slack:<team>` for shared channel threads.
+
+Guests have the `readonly` role, no password and no linked accounts, so they cannot sign in. They appear in **Settings → Organization → Users & roles**. When a Slack user links their account, their guest's sessions move to them. Sessions are never created for a user that does not exist: a turn whose session is missing fails instead.
 
 ### Safety limits (deployment-wide)
 

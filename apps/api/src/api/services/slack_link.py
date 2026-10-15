@@ -6,6 +6,10 @@
   *starts* the flow (``/rocket-pair`` issues a one-time code); the link is completed by the
   member from their authenticated Rocket session, so typing someone's e-mail address in
   Slack can never claim their account.
+* **Guests** own what Slack users who are not linked start: one read-only member per Slack
+  user (``slack:<team>:<user>``) and one per workspace for shared channel threads
+  (``slack:<team>``). They are created only here, never by the generic tenant provisioning,
+  and cannot sign in. When the Slack user pairs, their guest's sessions move to the member.
 """
 
 from __future__ import annotations
@@ -16,9 +20,10 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
+from sqlalchemy.dialects.postgresql import insert
 
-from api.db.models import SlackPairingCodeModel, SlackWorkspaceModel, UserModel
+from api.db.models import SessionModel, SlackPairingCodeModel, SlackWorkspaceModel, UserModel
 
 PAIRING_CODE_TTL_SECONDS = 600
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I lookalikes
@@ -204,3 +209,55 @@ async def link_member(db_mgr: Any, member_id: str, org_id: str, slack_user_id: s
         updated["slack_user_id"] = slack_user_id
         member.settings = updated
     return True
+
+
+GUEST_ROLE = "readonly"
+GUEST_SETTINGS_KEY = "slack_guest"
+
+
+def slack_guest_id(team_id: str, slack_user_id: str | None) -> str:
+    """The guest member behind an unlinked Slack user, or behind a workspace's shared threads."""
+    team = team_id or "workspace"
+    return f"slack:{team}:{slack_user_id}" if slack_user_id else f"slack:{team}"
+
+
+async def ensure_slack_guest(
+    db_mgr: Any, org_id: str, team_id: str, slack_user_id: str | None
+) -> str:
+    """The guest member for ``slack_user_id`` (or the workspace), created on first contact."""
+    guest_id = slack_guest_id(team_id, slack_user_id)
+    if not _has_database(db_mgr):
+        return guest_id
+    name = f"Slack user {slack_user_id}" if slack_user_id else "Slack workspace"
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        # Two first messages can arrive together; the second insert is a no-op.
+        await session.execute(
+            insert(UserModel)
+            .values(
+                id=guest_id,
+                org_id=org_id,
+                email=f"{guest_id.replace(':', '.')}@slack-guest.invalid",
+                name=name,
+                role=GUEST_ROLE,
+                settings={GUEST_SETTINGS_KEY: {"team_id": team_id, "slack_user_id": slack_user_id}},
+                created_at=int(time.time()),
+            )
+            .on_conflict_do_nothing(index_elements=[UserModel.id])
+        )
+    return guest_id
+
+
+async def adopt_guest_sessions(
+    db_mgr: Any, org_id: str, team_id: str, slack_user_id: str, member_id: str
+) -> int:
+    """Give the member the sessions their Slack guest started; returns how many moved."""
+    if not _has_database(db_mgr):
+        return 0
+    guest_id = slack_guest_id(team_id, slack_user_id)
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        result = await session.execute(
+            update(SessionModel)
+            .where(SessionModel.org_id == org_id, SessionModel.user_id == guest_id)
+            .values(user_id=member_id)
+        )
+    return int(getattr(result, "rowcount", 0) or 0)

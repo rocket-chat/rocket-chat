@@ -326,15 +326,20 @@ class SlackTurnStreamMixin(SlackAssistantState):
         outcome = view.outcome
         final_text = outcome.text or ("" if outcome.diffs else "I've processed your request.")
         use_files = org_policy.long_output_to_file and self._slack_api_ready
-        link = open_in_rocket_context(view.link_url) if view.progress is None else None
+        detail = view.progress.outcome_line() if view.progress is not None else None
+        link = open_in_rocket_context(view.link_url, detail)
 
         if outcome.diffs:
             await self._post_changes(view, final_text, use_files and diff_is_large(outcome.diffs))
         elif final_text and use_files and len(final_text) > org_policy.long_output_chars:
             await self._post_long_answer(view, final_text, org_policy.long_output_chars)
         elif final_text:
-            for chunk in chunk_slack_message(markdown_to_slack_mrkdwn(final_text)):
+            *head, last = chunk_slack_message(markdown_to_slack_mrkdwn(final_text))
+            for chunk in head:
                 await view.say_fn(text=chunk, thread_ts=view.thread_ts)
+            # The link and what the turn did ride under the answer, not in a message of their own.
+            await view.say_fn(text=last, blocks=_with_footer(last, link), thread_ts=view.thread_ts)
+            link = None
         if use_files:
             await self._upload_screenshots(view)
         if link is not None:
@@ -417,3 +422,8 @@ class SlackTurnStreamMixin(SlackAssistantState):
             succeeded=True,
             elapsed_seconds=elapsed,
         )
+
+
+def _with_footer(text: str, footer: dict[str, Any] | None) -> list[dict[str, Any]]:
+    section = {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+    return [section, footer] if footer is not None else [section]

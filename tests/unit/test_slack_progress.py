@@ -70,18 +70,32 @@ async def test_updates_are_throttled_and_summarise_the_work() -> None:
     assert "Running test suite" in text and "Edited 1 file" in text and "Ran 1 command" in text
 
 
-async def test_finishing_drops_the_stop_button_and_reports_the_outcome() -> None:
+async def test_a_finished_turn_deletes_the_message_and_hands_over_what_it_did() -> None:
     client, clock = _client(), _Clock()
     progress = _progress(client, clock)
     await progress.start()
     await progress.tool_started("file_read", {"path": "a.py"}, "Reading")
     clock.now += 42
 
+    assert progress.outcome_line() == "Done in 42s · Read 1 file"
+    await progress.finish(ok=True)
+
+    client.chat_delete.assert_awaited_once_with(channel="C1", ts="9.9")
+    client.chat_update.assert_not_called()
+    assert not progress.active
+
+
+async def test_when_the_delete_is_refused_the_message_says_done_without_a_button() -> None:
+    client, clock = _client(), _Clock()
+    client.chat_delete.side_effect = RuntimeError("cant_delete_message")
+    progress = _progress(client, clock)
+    await progress.start()
+    clock.now += 5
+
     await progress.finish(ok=True)
 
     blocks = client.chat_update.call_args.kwargs["blocks"]
-    assert _actions(blocks) == []
-    assert "Done" in str(blocks) and "42s" in str(blocks) and "Read 1 file" in str(blocks)
+    assert _actions(blocks) == [] and "Done" in str(blocks) and "5s" in str(blocks)
 
 
 async def test_a_failed_or_stopped_turn_says_so() -> None:

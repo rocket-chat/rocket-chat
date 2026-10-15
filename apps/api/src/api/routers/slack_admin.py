@@ -11,6 +11,7 @@ from api.auth.access import _get_request_identity, _require_admin
 from api.services.audit import AuditService
 from api.services.slack_link import (
     PairingCodes,
+    adopt_guest_sessions,
     bind_workspace,
     link_member,
     unbind_workspace,
@@ -62,14 +63,19 @@ async def complete_slack_pairing(body: PairRequest, request: Request) -> dict[st
     db_mgr = getattr(request.app.state, "db_manager", None)
     if not await link_member(db_mgr, user_id, org_id, slack_user_id):
         raise HTTPException(status_code=503, detail="Account linking needs the PostgreSQL store")
+    adopted = await adopt_guest_sessions(db_mgr, org_id, team_id, slack_user_id, user_id)
     await AuditService(db_mgr).record(
         "credential_change",
         org_id=org_id,
         actor_user_id=user_id,
         result_summary="linked Slack account",
-        metadata={"provider": "slack", "slack_user_id": slack_user_id},
+        metadata={
+            "provider": "slack",
+            "slack_user_id": slack_user_id,
+            "sessions_adopted": adopted,
+        },
     )
-    return {"status": "linked", "slack_user_id": slack_user_id}
+    return {"status": "linked", "slack_user_id": slack_user_id, "sessions_adopted": adopted}
 
 
 @router.get("/admin/slack/workspace", response_model=WorkspaceBinding)

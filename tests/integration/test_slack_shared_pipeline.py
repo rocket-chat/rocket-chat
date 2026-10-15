@@ -323,3 +323,17 @@ async def test_messages_in_one_thread_run_one_at_a_time() -> None:
     record = await stack.store.get_session(SESSION_ID)
     assert record is not None
     assert [m.role for m in record.conversation_history].count("user") == 2
+
+
+@pytest.mark.asyncio
+async def test_an_agent_allowed_every_tool_keeps_the_slack_tools() -> None:
+    """The default agent's whitelist is ``["*"]``: Slack must not intersect with the wildcard
+    itself, which left the model with no tools at all (it then wrote its calls as text)."""
+    model = ScriptedModel()
+    stack = Stack(model, SlackOrgPolicy(default_agent_persona="persona-general"))
+    await stack.send()
+
+    assert model.requests and model.requests[0].tools, "the turn reached the model with tools"
+    names = {t.name for t in model.requests[0].tools}
+    assert {"web_search", "file_read", "bash_exec"} <= names
+    assert not names & {"git_push", "git_open_pr", "git_revert"}, "Slack's blocklist still applies"

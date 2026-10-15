@@ -136,7 +136,10 @@ async def test_a_mention_runs_a_turn_and_answers_in_its_thread(bolt: BoltStack) 
     assert all(args.get("thread_ts") == "1700000000.000100" for args in posted)
     assert "Fixed it." in json.dumps(posted)
     assert "stop_turn" in json.dumps(posted[0]), "the live message carries a Stop button"
-    assert bolt.client.sent("chat.update"), "the live message is finished in place"
+    methods = bolt.client.methods()
+    assert "chat.delete" in methods, "a finished turn removes its live message"
+    answered = max(i for i, m in enumerate(methods) if m == "chat.postMessage")
+    assert methods.index("chat.delete") > answered, "removed only after the answer is posted"
 
 
 @pytest.mark.asyncio
