@@ -427,9 +427,11 @@ class ToolRegistry:
     def _scope_tool_blocked(self, name: str) -> bool:
         """Whether the current execution scope forbids this tool (e.g. Slack allowlist)."""
         ctx = current_execution_ctx.get()
-        if ctx is None or ctx.allowed_tools is None:
+        if ctx is None:
             return False
-        return name not in ctx.allowed_tools
+        if name in ctx.denied_tools:
+            return True
+        return ctx.allowed_tools is not None and name not in ctx.allowed_tools
 
     def _is_known_tool(self, name: str) -> bool:
         provider = self._external_provider()

@@ -286,6 +286,7 @@ class TurnRunner:
             # session, on every turn - web included.
             enabled_toolsets=self._toolsets(session),
             policy=self._turn_policy(ctx, git_bundle),
+            denied_tools=overlay.denied_tools if overlay is not None else None,
             whitelisted_tools=(
                 overlay.tool_scope(_restriction(ctx.binding.whitelisted_tools))
                 if overlay is not None and overlay.tool_scope is not None

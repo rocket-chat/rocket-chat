@@ -60,6 +60,8 @@ class ExecutionContext:
     # Enforced tool scope for constrained callers (e.g. the unauthenticated Slack path).
     # None means no restriction; a frozenset is an allowlist the registry enforces server-side.
     allowed_tools: frozenset[str] | None = None
+    # Never usable in this turn, whatever the allowlist (e.g. Slack's blocked tools).
+    denied_tools: frozenset[str] = frozenset()
     # Model data governance for every request this turn makes: propagated
     # onto each ModelRequest so the gateway can pass it to the provider.
     zero_retention: bool = False

@@ -268,6 +268,9 @@ class TurnOverlay:
     # Receives the bound agent's tool whitelist (None = unrestricted) and returns the
     # whitelist to enforce for this caller.
     tool_scope: Callable[[list[str] | None], list[str] | None] | None = None
+    # Tools this caller may never use, whatever the whitelist. Kept apart from it so an
+    # unrestricted caller still gets the tools only known once the turn starts (MCP servers).
+    denied_tools: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)
@@ -419,6 +422,7 @@ class AgentOrchestratorProtocol(ABC):
         system_prompt: str | None = None,
         system_prompt_parts: SystemPrompt | None = None,
         whitelisted_tools: list[str] | None = None,
+        denied_tools: frozenset[str] | None = None,
         tenant_org_id: str = "default_org",
         tenant_user_id: str = "dev_user",
         max_turns: int | None = None,

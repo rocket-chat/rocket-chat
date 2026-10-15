@@ -258,6 +258,7 @@ class TurnService:
         callbacks: TurnCallbacks | None = None,
         policy: TurnPolicy | None = None,
         whitelisted_tools: list[str] | EllipsisType | None = ...,
+        denied_tools: frozenset[str] | None = None,
     ) -> AsyncIterator[AgentEvent]:
         """Invoke the orchestrator with the resolved plan; yields agent events.
 
@@ -275,6 +276,7 @@ class TurnService:
                 if isinstance(whitelisted_tools, EllipsisType)
                 else whitelisted_tools
             ),
+            denied_tools=denied_tools,
             tenant_org_id=tenant_org_id,
             tenant_user_id=tenant_user_id,
             max_turns=plan.max_turns,

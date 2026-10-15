@@ -7,8 +7,9 @@ from collections.abc import Callable
 from typing import Any
 
 from slack_assistant.guardrails import (
+    DEFAULT_BLOCKED_TOOLS,
     QuotaDecision,
-    resolve_allowed_tools,
+    parse_tool_csv,
 )
 from slack_assistant.policy import SlackOrgPolicy
 from slack_assistant.state import SlackAssistantState
@@ -95,54 +96,41 @@ class SlackAdmissionMixin(SlackAssistantState):
 
         return False
 
-    def _registered_tool_names(self) -> list[str]:
-        """Names of every tool the shared registry exposes, or empty when unavailable."""
-        registry = self.tool_registry
-        # The catalog, not get_tool_definitions(): that one hides toolset-scoped tools (this
-        # assistant's own slack_* tools) until a turn context enables them, and the allowlist is
-        # computed before that context exists. The registry still hides them from sessions that
-        # have not enabled the toolset.
-        getter = getattr(registry, "catalog", None) or getattr(
-            registry, "get_tool_definitions", None
+    def _slack_tool_selection(
+        self, org_allowed: tuple[str, ...] = ()
+    ) -> tuple[frozenset[str] | None, frozenset[str]]:
+        """(allowed tool names or None for every tool, blocked tool names) for Slack turns."""
+        allowed_raw = ",".join(org_allowed) if org_allowed else self.settings.slack_allowed_tools
+        allowed = parse_tool_csv(allowed_raw) or frozenset({"*"})
+        blocked = parse_tool_csv(self.settings.slack_blocked_tools) or frozenset(
+            DEFAULT_BLOCKED_TOOLS
         )
-        if not callable(getter):
-            return []
-        try:
-            definitions = getter()
-        except Exception as err:
-            logger.debug("Unable to enumerate registry tools for the Slack allowlist: %s", err)
-            return []
-        names: list[str] = []
-        for definition in definitions:
-            name = getattr(definition, "name", None)
-            if isinstance(name, str):
-                names.append(name)
-        return names
+        return (None if "*" in allowed else allowed), blocked
 
     def _slack_whitelisted_tools(
         self,
         base: list[str] | None = None,
         org_allowed: tuple[str, ...] = (),
     ) -> list[str] | None:
-        """The explicit tool allowlist handed to the orchestrator for Slack turns.
+        """The tool allowlist for a Slack turn, ``None`` meaning every tool.
 
-        Resolved from ``SLACK_ALLOWED_TOOLS`` minus ``SLACK_BLOCKED_TOOLS``, then narrowed
-        to the bound agent's whitelist when it declares one (so a persona's tool scope is
-        honoured on Slack too). It returns an explicit list (not ``"*"``) whenever the
-        catalog is known so the execution layer can *enforce* it in ``ToolRegistry.call_tool``
-        instead of merely filtering the schemas shown to the model.
+        ``SLACK_ALLOWED_TOOLS`` (or the organization's list) narrowed to the bound agent's
+        whitelist when it declares one. A wildcard on both sides stays unrestricted rather than
+        becoming a list of the tools registered now: MCP tools only exist once the turn starts,
+        and a list would hide them. The blocked tools are enforced apart, as the overlay's
+        ``denied_tools``.
         """
-        selected = resolve_allowed_tools(
-            registered=self._registered_tool_names(),
-            allowed_raw=",".join(org_allowed) if org_allowed else self.settings.slack_allowed_tools,
-            blocked_raw=self.settings.slack_blocked_tools,
-        )[0]
-        # An agent allowed every tool ("*") leaves the Slack selection as it is: intersecting
-        # with the literal wildcard would leave no tool at all.
-        if selected is not None and base and "*" not in base:
-            agent_scope = set(base)
-            selected = [name for name in selected if name in agent_scope]
-        return selected
+        allowed, blocked = self._slack_tool_selection(org_allowed)
+        agent_scope = None if base is None or "*" in base else frozenset(base)
+        if allowed is None and agent_scope is None:
+            return None
+        if allowed is None:
+            selected = agent_scope or frozenset()
+        elif agent_scope is None:
+            selected = allowed
+        else:
+            selected = allowed & agent_scope
+        return sorted(selected - blocked)
 
     def _rate_limit_decision(
         self, team_id: str, user_id: str | None, channel_id: str, now: float

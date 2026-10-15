@@ -49,6 +49,7 @@ class RecordingOrchestrator(AgentOrchestratorProtocol):
         self.fail = fail
         self.calls = 0
         self.last_whitelisted_tools: list[str] | None = None
+        self.last_denied_tools: frozenset[str] | None = None
         self.last_system_prompt: SystemPrompt | None = None
         self.last_model: str | None = None
         self.last_max_turns: int | None = None
@@ -68,6 +69,7 @@ class RecordingOrchestrator(AgentOrchestratorProtocol):
     ) -> AsyncIterator[AgentEvent]:
         self.calls += 1
         self.last_whitelisted_tools = whitelisted_tools
+        self.last_denied_tools = kwargs.get("denied_tools")  # type: ignore[assignment]
         self.last_system_prompt = system_prompt_parts
         self.last_model = model
         self.last_max_turns = max_turns
@@ -318,10 +320,10 @@ async def test_blocked_tool_is_excluded_from_the_whitelist_and_message_matches()
         team_id="T1",
     )
 
-    assert orchestrator.last_whitelisted_tools is not None
-    assert "git_revert" not in orchestrator.last_whitelisted_tools
-    assert "git_open_pr" not in orchestrator.last_whitelisted_tools
-    assert set(orchestrator.last_whitelisted_tools) == {"file_read", "bash_exec"}
+    # A wildcard stays unrestricted (MCP tools only exist once the turn starts); the blocked
+    # tools are denied apart, and the registry refuses them whatever the allowlist.
+    assert orchestrator.last_whitelisted_tools is None
+    assert orchestrator.last_denied_tools == frozenset({"git_revert", "git_open_pr"})
     # The enforcement hook in ToolRegistry.call_tool returns this exact text.
     assert "git_revert" in tool_enforcement_message("git_revert")
 

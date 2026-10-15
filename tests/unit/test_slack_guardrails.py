@@ -1,10 +1,11 @@
 """Unit tests for Slack abuse guardrails."""
 
+from slack_assistant.admission import SlackAdmissionMixin
+from slack_assistant.config import SlackAssistantSettings
 from slack_assistant.guardrails import (
     DEFAULT_BLOCKED_TOOLS,
     FailureTracker,
     parse_tool_csv,
-    resolve_allowed_tools,
     tool_enforcement_message,
 )
 
@@ -15,44 +16,41 @@ def test_parse_tool_csv_ignores_blank_entries() -> None:
     assert parse_tool_csv(None) == frozenset()
 
 
-def test_wildcard_allowlist_subtracts_the_blocklist() -> None:
-    registered = ["file_read", "bash_exec", "git_revert", "git_open_pr", "web_search"]
-    allowed, blocked = resolve_allowed_tools(
-        registered=registered,
-        allowed_raw="*",
-        blocked_raw="git_revert,git_open_pr",
-    )
-    assert blocked == frozenset({"git_revert", "git_open_pr"})
-    # The wildcard is expanded to an explicit list so the execution layer can enforce it.
-    assert allowed is not None
-    assert "git_revert" not in allowed
-    assert "git_open_pr" not in allowed
-    assert set(allowed) == {"file_read", "bash_exec", "web_search"}
+class _Admission(SlackAdmissionMixin):
+    def __init__(self, allowed: str = "*", blocked: str = "") -> None:
+        self.settings = SlackAssistantSettings(
+            slack_allowed_tools=allowed, slack_blocked_tools=blocked
+        )
 
 
-def test_explicit_allowlist_is_intersected_and_blocked_wins() -> None:
-    registered = ["file_read", "bash_exec", "git_revert", "web_search"]
-    allowed, _ = resolve_allowed_tools(
-        registered=registered,
-        allowed_raw="file_read,git_revert",
-        blocked_raw="git_revert",
-    )
-    assert allowed == ["file_read"]
+def test_a_wildcard_stays_unrestricted_so_turn_time_tools_are_kept() -> None:
+    """MCP tools only exist once the turn starts: a wildcard must not become a list."""
+    admission = _Admission("*", "git_revert,git_open_pr")
+
+    assert admission._slack_whitelisted_tools(base=None) is None
+    assert admission._slack_whitelisted_tools(base=["*"]) is None
+    assert admission._slack_tool_selection()[1] == frozenset({"git_revert", "git_open_pr"})
 
 
-def test_default_blocklist_blocks_destructive_git_tools() -> None:
-    registered = ["git_revert", "git_open_pr", "file_read"]
-    allowed, blocked = resolve_allowed_tools(registered=registered, allowed_raw="*", blocked_raw="")
-    assert blocked == frozenset(DEFAULT_BLOCKED_TOOLS)
-    assert allowed == ["file_read"]
+def test_explicit_allowlists_are_intersected_and_blocked_wins() -> None:
+    admission = _Admission("file_read,git_revert,web_search", "git_revert")
+
+    assert admission._slack_whitelisted_tools(base=None) == ["file_read", "web_search"]
+    assert admission._slack_whitelisted_tools(base=["file_read", "bash_exec"]) == ["file_read"]
+    assert admission._slack_whitelisted_tools(base=["*"]) == ["file_read", "web_search"]
 
 
-def test_unknown_catalog_degrades_to_advisory_only() -> None:
-    allowed, blocked = resolve_allowed_tools(
-        registered=[], allowed_raw="*", blocked_raw="git_revert"
-    )
-    assert allowed is None
-    assert blocked == frozenset({"git_revert"})
+def test_an_agent_list_under_a_slack_wildcard_is_kept_minus_the_blocklist() -> None:
+    admission = _Admission("*", "")
+
+    assert admission._slack_whitelisted_tools(base=["file_read", "git_revert"]) == ["file_read"]
+    assert admission._slack_tool_selection()[1] == frozenset(DEFAULT_BLOCKED_TOOLS)
+
+
+def test_the_organizations_list_replaces_the_deployment_one() -> None:
+    admission = _Admission("*", "")
+
+    assert admission._slack_whitelisted_tools(org_allowed=("web_search",)) == ["web_search"]
 
 
 def test_enforcement_message_names_the_blocked_tool() -> None:

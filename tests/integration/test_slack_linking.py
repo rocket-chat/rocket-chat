@@ -156,3 +156,39 @@ async def test_member_lookup_is_scoped_to_the_workspace_org(admin_manager: Any) 
     assert await find_member(admin_manager, "U1", org_b) is None
     # Linking into a different org's member fails.
     assert not await link_member(admin_manager, f"alice_{tag}", org_b, "U9")
+
+
+def test_a_member_outside_the_signed_in_organization_is_told_so(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The route used to say "needs the PostgreSQL store" whenever the member row was not
+    found, which hid a member stranded in another organization."""
+    from api.routers import slack_admin
+
+    monkeypatch.delenv("DEV_AUTH_BYPASS", raising=False)
+    monkeypatch.delenv("ROCKET_TRUST_PROXY_HEADERS", raising=False)
+    reset_memory_workspaces()
+
+    class _Codes:
+        async def complete(self, code: str) -> tuple[str, str]:
+            return "U1", "T1"
+
+    async def not_here(*_: Any) -> bool:
+        return False
+
+    app.state.slack_pairing_codes = _Codes()
+    monkeypatch.setenv("ROCKET_AUTO_PROVISION_TENANTS", "false")
+    monkeypatch.setattr(app.state, "db_manager", object(), raising=False)
+
+    async def bound_here(*_: Any) -> str:
+        return "org_a"
+
+    monkeypatch.setattr(slack_admin, "link_member", not_here)
+    monkeypatch.setattr(slack_admin, "workspace_org", bound_here)
+
+    answer = _client("stranded", "org_a", ["developer"]).post(
+        "/v1/slack/pair", json={"code": "ABCD2345"}
+    )
+
+    assert answer.status_code == 409
+    assert "not a member of the organization" in answer.json()["detail"]

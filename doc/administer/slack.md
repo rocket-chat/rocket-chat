@@ -127,7 +127,7 @@ Invite the bot to a channel (`/invite @Rocket`) and ask for something:
 | `allowed_channel_types` | Where Rocket answers: public channels, private channels, direct messages, group DMs. |
 | `dm_policy` | Who the agent may direct-message: nobody, linked members only, or everyone. |
 | `outbound_channels` | Channels the agent may post in or react in. Empty limits it to the conversation it was invoked from. Scheduled missions may only report to these. |
-| `allowed_tools` | Which tools the Slack path may use (`*` means every tool except the deployment's blocked list). |
+| `allowed_tools` | Which tools the Slack path may use. `*` means every tool, including the tools of the MCP servers the agent can reach, except the deployment's blocked list (`SLACK_BLOCKED_TOOLS`). A list names the tools exactly, so MCP tools must be listed by name (`mcp__<server>__<tool>`). |
 | `auto_link_by_verified_email` | Link Slack users to members by their verified e-mail. |
 | `web_base_url` | The public address of Rocket Chat, for "Open in Rocket Chat" links (falls back to `ROCKET_PUBLIC_URL`). |
 | `live_progress` | The progress message with recent steps and a Stop button while a turn runs. It is removed when the turn finishes and kept, saying why, when it is stopped or fails. Switched off, only Slack's own status line shows progress. |
