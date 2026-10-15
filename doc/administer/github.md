@@ -14,6 +14,31 @@ This guide details how to create and configure a GitHub App to enable automated 
 
 ---
 
+### Sign-in and installation redirects
+
+The App does two jobs that each need GitHub to send a person back to Rocket Chat:
+
+* **Members link their GitHub account** (an OAuth sign-in through the App), which gives the agent a token acting as them.
+* **Administrators map an installation** to their organization (see [Mapping installations to organizations](#mapping-installations-to-organizations)).
+
+On the App's settings page, **Identifying and authorizing users** holds the **Callback URL** and the checkbox **Request user authorization (OAuth) during installation**. **Post installation** holds the **Setup URL**. While that checkbox is ticked, GitHub disables the Setup URL and sends administrators to the Callback URL after an installation instead. You don't need both: Rocket Chat handles an installation arriving at either.
+
+Configure it this way (one URL for both jobs):
+
+| GitHub App setting | Value |
+| :--- | :--- |
+| **Callback URL** | `https://<your Rocket Chat>/api/auth/github/callback` (add one line per address Rocket Chat is reached at). |
+| **Expire user authorization tokens** | On (Rocket Chat refreshes linked tokens). |
+| **Request user authorization (OAuth) during installation** | **On.** After an installation or a configuration change, GitHub sends the administrator to the Callback URL with the installation, and Rocket Chat maps it. |
+| **Enable Device Flow** | Off. |
+| **Setup URL** | Leave empty (GitHub disables it while the checkbox above is on). |
+
+If you prefer to keep **Request user authorization (OAuth) during installation** off, set **Setup URL** to `https://<your Rocket Chat>/api/v1/github/setup` and tick **Redirect on update**, so configuring an existing installation also comes back. Members still link their account through the Callback URL.
+
+Then, on the same page, generate a **client secret**. The App's **Client ID** and that secret are `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`: no separate OAuth App is needed. The App's URL name (`github.com/apps/<slug>`) is `GITHUB_APP_SLUG`, which shows the install link in **Settings > GitHub**.
+
+---
+
 ## 2. Configure Webhook Ingress
 
 1. In the **Webhook** section:
@@ -83,9 +108,12 @@ MIIEowIBAAKCAQEA0k...
 ...
 -----END RSA PRIVATE KEY-----"
 
-# Optional: User-level OAuth Client for personal PR creation
-GITHUB_CLIENT_ID="gh-oauth-client-id"
-GITHUB_CLIENT_SECRET="gh-oauth-client-secret"
+# The App's URL name (github.com/apps/<slug>): enables the install link in Settings > GitHub.
+GITHUB_APP_SLUG="rocket-chat-engineer"
+
+# Members link their GitHub account through the App: its Client ID and a client secret.
+GITHUB_CLIENT_ID="Iv23li..."
+GITHUB_CLIENT_SECRET="generated-on-the-app-page"
 ```
 
 ---
@@ -145,10 +173,7 @@ One GitHub App serves the whole platform, but an installation belongs to one Git
 2. As an organization administrator open **Settings > GitHub > GitHub App installations** and choose **Install on a GitHub account**. The link carries a signed, short-lived `state` naming your organization and you.
 3. GitHub sends you back with the installation id; Rocket Chat confirms with GitHub that it is a real installation of this App and maps it to your organization.
 
-For GitHub to send you back, the App's settings on GitHub need one of:
-
-* a **Setup URL** of `https://<your Rocket Chat>/api/v1/github/setup` with **Redirect on update** ticked (so configuring an existing installation also comes back); or
-* **Request user authorization (OAuth) during installation** turned on. GitHub then ignores the Setup URL and sends you to the App's OAuth **Callback URL**, which must be Rocket Chat's GitHub callback (`https://<your Rocket Chat>/api/auth/github/callback`, the one used to link member accounts). Rocket Chat recognises the install link there and maps the installation the same way.
+GitHub sends you back through the App's Callback URL or its Setup URL, as configured in [Sign-in and installation redirects](#sign-in-and-installation-redirects).
 
 To map an installation that already exists, use the same link: GitHub shows the account's existing installation; open its configuration and save it. **Settings > GitHub** then says whether the installation was mapped, and if not, why.
 
