@@ -55,6 +55,7 @@ oauth_config:
       - mpim:history
       - mpim:read
       - reactions:write
+      - usergroups:read
       - users:read
       - users:read.email
 settings:
@@ -86,8 +87,9 @@ settings:
 | `assistant:write` | Show the "working on…" status and suggested prompts in Slack's assistant panel. |
 | `commands` | `/rocket` and `/rocket-pair`. |
 | `files:read` / `files:write` | Read files you attach (logs, screenshots); attach long answers, large diffs and screenshots. |
-| `users:read`, `users:read.email` | Know **who** is speaking; link Slack accounts to Rocket Chat accounts. |
-| `channels:read`, `groups:read`, `im:read`, `mpim:read`, `im:write` | List conversations and open DMs for the agent's Slack tools (both are limited by your policy, below). |
+| `users:read`, `users:read.email` | Know **who** is speaking; link Slack accounts to Rocket Chat accounts; let the agent look people up (name, title, timezone, status; never their e-mail). |
+| `usergroups:read` | Let the agent list user groups (`@backend`, `@oncall`), their members, and mention them. |
+| `channels:read`, `groups:read`, `im:read`, `mpim:read`, `im:write` | List conversations and their members, and open DMs, for the agent's Slack tools (limited by your policy, below). |
 | `reactions:write` | Let the agent react to a message when asked to. |
 | `app_home_opened` | Draw the **Home** tab. |
 

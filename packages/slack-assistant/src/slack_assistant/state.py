@@ -95,6 +95,16 @@ class SlackAssistantState:
     def _session_link(self, org_policy: SlackOrgPolicy, session_id: str) -> str | None:
         raise NotImplementedError
 
+    # Implemented by the toolset mixin; declared so the directory tools can call them.
+    def _current_slack_context(self) -> tuple[str, str] | None:
+        raise NotImplementedError
+
+    def _outbound_channel_allowed(self, channel_id: str) -> bool:
+        raise NotImplementedError
+
+    async def _resolve_slack_user_name(self, user_id: str) -> str:
+        raise NotImplementedError
+
     async def process_incoming_request(
         self,
         channel_id: str,
