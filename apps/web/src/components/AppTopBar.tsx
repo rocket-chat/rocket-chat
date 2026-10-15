@@ -17,8 +17,10 @@ export const AppTopBar: React.FC<AppTopBarProps> = ({ current, leading }) => (
   <header className="z-30 flex h-14 flex-shrink-0 items-center justify-between border-b border-surface-border bg-surface-sidebar px-4 sm:px-6">
     <div className="flex min-w-0 items-center gap-4">
       <Link href="/" className="group flex items-center gap-2.5">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md border border-brand/30 bg-brand/10 text-brand transition-colors group-hover:bg-brand group-hover:text-white">
-          <RocketChatIcon className="h-5 w-5" />
+        {/* Rounded to match the icon's own squircle (~22% corner radius) so the hover ring hugs
+            its silhouette instead of boxing it in a rectangle. */}
+        <div className="rounded-[22%] transition-shadow duration-200 group-hover:shadow-[0_0_0_2px_var(--brand)]">
+          <RocketChatIcon className="h-8 w-8" />
         </div>
         <span className="font-display text-sm font-semibold tracking-tight text-foreground">Rocket</span>
       </Link>
