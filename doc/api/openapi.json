@@ -5065,7 +5065,7 @@
     },
     "/api/auth/{provider}/callback": {
       "get": {
-        "description": "Handle OAuth 2.0 authorization callback, exchange token, provision user, and set session.",
+        "description": "Handle OAuth 2.0 authorization callback, exchange token, provision user, and set session.\n\nA GitHub App that asks for user authorization during installation sends the administrator\nhere instead of to its Setup URL: that redirect carries our signed install state and the\ninstallation id, and is handed to the installation mapping.",
         "operationId": "oauth_callback_api_auth__provider__callback_get",
         "parameters": [
           {
@@ -5123,6 +5123,22 @@
                 }
               ],
               "title": "Error"
+            }
+          },
+          {
+            "in": "query",
+            "name": "installation_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Installation Id"
             }
           }
         ],

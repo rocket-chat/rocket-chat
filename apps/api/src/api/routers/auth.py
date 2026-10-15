@@ -35,6 +35,7 @@ from api.auth.session_manager import (
 from api.auth.sso_policy import default_org_id, domain_permitted, map_org
 from api.db.models import OrganizationModel, UserModel
 from api.db.session import DatabaseSessionManager
+from api.routers.github_app import is_install_state, map_installation
 from api.services.audit import AuditService
 from api.services.credentials import store_user_credential
 from api.services.git_credentials import expiring_token_metadata
@@ -581,9 +582,17 @@ async def oauth_callback(
     code: str | None = Query(default=None),
     state: str | None = Query(default=None),
     error: str | None = Query(default=None),
+    installation_id: int | None = Query(default=None),
 ) -> Response:
-    """Handle OAuth 2.0 authorization callback, exchange token, provision user, and set session."""
+    """Handle OAuth 2.0 authorization callback, exchange token, provision user, and set session.
+
+    A GitHub App that asks for user authorization during installation sends the administrator
+    here instead of to its Setup URL: that redirect carries our signed install state and the
+    installation id, and is handed to the installation mapping.
+    """
     origin = _get_origin(request)
+    if provider == "github" and installation_id is not None and is_install_state(state):
+        return await _installation_redirect(request, origin, installation_id, str(state))
     failure_path = "/settings/user/git" if provider == "github" else "/login"
 
     if error or not code or not state:
@@ -617,6 +626,16 @@ async def oauth_callback(
             target_path = state_data.get("return_to") or "/settings/user/git"
             return RedirectResponse(f"{origin}{_with_query(target_path, 'error', str(err))}")
         return RedirectResponse(f"{origin}/login?error={urllib.parse.quote(str(err))}")
+
+
+async def _installation_redirect(
+    request: Request, origin: str, installation_id: int, state: str
+) -> Response:
+    try:
+        return await map_installation(request, installation_id, state)
+    except HTTPException as err:
+        detail = urllib.parse.quote(str(err.detail))
+        return RedirectResponse(f"{origin}/settings/github?installation_error={detail}")
 
 
 async def _complete_provider_login(flow: _CallbackFlow) -> Response:
