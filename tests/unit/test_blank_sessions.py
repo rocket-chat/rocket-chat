@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 from agent_core.tools.repository import clone_into_workspace
 from api.main import app
+from api.routers import github_app
 from api.services import github_installations as installations
 from api.services.git_credentials import resolve_session_git_credentials
 from api.services.repository_hint import with_repository_hint
@@ -234,6 +235,7 @@ def test_an_installation_github_does_not_know_is_refused(
     )
     engine.get_installation_account = AsyncMock(return_value=None)  # type: ignore[method-assign]
     app.state.git_engine = engine
+    monkeypatch.setattr(github_app, "INSTALLATION_LOOKUP_DELAY_SECONDS", 0)
     state = (
         client.get("/v1/admin/github/installations", headers=ADMIN)
         .json()["install_url"]
@@ -309,3 +311,80 @@ def test_a_sign_in_callback_with_an_installation_id_but_no_install_state_is_a_si
     )
 
     assert "InvalidOAuthState" in answer.headers["location"]
+
+
+def test_an_installation_github_only_knows_a_moment_later_is_still_mapped(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """GitHub redirects the administrator the second it creates the installation, before its
+    API returns it: the lookup asks again instead of refusing (seen on tools-arc)."""
+    monkeypatch.setattr(installations, "_memory", {})
+    monkeypatch.setattr(github_app, "INSTALLATION_LOOKUP_DELAY_SECONDS", 0)
+    engine = GitEngine(
+        settings=GitEngineSettings(
+            github_app_id="1", github_app_private_key="k", github_app_slug="rocket-app"
+        )
+    )
+    engine.get_installation_account = AsyncMock(side_effect=[None, None, "acme"])  # type: ignore[method-assign]
+    app.state.git_engine = engine
+    state = (
+        client.get("/v1/admin/github/installations", headers=ADMIN)
+        .json()["install_url"]
+        .split("state=", 1)[1]
+    )
+
+    done = client.get(
+        f"/api/auth/github/callback?code=c&installation_id=9&setup_action=install&state={state}",
+        headers=ADMIN,
+        follow_redirects=False,
+    )
+
+    assert done.headers["location"] == "/settings/github?installation=connected"
+    assert engine.get_installation_account.await_count == 3
+
+
+def test_a_refused_installation_is_logged_with_its_reason(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(installations, "_memory", {})
+    app.state.git_engine = GitEngine(
+        settings=GitEngineSettings(
+            github_app_id="1", github_app_private_key="k", github_app_slug="s"
+        )
+    )
+    state = (
+        client.get("/v1/admin/github/installations", headers=ADMIN)
+        .json()["install_url"]
+        .split("state=", 1)[1]
+    )
+    other = {**ADMIN, "X-Tenant-User-Id": "someone_else"}
+
+    client.get(f"/v1/github/setup?installation_id=9&state={state}", headers=other)
+
+    assert (
+        "GitHub installation 9 was not mapped: This install link was not issued to you."
+        in caplog.text
+    )
+
+
+async def test_githubs_answer_is_logged_when_it_does_not_return_the_installation(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import httpx
+    from git_engine import engine as engine_module
+
+    real = httpx.AsyncClient
+
+    def not_found(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    monkeypatch.setattr(
+        engine_module.httpx,
+        "AsyncClient",
+        lambda **kwargs: real(transport=httpx.MockTransport(not_found), **kwargs),
+    )
+    engine = GitEngine(settings=GitEngineSettings(github_app_id="1", github_app_private_key="k"))
+    monkeypatch.setattr(engine, "generate_app_jwt", lambda: "jwt")
+
+    assert await engine.get_installation_account(77) is None
+    assert 'GitHub answered 404 for installation 77: {"message":"Not Found"}' in caplog.text

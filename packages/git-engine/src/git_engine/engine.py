@@ -242,6 +242,14 @@ class GitEngine(GitEngineProtocol):
                 headers=headers,
             )
         if res.status_code != 200:
+            # Kept in the logs: the caller only says the installation is unknown, and the reason
+            # (not created yet, wrong App, bad credentials, rate limit) is GitHub's answer.
+            logger.warning(
+                "GitHub answered %s for installation %s: %s",
+                res.status_code,
+                installation_id,
+                res.text[:200],
+            )
             return None
         login = (res.json().get("account") or {}).get("login")
         return str(login) if login else None
