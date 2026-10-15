@@ -62,6 +62,10 @@ class ExecutionContext:
     allowed_tools: frozenset[str] | None = None
     # Never usable in this turn, whatever the allowlist (e.g. Slack's blocked tools).
     denied_tools: frozenset[str] = frozenset()
+    # Allowed tools whose definitions are only sent once loaded (``load_tools``), and those the
+    # session has loaded so far.
+    deferred_tools: frozenset[str] = frozenset()
+    loaded_tools: set[str] = field(default_factory=set)
     # Model data governance for every request this turn makes: propagated
     # onto each ModelRequest so the gateway can pass it to the provider.
     zero_retention: bool = False

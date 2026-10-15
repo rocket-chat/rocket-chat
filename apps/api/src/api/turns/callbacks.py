@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, TypedDict
 
 from git_engine.engine import pick_installation
 
@@ -19,6 +19,7 @@ from api.services.settings import effective_settings
 from api.services.skills import test_skill_execution
 from api.services.skills_lookup import _find_visible_skill
 from api.services.subagents import load_subagent_configs
+from api.services.tool_loading import remember_loaded
 from api.turns.context import TurnContext
 from api.turns.provisioning import provision_session_sandbox, run_repository_setup
 from specifications.interfaces.agent import GithubAccess, TurnCallbacks
@@ -102,17 +103,6 @@ async def build_turn_callbacks(
             return out if ok else f"Skill execution error: {out}"
         return skill.body or f"Skill '{skill_name}' has no content."
 
-    async def repository_cloned(target_session_id: str, folder: str) -> str | None:
-        assert driver is not None
-        await remember_active_repository(store, target_session_id, session.tenant_org_id, folder)
-        sandbox_cfg = await effective_settings(db_mgr, session.tenant_org_id, "sandboxes")
-        if not sandbox_cfg.get("run_repo_setup"):
-            return None
-        return await run_repository_setup(driver, target_session_id, folder, event_bus)
-
-    async def active_repository_chosen(target_session_id: str, folder: str) -> None:
-        await choose_active_repository(store, target_session_id, session.tenant_org_id, folder)
-
     github_watch, github_unwatch = watch_callbacks(
         GithubWatchStore(db_mgr), session.tenant_org_id, ctx.session_id, session.tenant_user_id
     )
@@ -140,11 +130,42 @@ async def build_turn_callbacks(
         github_write_access=_github_write_access(ctx, git_bundle),
         github_watch=github_watch,
         github_unwatch=github_unwatch,
-        repository_cloned=repository_cloned if driver else None,
-        active_repository_chosen=active_repository_chosen if driver else None,
+        **_session_record_callbacks(ctx),
         processes_changed=processes_changed if driver else None,
         max_background_processes=int(sandbox_settings["max_background_processes"]),
         subagent_configs=await load_subagent_configs(db_mgr, session.tenant_org_id),
+    )
+
+
+class _SessionRecordCallbacks(TypedDict):
+    repository_cloned: Callable[[str, str], Awaitable[str | None]] | None
+    active_repository_chosen: Callable[[str, str], Awaitable[None]] | None
+    tools_loaded: Callable[[str, list[str]], Awaitable[None]]
+
+
+def _session_record_callbacks(ctx: TurnContext) -> _SessionRecordCallbacks:
+    """What the turn's tools record on the session for its later turns."""
+    req, session = ctx.req, ctx.session
+    store, driver, org = req.store, req.driver, session.tenant_org_id
+
+    async def repository_cloned(target_session_id: str, folder: str) -> str | None:
+        assert driver is not None
+        await remember_active_repository(store, target_session_id, org, folder)
+        sandbox_cfg = await effective_settings(req.db_mgr, org, "sandboxes")
+        if not sandbox_cfg.get("run_repo_setup"):
+            return None
+        return await run_repository_setup(driver, target_session_id, folder, req.event_bus)
+
+    async def active_repository_chosen(target_session_id: str, folder: str) -> None:
+        await choose_active_repository(store, target_session_id, org, folder)
+
+    async def tools_loaded(target_session_id: str, names: list[str]) -> None:
+        await store.mutate_session(target_session_id, org, remember_loaded(names))
+
+    return _SessionRecordCallbacks(
+        repository_cloned=repository_cloned if driver else None,
+        active_repository_chosen=active_repository_chosen if driver else None,
+        tools_loaded=tools_loaded,
     )
 
 

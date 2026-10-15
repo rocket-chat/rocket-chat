@@ -83,6 +83,7 @@ _SANDBOX_CATALOGUE = "apps/api/src/api/services/sandbox_catalogue.py"
 _TURN_ROUTING = "apps/api/src/api/turns/routing.py"
 _TURN_PROMPT = "apps/api/src/api/turns/prompt.py"
 _TURN_LIMITS = "apps/api/src/api/services/turn_limits.py"
+_TOOL_LOADING = "apps/api/src/api/services/tool_loading.py"
 _TURN_FINALISE = "apps/api/src/api/turns/finalise.py"
 _MCP_SERVERS = "apps/api/src/api/routers/mcp_servers.py"
 _SESSION_CRUD = "apps/api/src/api/routers/session_crud.py"
@@ -131,6 +132,30 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Maximum reasoning steps per turn. It is the default for agents, and the ceiling for an agent that sets its own limit.",
             minimum=1,
             maximum=200,
+        ),
+        _spec(
+            "tool_loading",
+            "str",
+            "auto",
+            "org",
+            _TOOL_LOADING,
+            "Which tools are sent to the model with every step. all: every allowed tool. "
+            "on_demand: the platform's own tools (or an agent's 'Always loaded' list); the "
+            "others are listed by name and loaded when needed. auto: like all, until an agent "
+            "has more tools than tool_loading_threshold; then its MCP servers' tools are loaded "
+            "on demand. An agent can choose its own.",
+            choices=("auto", "all", "on_demand"),
+        ),
+        _spec(
+            "tool_loading_threshold",
+            "int",
+            60,
+            "org",
+            _TOOL_LOADING,
+            "With tool_loading auto: how many tools an agent may have before its MCP servers' "
+            "tools are loaded on demand.",
+            minimum=1,
+            maximum=1000,
         ),
         _spec(
             "sso_allowed_domains",

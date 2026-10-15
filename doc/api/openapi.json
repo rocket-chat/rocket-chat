@@ -18,6 +18,14 @@
       "AgentPersonaModel": {
         "description": "Custom Agent Persona configuration.",
         "properties": {
+          "active_tools": {
+            "description": "Tools always loaded, by name or pattern (mcp__signoz*__*search*); with on_demand, only these and the loading tools are, when set",
+            "items": {
+              "type": "string"
+            },
+            "title": "Active Tools",
+            "type": "array"
+          },
           "built_in": {
             "default": false,
             "description": "Shipped with the platform; an administrator can edit it for the organization",
@@ -159,6 +167,23 @@
             ],
             "description": "Extended thinking budget tokens override",
             "title": "Thinking Budget Tokens"
+          },
+          "tool_loading": {
+            "anyOf": [
+              {
+                "enum": [
+                  "all",
+                  "on_demand",
+                  "auto"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Which allowed tools every step carries: all, on_demand (the platform's tools and active_tools; the others are loaded when needed) or auto; empty inherits the organization's setting",
+            "title": "Tool Loading"
           },
           "user_id": {
             "anyOf": [

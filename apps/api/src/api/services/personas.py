@@ -13,13 +13,13 @@ import hashlib
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast, get_args
 
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 from api.db.models import AgentPersonaEntityModel
-from api.models import AgentPersonaModel
+from api.models import AgentPersonaModel, ToolLoadingMode
 from api.services.turn_limits import organization_max_turns
 
 # The default agent's prompt, also used when a session's agent has none. Model-agnostic: the
@@ -120,6 +120,14 @@ class PersonaError(Exception):
     detail: str
 
 
+def _tool_loading_mode(value: str | None) -> ToolLoadingMode | None:
+    """The stored mode when it is one the API accepts; anything else inherits the org's."""
+    for mode in get_args(ToolLoadingMode):
+        if value == mode:
+            return cast(ToolLoadingMode, mode)
+    return None
+
+
 def _from_entity(entity: AgentPersonaEntityModel) -> AgentPersonaModel:
     return AgentPersonaModel(
         id=entity.id,
@@ -139,6 +147,8 @@ def _from_entity(entity: AgentPersonaEntityModel) -> AgentPersonaModel:
         thinking_budget_tokens=entity.thinking_budget_tokens,
         reasoning_effort=entity.reasoning_effort,
         max_turns=entity.max_turns,
+        tool_loading=_tool_loading_mode(entity.tool_loading),
+        active_tools=entity.active_tools or [],
         scope=entity.scope,
         user_id=entity.user_id,
     )
@@ -161,6 +171,8 @@ _COPIED_FIELDS = (
     "thinking_budget_tokens",
     "reasoning_effort",
     "max_turns",
+    "tool_loading",
+    "active_tools",
     "scope",
 )
 

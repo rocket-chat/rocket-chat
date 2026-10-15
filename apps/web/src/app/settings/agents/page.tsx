@@ -3,7 +3,7 @@
 import { Button } from "../../../components/ui/Button";
 import { PageHeader } from "../../../components/ui/PageHeader";
 
-import { Field, Input, Select } from "../../../components/ui/Field";
+import { Field, Input, Select, Textarea } from "../../../components/ui/Field";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useMissionStore } from "../../../lib/store";
 import {
@@ -22,6 +22,7 @@ import {
   Bug,
   Book,
   Check,
+  Pin,
   Eye,
   Edit3,
   AlertCircle,
@@ -193,13 +194,24 @@ export default function AgentsSettingsPage() {
     }
   };
 
+  const togglePinned = (toolId: string) => {
+    if (!canEditCurrentAgent) return;
+    const pinned = formData.active_tools || [];
+    setFormData({
+      ...formData,
+      active_tools: pinned.includes(toolId)
+        ? pinned.filter((t) => t !== toolId)
+        : [...pinned, toolId],
+    });
+  };
+
   const handleToolToggle = (toolId: string) => {
     if (!canEditCurrentAgent) return;
     const current = formData.whitelisted_tools || [];
     if (current.includes("*")) {
       const allIds = [
-        ...SYSTEM_TOOLS.map((t) => t.id),
-        ...mcpServers.flatMap((s) => (s.tools || []).map((t) => `mcp:${s.id}:${t.name}`)),
+        ...(toolCatalog.length ? toolCatalog.map((t) => t.name) : SYSTEM_TOOLS.map((t) => t.id)),
+        ...mcpServers.flatMap((s) => (s.tools || []).map((t) => mcpToolName(s.name, t.name))),
       ];
       const updated = allIds.filter((t) => t !== toolId);
       setFormData({ ...formData, whitelisted_tools: updated });
@@ -598,6 +610,56 @@ export default function AgentsSettingsPage() {
             )}
           </Field>
 
+          {/* Which allowed tools every step carries; the rest wait for load_tools */}
+          <Field
+            label="Tool loading"
+            hint="On demand: tools that are not pinned are listed by name and loaded when the agent needs them, which keeps every step small. Automatic does this for MCP tools once the agent has many tools."
+          >
+            {(control) => (
+              <Select {...control}
+                data-testid="agent-tool-loading"
+                disabled={!canEditCurrentAgent}
+                value={formData.tool_loading ?? ""}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    tool_loading: (e.target.value || null) as AgentPersonaConfig["tool_loading"],
+                  })
+                }
+                className="max-w-xs"
+              >
+                <option value="">Organization default</option>
+                <option value="auto">Automatic</option>
+                <option value="on_demand">On demand (pinned tools always loaded)</option>
+                <option value="all">Load every allowed tool</option>
+              </Select>
+            )}
+          </Field>
+
+          <Field
+            label="Always loaded"
+            hint="Pinned tools, and patterns such as mcp__signoz*__*search*, one per line. Use the pin on an allowed tool below."
+          >
+            {(control) => (
+              <Textarea {...control}
+                data-testid="agent-active-tools"
+                disabled={!canEditCurrentAgent}
+                rows={3}
+                value={(formData.active_tools || []).join("\n")}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    active_tools: e.target.value
+                      .split("\n")
+                      .map((line) => line.trim())
+                      .filter(Boolean),
+                  })
+                }
+                className="font-mono text-xs"
+              />
+            )}
+          </Field>
+
           {/* System Prompt */}
           <div>
             <div className="flex items-center justify-between mb-1">
@@ -833,6 +895,14 @@ export default function AgentsSettingsPage() {
                                   {tool.toolset}
                                 </span>
                               )}
+                              {isChecked && (
+                                <PinToggle
+                                  tool={tool.name}
+                                  pinned={(formData.active_tools || []).includes(tool.name)}
+                                  disabled={!canEditCurrentAgent}
+                                  onToggle={togglePinned}
+                                />
+                              )}
                             </div>
                             <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">
                               {tool.description}
@@ -881,7 +951,7 @@ export default function AgentsSettingsPage() {
                         {serverToolNames.length > 0 ? (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {serverToolNames.map((toolName) => {
-                              const toolId = `mcp:${server.id}:${toolName}`;
+                              const toolId = mcpToolName(server.name, toolName);
                               const isChecked = isAllowAll || formData.whitelisted_tools?.includes(toolId);
                               return (
                                 <div
@@ -900,7 +970,15 @@ export default function AgentsSettingsPage() {
                                   >
                                     {isChecked && <Check className="w-2.5 h-2.5" />}
                                   </div>
-                                  <span className="text-xs truncate">{toolName}</span>
+                                  <span className="text-xs truncate flex-1">{toolName}</span>
+                                  {isChecked && (
+                                    <PinToggle
+                                      tool={toolId}
+                                      pinned={(formData.active_tools || []).includes(toolId)}
+                                      disabled={!canEditCurrentAgent}
+                                      onToggle={togglePinned}
+                                    />
+                                  )}
                                 </div>
                               );
                             })}
@@ -920,5 +998,48 @@ export default function AgentsSettingsPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/** The name an MCP server's tool has inside a turn: ``mcp__<server slug>__<tool>`` (64 chars at
+ * most), built exactly as the API does, so the agent's tool list matches what it runs with. */
+function mcpToolName(serverName: string, tool: string): string {
+  const slug =
+    serverName
+      .replace(/[^a-zA-Z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase() || "server";
+  return `mcp__${slug}__${tool.replace(/[^a-zA-Z0-9_-]/g, "_")}`.slice(0, 64);
+}
+
+/** Keeps an allowed tool loaded on every step (otherwise it may be loaded on demand). */
+function PinToggle({
+  tool,
+  pinned,
+  disabled,
+  onToggle,
+}: {
+  tool: string;
+  pinned: boolean;
+  disabled: boolean;
+  onToggle: (tool: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={`agent-pin-${tool}`}
+      aria-label={pinned ? `Stop always loading ${tool}` : `Always load ${tool}`}
+      aria-pressed={pinned}
+      disabled={disabled}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle(tool);
+      }}
+      className={`p-0.5 rounded-lg shrink-0 cursor-pointer ${
+        pinned ? "text-amber-400" : "text-neutral-500 hover:text-neutral-300"
+      }`}
+    >
+      <Pin className={`w-3 h-3 ${pinned ? "fill-current" : ""}`} />
+    </button>
   );
 }

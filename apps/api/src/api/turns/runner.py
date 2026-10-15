@@ -41,6 +41,7 @@ from api.services.session_support import (
 )
 from api.services.settings import effective_settings, load_org_config
 from api.services.title import TITLE_SOURCE_AUTO
+from api.services.tool_loading import loaded_tools_of
 from api.services.turn_trace import (
     TurnTraceAccumulator,
     begin_turn_trace,
@@ -381,6 +382,9 @@ class TurnRunner:
             ctx.binding.policy,
             git=effective_signing_policy(completed, git_bundle.signing),
             active_repository=active_repository_of(ctx.session),
+            tool_loading=replace(
+                ctx.binding.policy.tool_loading, loaded=loaded_tools_of(ctx.session)
+            ),
         )
 
     async def _warn_about_budget(self, ctx: TurnContext) -> None:

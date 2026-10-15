@@ -1,8 +1,10 @@
 """Pydantic request and response models for FastAPI endpoints."""
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+ToolLoadingMode = Literal["all", "on_demand", "auto"]
 
 
 class AgentPersonaModel(BaseModel):
@@ -55,6 +57,21 @@ class AgentPersonaModel(BaseModel):
         description=(
             "Maximum reasoning steps per turn for this agent; empty inherits the organization's "
             "limit, and a value above it is refused"
+        ),
+    )
+    tool_loading: ToolLoadingMode | None = Field(
+        default=None,
+        description=(
+            "Which allowed tools every step carries: all, on_demand (the platform's tools and "
+            "active_tools; the others are loaded when needed) or auto; empty inherits the "
+            "organization's setting"
+        ),
+    )
+    active_tools: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Tools always loaded, by name or pattern (mcp__signoz*__*search*); with on_demand, "
+            "only these and the loading tools are, when set"
         ),
     )
 

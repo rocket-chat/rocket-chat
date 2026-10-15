@@ -1,6 +1,7 @@
 """Async ReAct Orchestrator implementing AgentOrchestratorProtocol with modular subsystems."""
 
 import asyncio
+import dataclasses
 import logging
 import os
 import uuid
@@ -34,6 +35,7 @@ from agent_core.leaked_calls import (
 )
 from agent_core.notes import with_cache_breakpoint, with_turn_notes, without_engine_notes
 from agent_core.subagents import SubagentRunner
+from agent_core.tool_loading import catalogue, deferred_names
 from agent_core.tool_slot import human_wait
 from agent_core.tools.registry import ToolRegistry
 from agent_core.transcript import RecordingList, repair_tool_pairs
@@ -602,6 +604,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
 
         self._cancel_flags[session_id] = False
         self._session_states[session_id] = OrchestratorState.RUNNING.value
+        system_prompt, system_prompt_parts = self._defer_tools(
+            exec_ctx, whitelisted_tools, system_prompt, system_prompt_parts
+        )
 
         task = asyncio.create_task(
             self._run_react_cycle(
@@ -857,7 +862,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             return [*seed_messages, *conversation]
         return messages
 
-    def _tools_for_request(self, whitelisted_tools: list[str] | None) -> list[ToolDefinition]:
+    def _allowed_tools(self, whitelisted_tools: list[str] | None) -> list[ToolDefinition]:
+        """Every tool the turn may use, loaded or not."""
         ctx = current_execution_ctx.get()
         denied = ctx.denied_tools if ctx is not None else frozenset()
         all_tools = [t for t in self._registry.get_tool_definitions() if t.name not in denied]
@@ -865,6 +871,41 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             return all_tools
         allowed = set(whitelisted_tools)
         return [tool for tool in all_tools if tool.name in allowed]
+
+    def _tools_for_request(self, whitelisted_tools: list[str] | None) -> list[ToolDefinition]:
+        """The definitions a request carries: allowed tools, without deferred unloaded ones."""
+        return [
+            t
+            for t in self._allowed_tools(whitelisted_tools)
+            if not self._registry.is_deferred(t.name)
+        ]
+
+    def _defer_tools(
+        self,
+        exec_ctx: ExecutionContext,
+        whitelisted_tools: list[str] | None,
+        system_prompt: str | None,
+        system_prompt_parts: SystemPrompt | None,
+    ) -> tuple[str | None, SystemPrompt | None]:
+        """Decide which allowed tools wait for ``load_tools`` and list them in the prompt.
+
+        The list names every deferred tool, loaded or not, so it does not change as the agent
+        loads tools and the cached prompt prefix stays valid for the session.
+        """
+        loading = exec_ctx.policy.tool_loading
+        deferred = deferred_names(
+            self._allowed_tools(whitelisted_tools), loading, self._registry.is_external
+        )
+        exec_ctx.deferred_tools = deferred
+        exec_ctx.loaded_tools = set(loading.loaded) & deferred
+        listed = catalogue(deferred)
+        if not listed:
+            return system_prompt, system_prompt_parts
+        if system_prompt_parts is not None:
+            return system_prompt, dataclasses.replace(
+                system_prompt_parts, stable=f"{system_prompt_parts.stable}\n{listed}"
+            )
+        return f"{system_prompt or ''}\n{listed}".strip(), None
 
     @staticmethod
     def _bounded_observation_summary(

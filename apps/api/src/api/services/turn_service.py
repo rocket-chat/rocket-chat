@@ -18,6 +18,7 @@ from config_engine.cascading import RoutingPolicy, model_is_allowed
 
 from api.services.github_installations import installations_for_org
 from api.services.settings import effective_settings, resolve_settings
+from api.services.tool_loading import tool_loading_for
 from specifications.interfaces.agent import (
     DEFAULT_PERMISSION_MODE,
     HOOK_EVENTS,
@@ -239,6 +240,7 @@ class TurnService:
                 locked="permission_mode" in resolved_prefs.locked_keys,
                 allow_bypass=bool(governance.get("allow_bypass_permissions")),
             ),
+            tool_loading=await tool_loading_for(db_mgr, org_id, agent),
         )
 
     async def stream_turn(
