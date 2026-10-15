@@ -62,13 +62,42 @@ def _register_discovery_tools(registry: "ToolRegistry") -> None:
         if not matches:
             return f"No tool matches '{query}'. Call search_tools with no query to list them all."
         lines = [
-            f"- {d.name}: {d.description.strip().splitlines()[0][:120]}"
+            f"- {d.name}{' [load_tools first]' if registry.is_deferred(d.name) else ''}: "
+            f"{(d.description.strip().splitlines() or [''])[0][:120]}"
             for d in matches[:MAX_TOOLS_LISTED]
         ]
         more = len(matches) - MAX_TOOLS_LISTED
         if more > 0:
             lines.append(f"... and {more} more; narrow the search with a keyword.")
         return "\n".join(lines)
+
+    @registry._tool(
+        description=(
+            "Load tools listed under 'Tools to load before use' so you can call them: their "
+            "definitions are added from your next step and stay for the rest of the session. "
+            "Load every tool you expect to need in one call."
+        )
+    )
+    async def load_tools(
+        names: Annotated[list[str], Field(description="Exact tool names to load.")],
+    ) -> str:
+        loaded = await registry.load(names)
+        known = {d.name: d for d in registry.get_tool_definitions()}
+        lines = [
+            f"- {name}: {(known[name].description.strip().splitlines() or [''])[0][:160]}"
+            for name in loaded
+            if name in known
+        ]
+        unknown = [n for n in names if n not in known]
+        ready = [n for n in names if n in known and n not in loaded]
+        parts = ["Loaded (callable from your next step):\n" + "\n".join(lines)] if lines else []
+        if ready:
+            parts.append("Already available: " + ", ".join(ready))
+        if unknown:
+            parts.append(
+                "No such tool: " + ", ".join(unknown) + ". Check the names with search_tools."
+            )
+        return "\n".join(parts) or "Nothing to load."
 
 
 def _register_dialogue_tools(registry: "ToolRegistry") -> None:

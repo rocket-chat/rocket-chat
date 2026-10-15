@@ -12,6 +12,8 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | `session_privacy_default` | Organization | `private` / `shared_org` | `private` | Whether new sessions are private to their owner or shared with the organization. |
 | `public_session_links` | Organization | bool | `False` | Let members create read-only public links to a session's conversation (anyone with the link can read it; turning this off disables links already issued). |
 | `max_turns` | Organization | min 1, max 200 | `60` | Maximum reasoning steps per turn. It is the default for agents, and the ceiling for an agent that sets its own limit. |
+| `tool_loading` | Organization | `auto` / `all` / `on_demand` | `auto` | Which tools are sent to the model with every step. all: every allowed tool. on_demand: the platform's own tools (or an agent's 'Always loaded' list); the others are listed by name and loaded when needed. auto: like all, until an agent has more tools than tool_loading_threshold; then its MCP servers' tools are loaded on demand. An agent can choose its own. |
+| `tool_loading_threshold` | Organization | min 1, max 1000 | `60` | With tool_loading auto: how many tools an agent may have before its MCP servers' tools are loaded on demand. |
 | `sso_allowed_domains` | Organization | list | empty | E-mail domains allowed to sign in (enforced when sso_enforce_domain_match is on). |
 | `sso_enforce_domain_match` | Organization | bool | `False` | Block sign-in from e-mail domains outside sso_allowed_domains. |
 

@@ -41,6 +41,25 @@ Upload documents (architecture notes, runbooks, API docs) and the agent searches
 
 An agent is a system prompt, a model and an optional list of allowed tools, skills and knowledge bases. The default, **General Software Engineer**, has every tool. Administrators can edit the built-in agents for the whole organization (prompt, model, tools, step limit) and use **Reset to default** to restore the shipped version; members who want a variation save a copy. Define narrower ones for specific jobs (a reviewer limited to read-only tools, a security auditor). A persona can also name a sandbox image, subject to your organization's catalogue.
 
+### Which tools every step carries
+
+Every tool definition an agent can use is sent to the model at every step. An agent connected to several MCP servers can pay tens of thousands of tokens per step for tools it rarely uses, and choose worse among hundreds of them. Each allowed tool can therefore be:
+
+* **always loaded:** its definition is sent at every step;
+* **loaded on demand:** its name is listed, grouped by server, and the agent loads its definition with `load_tools` when it needs it (calling it by name loads it too). It then stays loaded for the rest of the session;
+* **not allowed:** unchecked.
+
+The agent's **Tool loading** chooses how:
+
+| Mode | What every step carries |
+| :--- | :--- |
+| **Automatic** | Everything, until the agent has more tools than the organization's threshold; then its MCP servers' tools are loaded on demand, except pinned ones. |
+| **On demand** | The platform's own tools (built-in and Slack) and the pinned tools; MCP tools are loaded on demand. Once you pin or list tools, only those are always loaded. |
+| **Load every allowed tool** | Everything, as before. |
+| **Organization default** | The organization's choice: `general.tool_loading` (`auto` by default) and `general.tool_loading_threshold` (60), in **Settings > Organization**. |
+
+Pin a tool (the pin on an allowed tool) or list patterns under **Always loaded** (`mcp__signoz*__*search*`) to keep it loaded.
+
 An agent's prompt says who it is and how it should work. The platform adds the facts about where it works, whatever the prompt says: the sandbox starts blank and how to find and clone a repository; the workspace (the active repository, a fresh shell per command, clamped output); how to edit and verify; and the git and GitHub rules. Those rules cover no credentials in the sandbox, never committing to the default branch, publishing with `git_push` or `git_open_pr`, how the organization's signing mode applies, and the `github_*` tools. The platform also adds your organization's skills and the active repository's own `AGENTS.md` (or similar). The built-in agents use whatever model you or your organization choose, from any provider.
 
 Each agent can set **Max steps per turn**, from 1 up to the organization's limit (Settings > Models & routing); leave it empty to use the organization's. Lower it for a quick helper, or raise it, within the limit, for a long investigation.
