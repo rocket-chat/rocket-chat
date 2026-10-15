@@ -40,7 +40,7 @@ def test_clamp_output_head_tail_slice() -> None:
     # Line 21-470 should be truncated
     assert "Log entry line 0050" not in clamped
     # Marker should be present
-    assert "TRUNCATED 450 lines" in clamped
+    assert "[lines 21-470 of 500 hidden;" in clamped
     # Tail lines should be present
     assert "Log entry line 0500" in clamped_lines[-1]
 
@@ -127,9 +127,9 @@ def test_tier3_anchor_compaction_preserves_goals_and_checklists() -> None:
     assert compacted[0].role == "system"
     assert "Rocket Chat Engineer" in (compacted[0].content or "")
 
-    # Invariant 2: Initial user prompt anchored
+    # Invariant 2: the request being worked on (the latest one) is anchored verbatim
     assert compacted[1].role == "user"
-    assert "Goal: Build autonomous payment gateway." in (compacted[1].content or "")
+    assert (compacted[1].content or "").startswith("What is the current status?")
 
     # Invariant 3: Active checklist preserved in summary
     assert any("Setup Stripe" in (m.content or "") for m in compacted)
@@ -137,3 +137,57 @@ def test_tier3_anchor_compaction_preserves_goals_and_checklists() -> None:
     # Invariant 4: Latest turn preserved
     assert compacted[-1].role == "assistant"
     assert "Finishing step 2 now." in (compacted[-1].content or "")
+
+
+def _step(index: int, calls: int = 1) -> list[ChatMessage]:
+    ids = [f"c{index}_{n}" for n in range(calls)]
+    return [
+        ChatMessage(
+            role="assistant",
+            tool_calls=[
+                {"id": i, "function": {"name": "file_read", "arguments": "{}"}} for i in ids
+            ],
+        ),
+        *(ChatMessage(role="tool", content=f"out {i}", tool_call_id=i) for i in ids),
+    ]
+
+
+async def test_mid_turn_compaction_of_a_long_session_keeps_the_current_request() -> None:
+    manager = ContextManager(recent_turns_to_preserve=2)
+    messages = [ChatMessage(role="system", content="S")]
+    for turn in range(3):
+        messages += [ChatMessage(role="user", content=f"old question {turn}"), *_step(turn)]
+        messages.append(ChatMessage(role="assistant", content=f"old answer {turn}"))
+    messages.append(ChatMessage(role="user", content="CURRENT: fix the login bug"))
+    for step in range(6):
+        messages += _step(100 + step)
+    seen: list[list[ChatMessage]] = []
+
+    async def summarize(middle: list[ChatMessage]) -> str:
+        seen.append(middle)
+        return "summary"
+
+    compacted = await manager.compact_with_summary(messages, summarize)
+
+    assert (compacted[1].content or "").startswith("CURRENT: fix the login bug")
+    assert (seen[0][0].content or "").endswith("CURRENT: fix the login bug"), "goal given first"
+    assert not any("old question 0" == m.content for m in compacted)
+
+
+def test_a_step_with_eight_parallel_calls_is_never_split() -> None:
+    manager = ContextManager(recent_turns_to_preserve=1)
+    messages = [
+        ChatMessage(role="system", content="S"),
+        ChatMessage(role="user", content="go"),
+        *_step(1),
+        *_step(2),
+        *_step(3, calls=8),
+    ]
+
+    compacted = manager.compact_with_anchors(messages)
+
+    tail_tools = [
+        m for m in compacted if m.role == "tool" and (m.tool_call_id or "").startswith("c3")
+    ]
+    assert len(tail_tools) == 8
+    assert compacted[-9].role == "assistant" and len(compacted[-9].tool_calls or []) == 8

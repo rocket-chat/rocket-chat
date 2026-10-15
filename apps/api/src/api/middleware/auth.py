@@ -36,6 +36,8 @@ EXEMPT_PREFIXES = (
     # A preview link is its own capability (a signed token in the path): the sandboxed iframe
     # that loads it has an opaque origin and sends no cookies.
     "/v1/preview/",
+    # The git gateway authenticates sandbox git with the session's gateway capability header.
+    "/v1/git/",
     # A public session link is its own capability: a signed, expiring, revocable token.
     "/v1/shared/",
 )

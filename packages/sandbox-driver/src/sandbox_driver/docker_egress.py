@@ -13,6 +13,7 @@ import hashlib
 import inspect
 import logging
 import os
+import time
 from dataclasses import dataclass
 
 import docker
@@ -25,9 +26,13 @@ logger = logging.getLogger(__name__)
 
 INTERNAL_NETWORK = "rocket-sandbox-egress"
 PROXY_PORT = 3128
+# Lets sandboxes and their proxy reach services published on the Docker host (the API's git
+# gateway) by the same name on Docker Desktop and on Linux engines.
+HOST_GATEWAY = {"host.docker.internal": "host-gateway"}
 POLICY_LABEL = "rocket.egress.policy"
 PROXY_LABEL = "rocket.egress.proxy"
 DEFAULT_PROXY_IMAGE = "python:3.12-slim"
+PROXY_READY_TIMEOUT_SECONDS = 15.0
 
 
 @dataclass(frozen=True)
@@ -47,6 +52,7 @@ def is_restricted(spec: WorkspaceSpec) -> bool:
 def policy_id(spec: WorkspaceSpec) -> str:
     canonical = "|".join(sorted(e.strip().lower() for e in spec.egress_allowlist if e.strip()))
     canonical += f"#{int(spec.block_internal_subnets)}"
+    canonical += "#" + ",".join(sorted(spec.platform_endpoints))
     return hashlib.sha256(canonical.encode()).hexdigest()[:12]
 
 
@@ -105,8 +111,10 @@ def ensure_egress(client: docker.DockerClient, spec: WorkspaceSpec) -> EgressSet
                 environment={
                     "EGRESS_ALLOW": ",".join(spec.egress_allowlist),
                     "EGRESS_BLOCK_INTERNAL": "1" if spec.block_internal_subnets else "0",
+                    "EGRESS_PINNED": ",".join(spec.platform_endpoints),
                     "PORT": str(PROXY_PORT),
                 },
+                extra_hosts=HOST_GATEWAY,
                 labels={"rocket.managed": "true", PROXY_LABEL: policy},
                 cap_drop=["ALL"],
                 security_opt=["no-new-privileges:true"],
@@ -120,10 +128,30 @@ def ensure_egress(client: docker.DockerClient, spec: WorkspaceSpec) -> EgressSet
         except docker.errors.APIError as err:
             if getattr(err.response, "status_code", None) != 409:
                 raise
+        _wait_until_listening(client, name)
     else:
         if not any(n == INTERNAL_NETWORK for n in proxy.attrs["NetworkSettings"]["Networks"]):
             internal.connect(proxy, aliases=[name])
     return EgressSettings(policy, INTERNAL_NETWORK, name, proxy_environment(name))
+
+
+def _wait_until_listening(client: docker.DockerClient, name: str) -> None:
+    """Block until a new proxy accepts connections (its start-up line), or a short deadline.
+
+    The proxy's Python takes a moment to start; a sandbox whose first command ran before that
+    found nothing on port 3128 and failed. Runs in the driver's worker thread, never on the loop.
+    """
+    deadline = time.monotonic() + PROXY_READY_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        try:
+            if b"egress proxy listening" in client.containers.get(name).logs(tail=20):
+                return
+        except docker.errors.NotFound:
+            pass
+        time.sleep(0.1)
+    logger.warning(
+        "Egress proxy %s did not report ready within %ss", name, PROXY_READY_TIMEOUT_SECONDS
+    )
 
 
 def remove_unused_proxies(client: docker.DockerClient) -> list[str]:

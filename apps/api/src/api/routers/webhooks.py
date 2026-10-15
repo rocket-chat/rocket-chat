@@ -2,22 +2,24 @@
 
 import logging
 import os
-import time
 from typing import Any
 
 from agent_core.orchestrator import AsyncReActOrchestrator
 from agent_core.tools.registry import ToolRegistry
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from git_engine.engine import GitEngine
+from sandbox_driver.workspace import RepositoryNotFoundError, resolve_repository_dir
 
 from api.db.store import ensure_tenant_identity
 from api.services.git_credentials import (
     inject_git_credentials_into_sandbox,
     resolve_session_git_credentials,
 )
+from api.services.git_gateway_env import gateway_endpoint, github_api_url_of
 from api.services.github_events import deliver_repo_event
 from api.services.github_installations import installation_org
 from api.services.repository_hint import with_repository_hint
+from api.services.session_support import active_repository_of
 from api.services.settings import effective_settings
 from api.turns.tasks import _spawn_background_turn
 from specifications.interfaces.events import EventBusProtocol
@@ -29,6 +31,7 @@ from specifications.interfaces.session import (
 )
 
 logger = logging.getLogger(__name__)
+_SYNC_TIMEOUT_SECONDS = 120
 
 router = APIRouter(prefix="/webhooks", tags=["GitHub Webhooks"])
 
@@ -133,16 +136,14 @@ async def github_webhook_endpoint(
             else:
                 await driver.start_sandbox(session_id)
 
-            existing_session.sandbox_status = SandboxStatus.RUNNING
+            await _sync_repository(driver, session_id, existing_session)
 
-            # Sync latest git changes from remote
-            await driver.exec_command(
-                session_id,
-                "git fetch origin && git pull origin HEAD --rebase || true",
-            )
+        def mark_resumed(record: SessionRecord) -> None:
+            if driver:
+                record.sandbox_status = SandboxStatus.RUNNING
 
-        existing_session.updated_at = int(time.time())
-        await store.update_session(existing_session)
+        # The session may be mid-turn: change only what resuming changes, under the row lock.
+        await store.mutate_session(session_id, existing_session.tenant_org_id, mark_resumed)
 
         prompt_text = (
             f"Follow-up instruction from @{trigger.sender_login}:\n\n{trigger.prompt_text}"
@@ -214,6 +215,7 @@ async def github_webhook_endpoint(
                         )
                     )["default_image"]
                 ),
+                platform_endpoints=[gateway_endpoint()],
             )
         )
         await driver.start_sandbox(session_id)
@@ -225,7 +227,14 @@ async def github_webhook_endpoint(
             db_mgr=getattr(request.app.state, "db_manager", None),
             repo=trigger.repo_full_name,
         )
-        await inject_git_credentials_into_sandbox(driver, session_id, git_bundle)
+        await inject_git_credentials_into_sandbox(
+            driver,
+            session_id,
+            git_bundle,
+            org_id=webhook_org_id,
+            user_id=webhook_user_id,
+            api_url=github_api_url_of(git_engine),
+        )
 
     work_branch_instruction = (
         "Work on the branch above."
@@ -257,3 +266,21 @@ async def github_webhook_endpoint(
         "issue_or_pr_number": trigger.issue_or_pr_number,
         "repo": trigger.repo_full_name,
     }
+
+
+async def _sync_repository(
+    driver: SandboxDriverProtocol, session_id: str, session: SessionRecord
+) -> None:
+    """Bring the session's repository up to date with its remote, best effort."""
+    try:
+        folder = await resolve_repository_dir(
+            driver, session_id, active=active_repository_of(session)
+        )
+    except RepositoryNotFoundError:
+        return
+    await driver.exec_command(
+        session_id,
+        "git fetch origin && git pull origin HEAD --rebase || true",
+        workdir=folder,
+        timeout_seconds=_SYNC_TIMEOUT_SECONDS,
+    )

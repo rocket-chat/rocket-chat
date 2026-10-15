@@ -107,7 +107,8 @@ async def test_the_conversation_keeps_what_the_person_typed(skills: None) -> Non
 
     class Gateway(LLMGatewayProtocol):
         async def chat_stream(self, request: Any) -> AsyncIterator[StreamChunk]:
-            seen.append(str(request.messages[-1].content))
+            asked = [m for m in request.messages if m.role == "user" and m.cacheable]
+            seen.append(str((asked or request.messages)[-1].content))
             yield StreamChunk(text_delta="ok")
 
         async def check_budget(self, *a: Any) -> bool:

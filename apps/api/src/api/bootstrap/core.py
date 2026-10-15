@@ -25,6 +25,7 @@ from api.events_shared import PostgresEventBus, asyncpg_dsn
 from api.services.attachments import AttachmentService
 from api.services.budgets import BudgetService
 from api.services.cluster import ClusterRelay, ClusterSessionLocks
+from api.services.git_gateway import GitGateway
 from api.services.memory import MemoryPolicy, bind_context_memory_callbacks
 from api.services.metrics import (
     GlobalConcurrencyGate,
@@ -102,6 +103,7 @@ async def assemble_core(app: FastAPI) -> CoreServices:
     app.state.event_bus = event_bus
     app.state.session_store = persistence.session_store
     app.state.git_engine = git_engine
+    app.state.git_gateway = GitGateway(db_manager, persistence.session_store, git_engine)
     app.state.global_concurrency_gate = gate
     app.state.session_write_locks = session_locks
     app.state.draining = False

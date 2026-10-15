@@ -61,7 +61,7 @@ def test_one_organizations_override_does_not_change_another(client: TestClient) 
         return int(roles["researcher"]["max_turns"])
 
     assert researcher_turns(ADMIN_A) == 2
-    assert researcher_turns(ADMIN_B) == 4
+    assert researcher_turns(ADMIN_B) == 12
 
 
 def test_only_administrators_edit_roles_and_ids_are_validated(client: TestClient) -> None:

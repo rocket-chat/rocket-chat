@@ -4,12 +4,15 @@ import logging
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import Field
+from sandbox_driver.workspace import RepositoryNotFoundError, workspace_path
 
 from agent_core.context import current_execution_ctx
 from agent_core.tools import browser as browser_tools
 from agent_core.tools import images as image_tools
 from agent_core.tools import package_manager as package_manager_tools
-from agent_core.tools import tier2, verification
+from agent_core.tools import tier2, verification, workspace_changes
+from agent_core.tools.builtin.files import emit_file_diff
+from specifications.interfaces.sandbox import SandboxDriverProtocol
 
 if TYPE_CHECKING:
     from agent_core.tools.registry import ToolRegistry
@@ -22,20 +25,63 @@ def register(registry: "ToolRegistry") -> None:
     _register_inspection_tools(registry)
 
 
+ProjectPath = Annotated[
+    str | None,
+    Field(
+        description="Project folder, e.g. 'my-app' or 'my-app/packages/api'. Default: the "
+        "session's active repository, or the only repository under /workspace."
+    ),
+]
+
+
+async def _project(
+    registry: "ToolRegistry", tool: str, path: str | None
+) -> tuple[SandboxDriverProtocol, str, str] | str:
+    """``(driver, session_id, folder)`` a project command runs in, or the error text."""
+    target = registry._sandbox_target(tool)
+    if not target:
+        return f"Error: Sandbox not initialized for {tool}"
+    driver, session_id = target
+    await registry._ensure_sandbox(session_id)
+    try:
+        return driver, session_id, await registry.project_dir(session_id, path)
+    except RepositoryNotFoundError as err:
+        return f"Error: {err}"
+
+
 def _register_shell_tools(registry: "ToolRegistry") -> None:
-    @registry._tool(description="Execute a shell command inside the active sandbox environment.")
+    @registry._tool(
+        description=(
+            "Execute a shell command inside the sandbox. Each call is a fresh shell: `cd` and "
+            "exported variables do not carry over, so pass `cwd` instead of `cd`."
+        )
+    )
     async def bash_exec(
         command: Annotated[str, Field(description="The shell command to execute.")],
         timeout_seconds: Annotated[
             int, Field(description="Execution timeout in seconds (default: 120).")
         ] = 120,
+        cwd: Annotated[
+            str | None,
+            Field(
+                description="Folder to run in, absolute or relative to /workspace. Default: the "
+                "session's active repository, else /workspace."
+            ),
+        ] = None,
     ) -> str:
-        ctx = current_execution_ctx.get()
-        s_id = ctx.session_id if ctx else registry._session_id
-        if not registry._driver or not s_id:
+        target = registry._sandbox_target("bash_exec")
+        if not target:
             return "Error: Sandbox not initialized for bash_exec"
-        await registry._ensure_sandbox(s_id)
-        return await tier2.bash_exec(registry._driver, s_id, command, timeout_seconds)
+        driver, session_id = target
+        await registry._ensure_sandbox(session_id)
+        workdir = workspace_path(cwd) if cwd else await registry.shell_dir(session_id)
+        before = await workspace_changes.snapshot(driver, session_id, workdir)
+        output = await tier2.bash_exec(driver, session_id, command, timeout_seconds, workdir)
+        after = await workspace_changes.snapshot(driver, session_id, workdir)
+        changed = workspace_changes.changed_paths(before, after)
+        for diff in await workspace_changes.diffs_for(driver, session_id, after[0], changed):
+            emit_file_diff(registry, diff)
+        return output
 
     @registry._tool(
         description=(
@@ -51,13 +97,13 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
         timeout_seconds: Annotated[
             int, Field(description="Test execution timeout in seconds (default: 600).")
         ] = 600,
+        path: ProjectPath = None,
     ) -> str:
-        ctx = current_execution_ctx.get()
-        s_id = ctx.session_id if ctx else registry._session_id
-        if not registry._driver or not s_id:
-            return "Error: Sandbox not initialized for run_tests"
-        await registry._ensure_sandbox(s_id)
-        return await tier2.run_tests(registry._driver, s_id, command, timeout_seconds)
+        resolved = await _project(registry, "run_tests", path)
+        if isinstance(resolved, str):
+            return resolved
+        driver, session_id, folder = resolved
+        return await tier2.run_tests(driver, session_id, command, timeout_seconds, folder)
 
     @registry._tool(
         description="Run the project linter (auto-detects npm/ruff/clippy/go vet/make)."
@@ -68,13 +114,15 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
             Field(description="Optional explicit lint command overriding detection."),
         ] = None,
         timeout_seconds: Annotated[int, Field(description="Timeout (default 600).")] = 600,
+        path: ProjectPath = None,
     ) -> str:
-        target = registry._sandbox_target("lint")
-        if not target:
-            return "Error: Sandbox not initialized for lint"
-        driver, session_id = target
-        await registry._ensure_sandbox(session_id)
-        return await verification.run_check(driver, session_id, "lint", command, timeout_seconds)
+        resolved = await _project(registry, "lint", path)
+        if isinstance(resolved, str):
+            return resolved
+        driver, session_id, folder = resolved
+        return await verification.run_check(
+            driver, session_id, "lint", command, timeout_seconds, folder
+        )
 
     @registry._tool(
         description="Run the project type checker (auto-detects npm/mypy/tsc/cargo/go)."
@@ -85,14 +133,14 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
             Field(description="Optional explicit typecheck command overriding detection."),
         ] = None,
         timeout_seconds: Annotated[int, Field(description="Timeout (default 600).")] = 600,
+        path: ProjectPath = None,
     ) -> str:
-        target = registry._sandbox_target("typecheck")
-        if not target:
-            return "Error: Sandbox not initialized for typecheck"
-        driver, session_id = target
-        await registry._ensure_sandbox(session_id)
+        resolved = await _project(registry, "typecheck", path)
+        if isinstance(resolved, str):
+            return resolved
+        driver, session_id, folder = resolved
         return await verification.run_check(
-            driver, session_id, "typecheck", command, timeout_seconds
+            driver, session_id, "typecheck", command, timeout_seconds, folder
         )
 
     @registry._tool(description="Build the project (auto-detects npm/python/cargo/go/make).")
@@ -102,13 +150,15 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
             Field(description="Optional explicit build command overriding detection."),
         ] = None,
         timeout_seconds: Annotated[int, Field(description="Timeout (default 600).")] = 600,
+        path: ProjectPath = None,
     ) -> str:
-        target = registry._sandbox_target("build")
-        if not target:
-            return "Error: Sandbox not initialized for build"
-        driver, session_id = target
-        await registry._ensure_sandbox(session_id)
-        return await verification.run_check(driver, session_id, "build", command, timeout_seconds)
+        resolved = await _project(registry, "build", path)
+        if isinstance(resolved, str):
+            return resolved
+        driver, session_id, folder = resolved
+        return await verification.run_check(
+            driver, session_id, "build", command, timeout_seconds, folder
+        )
 
     @registry._tool(
         description=(
@@ -134,14 +184,14 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
             bool, Field(description="Add as a development dependency (add only).")
         ] = False,
         timeout_seconds: Annotated[int, Field(description="Timeout (default 600).")] = 600,
+        path: ProjectPath = None,
     ) -> str:
-        target = registry._sandbox_target("package_manager")
-        if not target:
-            return "Error: Sandbox not initialized for package_manager"
-        driver, session_id = target
-        await registry._ensure_sandbox(session_id)
+        resolved = await _project(registry, "package_manager", path)
+        if isinstance(resolved, str):
+            return resolved
+        driver, session_id, folder = resolved
         return await package_manager_tools.package_manager(
-            driver, session_id, action, packages, manager, dev, timeout_seconds
+            driver, session_id, action, packages, manager, dev, timeout_seconds, folder
         )
 
 

@@ -93,10 +93,11 @@ async def run_turn(
     final_text: str = "All done.",
     git_engine: Any = None,
     leaks: list[str] | None = None,
+    store: InMemorySessionStore | None = None,
 ) -> TurnOutcome:
     """Run a web-cockpit style turn for ``org`` and return what happened."""
     session_id = f"session_{org}"
-    store, bus = InMemorySessionStore(), AsyncIOEventBus()
+    store, bus = store or InMemorySessionStore(), AsyncIOEventBus()
     driver = driver or FakeSandboxDriver()
     model = ScriptedModel(script=script or [], final_text=final_text, leaks=leaks or [])
     registry = ToolRegistry(driver=driver, session_id=session_id)

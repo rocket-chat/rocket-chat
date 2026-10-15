@@ -163,7 +163,7 @@ backend:
 ```
 
 ### GitHub App & Slack Integrations
-Depending on your setup, you can configure GitHub App automation, a personal GitHub Token (PAT), and/or Slack Socket Mode. All keys are optional:
+Depending on your setup, you can configure GitHub App automation and/or Slack Socket Mode. All keys are optional. There is no deployment-wide GitHub token: organizations use their mapped App installation, members their own linked account.
 
 ```yaml
 # If using GitHub App automation or live PR creation:
@@ -173,7 +173,6 @@ github:
   appIdKey: "GITHUB_APP_ID"                     # Optional: GitHub App ID
   privateKeyKey: "GITHUB_APP_PRIVATE_KEY"       # Optional: RSA private key PEM
   webhookSecretKey: "GITHUB_WEBHOOK_SECRET"     # Optional: Webhook HMAC secret
-  tokenKey: "GITHUB_TOKEN"                     # Optional: Personal Access Token (PAT)
 
 backend:
   slack:
@@ -293,8 +292,9 @@ Operational environment variables (rendered into the ConfigMap and consumed by t
 | `ROCKET_GLOBAL_CONCURRENCY_LIMIT` | `16` | Process-wide concurrent-turn ceiling |
 | `ROCKET_SESSION_LOCK_CAPACITY` | `256` | Bound on the bounded per-session single-writer lock registry |
 | `ROCKET_DB_PING_TIMEOUT_SECONDS` | `2` | Deadline for the `/v1/ready` PostgreSQL ping |
-| `ROCKET_TOOL_MAX_CONCURRENCY` | `8` | Bounded tool fan-out (scheduler/dispatcher) |
-| `ROCKET_TOOL_TIMEOUT_SECONDS` | `600` | Per-tool execution timeout (scheduler/dispatcher) |
+| `ROCKET_TOOL_MAX_CONCURRENCY` | `8` | Concurrent tool calls per session |
+| `ROCKET_TOOL_PROCESS_CONCURRENCY` | `64` | Concurrent tool calls per API process (all sessions) |
+| `ROCKET_TOOL_TIMEOUT_SECONDS` | `600` | Per-tool working-time budget (waits for a person excluded) |
 
 ---
 

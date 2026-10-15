@@ -105,7 +105,11 @@ async def test_setup_runs_once_per_workspace_and_without_git_credentials() -> No
     driver = _Driver()
     ok, output = await run_setup(driver, "s1", PLAN)
     assert ok and "installed 3 packages" in output
-    assert driver.calls[0][1] == {"GITHUB_TOKEN": "", "GH_TOKEN": "", "GIT_ASKPASS": ""}
+    env = driver.calls[0][1]
+    assert env["GITHUB_TOKEN"] == env["GH_TOKEN"] == env["GIT_ASKPASS"] == ""
+    # No gateway capability either: the repository's own script can only fetch public code.
+    assert env["GIT_CONFIG_COUNT"] == "0"
+    assert all(env[f"GIT_CONFIG_VALUE_{i}"] == "" for i in range(4))
 
     again, note = await run_setup(driver, "s1", PLAN)
     assert again and note == "already done" and len(driver.calls) == 1

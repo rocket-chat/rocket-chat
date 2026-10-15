@@ -20,8 +20,9 @@ def _reminders(requests: list[Any]) -> int:
     return sum(
         1
         for request in requests
-        for message in request.messages
-        if message.role == "system"
+        for message in request.messages[-1:]
+        if message.role == "user"
+        and "<system-reminder>" in str(message.content)
         and "task checklist still has open tasks" in str(message.content)
     )
 

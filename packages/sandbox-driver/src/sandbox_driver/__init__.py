@@ -11,6 +11,13 @@ from sandbox_driver.exceptions import (
 from sandbox_driver.fake_driver import FakeSandboxDriver
 from sandbox_driver.k8s_driver import K8sSandboxDriver
 from sandbox_driver.seeding import SeedResult, seed_workspace_from
+from sandbox_driver.workspace import (
+    RepositoryNotFoundError,
+    list_repositories,
+    resolve_project_dir,
+    resolve_repository_dir,
+    workspace_path,
+)
 from specifications.interfaces.sandbox import (
     ExecResult,
     FileStat,
@@ -26,6 +33,7 @@ __all__ = [
     "FakeSandboxDriver",
     "FileStat",
     "K8sSandboxDriver",
+    "RepositoryNotFoundError",
     "ResourceLimits",
     "SandboxDriverProtocol",
     "SandboxError",
@@ -36,5 +44,9 @@ __all__ = [
     "SandboxTimeoutError",
     "SeedResult",
     "WorkspaceSpec",
+    "list_repositories",
+    "resolve_project_dir",
+    "resolve_repository_dir",
     "seed_workspace_from",
+    "workspace_path",
 ]

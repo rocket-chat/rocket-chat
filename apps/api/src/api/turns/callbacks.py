@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
-from api.services.git_credentials import GitCredentialBundle
+from git_engine.engine import pick_installation
+
+from api.services.git_credentials import GitCredentialBundle, app_may_act_on
+from api.services.git_gateway_env import github_api_url_of
+from api.services.github_installations import installations_for_org
 from api.services.github_watches import GithubWatchStore, watch_callbacks
 from api.services.knowledge import search_knowledge
 from api.services.mcp_runtime import McpToolProvider
 from api.services.process_tracker import ProcessTracker
+from api.services.session_support import choose_active_repository, remember_active_repository
 from api.services.settings import effective_settings
 from api.services.skills import test_skill_execution
 from api.services.skills_lookup import _find_visible_skill
@@ -98,10 +104,14 @@ async def build_turn_callbacks(
 
     async def repository_cloned(target_session_id: str, folder: str) -> str | None:
         assert driver is not None
+        await remember_active_repository(store, target_session_id, session.tenant_org_id, folder)
         sandbox_cfg = await effective_settings(db_mgr, session.tenant_org_id, "sandboxes")
         if not sandbox_cfg.get("run_repo_setup"):
             return None
         return await run_repository_setup(driver, target_session_id, folder, event_bus)
+
+    async def active_repository_chosen(target_session_id: str, folder: str) -> None:
+        await choose_active_repository(store, target_session_id, session.tenant_org_id, folder)
 
     github_watch, github_unwatch = watch_callbacks(
         GithubWatchStore(db_mgr), session.tenant_org_id, ctx.session_id, session.tenant_user_id
@@ -127,10 +137,46 @@ async def build_turn_callbacks(
         execute_skill=execute_skill,
         external_tools=mcp_tools,
         github_access=github_access,
+        github_write_access=_github_write_access(ctx, git_bundle),
         github_watch=github_watch,
         github_unwatch=github_unwatch,
         repository_cloned=repository_cloned if driver else None,
+        active_repository_chosen=active_repository_chosen if driver else None,
         processes_changed=processes_changed if driver else None,
         max_background_processes=int(sandbox_settings["max_background_processes"]),
         subagent_configs=await load_subagent_configs(db_mgr, session.tenant_org_id),
     )
+
+
+def _github_write_access(
+    ctx: TurnContext, git_bundle: GitCredentialBundle
+) -> Callable[[str], Awaitable[GithubAccess]]:
+    """Who changes things on GitHub for this turn: the member when the organization's pull
+    request policy says so, else the organization's App installation for that repository, else
+    the member's own account. Resolved on the platform, never handed to the sandbox."""
+    engine, api_url = ctx.req.git_engine, github_api_url_of(ctx.req.git_engine)
+    member = git_bundle.user_token
+    login = str(git_bundle.source_details.get("username") or "")
+    as_member = GithubAccess(member, api_url, f"@{login}" if login else "your GitHub account")
+
+    async def access(repository: str) -> GithubAccess:
+        if member and ctx.binding.policy.git.pr_creation == "as_user":
+            return as_member
+        org = ctx.session.tenant_org_id
+        if engine is not None and app_may_act_on(
+            await effective_settings(ctx.req.db_mgr, org, "github"), repository
+        ):
+            mapped = await installations_for_org(ctx.req.db_mgr, org)
+            token = await engine.get_github_access_token(
+                repo=repository,
+                repositories=[repository.rsplit("/", 1)[-1]],
+                installation_id=pick_installation(
+                    [(i.installation_id, i.account_login) for i in mapped], repository
+                ),
+                inherit_permissions=True,
+            )
+            if token:
+                return GithubAccess(token, api_url, "the organization's GitHub App")
+        return as_member if member else GithubAccess(None, api_url, "")
+
+    return access

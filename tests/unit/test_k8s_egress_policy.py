@@ -254,3 +254,38 @@ async def test_an_explicit_allowlist_wins_over_the_internal_range_block() -> Non
 
     policy = networking.create_namespaced_network_policy.call_args.kwargs["body"]
     assert [peer.ip_block.cidr for peer in policy.spec.egress[1].to] == ["10.50.0.0/16"]
+
+
+def test_a_restricted_sandbox_can_still_reach_the_platforms_git_gateway(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sandbox_driver.egress import PlatformPeer
+
+    monkeypatch.setenv("ROCKET_PLATFORM_NAMESPACE", "rocket")
+    monkeypatch.setenv(
+        "ROCKET_PLATFORM_POD_LABELS",
+        "app.kubernetes.io/name=rocket-chat-backend,app.kubernetes.io/instance=prod",
+    )
+    peer = PlatformPeer.from_env()
+    assert peer is not None
+
+    policy = build_egress_policy(
+        name="n", namespace="ns", session_label="s", cidrs=[], labels={}, platform_peer=peer
+    )
+
+    rule = policy.spec.egress[1]
+    target = rule.to[0]
+    assert target.namespace_selector.match_labels == {"kubernetes.io/metadata.name": "rocket"}
+    assert target.pod_selector.match_labels == {
+        "app.kubernetes.io/name": "rocket-chat-backend",
+        "app.kubernetes.io/instance": "prod",
+    }
+    assert [(p.protocol, p.port) for p in rule.ports] == [("TCP", 8000)]
+    assert target.ip_block is None, "the API pods only, never an address range"
+
+
+def test_without_platform_settings_there_is_no_peer(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sandbox_driver.egress import PlatformPeer
+
+    monkeypatch.delenv("ROCKET_PLATFORM_NAMESPACE", raising=False)
+    assert PlatformPeer.from_env() is None

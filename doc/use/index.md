@@ -39,6 +39,8 @@ When the agent needs you it shows a card instead of guessing:
 * an **approval** for an action your permission mode puts behind a human (run this command, edit this file, push this branch): **Approve** or **Reject**;
 * a **question** with options: pick one or type an answer. A question blocks the turn until you answer, so the agent only asks when it cannot continue safely.
 
+Cards wait as long as it takes, hours included: there is no time limit on a question or an approval, and a waiting session does not slow anyone else's. Press **Stop** to give up instead; the card disappears when the turn ends.
+
 ## 3. Look around the workspace
 
 Open the right-hand panel for the session's inspector:

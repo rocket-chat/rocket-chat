@@ -20,6 +20,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | Setting | Scope | Type / values | Default | Description |
 | :-- | :-- | :-- | :-- | :-- |
 | `default_model` | Organization | str | `openrouter/deepseek/deepseek-v4.1-flash` | Organization default model (below the agent and the user's choice). |
+| `context_windows` | Organization | dict | `{}` | Context-window size in tokens per model name or pattern (e.g. \{"my-provider/*": 32000\}), for models whose size is not known to the platform; drives when long conversations are compacted. |
 | `fallback_models` | Organization | list | empty | Ordered fail-over models used on transient provider errors (opt-in, allowlisted). |
 | `allowed_models` | Organization | list | empty | fnmatch patterns of models members may use; empty allows all. |
 | `forbidden_models` | Organization | list | empty | fnmatch patterns of models that are never allowed. |
@@ -71,7 +72,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | `bot_author_email` | Organization | str | `bot@rocketchat.internal` | E-mail of the bot identity used for bot commits. |
 | `default_branch` | Organization | str | `main` | Base branch for pull requests. |
 | `app_token_permissions` | Organization | dict | `{'contents': 'read', 'pull_requests': 'read'}` | Permissions requested for the GitHub App token the sandbox receives. Always lowered to read: add reads such as actions, checks or statuses to let the agent follow CI; writing goes through git_push with a token that never enters the sandbox. |
-| `app_token_target_repositories` | Organization | str | `all` | Repositories an App token may access: "all" or a comma-separated list. |
+| `app_token_target_repositories` | Organization | str | `all` | Repositories the GitHub App acts on for the agent, reading and changing: "all" or a comma-separated list. Elsewhere the member's linked account is used. |
 
 ## MCP policy (`mcp`)
 

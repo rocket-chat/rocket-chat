@@ -7,8 +7,9 @@ with the given passphrase. GitHub shows a commit as *verified* only when its sig
 uploaded to the author's account and the commit e-mail is verified there, so the public key is
 returned for the member to upload.
 
-While a turn runs the key is in the sandbox (GnuPG needs it to sign ``git commit``): see
-``inject_git_credentials_into_sandbox``. It never reaches the model or the logs.
+The key never enters a sandbox: the commits the agent makes there are unsigned, and the platform
+re-creates them signed with this key when the branch is published (``git_push``, in a throwaway
+keyring, see ``git_engine.host_repo``). It never reaches the model or the logs.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from api.services.credentials import (
     store_user_credential,
 )
 from specifications.interfaces.agent import GitPolicy
+from specifications.interfaces.git import SigningKey
 
 logger = logging.getLogger(__name__)
 
@@ -343,4 +345,5 @@ def effective_signing_policy(policy: GitPolicy, signing: MemberSigning | None) -
         authorship="user_only",
         user_email=signing.commit_email,
         signing_key_id=signing.fingerprint,
+        signing_key=SigningKey(signing.fingerprint, signing.private_key, signing.passphrase),
     )

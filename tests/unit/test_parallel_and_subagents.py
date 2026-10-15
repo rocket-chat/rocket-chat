@@ -140,7 +140,8 @@ class TestSubagentRunner:
         )
 
         assert result.status == "completed"
-        assert call_count == 2
+        # Two working steps, then one tool-less call for the final report.
+        assert call_count == 3
         assert result.turns_taken == 2
 
     @pytest.mark.asyncio
@@ -361,7 +362,7 @@ class TestSubagentRestEndpoints:
 
             sec_agent = next(s for s in subagents if s["id"] == "security_auditor")
             assert "Security" in sec_agent["name"]
-            assert sec_agent["max_turns"] == 4
+            assert sec_agent["max_turns"] == 12
 
             # 2. PUT /v1/subagents/security_auditor with updated prompt and turn cap
             sec_agent["max_turns"] = 6

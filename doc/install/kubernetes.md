@@ -79,7 +79,11 @@ When deploying on managed cloud Kubernetes services, specify your cloud provider
 
 ---
 
-## 4. Verifying Sandbox Execution
+## 4. Node autoscaling and sandbox pods
+
+Sandbox pods are unmanaged (one per session), so cluster autoscalers would otherwise leave their nodes alone or evict them mid-command. Rocket Chat annotates each pod (`cluster-autoscaler.kubernetes.io/safe-to-evict`, `karpenter.sh/do-not-disrupt`) as protected while it runs a command or while background processes (dev servers, watchers) keep it awake, and as evictable otherwise: scaling down then only ever moves an idle sandbox, whose workspace survives on its volume.
+
+## 5. Verifying Sandbox Execution
 
 Once installed, check that the backend is running and the sandbox namespace is active:
 

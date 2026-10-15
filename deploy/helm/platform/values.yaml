@@ -90,8 +90,10 @@ backend:
     ROCKET_SESSION_LOCK_CAPACITY: "256"
     # Readiness probe deadline for the PostgreSQL ping.
     ROCKET_DB_PING_TIMEOUT_SECONDS: "2"
-    # Bounded tool fan-out consumed by the agent-core scheduler/dispatcher.
+    # Tool calls: per session, per API process, and each call's working time (waits for a
+    # person do not count). Consumed by the agent-core dispatcher.
     ROCKET_TOOL_MAX_CONCURRENCY: "8"
+    ROCKET_TOOL_PROCESS_CONCURRENCY: "64"
     ROCKET_TOOL_TIMEOUT_SECONDS: "600"
     # Attachments. Blobs are content-addressed on disk; mount a volume at
     # this path in production so uploads survive a pod restart. The signing key is
@@ -259,13 +261,11 @@ github:
   allowUnmappedInstallations: false
   privateKey: ""
   webhookSecret: ""
-  token: ""
   # External Secret reference for GitHub credentials
   existingSecret: ""
   existingSecretAppIdKey: "GITHUB_APP_ID"
   existingSecretPrivateKeyKey: "GITHUB_APP_PRIVATE_KEY"
   existingSecretWebhookSecretKey: "GITHUB_WEBHOOK_SECRET"
-  existingSecretTokenKey: "GITHUB_TOKEN"
 
 # Dedicated pod for command (stdio) MCP servers - programs such as `npx -y <package>` or a release
 # binary that members' agents use as tools. They run here, not in the API pod (which holds the

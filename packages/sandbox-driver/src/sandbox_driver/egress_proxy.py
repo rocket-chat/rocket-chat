@@ -43,13 +43,15 @@ def _is_internal(address: IPAddress) -> bool:
 class Policy:
     allow: tuple[str, ...] = ()
     block_internal: bool = False
+    # Exact (host, port) pairs always allowed, internal or not: the platform's own services.
+    pinned: tuple[tuple[str, int], ...] = ()
     networks: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = field(
         default=(), compare=False
     )
     hosts: tuple[str, ...] = field(default=(), compare=False)
 
     @classmethod
-    def build(cls, allow: str, block_internal: bool) -> Policy:
+    def build(cls, allow: str, block_internal: bool, pinned: str = "") -> Policy:
         entries = tuple(part.strip().lower() for part in allow.split(",") if part.strip())
         networks, hosts = [], []
         for entry in entries:
@@ -57,12 +59,21 @@ class Policy:
                 networks.append(ipaddress.ip_network(entry, strict=False))
             except ValueError:
                 hosts.append(entry)
-        return cls(entries, block_internal, tuple(networks), tuple(hosts))
+        endpoints: list[tuple[str, int]] = []
+        for raw in pinned.split(","):
+            host, _, port = raw.strip().lower().rpartition(":")
+            if host and port.isdigit():
+                endpoints.append((host, int(port)))
+        return cls(entries, block_internal, tuple(endpoints), tuple(networks), tuple(hosts))
 
-    def decide(self, host: str, addresses: list[IPAddress]) -> tuple[bool, str]:
+    def decide(
+        self, host: str, addresses: list[IPAddress], port: int | None = None
+    ) -> tuple[bool, str]:
         """Whether a destination may be reached, and why not."""
         if not addresses:
             return False, "the name does not resolve"
+        if port is not None and (host.lower().rstrip("."), port) in self.pinned:
+            return True, ""
         if self.block_internal and any(_is_internal(a) for a in addresses):
             return False, "it resolves to an internal address"
         if not self.allow:
@@ -177,7 +188,7 @@ class EgressProxy:
         self, host: str, port: int, client: asyncio.StreamWriter
     ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter] | None:
         addresses = await resolve(host, port)
-        allowed, reason = self.policy.decide(host, addresses)
+        allowed, reason = self.policy.decide(host, addresses, port)
         self.decisions.append((f"{host}:{port}", allowed))
         print(
             f"egress {'ALLOW' if allowed else 'DENY '} {host}:{port} {reason}".strip(), flush=True
@@ -208,7 +219,9 @@ async def serve(policy: Policy, host: str = "0.0.0.0", port: int = 3128) -> asyn
 
 def main() -> None:  # pragma: no cover - the container entrypoint
     policy = Policy.build(
-        os.environ.get("EGRESS_ALLOW", ""), os.environ.get("EGRESS_BLOCK_INTERNAL") == "1"
+        os.environ.get("EGRESS_ALLOW", ""),
+        os.environ.get("EGRESS_BLOCK_INTERNAL") == "1",
+        os.environ.get("EGRESS_PINNED", ""),
     )
     port = int(os.environ.get("PORT", "3128"))
 

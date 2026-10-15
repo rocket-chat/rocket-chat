@@ -101,4 +101,4 @@ async def test_the_agent_is_not_invited_to_hunt_for_credentials() -> None:
 async def test_a_session_started_from_a_repository_says_it_is_already_there() -> None:
     prompt, _ = await _system_prompt_for(_session(git_repo="https://github.com/acme/api.git"))
 
-    assert "Active Repository: `https://github.com/acme/api.git`" in prompt
+    assert "Repository for this session: `https://github.com/acme/api.git`" in prompt

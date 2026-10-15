@@ -39,6 +39,17 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    # The API's read-only git gateway: sandboxes hold no GitHub credential and clone through it.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace }}
+          podSelector:
+            matchLabels:
+              {{- include "rocket-chat.backendSelectorLabels" . | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: 8000
     {{- if .Values.sandbox.networkPolicy.allowedEgressRules }}
     # Explicitly whitelisted internal cluster services, namespaces, or CIDR blocks
     {{- toYaml .Values.sandbox.networkPolicy.allowedEgressRules | nindent 4 }}

@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TypedDict
 
+from sandbox_driver.exceptions import SandboxTimeoutError
+
 from agent_core.editor import create_file_diff, replace_block
 from agent_core.tools.clamp import clamp_output
 from specifications.interfaces.agent import FileDiff
@@ -21,23 +23,53 @@ async def bash_exec(
     session_id: str,
     command: str,
     timeout_seconds: int = 120,
+    workdir: str = "/workspace",
 ) -> str:
     """Execute a shell command inside the active sandbox environment."""
-    result = await driver.exec_command(
-        session_id=session_id,
-        command=command,
-        timeout_seconds=timeout_seconds,
-    )
+    try:
+        result = await driver.exec_command(
+            session_id=session_id,
+            command=command,
+            workdir=workdir,
+            timeout_seconds=timeout_seconds,
+        )
+    except SandboxTimeoutError as err:
+        sections = [
+            f"Command timed out after {timeout_seconds}s and was stopped. For a server, a "
+            "watcher or a long build use process_start instead (it returns at once)."
+        ]
+        sections += _streams(err.stdout, err.stderr, "Output before it was stopped")
+        return "\n\n".join(sections)
 
     if result.exit_code == 0:
-        return clamp_output(result.stdout or "(Command completed with no output)")
+        stdout = result.stdout or ""
+        if not stdout.strip() and not (result.stderr or "").strip():
+            return "(Command completed with no output)"
+        # Warnings, progress and many tools' normal output go to stderr: it is kept.
+        if not (result.stderr or "").strip():
+            return clamp_output(stdout)
+        return "\n\n".join(_streams(stdout, result.stderr, None))
 
-    output_lines: list[str] = [f"Command failed with exit code {result.exit_code}"]
-    if result.stdout:
-        output_lines.append(f"STDOUT:\n{clamp_output(result.stdout.strip())}")
-    if result.stderr:
-        output_lines.append(f"STDERR:\n{clamp_output(result.stderr.strip())}")
-    return "\n\n".join(output_lines)
+    return "\n\n".join(
+        [
+            f"Command failed with exit code {result.exit_code}",
+            *_streams(result.stdout, result.stderr, None),
+        ]
+    )
+
+
+def _streams(stdout: str, stderr: str, title: str | None) -> list[str]:
+    sections = [title] if title else []
+    if (stdout or "").strip():
+        sections.append(f"STDOUT:\n{clamp_output(stdout.strip())}")
+    if (stderr or "").strip():
+        sections.append(f"STDERR:\n{clamp_output(stderr.strip())}")
+    if title and len(sections) == 1:
+        sections.append("(no output)")
+    return sections
+
+
+FILE_WINDOW_LINES = 400
 
 
 async def file_read(
@@ -46,20 +78,43 @@ async def file_read(
     path: str,
     start_line: int | None = None,
     end_line: int | None = None,
+    line_numbers: bool = True,
 ) -> str:
-    """Read file content with optional 1-indexed start and end line ranges."""
+    """Read a file with line numbers, a window of it at a time.
+
+    Without a range the first ``FILE_WINDOW_LINES`` lines come back with the total and how to
+    read on, instead of a head and tail with an unknown gap the agent could not ask for.
+    """
     try:
-        content = await driver.read_file(
-            session_id=session_id,
-            path=path,
-            start_line=start_line,
-            end_line=end_line,
-        )
-        return clamp_output(content)
+        content = await driver.read_file(session_id=session_id, path=path)
     except FileNotFoundError:
         return f"Error: File not found at path '{path}'"
     except Exception as err:
         return f"Error reading file '{path}': {err}"
+    lines = content.splitlines(keepends=True)
+    total = len(lines)
+    first = max(1, start_line or 1)
+    last = end_line if end_line is not None else first + FILE_WINDOW_LINES - 1
+    last = min(total, max(first, last))
+    window = lines[first - 1 : last]
+    if line_numbers:
+        window = [f"{number:>6}\t{line}" for number, line in enumerate(window, start=first)]
+    body = "".join(window)
+    if total and (first > 1 or last < total):
+        more = (
+            f"call file_read with start_line={last + 1} to continue"
+            if last < total
+            else "end of file"
+        )
+        body += f"\n[{path}: lines {first}-{last} of {total}; {more}]"
+    return clamp_output(body, hint="read them with file_read start_line/end_line")
+
+
+async def _current(driver: SandboxDriverProtocol, session_id: str, path: str) -> str | None:
+    try:
+        return await driver.read_file(session_id=session_id, path=path)
+    except Exception:
+        return None
 
 
 async def file_write(
@@ -68,8 +123,9 @@ async def file_write(
     path: str,
     content: str,
     overwrite: bool = True,
-) -> str:
-    """Write or overwrite file contents in the sandbox workspace."""
+) -> tuple[str, FileDiff | None]:
+    """Write or overwrite file contents in the sandbox workspace; the change as a diff."""
+    before = await _current(driver, session_id, path)
     try:
         await driver.write_file(
             session_id=session_id,
@@ -77,11 +133,12 @@ async def file_write(
             content=content,
             overwrite=overwrite,
         )
-        return f"Successfully wrote {len(content)} characters to '{path}'"
     except FileExistsError:
-        return f"Error: File already exists at path '{path}' and overwrite=False"
+        return f"Error: File already exists at path '{path}' and overwrite=False", None
     except Exception as err:
-        return f"Error writing file '{path}': {err}"
+        return f"Error writing file '{path}': {err}", None
+    diff = create_file_diff(path, before or "", content, is_new_file=before is None)
+    return f"Successfully wrote {len(content)} characters to '{path}'", diff
 
 
 async def apply_patch(
@@ -89,16 +146,19 @@ async def apply_patch(
     session_id: str,
     path: str,
     patch_content: str,
-) -> str:
-    """Apply a unified diff patch to a file in the workspace."""
+) -> tuple[str, FileDiff | None]:
+    """Apply a unified diff patch to a file in the workspace; the change as a diff."""
+    before = await _current(driver, session_id, path)
     success = await driver.apply_patch(
         session_id=session_id,
         path=path,
         patch_content=patch_content,
     )
-    if success:
-        return f"Patch successfully applied to '{path}'"
-    return f"Failed to apply patch to '{path}': diff hunks did not match target file"
+    if not success:
+        return f"Failed to apply patch to '{path}': diff hunks did not match target file", None
+    after = await _current(driver, session_id, path)
+    diff = create_file_diff(path, before or "", after or "") if after is not None else None
+    return f"Patch successfully applied to '{path}'", diff
 
 
 @dataclass(frozen=True)
@@ -339,23 +399,45 @@ async def grep_search(
     return clamp_output(output)
 
 
+GLOB_LIMIT = 500
+_GLOB_MORE = "__ROCKET_GLOB_TOTAL__"
+
+
 async def glob_files(
     driver: SandboxDriverProtocol,
     session_id: str,
     pattern: str,
     path: str = ".",
 ) -> str:
-    """Find files matching a glob pattern (supports ** for recursive matching)."""
-    regex = _glob_to_regex(pattern)
+    """Find files matching a glob pattern (supports ** for recursive matching).
+
+    Files are listed the way a developer's tools see the repository: ``rg --files`` honours
+    ``.gitignore``, then ``fd``, then ``find`` skipping ``.git`` and dependency or build folders,
+    so ``**/*.py`` is not drowned in a virtual environment before the cap is reached.
+    """
+    regex = _sh_quote(_glob_to_regex(pattern))
+    root = _sh_quote(path)
+    listing = (
+        f"if command -v rg >/dev/null 2>&1; then rg --files --hidden --glob '!.git' -- {root}; "
+        f"elif command -v fd >/dev/null 2>&1; then fd --type f --hidden --exclude .git . {root}; "
+        f"else find {root} \\( -name .git -o -name node_modules -o -name .venv -o -name venv "
+        "-o -name __pycache__ -o -name dist -o -name build \\) -prune -o -type f -print; fi"
+    )
     command = (
-        f"find {_sh_quote(path)} -type f 2>/dev/null | sed 's|^\\./||' | "
-        f"grep -E {_sh_quote(regex)} | sort | head -n 500"
+        f"found=$( ({listing}) 2>/dev/null | sed 's|^\\./||' | grep -E {regex} | sort ); "
+        f'[ -n "$found" ] || exit 0; printf "%s\\n" "$found" | head -n {GLOB_LIMIT}; '
+        f'total=$(printf "%s\\n" "$found" | wc -l); '
+        f'[ "$total" -gt {GLOB_LIMIT} ] && echo "{_GLOB_MORE} $total"; true'
     )
     result = await driver.exec_command(session_id=session_id, command=command, timeout_seconds=60)
     output = (result.stdout or "").strip()
     if not output:
         return f"No files matched pattern {pattern!r} under {path!r}."
-    return clamp_output(output)
+    lines = output.splitlines()
+    if lines[-1].startswith(_GLOB_MORE):
+        total = lines[-1].split()[-1]
+        lines[-1] = f"[{GLOB_LIMIT} of {total} matches shown; narrow the pattern or the path]"
+    return clamp_output("\n".join(lines))
 
 
 def _glob_to_regex(pattern: str) -> str:
@@ -385,6 +467,7 @@ def _glob_to_regex(pattern: str) -> str:
 async def git_status(
     driver: SandboxDriverProtocol,
     session_id: str,
+    workdir: str = "/workspace",
 ) -> str:
     """Return the structured porcelain git status of the workspace."""
     command = (
@@ -392,7 +475,9 @@ async def git_status(
         "{ echo 'Error: workspace is not a git repository'; exit 0; }; "
         "git status --porcelain=v1 --branch"
     )
-    result = await driver.exec_command(session_id=session_id, command=command, timeout_seconds=30)
+    result = await driver.exec_command(
+        session_id=session_id, command=command, workdir=workdir, timeout_seconds=30
+    )
     output = (result.stdout or "").strip()
     if not output or output.startswith("Error:"):
         return output or "(clean working tree)"
@@ -405,6 +490,7 @@ async def git_diff(
     path: str | None = None,
     staged: bool = False,
     stat_only: bool = False,
+    workdir: str = "/workspace",
 ) -> str:
     """Show the current unified git diff (optionally staged, scoped, or stat-only)."""
     parts = ["git diff --stat"] if stat_only else ["git diff"]
@@ -413,7 +499,10 @@ async def git_diff(
     if path:
         parts += ["--", _sh_quote(path)]
     result = await driver.exec_command(
-        session_id=session_id, command=" ".join(parts) + " 2>&1", timeout_seconds=30
+        session_id=session_id,
+        command=" ".join(parts) + " 2>&1",
+        workdir=workdir,
+        timeout_seconds=30,
     )
     output = (result.stdout or "").strip()
     return clamp_output(output) if output else "(no differences)"
@@ -471,6 +560,7 @@ async def git_log(
     max_count: int = 20,
     path: str | None = None,
     author: str | None = None,
+    workdir: str = "/workspace",
 ) -> str:
     """Return structured commit history (author, date, subject, changed files)."""
     count = max(1, min(max_count, 100))
@@ -489,7 +579,9 @@ async def git_log(
         "git rev-parse --is-inside-work-tree >/dev/null 2>&1 || "
         "{ echo 'Error: workspace is not a git repository'; exit 0; }; " + " ".join(parts) + " 2>&1"
     )
-    result = await driver.exec_command(session_id=session_id, command=command, timeout_seconds=30)
+    result = await driver.exec_command(
+        session_id=session_id, command=command, workdir=workdir, timeout_seconds=30
+    )
     raw = result.stdout or ""
     # str.strip() treats \x1e as whitespace and would eat the first record separator,
     # so the emptiness/error guards run on a stripped copy while parsing sees the raw text.
@@ -507,6 +599,7 @@ async def run_tests(
     session_id: str,
     command: str | None = None,
     timeout_seconds: int = 600,
+    workdir: str = "/workspace",
 ) -> str:
     """Detect and run the project test suite, returning a parsed pass/fail summary."""
     if command:
@@ -518,6 +611,7 @@ async def run_tests(
     result = await driver.exec_command(
         session_id=session_id,
         command=test_cmd,
+        workdir=workdir,
         timeout_seconds=timeout_seconds,
     )
     raw = "\n".join(

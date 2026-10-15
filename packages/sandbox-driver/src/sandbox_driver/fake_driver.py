@@ -53,6 +53,9 @@ _CANNED_COMMANDS: tuple[tuple[str, ExecResult], ...] = (
     ("npm test", ExecResult(0, "Tests: 5 passed, 5 total\n", "", 5)),
     ("git status", ExecResult(0, "On branch main\nnothing to commit, working tree clean\n", "", 5)),
     ("git rev-parse HEAD", ExecResult(0, "a" * 40 + "\n", "", 5)),
+    # The fake workspace is itself one repository (as `git status` above says).
+    ("git rev-parse --show-toplevel", ExecResult(0, f"{DEFAULT_WORKSPACE_PREFIX}\n", "", 5)),
+    ("rev-parse --git-dir", ExecResult(0, ".git\n", "", 5)),
 )
 
 

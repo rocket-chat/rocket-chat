@@ -188,4 +188,5 @@ async def test_a_roles_turn_limit_bounds_the_delegates_cycles() -> None:
 
     result = await runner.run(SubagentTaskRequest(role="loop", task="spin"), "session_x")
 
-    assert result.turns_taken == 2 and Looping.calls == 2
+    # Two working steps, then one tool-less call for the report.
+    assert result.turns_taken == 2 and Looping.calls == 3

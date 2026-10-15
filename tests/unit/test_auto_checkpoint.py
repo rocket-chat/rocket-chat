@@ -29,6 +29,9 @@ class _GitDriver(FakeSandboxDriver):
         if command.startswith("git rev-parse --git-dir"):
             self.exec_calls.append((session_id, command))
             return ExecResult(0 if self.is_repo else 128, ".git\n", "", 1)
+        if command.startswith("git rev-parse --show-toplevel"):
+            self.exec_calls.append((session_id, command))
+            return ExecResult(0, "/workspace\n" if self.is_repo else "", "", 1)
         if command.startswith("git tag -l"):
             self.exec_calls.append((session_id, command))
             return ExecResult(0, "0\n", "", 1)

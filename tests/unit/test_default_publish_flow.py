@@ -28,10 +28,14 @@ from tests.unit.test_branch_publisher import SimulatedGitHub, git
 
 @pytest.fixture
 async def sandbox(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch):
-    bare = tmp_path / "remote.git"
+    # "GitHub" as the platform publishes to it: <git_base_url>/acme/widgets.git.
+    bare = tmp_path / "remotes" / "acme" / "widgets.git"
+    bare.parent.mkdir(parents=True)
     await asyncio.to_thread(
         subprocess.run, ["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True
     )
+    git(bare, "config", "uploadpack.allowFilter", "true")
+    git(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
     seed = tmp_path / "seed"
     await asyncio.to_thread(
         subprocess.run, ["git", "clone", "-q", str(bare), str(seed)], check=True
@@ -72,7 +76,10 @@ async def test_clone_commit_then_git_push_publishes_with_the_members_account_whe
     driver, github, bare, workspace = sandbox
     registry = ToolRegistry(driver=driver, session_id="s1")  # type: ignore[arg-type]
     registry.bind_git_engine(
-        GitEngine(driver=driver, settings=GitEngineSettings(github_token=None))
+        GitEngine(
+            driver=driver,
+            settings=GitEngineSettings(git_base_url=f"file://{bare.parent.parent}"),
+        )
     )  # type: ignore[arg-type]
     policy = GitPolicy(
         signing_mode="github_app",
@@ -118,7 +125,10 @@ async def test_a_clone_of_an_existing_remote_branch_gets_the_new_commit_appended
     driver, _github, bare, _ = sandbox
     registry = ToolRegistry(driver=driver, session_id="s1")  # type: ignore[arg-type]
     registry.bind_git_engine(
-        GitEngine(driver=driver, settings=GitEngineSettings(github_token=None))  # type: ignore[arg-type]
+        GitEngine(
+            driver=driver,
+            settings=GitEngineSettings(git_base_url=f"file://{bare.parent.parent}"),
+        )  # type: ignore[arg-type]
     )
     token = current_execution_ctx.set(
         ExecutionContext(

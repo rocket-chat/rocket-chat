@@ -135,17 +135,20 @@ async def test_command_killed_by_the_in_sandbox_deadline_is_a_timeout() -> None:
     driver = _running_driver()
     seen: list[str] = []
 
-    def killed(_cid: str, command: str, *_args: object) -> tuple[int, str, str]:
+    def killed(_cid: str, command: str, *args: object) -> int:
         seen.append(command)
-        return 137, "", ""
+        stdout_buffer = args[-2]
+        stdout_buffer.append("partial before the kill\n")  # type: ignore[attr-defined]
+        return 137
 
     driver._sync_stream_exec = killed  # type: ignore[method-assign]
 
     from sandbox_driver.exceptions import SandboxTimeoutError
 
-    with pytest.raises(SandboxTimeoutError):
+    with pytest.raises(SandboxTimeoutError) as raised:
         await driver.exec_command(session_id="t", command="sleep 10", timeout_seconds=0)
     assert "timeout -s KILL" in seen[0], "the deadline is enforced inside the sandbox"
+    assert raised.value.stdout == "partial before the kill\n", "what it printed is kept"
 
 
 @pytest.mark.asyncio

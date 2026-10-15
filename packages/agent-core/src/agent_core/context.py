@@ -15,33 +15,34 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
-from typing import Any
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, field, replace
+from fnmatch import fnmatch
 
 import litellm
+from llm_gateway.tokens import request_tokens
 
+from agent_core.notes import REMINDER_OPEN, render_notes
 from agent_core.transcript import repair_tool_pairs
 from specifications.interfaces.agent import AgentEvent, TurnCallbacks, TurnPolicy
-from specifications.interfaces.llm import AttachmentRef, ChatMessage
+from specifications.interfaces.llm import AttachmentRef, ChatMessage, ToolDefinition
 
 Summarizer = Callable[[list[ChatMessage]], Awaitable[str]]
 logger = logging.getLogger(__name__)
 
+# Families the provider library may not list under the name a gateway (OpenRouter, a BYOK
+# proxy) uses. Consulted after the organization's own sizes and the library's model table.
 DEFAULT_MODEL_CONTEXT_LIMITS: dict[str, int] = {
-    "claude-3-7-sonnet": 200_000,
-    "claude-3.7-sonnet": 200_000,
-    "claude-3-5-sonnet": 200_000,
+    "claude": 200_000,
     "gpt-4o": 128_000,
-    "gpt-4.5": 128_000,
-    "o1": 200_000,
-    "o3-mini": 200_000,
+    "gpt-4.1": 1_000_000,
+    "gpt-5": 400_000,
+    "o3": 200_000,
+    "o4": 200_000,
     "deepseek-r1": 64_000,
     "deepseek-v3": 64_000,
-    "deepseek-v4.1": 131_072,
-    "deepseek-v4.1-flash": 131_072,
-    "gemini-2.0-flash": 1_000_000,
-    "gemini-2.5-pro": 1_000_000,
+    "deepseek-v4": 131_072,
+    "gemini": 1_000_000,
 }
 FALLBACK_CONTEXT_LIMIT = 128_000
 
@@ -75,6 +76,12 @@ class ExecutionContext:
     # Images the agent asked to look at this turn (view_image). They ride every model request
     # of the turn but are never stored in the conversation, so they cannot reach a later turn.
     turn_images: list[AttachmentRef] = field(default_factory=list)
+    # Where git, test and build tools act when the agent names no folder. Seeded from the
+    # turn policy and set by the first ``clone_repository`` of a session that has none.
+    active_repository: str = ""
+    # The prompt size the provider reported for the turn's latest request (0 until one did, and
+    # again after a compaction): the floor for the next request's estimate.
+    measured_prompt_tokens: int = 0
 
 
 current_execution_ctx: contextvars.ContextVar[ExecutionContext | None] = contextvars.ContextVar(
@@ -95,11 +102,12 @@ class ContextManager:
         self.tier3_threshold_ratio = tier3_threshold_ratio
         self.recent_turns_to_preserve = recent_turns_to_preserve
 
-    def get_model_context_limit(self, model: str) -> int:
-        clean_name = model.split("/")[-1].lower()
-        for key, limit in DEFAULT_MODEL_CONTEXT_LIMITS.items():
-            if key in clean_name:
-                return limit
+    def get_model_context_limit(self, model: str, overrides: Sequence[tuple[str, int]] = ()) -> int:
+        """The model's input window: the organization's own size, the library's, a family's."""
+        name = model.lower()
+        for pattern, size in overrides:
+            if name == pattern.lower() or fnmatch(name, pattern.lower()):
+                return size
         try:
             # `max_input_tokens` is the context window; `get_max_tokens` is the *output* cap.
             info = litellm.get_model_info(model)
@@ -108,20 +116,17 @@ class ContextManager:
                 return window
         except Exception:
             pass
+        clean_name = name.split("/")[-1]
+        for key, limit in DEFAULT_MODEL_CONTEXT_LIMITS.items():
+            if key in clean_name:
+                return limit
         return FALLBACK_CONTEXT_LIMIT
 
-    def count_tokens(self, model: str, messages: list[ChatMessage]) -> int:
-        formatted_messages: list[dict[str, Any]] = []
-        for m in messages:
-            entry: dict[str, Any] = {"role": m.role, "content": m.content or ""}
-            formatted_messages.append(entry)
-
-        try:
-            return int(litellm.token_counter(model=model, messages=formatted_messages))
-        except Exception:
-            # Fallback estimation: ~4 chars per token
-            total_chars = sum(len(m.content or "") for m in messages)
-            return max(1, total_chars // 4)
+    def count_tokens(
+        self, model: str, messages: list[ChatMessage], tools: Sequence[ToolDefinition] = ()
+    ) -> int:
+        """Everything the request sends (see ``llm_gateway.tokens.request_tokens``)."""
+        return request_tokens(model, messages, tools)
 
     def prune_tool_payloads(
         self,
@@ -137,10 +142,9 @@ class ContextManager:
             if recent_turns_to_preserve is not None
             else self.recent_turns_to_preserve
         )
-        if len(messages) <= (preserve_count * 2):
+        split_index = self._recent_start(messages, preserve_count)
+        if split_index is None:
             return list(messages)
-
-        split_index = max(0, len(messages) - (preserve_count * 2))
         pruned_messages: list[ChatMessage] = []
 
         for idx, msg in enumerate(messages):
@@ -167,35 +171,48 @@ class ContextManager:
 
         return pruned_messages
 
+    def _recent_start(self, messages: list[ChatMessage], steps: int) -> int | None:
+        """Where the last ``steps`` model steps begin (an assistant message), or ``None`` when the
+        conversation has no more steps than that. A step is never split from its tool results."""
+        boundaries = [i for i, message in enumerate(messages) if message.role == "assistant"]
+        if len(boundaries) <= steps:
+            return None
+        return boundaries[-steps]
+
     def _partition(
         self, messages: list[ChatMessage], recent_turns_to_preserve: int | None
     ) -> tuple[list[ChatMessage], list[ChatMessage], list[ChatMessage]] | None:
-        """Split into (anchored head, compactable middle, preserved tail), pair-safely."""
-        preserve_count = (
+        """Split into (anchors, compactable middle, preserved tail).
+
+        The anchors are the system prompt and the request the turn is working on (the latest
+        thing the person asked), never the session's first message: in a long session that is
+        an old question, and compacting the current one away would lose the goal.
+        """
+        steps = (
             recent_turns_to_preserve
             if recent_turns_to_preserve is not None
             else self.recent_turns_to_preserve
         )
-        if len(messages) <= (preserve_count * 2) + 2:
+        tail_start = self._recent_start(messages, steps)
+        if tail_start is None:
             return None
-
-        anchors_head: list[ChatMessage] = []
-        idx = 0
-        while idx < len(messages) and messages[idx].role == "system":
-            anchors_head.append(messages[idx])
-            idx += 1
-
-        # Initial user prompt (and assistant response if immediate)
-        if idx < len(messages) and messages[idx].role == "user":
-            anchors_head.append(messages[idx])
-            idx += 1
-
-        tail_start = max(idx, len(messages) - (preserve_count * 2))
-        # Never start the preserved tail on a tool result: its assistant tool call would be
-        # summarized away and providers reject an orphan `tool` message.
-        while tail_start > idx and messages[tail_start].role == "tool":
-            tail_start -= 1
-        return anchors_head, messages[idx:tail_start], messages[tail_start:]
+        lead = 0
+        while lead < len(messages) and messages[lead].role == "system":
+            lead += 1
+        current = _current_request(messages)
+        anchored = current is not None and lead <= current < tail_start
+        head = [
+            *messages[:lead],
+            *([messages[current]] if anchored and current is not None else []),
+        ]
+        middle = [
+            message
+            for index, message in enumerate(messages[lead:tail_start], start=lead)
+            if not (anchored and index == current)
+        ]
+        if not middle:
+            return None
+        return head, middle, messages[tail_start:]
 
     @staticmethod
     def _latest_checklist(middle: list[ChatMessage]) -> str | None:
@@ -208,6 +225,8 @@ class ContextManager:
         return None
 
     def _bridge(self, middle: list[ChatMessage], summary: str | None) -> ChatMessage:
+        # A user-role reminder, not a system message: providers that hoist system messages into
+        # the system prompt would lose where the summary sits in the conversation.
         parts: list[str] = [
             f"[Compacted {len(middle)} intermediate conversational turns "
             "to respect context window boundaries.]"
@@ -217,7 +236,7 @@ class ContextManager:
         plan = self._latest_checklist(middle)
         if plan:
             parts.append(f"Active Task Checklist State: {plan}")
-        return ChatMessage(role="system", content="\n\n".join(parts))
+        return ChatMessage(role="user", content=render_notes(parts))
 
     def compact_with_anchors(
         self,
@@ -232,7 +251,7 @@ class ContextManager:
         if parts is None:
             return list(messages)
         head, middle, tail = parts
-        return repair_tool_pairs([*head, self._bridge(middle, None), *tail])
+        return _compose(head, self._bridge(middle, None), tail)
 
     async def compact_with_summary(
         self,
@@ -246,11 +265,18 @@ class ContextManager:
             return list(messages)
         head, middle, tail = parts
         summary: str | None = None
+        goal = [
+            replace(
+                message, content=f"[The request being worked on, kept verbatim] {message.content}"
+            )
+            for message in head
+            if message.role == "user"
+        ]
         try:
-            summary = (await summarize(middle)).strip() or None
+            summary = (await summarize([*goal, *middle])).strip() or None
         except Exception as err:
             logger.warning("Summarising compaction failed, using the bridge only: %s", err)
-        return repair_tool_pairs([*head, self._bridge(middle, summary), *tail])
+        return _compose(head, self._bridge(middle, summary), tail)
 
     def enforce_hygiene(
         self,
@@ -277,18 +303,59 @@ class ContextManager:
         model: str,
         messages: list[ChatMessage],
         summarize: Summarizer | None = None,
+        *,
+        tools: Sequence[ToolDefinition] = (),
+        measured_tokens: int = 0,
+        overrides: Sequence[tuple[str, int]] = (),
     ) -> list[ChatMessage]:
-        """Like :meth:`enforce_hygiene`, but Tier 3 summarizes with a model when given one."""
-        limit = self.get_model_context_limit(model)
-        tokens = self.count_tokens(model, messages)
+        """Like :meth:`enforce_hygiene`, but Tier 3 summarizes with a model when given one.
+
+        ``measured_tokens`` is what the provider reported for the previous request of the turn:
+        the history only grows within a turn, so the estimate never goes below it.
+        """
+        limit = self.get_model_context_limit(model, overrides)
+        counted = self.count_tokens(model, messages, tools)
+        tokens = max(counted, measured_tokens)
         if tokens >= int(limit * self.tier2_threshold_ratio):
             messages = self.prune_tool_payloads(messages)
-            tokens = self.count_tokens(model, messages)
+            pruned = self.count_tokens(model, messages, tools)
+            # The measured floor shrinks by what pruning removed, never to the bare estimate.
+            tokens = max(pruned, measured_tokens - (counted - pruned))
         if tokens >= int(limit * self.tier3_threshold_ratio):
             if summarize is not None:
                 return await self.compact_with_summary(messages, summarize)
             return self.compact_with_anchors(messages)
         return messages
+
+
+def _current_request(messages: list[ChatMessage]) -> int | None:
+    """Index of the latest message the person wrote (engine reminders are not theirs)."""
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.role == "user" and not (message.content or "").startswith(REMINDER_OPEN):
+            return index
+    return None
+
+
+def _compose(
+    head: list[ChatMessage], bridge: ChatMessage, tail: list[ChatMessage]
+) -> list[ChatMessage]:
+    """Head, bridge and tail as a valid transcript with no two user messages in a row."""
+    merged: list[ChatMessage] = []
+    for message in repair_tool_pairs([*head, bridge, *tail]):
+        previous = merged[-1] if merged else None
+        if (
+            previous is not None
+            and previous.role == message.role == "user"
+            and not previous.attachments
+            and not message.attachments
+        ):
+            merged[-1] = replace(
+                previous, content=f"{previous.content or ''}\n\n{message.content or ''}".strip()
+            )
+            continue
+        merged.append(message)
+    return merged
 
 
 def render_transcript(messages: list[ChatMessage], max_chars: int = 24_000) -> str:
@@ -300,6 +367,10 @@ def render_transcript(messages: list[ChatMessage], max_chars: int = 24_000) -> s
                 str(call.get("function", {}).get("name", "?")) for call in message.tool_calls
             )
             lines.append(f"assistant called tools: {names}")
+            for call in message.tool_calls:
+                function = call.get("function", {})
+                if function.get("name") == "update_task_checklist":
+                    lines.append(f"checklist: {str(function.get('arguments', ''))[:1500]}")
         if message.content:
             snippet = " ".join(message.content.split())[:600]
             lines.append(f"{message.role}: {snippet}")

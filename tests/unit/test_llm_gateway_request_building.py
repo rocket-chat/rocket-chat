@@ -110,10 +110,17 @@ def test_a_delta_yields_reasoning_then_text_then_tool_calls() -> None:
     assert tool_call["index"] == 1 and tool_call["function"]["name"] == "file_read"
 
 
-def test_a_provider_authentication_error_becomes_actionable_text() -> None:
-    chunks = LiteLLMGateway._provider_error_chunks("openrouter/acme/model", RuntimeError("bad key"))
+def test_a_provider_authentication_error_is_an_actionable_error_not_text() -> None:
+    import litellm
 
-    assert "openrouter" in (chunks[0].text_delta or "") and "bad key" in (
-        chunks[0].text_delta or ""
-    )
-    assert chunks[1].is_finished and chunks[1].finish_reason == "error"
+    refused = litellm.exceptions.AuthenticationError("bad key", "openrouter", "acme/model")
+    missing = litellm.exceptions.NotFoundError("no such model", "openrouter", "acme/model")
+
+    auth = LiteLLMGateway._provider_error_chunks("openrouter/acme/model", refused)
+    absent = LiteLLMGateway._provider_error_chunks("openrouter/acme/model", missing)
+
+    for chunks in (auth, absent):
+        assert len(chunks) == 1 and chunks[0].finish_reason == "error"
+        assert chunks[0].text_delta is None, "never shown or stored as the model's answer"
+    assert "Settings > Models" in (auth[0].error or "") and "bad key" in (auth[0].error or "")
+    assert "was not found" in (absent[0].error or "")

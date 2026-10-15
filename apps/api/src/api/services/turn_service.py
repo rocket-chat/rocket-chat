@@ -88,6 +88,21 @@ def resolve_permission_mode(
     return chosen
 
 
+def _context_windows(raw: object) -> tuple[tuple[str, int], ...]:
+    """The organization's context-window sizes, keeping only usable entries."""
+    if not isinstance(raw, dict):
+        return ()
+    windows: list[tuple[str, int]] = []
+    for pattern, size in raw.items():
+        try:
+            tokens = int(size)
+        except (TypeError, ValueError):
+            continue
+        if str(pattern).strip() and tokens > 0:
+            windows.append((str(pattern).strip(), tokens))
+    return tuple(windows)
+
+
 class TurnService:
     """Resolves the turn plan for a session and invokes the orchestrator.
 
@@ -196,6 +211,7 @@ class TurnService:
             thinking_budget_tokens=getattr(agent, "thinking_budget_tokens", None),
             reasoning_effort=getattr(agent, "reasoning_effort", None),
             fallback_models=fallbacks,
+            context_windows=_context_windows(models.get("context_windows")),
         )
         git = GitPolicy(
             authorship=str(github["commit_authorship_policy"]),

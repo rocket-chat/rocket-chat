@@ -160,7 +160,10 @@ def test_registry_exposes_package_manager_tool() -> None:
 async def test_registry_dispatches_package_manager() -> None:
     from agent_core.tools.registry import ToolRegistry
 
-    driver = FakeDriver([_probe(("package-lock.json", "package.json")), ExecResult(0, "ok", "", 1)])
+    no_repository = ExecResult(0, "", "", 1)
+    driver = FakeDriver(
+        [no_repository, _probe(("package-lock.json", "package.json")), ExecResult(0, "ok", "", 1)]
+    )
     registry = ToolRegistry(driver=driver, session_id="s1")
     out = await registry.call_tool("package_manager", {"action": "install"})
     assert "[package_manager/npm]" in out

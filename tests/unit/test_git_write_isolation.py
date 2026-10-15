@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import pathlib
-import shutil
 import subprocess
-import tempfile
 from types import SimpleNamespace
 from typing import Any
 
@@ -38,7 +36,8 @@ class _Engine:
 
     async def get_github_access_token(self, **kwargs: Any) -> str | None:
         self.requests.append(kwargs)
-        return "ghs_app_readonly" if kwargs.get("prefer_app") else "deployment-token"
+        assert "prefer_app" not in kwargs, "there is no deployment-wide token to prefer"
+        return "ghs_app_readonly"
 
 
 @pytest.fixture(autouse=True)
@@ -86,12 +85,10 @@ async def test_the_sandbox_gets_the_apps_read_only_token_and_the_member_token_st
         repo="acme/widgets",  # type: ignore[arg-type]
     )
 
-    assert bundle.mode == "app_readonly" and bundle.token == "ghs_app_readonly"
+    assert bundle.mode == "app" and bundle.token == "ghs_app_readonly"
     assert bundle.user_token == "gho_member", "kept for git_push and pull requests"
     assert bundle.author_name == "octocat", "commits are still made as the member"
-    assert engine.requests[0]["prefer_app"] is True and len(engine.requests) == 1, (
-        "a deployment-wide token never stands in for the App once the member has linked GitHub"
-    )
+    assert len(engine.requests) == 1, "one App token request, nothing else stands in for it"
 
 
 async def test_a_repository_the_app_cannot_see_falls_back_to_the_members_own_token(
@@ -113,7 +110,7 @@ async def test_a_repository_the_app_cannot_see_falls_back_to_the_members_own_tok
         repo="acme/private",  # type: ignore[arg-type]
     )
 
-    assert bundle.mode == "user_token" and bundle.token == "gho_member"
+    assert bundle.mode == "member" and bundle.token == "gho_member"
 
 
 async def test_a_member_with_nothing_linked_still_reads_with_the_deployments_token() -> None:
@@ -125,7 +122,7 @@ async def test_a_member_with_nothing_linked_still_reads_with_the_deployments_tok
         {},  # type: ignore[arg-type]
     )
 
-    assert bundle.mode == "app_readonly" and bundle.token == "ghs_app_readonly"
+    assert bundle.mode == "app" and bundle.token == "ghs_app_readonly"
     assert bundle.author_name == "RocketChat Bot" and bundle.user_token is None
 
 
@@ -152,59 +149,63 @@ async def test_a_raw_git_push_is_refused_with_the_way_forward_and_the_publisher_
     driver.home = home
     bundle = git_credentials.GitCredentialBundle(
         token="ghs_app_readonly",
-        mode="app_readonly",
+        mode="app",
         author_name="octocat",
         author_email="o@x.test",
     )
 
-    await inject_git_credentials_into_sandbox(driver, "s1", bundle)  # type: ignore[arg-type]
+    await inject_git_credentials_into_sandbox(
+        driver,  # type: ignore[arg-type]
+        "s1",
+        bundle,
+        org_id="o",
+        user_id="u",
+        api_url="https://api.github.com",
+    )
 
     refused = await driver.exec_command("s1", "git push origin HEAD:refs/heads/x")
     assert refused.exit_code != 0 and "git_push tool" in refused.stderr
-    allowed = await driver.exec_command(
+    # No variable the agent can set lifts the refusal (publishing happens on the platform).
+    still = await driver.exec_command(
         "s1", "git push origin HEAD:refs/heads/x", env={"ROCKET_PUBLISH": "1"}
     )
-    assert allowed.exit_code == 0, allowed.stderr
-    assert "ghs_app_readonly" == driver.session_env["GITHUB_TOKEN"]
+    assert still.exit_code != 0
+    assert "ghs_app_readonly" not in str(driver.session_env), "the sandbox holds no token"
 
 
-async def test_a_commit_made_in_the_sandbox_is_signed_with_the_members_key_until_the_turn_ends(
-    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+async def test_a_commit_made_in_the_sandbox_is_never_signed_and_no_key_enters_it(
+    tmp_path: pathlib.Path,
 ) -> None:
     if not gpg_available():
         pytest.skip("needs GnuPG")
     private, _ = make_key(tmp_path, "Octo Cat <octo@example.com>", passphrase="pw")
     info = await inspect_private_key(private, "pw")
-    keyring = pathlib.Path(tempfile.mkdtemp(prefix="sg-", dir="/tmp")) / "gnupg"
-    monkeypatch.setattr(git_credentials, "SIGNING_HOME", str(keyring))
-
     work = _remote_and_work(tmp_path)
     home = tmp_path / "home"
     home.mkdir()
     driver = LocalGitDriver(work, tmp_path / "shim")
     driver.home = home
-    # The identity must come from the injected config, not from the repository's own.
-    await driver.exec_command("s1", "git config --unset user.name; git config --unset user.email")
     bundle = git_credentials.GitCredentialBundle(
         token="ghs_read",
-        mode="app_readonly",
+        mode="app",
         author_name="octocat",
         author_email="octo@example.com",
         signing=MemberSigning(info.fingerprint, "octo@example.com", private, "pw"),
     )
 
-    await inject_git_credentials_into_sandbox(driver, "s1", bundle)  # type: ignore[arg-type]
-    made = await driver.exec_command("s1", "git commit -q --allow-empty -m signed")
-    assert made.exit_code == 0, made.stderr
-    shown = (await driver.exec_command("s1", "git log -1 --format='%G?|%GF|%ae'")).stdout.strip()
-    status, fingerprint, author = shown.split("|")
-    assert status in ("G", "U"), f"a good signature, got {status}"
-    assert fingerprint == info.fingerprint and author == "octo@example.com"
-    assert (keyring / "pass").read_text() == "pw" and (keyring.stat().st_mode & 0o777) == 0o700
+    await inject_git_credentials_into_sandbox(
+        driver,  # type: ignore[arg-type]
+        "s1",
+        bundle,
+        org_id="o",
+        user_id="u",
+        api_url="https://api.github.com",
+    )
+    made = await driver.exec_command("s1", "git commit -q --allow-empty -m plain")
 
-    await git_credentials.apply_signing_to_sandbox(driver, "s1", None)  # type: ignore[arg-type]
-    assert not keyring.exists(), "the key leaves the sandbox when the turn ends"
-    shutil.rmtree(keyring.parent, ignore_errors=True)
-    plain = await driver.exec_command("s1", "git commit -q --allow-empty -m plain")
-    assert plain.exit_code == 0, plain.stderr
+    assert made.exit_code == 0, made.stderr
     assert (await driver.exec_command("s1", "git log -1 --format=%G?")).stdout.strip() == "N"
+    every_command = " ".join(command for command, _ in driver.calls)
+    assert "PRIVATE KEY" not in every_command and private not in every_command
+    assert "PRIVATE KEY" not in str(driver.session_env)
+    assert "gpgsign" not in (await driver.exec_command("s1", "git config --global -l")).stdout

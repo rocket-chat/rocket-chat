@@ -1259,6 +1259,7 @@ dependencies = [
     { name = "httpx" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
+    { name = "sandbox-driver" },
 ]
 
 [package.metadata]
@@ -1267,6 +1268,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.8.0" },
+    { name = "sandbox-driver", editable = "packages/sandbox-driver" },
 ]
 
 [[package]]

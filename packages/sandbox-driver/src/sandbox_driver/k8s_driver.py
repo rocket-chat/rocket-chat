@@ -8,6 +8,7 @@ import os
 import re
 import shlex
 import time
+import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -18,6 +19,7 @@ from kubernetes_asyncio.stream import WsApiClient, ws_client
 from sandbox_driver.egress import (
     EGRESS_LABEL,
     EGRESS_RESTRICTED,
+    PlatformPeer,
     build_egress_policy,
     is_restricted,
     resolve_destinations,
@@ -58,6 +60,16 @@ from specifications.interfaces.sandbox import (
 )
 
 logger = logging.getLogger(__name__)
+
+# The exec stdin channel (first byte of a frame), and the prelude that turns the base64
+# ``KEY=VALUE`` lines sent on it into the command's environment (see ``_shell_command``).
+_STDIN_FRAME = b"\x00"
+_ENV_END = "__ROCKET_ENV_END__"
+_ENV_PRELUDE = (
+    'while IFS= read -r __rocket_kv && [ "$__rocket_kv" != "' + _ENV_END + '" ]; do '
+    'export "$(printf %s "$__rocket_kv" | base64 -d)"; done;'
+)
+_ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 CLOUD_STORAGE_CLASSES: dict[str, str] = {
     "aws": "gp3",
@@ -188,6 +200,8 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         networking_v1_api: client.NetworkingV1Api | None = None,
     ) -> None:
         self.namespace: str = namespace or os.getenv("K8S_SANDBOX_NAMESPACE") or "agent-sandboxes"
+        # The API pods a restricted sandbox must still reach (the git gateway); set by the chart.
+        self._platform_peer = PlatformPeer.from_env()
         self.default_image: str = os.getenv("K8S_DEFAULT_IMAGE") or default_image
         self.grace_period_seconds: int = grace_period_seconds
 
@@ -241,12 +255,23 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         self._last_activity: dict[str, float] = {}
         self._held_until: dict[str, float] = {}
         self._init_lock = asyncio.Lock()
+        # Eviction protection: how many commands are running per session, the state last
+        # written to the pod, and a lock so two writes for one pod never cross.
+        self._running_commands: dict[str, int] = {}
+        self._protection_applied: dict[str, bool] = {}
+        self._protection_locks: dict[str, asyncio.Lock] = {}
+        self._protection_tasks: set[asyncio.Task[None]] = set()
 
     def hold_awake(self, session_id: str, seconds: float) -> None:
         if seconds <= 0:
             self._held_until.pop(session_id, None)
         else:
             self._held_until[session_id] = time.time() + seconds
+        # Background processes need the pod kept from eviction now, not at the next command.
+        with contextlib.suppress(RuntimeError):  # no running loop: the next command syncs it
+            task = asyncio.get_running_loop().create_task(self._sync_protection(session_id))
+            self._protection_tasks.add(task)
+            task.add_done_callback(self._protection_tasks.discard)
 
     def record_activity(self, session_id: str) -> None:
         """Record interaction timestamp to calculate idle duration for pause and cleanup."""
@@ -303,6 +328,7 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
             cidrs=await resolve_destinations(spec.egress_allowlist),
             labels=self._build_labels(spec),
             internet_except_internal=not spec.egress_allowlist,
+            platform_peer=self._platform_peer,
         )
         try:
             await networking.create_namespaced_network_policy(namespace=self.namespace, body=policy)
@@ -714,6 +740,26 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                 return SandboxStatus.NON_EXISTENT
             return SandboxStatus.ERROR
 
+    def _wants_protection(self, session_id: str) -> bool:
+        """A command is running, or background processes hold the sandbox awake."""
+        held = self._held_until.get(session_id, 0) > time.time()
+        return self._running_commands.get(session_id, 0) > 0 or held
+
+    async def _sync_protection(self, session_id: str) -> None:
+        """Bring the pod's eviction annotations in line with what the session needs now.
+
+        Commands overlap (parallel tool calls, a background process with a shell): toggling per
+        command let the first to finish mark the pod evictable while others still ran. The pod
+        is written only when the needed state differs from the last one written.
+        """
+        lock = self._protection_locks.setdefault(session_id, asyncio.Lock())
+        async with lock:
+            wanted = self._wants_protection(session_id)
+            if self._protection_applied.get(session_id) == wanted:
+                return
+            await self.set_eviction_protection(session_id, protected=wanted)
+            self._protection_applied[session_id] = wanted
+
     async def set_eviction_protection(self, session_id: str, protected: bool) -> None:
         """Dynamically toggle eviction protection for Cluster Autoscaler and Karpenter.
 
@@ -765,19 +811,25 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         workdir: str,
         timeout_seconds: int,
         env: dict[str, str] | None,
-    ) -> list[str]:
-        """The ``/bin/sh -c`` argv that runs ``command`` in ``workdir`` under a deadline."""
-        env_prefix = ""
-        merged = self.merged_env(session_id, env)
-        if merged:
-            # `export` (not a bare prefix) so every command of a compound script sees it.
-            env_prefix = (
-                "export "
-                + " ".join(f"{k}={shlex.quote(str(v))}" for k, v in merged.items())
-                + " && "
-            )
+    ) -> tuple[list[str], bytes | None]:
+        """The ``/bin/sh -c`` argv that runs ``command`` in ``workdir``, and its stdin.
+
+        The environment (the git gateway capability among it) never goes on the command line,
+        which anything in the pod can read in ``/proc/*/cmdline`` and the API server records in
+        its audit log of exec requests. It is sent on stdin as base64 ``KEY=VALUE`` lines read by
+        a short prelude; the command itself then reads ``/dev/null``, as without stdin.
+        """
         deadline_command = wrap_with_deadline(command, timeout_seconds)
-        return ["/bin/sh", "-c", f"cd {shlex.quote(workdir)} && {env_prefix}{deadline_command}"]
+        merged = self.merged_env(session_id, env)
+        if not merged:
+            return ["/bin/sh", "-c", f"cd {shlex.quote(workdir)} && {deadline_command}"], None
+        payload = "".join(
+            base64.b64encode(f"{key}={value}".encode()).decode() + "\n"
+            for key, value in merged.items()
+            if _ENV_KEY.match(key)
+        )
+        script = f"{_ENV_PRELUDE} cd {shlex.quote(workdir)} && {{ {deadline_command}; }} </dev/null"
+        return ["/bin/sh", "-c", script], f"{payload}{_ENV_END}\n".encode()
 
     @traced_exec
     async def exec_command(
@@ -793,32 +845,42 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         core_v1, ws_core_v1 = await self._ensure_clients()
         pod_name = self._pod_name(session_id)
         await self._assert_pod_running(core_v1, pod_name)
-        exec_cmd = self._shell_command(session_id, command, workdir, timeout_seconds, env)
+        exec_cmd, stdin_payload = self._shell_command(
+            session_id, command, workdir, timeout_seconds, env
+        )
 
         start_time = time.monotonic()
         output = _ExecOutput(on_stdout_chunk)
-        await self.set_eviction_protection(session_id, protected=True)
+        self._running_commands[session_id] = self._running_commands.get(session_id, 0) + 1
+        await self._sync_protection(session_id)
         try:
             await asyncio.wait_for(
-                self._stream_exec(ws_core_v1, pod_name, exec_cmd, output),
+                self._stream_exec(ws_core_v1, pod_name, exec_cmd, output, stdin_payload),
                 timeout=timeout_seconds + CLIENT_DEADLINE_MARGIN_SECONDS,
             )
         except TimeoutError as err:
             raise SandboxTimeoutError(
-                f"Command timed out after {timeout_seconds} seconds: {command}"
+                f"Command timed out after {timeout_seconds} seconds: {command}",
+                output.stdout.text(),
+                output.stderr.text(),
             ) from err
         except SandboxError:
             raise
         except Exception as err:
             raise SandboxExecutionError(f"Exec stream failure in pod {pod_name}: {err}") from err
         finally:
-            await self.set_eviction_protection(session_id, protected=False)
+            self._running_commands[session_id] -= 1
+            if not self._running_commands[session_id]:
+                self._running_commands.pop(session_id)
+            await self._sync_protection(session_id)
 
         self.record_activity(session_id)
         elapsed = time.monotonic() - start_time
         if hit_deadline(output.exit_code, elapsed, timeout_seconds):
             raise SandboxTimeoutError(
-                f"Command timed out after {timeout_seconds} seconds: {command}"
+                f"Command timed out after {timeout_seconds} seconds: {command}",
+                output.stdout.text(),
+                output.stderr.text(),
             )
         return ExecResult(
             exit_code=output.exit_code,
@@ -828,19 +890,26 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         )
 
     async def _stream_exec(
-        self, ws_core_v1: Any, pod_name: str, exec_cmd: list[str], output: _ExecOutput
+        self,
+        ws_core_v1: Any,
+        pod_name: str,
+        exec_cmd: list[str],
+        output: _ExecOutput,
+        stdin_payload: bytes | None = None,
     ) -> None:
         ws_conn: Any = await ws_core_v1.connect_get_namespaced_pod_exec(
             name=pod_name,
             namespace=self.namespace,
             command=exec_cmd,
             stderr=True,
-            stdin=False,
+            stdin=stdin_payload is not None,
             stdout=True,
             tty=False,
             _preload_content=False,
         )
         async with ws_conn as ws:
+            if stdin_payload is not None:
+                await ws.send_bytes(_STDIN_FRAME + stdin_payload)
             async for message in ws:
                 output.feed(message.data)
 
@@ -925,6 +994,24 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         await self.write_file(session_id, target_path, patched_content, overwrite=True)
         return True
 
+    async def _terminal_environment(self, session_id: str) -> str:
+        """Shell text that loads the session environment into a terminal, or ``""``.
+
+        A terminal's stdin is a TTY that echoes what it receives, so the environment cannot be
+        sent there as for a command. A plain exec (which gets it on stdin) writes it to a
+        private file instead; the terminal's shell reads and deletes it before it starts.
+        """
+        if not self.merged_env(session_id, None):
+            return ""
+        path = f"/tmp/.rocket-env-{uuid.uuid4().hex}"
+        written = await self.exec_command(
+            session_id, f"umask 077 && export -p > {path}", timeout_seconds=30
+        )
+        if written.exit_code != 0:
+            logger.warning("Could not prepare the terminal environment: %s", written.stderr)
+            return ""
+        return f". {path} 2>/dev/null; rm -f {path}; "
+
     async def open_pty(self, session_id: str, cols: int = 80, rows: int = 24) -> PtyChannel:
         """Start a login shell in the pod with a real TTY over the exec WebSocket."""
         pod_name = self._pod_name(session_id)
@@ -934,12 +1021,7 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                 f"Pod {pod_name} is in status {status}, not {SandboxStatus.RUNNING}."
             )
         _, ws_core_v1 = await self._ensure_clients()
-        merged = self.merged_env(session_id, None)
-        env_prefix = (
-            "export " + " ".join(f"{k}={shlex.quote(str(v))}" for k, v in merged.items()) + "; "
-            if merged
-            else ""
-        )
+        env_prefix = await self._terminal_environment(session_id)
         ws_conn: Any = await ws_core_v1.connect_get_namespaced_pod_exec(
             name=pod_name,
             namespace=self.namespace,
@@ -1100,6 +1182,9 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         paused: list[str] = []
 
         for session_id, last_time in list(self._last_activity.items()):
+            # A hold that ran out (its background processes ended) releases the pod.
+            if self._protection_applied.get(session_id):
+                await self._sync_protection(session_id)
             if self._held_until.get(session_id, 0) > now:
                 continue
             if now - last_time >= threshold:

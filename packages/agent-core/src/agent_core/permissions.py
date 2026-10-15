@@ -13,6 +13,10 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from agent_core.tools.github_ci import ACTIONS_READ, RELEASES_READ
+from agent_core.tools.github_generic import call_is_critical, call_is_read
+from agent_core.tools.github_prs import PR_READ_ACTIONS
+
 # Calls that cannot change the workspace, the repository or the outside world.
 READ_TOOLS: frozenset[str] = frozenset(
     {
@@ -28,6 +32,7 @@ READ_TOOLS: frozenset[str] = frozenset(
         "search_tools",
         # Fetching code to read it: it adds files to the sandbox but changes no repository.
         "clone_repository",
+        "set_active_repository",
         # Looking at, waiting for or stopping a process the session itself started.
         "process_list",
         "process_output",
@@ -36,7 +41,7 @@ READ_TOOLS: frozenset[str] = frozenset(
         # Read-only GitHub lookups: nothing in the sandbox, repository or account changes.
         "github_find_repositories",
         "github_read_file",
-        "github_issues",
+        "github_search",
         # Recording that the session follows a pull request; nothing on GitHub changes.
         "github_watch",
         "github_unwatch",
@@ -66,6 +71,16 @@ PUBLISH_TOOLS: frozenset[str] = frozenset(
     {"git_commit", "git_branch", "git_push", "git_open_pr", "git_revert"}
 )
 
+# GitHub tools whose calls are reads or changes depending on their action (or method).
+_GITHUB_READ_ACTIONS: dict[str, frozenset[str]] = {
+    "github_pull_request": PR_READ_ACTIONS,
+    "github_actions": ACTIONS_READ,
+    "github_releases": RELEASES_READ,
+}
+# Changes a person must approve in every mode but bypass: they cannot be taken back.
+_CRITICAL_GITHUB_ACTIONS = frozenset({("github_pull_request", "merge")})
+ACTION_CLASSIFIED_TOOLS = frozenset({*_GITHUB_READ_ACTIONS, "github_issues", "github_api"})
+
 MODES_GATING_EDITS: frozenset[str] = frozenset({"ask"})
 MODES_GATING_COMMANDS: frozenset[str] = frozenset({"ask", "auto_edit"})
 
@@ -94,8 +109,28 @@ def _summarise(name: str, arguments: dict[str, Any]) -> str:
     return text
 
 
+def _classify_github(name: str, arguments: dict[str, Any]) -> tuple[str, str]:
+    if name == "github_api":
+        if call_is_read(arguments):
+            return "read", "low"
+        return "publish", "critical" if call_is_critical(arguments) else "high"
+    action = str(arguments.get("action") or "")
+    if name == "github_issues":
+        return ("read", "low") if not action else ("publish", "high")
+    if action in _GITHUB_READ_ACTIONS[name]:
+        return "read", "low"
+    return "publish", "critical" if (name, action) in _CRITICAL_GITHUB_ACTIONS else "high"
+
+
+def is_read_call(name: str, arguments: dict[str, Any]) -> bool:
+    """Whether this call changes nothing (what plan mode allows)."""
+    return _classify(name, arguments)[0] == "read"
+
+
 def _classify(name: str, arguments: dict[str, Any]) -> tuple[str, str]:
     """(kind, risk_level) of a tool call; unknown tools are treated as commands."""
+    if name in ACTION_CLASSIFIED_TOOLS:
+        return _classify_github(name, arguments)
     if name in READ_TOOLS:
         return "read", "low"
     if name in EDIT_TOOLS:
@@ -116,6 +151,7 @@ def approval_needed(mode: str, name: str, arguments: dict[str, Any]) -> Approval
         (kind == "edit" and mode in MODES_GATING_EDITS)
         or (kind == "command" and mode in MODES_GATING_COMMANDS)
         or (kind == "publish" and mode in MODES_GATING_COMMANDS)
+        or (risk == "critical" and name in ACTION_CLASSIFIED_TOOLS and mode != "bypass")
     )
     if not gated:
         return None

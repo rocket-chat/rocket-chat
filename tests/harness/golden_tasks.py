@@ -319,7 +319,9 @@ async def _memory() -> Outcome:
     )
     requests = outcome.gateway.requests if outcome.gateway else []
     outcome.extra["injected"] = any(
-        message.content == MEMORY_BLOCK for request in requests for message in request.messages
+        MEMORY_BLOCK in (message.content or "")
+        for request in requests
+        for message in request.messages
     )
     return outcome
 
@@ -451,7 +453,7 @@ GOLDEN_TASKS: tuple[GoldenTask, ...] = (
     ),
     GoldenTask(
         "memory_recall_injected",
-        "A bound recall injects the memory into the dispatched dynamic prompt suffix.",
+        "A bound recall injects the memory into the volatile context at the end of the request.",
         "orchestrator",
         "conversational",
         _memory,

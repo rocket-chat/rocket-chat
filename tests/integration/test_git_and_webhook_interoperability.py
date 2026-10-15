@@ -1,8 +1,10 @@
 """Integration test for GitEngine and GitHub Webhook automated session resume."""
 
+import asyncio
 import hashlib
 import hmac
 import json
+import pathlib
 import shutil
 import subprocess
 import uuid
@@ -38,7 +40,9 @@ def _sandbox_image() -> str:
 
 
 @pytest.mark.asyncio
-async def test_git_and_webhook_interoperability(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_git_and_webhook_interoperability(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
+) -> None:
     image = _sandbox_image()
 
     # The organization default image is not pullable in CI, so this test names a local/public one.
@@ -120,6 +124,10 @@ async def test_git_and_webhook_interoperability(monkeypatch: pytest.MonkeyPatch)
             status = await driver.get_status(expected_session_id)
             assert status == SandboxStatus.RUNNING
 
+            # A blank sandbox has no repository; committing never creates one implicitly.
+            init = await driver.exec_command(expected_session_id, "git init -q -b main")
+            assert init.exit_code == 0, init.stderr
+
             # Write buggy math code into sandbox
             initial_code = "def divide(a: float, b: float) -> float:\n    return a / b\n"
             await driver.write_file(expected_session_id, "calculator.py", initial_code)
@@ -186,6 +194,15 @@ async def test_git_and_webhook_interoperability(monkeypatch: pytest.MonkeyPatch)
                     return _PullResponse()
 
             monkeypatch.setattr("git_engine.engine.httpx.AsyncClient", _StubClient)
+            # The platform pushes from its own side: "GitHub" for it is an empty repository on
+            # this host, as for a repository just created on GitHub.
+            github = tmp_path / "github"
+            hosted = github / f"{repo_name}.git"
+            hosted.parent.mkdir(parents=True)
+            await asyncio.to_thread(
+                subprocess.run, ["git", "init", "-q", "--bare", str(hosted)], check=True
+            )
+            git_engine.settings.git_base_url = f"file://{github}"
             pr_url = await git_engine.push_and_open_pr(
                 session_id=expected_session_id,
                 title=f"Fix division bug (#{issue_number})",
@@ -194,6 +211,15 @@ async def test_git_and_webhook_interoperability(monkeypatch: pytest.MonkeyPatch)
                 token="member-token",
             )
             assert pr_url == f"https://github.com/{repo_name}/pull/7"
+            branch = f"agent/issue-{issue_number}-fix"
+            published = await asyncio.to_thread(
+                subprocess.run,
+                ["git", "-C", str(hosted), "log", "-1", "--format=%s", branch],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            assert published.stdout.startswith("fix(calc)")
 
             # -------------------------------------------------------------
             # Step 4: Test Hibernation & Automated Session Resume

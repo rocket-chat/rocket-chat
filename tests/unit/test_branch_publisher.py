@@ -15,10 +15,12 @@ from collections.abc import Iterator
 
 import httpx
 import pytest
+from api.services.git_signing import gpg_available, inspect_private_key
 from git_engine import publish as publish_module
-from git_engine.publish import BranchPublisher, PublishError
+from git_engine.publish import BranchPublisher, PublishError, repository_of
 
-from specifications.interfaces.git import PublishSpec, SigningMode
+from specifications.interfaces.git import PublishSpec, SigningKey, SigningMode
+from tests.support.gpg_keys import make_key
 from tests.support.local_git_driver import LocalGitDriver
 
 REPOSITORY = "acme/widgets"
@@ -78,8 +80,14 @@ class SimulatedGitHub:
 
 class Rig:
     def __init__(self, tmp: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        bare = tmp / "remote.git"
+        # "GitHub" for the platform's push: <git_base_url>/acme/widgets.git, which serves
+        # partial and by-commit fetches as GitHub does.
+        self.git_base_url = f"file://{tmp}/remotes"
+        bare = tmp / "remotes" / f"{REPOSITORY}.git"
+        bare.parent.mkdir(parents=True)
         subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(bare)], check=True)
+        git(bare, "config", "uploadpack.allowFilter", "true")
+        git(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
         seed = tmp / "seed"
         subprocess.run(["git", "clone", "-q", str(bare), str(seed)], check=True)
         git(seed, "config", "user.name", "Seed")
@@ -116,7 +124,12 @@ class Rig:
         return self.app_token
 
     def publisher(self) -> BranchPublisher:
-        return BranchPublisher(self.driver, "https://api.github.com", self.mint)  # type: ignore[arg-type]
+        return BranchPublisher(
+            self.driver,  # type: ignore[arg-type]
+            "https://api.github.com",
+            self.mint,
+            git_base_url=self.git_base_url,
+        )
 
     def commit(self, name: str, content: str, message: str) -> None:
         (self.work / name).write_text(content)
@@ -240,23 +253,128 @@ async def test_without_any_write_credential_the_reason_is_given(rig: Rig) -> Non
         await rig.publisher().publish("s1", API)
 
 
-async def test_a_plain_push_hands_the_token_to_that_command_only(rig: Rig) -> None:
+async def test_a_plain_push_happens_on_the_platform_and_nothing_in_the_sandbox_sees_it(
+    rig: Rig, tmp_path: pathlib.Path
+) -> None:
     git(rig.work, "checkout", "-q", "-b", "feat/plain")
     rig.commit("a.txt", "1\n", "First")
-    hook = rig.work / ".git" / "hooks" / "pre-push"
+    # Everything the agent could set up in its sandbox to catch or divert a push.
+    evil = tmp_path / "evil.git"
+    git(tmp_path, "init", "-q", "--bare", str(evil))
     seen = rig.work / "hook-env.txt"
-    hook.write_text(f'#!/bin/sh\necho "$ROCKET_PUBLISH|$GITHUB_TOKEN" > {seen}\n')
-    hook.chmod(0o755)
+    hooks = rig.work / ".git" / "hooks"
+    (hooks / "pre-push").write_text(f"#!/bin/sh\nenv > {seen}\n")
+    (hooks / "pre-push").chmod(0o755)
+    git(rig.work, "config", "remote.origin.pushurl", str(evil))
+    git(rig.work, "config", "credential.helper", f"!f() {{ cat > {seen}; }}; f")
+    git(rig.work, "config", f"url.{evil}.pushInsteadOf", "https://github.com/")
 
     result = await rig.publisher().publish(
         "s1", PublishSpec(signing_mode=SigningMode.NONE, token="gho_member")
     )
 
-    assert result.via == "git_push"
-    assert seen.read_text().strip() == "1|gho_member"
+    assert result.via == "git_push" and result.commits == 1
     assert git(rig.bare, "rev-parse", "refs/heads/feat/plain") == git(rig.work, "rev-parse", "HEAD")
-    session_env = [env for _, env in rig.driver.calls if "GITHUB_TOKEN" in env]
-    assert len(session_env) == 1 and session_env[0]["GITHUB_TOKEN"] == "gho_member"
+    assert not seen.exists(), "no sandbox hook or helper took part in the push"
+    assert git(evil, "for-each-ref") == "", "nothing was pushed where the sandbox pointed"
+    assert not any(
+        "gho_member" in str(env) or "gho_member" in command for command, env in rig.driver.calls
+    ), "the token never reached the sandbox"
+    assert git(rig.work, "rev-parse", "refs/remotes/origin/feat/plain") == result.head_sha
+
+
+async def test_gpg_mode_signs_the_published_commits_with_the_members_key_on_the_platform(
+    rig: Rig, tmp_path: pathlib.Path
+) -> None:
+    if not gpg_available():
+        pytest.skip("needs GnuPG")
+    private, public = make_key(tmp_path, "Octo Cat <octo@example.com>", passphrase="pw")
+    info = await inspect_private_key(private, "pw")
+    git(rig.work, "checkout", "-q", "-b", "feat/signed")
+    rig.commit("a.txt", "1\n", "First")
+    rig.commit("b.txt", "2\n", "Second")
+    local = git(rig.work, "rev-list", "main..HEAD").split()
+    (rig.work / "dirty.txt").write_text("uncommitted\n")
+
+    result = await rig.publisher().publish(
+        "s1",
+        PublishSpec(
+            signing_mode=SigningMode.GPG_KEY,
+            token="gho_member",
+            signing_key=SigningKey(info.fingerprint, private, "pw"),
+        ),
+    )
+
+    remote = git(rig.bare, "rev-list", "main..refs/heads/feat/signed").split()
+    assert len(remote) == 2 and set(remote).isdisjoint(local), "re-created, hashes changed"
+    for sha in remote:
+        assert "gpgsig" in git(rig.bare, "cat-file", "commit", sha)
+    assert git(rig.bare, "log", "--format=%s|%an", "refs/heads/feat/signed", "-2").splitlines() == [
+        "Second|Rocket Bot",
+        "First|Rocket Bot",
+    ], "messages and authorship are kept"
+    assert git(rig.work, "rev-parse", "HEAD") == result.head_sha == remote[0]
+    assert (rig.work / "dirty.txt").read_text() == "uncommitted\n"
+    assert any("Signed with your GPG key" in note for note in result.notices)
+    assert public, "the key pair is real"
+
+
+async def test_force_with_lease_replaces_a_diverged_remote_branch_it_has_seen(rig: Rig) -> None:
+    git(rig.work, "checkout", "-q", "-b", "feat/force")
+    rig.commit("a.txt", "1\n", "Local")
+    git(rig.github.scratch, "fetch", "-q", "origin")
+    git(rig.github.scratch, "checkout", "-q", "-B", "feat/force", "origin/main")
+    rig.github.scratch.joinpath("other.txt").write_text("remote\n")
+    git(rig.github.scratch, "add", "-A")
+    git(rig.github.scratch, "commit", "-q", "-m", "Remote only")
+    git(rig.github.scratch, "push", "-q", "origin", "feat/force")
+    plain = PublishSpec(signing_mode=SigningMode.NONE, token="t")
+
+    with pytest.raises(PublishError, match="rebase"):
+        await rig.publisher().publish("s1", plain)
+    forced = PublishSpec(signing_mode=SigningMode.NONE, token="t", force_with_lease=True)
+    result = await rig.publisher().publish("s1", forced)
+
+    assert git(rig.bare, "log", "-1", "--format=%s", "refs/heads/feat/force") == "Local"
+    assert result.commits == 1
+
+
+async def test_a_branch_deleted_on_the_remote_is_published_again_as_new(rig: Rig) -> None:
+    git(rig.work, "checkout", "-q", "-b", "feat/again")
+    rig.commit("a.txt", "1\n", "First")
+    plain = PublishSpec(signing_mode=SigningMode.NONE, token="t")
+    await rig.publisher().publish("s1", plain)
+    git(rig.bare, "update-ref", "-d", "refs/heads/feat/again")  # merged and deleted
+    rig.commit("b.txt", "2\n", "Second")
+
+    result = await rig.publisher().publish("s1", plain)
+
+    assert result.commits == 2 and any("Created the branch" in n for n in result.notices)
+    assert git(rig.bare, "rev-list", "--count", "main..refs/heads/feat/again") == "2"
+
+
+@pytest.mark.parametrize(
+    "url, expected",
+    [
+        ("https://github.com/acme/widgets.git", "acme/widgets"),
+        ("https://github.com/acme/widgets", "acme/widgets"),
+        ("git@github.com:acme/widgets.git", "acme/widgets"),
+        ("ssh://git@github.com/acme/widgets", "acme/widgets"),
+        ("https://evil.example/github.com/acme/widgets", None),
+        ("https://github.com.evil.example/acme/widgets", None),
+        ("https://token@github.com/acme/widgets", None),
+        ("file:///tmp/github.com/acme/widgets", None),
+        ("https://github.com/acme/widgets/extra", None),
+    ],
+)
+def test_only_a_github_origin_on_the_configured_host_is_published_to(
+    url: str, expected: str | None
+) -> None:
+    if expected is None:
+        with pytest.raises(PublishError):
+            repository_of(url)
+    else:
+        assert repository_of(url) == expected
 
 
 async def test_a_repository_cloned_into_a_subfolder_is_found_and_published(
@@ -292,7 +410,7 @@ async def test_a_named_folder_decides_between_several_repositories(
     git(workspace / "one", "add", "-A")
     git(workspace / "one", "commit", "-q", "-m", "First")
 
-    with pytest.raises(PublishError, match="one, two"):
+    with pytest.raises(PublishError, match="/workspace/one, /workspace/two"):
         await rig.publisher().publish("s1", API)
     named = PublishSpec(
         signing_mode=SigningMode.GITHUB_APP, installations=((7, "acme"),), path="one"
@@ -335,3 +453,29 @@ async def test_the_missing_credential_error_says_what_to_check(rig: Rig) -> None
         await rig.publisher().publish("s1", API)
 
     assert "installation mapped" in str(raised.value) and "link one" in str(raised.value)
+
+
+async def test_an_empty_repository_receives_the_whole_branch_or_a_clear_refusal(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig = Rig(tmp_path, monkeypatch)
+    empty = tmp_path / "remotes" / "acme" / "fresh.git"
+    git(tmp_path, "init", "-q", "--bare", "-b", "main", str(empty))
+    work = tmp_path / "fresh"
+    git(tmp_path, "init", "-q", "-b", "main", str(work))
+    git(work, "config", "user.name", "Rocket Bot")
+    git(work, "config", "user.email", "bot@rocket.test")
+    git(work, "config", "remote.origin.url", "https://github.com/acme/fresh.git")
+    git(work, "config", f"url.{empty}.insteadOf", "https://github.com/acme/fresh.git")
+    (work / "app.py").write_text("print('hi')\n")
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", "First commit")
+    rig.driver.workdir = work
+
+    with pytest.raises(PublishError, match="no main branch yet"):
+        await rig.publisher().publish("s1", API)
+    result = await rig.publisher().publish(
+        "s1", PublishSpec(signing_mode=SigningMode.NONE, token="t")
+    )
+
+    assert result.commits == 1 and git(empty, "log", "--format=%s", "main") == "First commit"

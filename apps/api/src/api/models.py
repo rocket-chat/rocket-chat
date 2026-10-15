@@ -362,7 +362,9 @@ class SubagentConfigModel(BaseModel):
     description: str
     system_prompt: str
     model: str | None = None
-    max_turns: int = 5
+    max_turns: int = Field(
+        12, ge=1, le=60, description="Steps the subagent may take before it must report."
+    )
     whitelisted_tools: list[str] = Field(default_factory=lambda: ["*"])
     temperature: float = 0.2
     enabled: bool = True
@@ -399,7 +401,9 @@ class GitHubCredentialStatus(BaseModel):
     scopes: list[str] = Field(default_factory=list)
     auth_type: str = "none"  # "oauth", "pat", "none"
     updated_at: int | None = None
-    injection_mode: str = "none"  # "user_token", "app_readonly", "none"
+    # How the platform reads GitHub for this member (the sandbox never holds a credential):
+    # "app", "member" or "public". The field keeps its historical name.
+    injection_mode: str = "public"
     commit_name: str = Field(default="", description="The name commits made as the member carry")
     commit_email: str = Field(default="", description="The e-mail commits made as the member carry")
     commit_name_source: str = Field(

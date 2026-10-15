@@ -1,6 +1,7 @@
 """Resilient AST and block-replacement code editor producing unified FileDiffs."""
 
 import difflib
+import re
 
 from specifications.interfaces.agent import FileDiff
 
@@ -63,6 +64,17 @@ def _find_single_match_index(source_lines: list[str], target_lines: list[str]) -
     return match_indices[0]
 
 
+# ``file_read`` prints each line as "<number>\t<text>" (right-aligned number).
+_NUMBERED = re.compile(r"^ *\d+\t", re.MULTILINE)
+
+
+def _strip_line_numbers(block: str) -> str:
+    lines = block.splitlines(keepends=True)
+    if not all(_NUMBERED.match(line) for line in lines if line.strip()):
+        return block
+    return "".join(_NUMBERED.sub("", line, count=1) for line in lines)
+
+
 def replace_block(source_text: str, target_block: str, replacement_block: str) -> str:
     """
     Replace target_block with replacement_block inside source_text.
@@ -70,6 +82,11 @@ def replace_block(source_text: str, target_block: str, replacement_block: str) -
     Supports exact matching and whitespace-trimmed line matching.
     Errors if 0 or more than 1 matches are detected.
     """
+    # A block copied from ``file_read`` keeps its line-number gutter; it is not file content.
+    if _NUMBERED.match(target_block) and not _NUMBERED.search(source_text):
+        target_block = _strip_line_numbers(target_block)
+        replacement_block = _strip_line_numbers(replacement_block)
+
     # 1. Exact string substitution if unambiguous
     occurrences = source_text.count(target_block)
     if occurrences == 1:
