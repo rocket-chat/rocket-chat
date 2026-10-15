@@ -191,7 +191,9 @@ class SubagentRunner:
 
     def tools_for(self, config: SubagentConfig) -> list[ToolDefinition]:
         """The tool definitions a delegate may use; subagents may not delegate further."""
-        all_tools = self.registry.get_tool_definitions()
+        ctx = current_execution_ctx.get()
+        denied = ctx.denied_tools if ctx is not None else frozenset()
+        all_tools = [t for t in self.registry.get_tool_definitions() if t.name not in denied]
         if "*" in config.whitelisted_tools:
             return [tool for tool in all_tools if tool.name not in NO_DELEGATION]
         allowed = set(config.whitelisted_tools) - NO_DELEGATION

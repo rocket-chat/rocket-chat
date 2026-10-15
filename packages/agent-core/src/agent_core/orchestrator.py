@@ -543,6 +543,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         system_prompt: str | None = None,
         system_prompt_parts: SystemPrompt | None = None,
         whitelisted_tools: list[str] | None = None,
+        denied_tools: frozenset[str] | None = None,
         tenant_org_id: str = "default_org",
         tenant_user_id: str = "dev_user",
         max_turns: int | None = None,
@@ -569,6 +570,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 if whitelisted_tools is not None and "*" not in whitelisted_tools
                 else None
             ),
+            denied_tools=denied_tools or frozenset(),
             zero_retention=zero_retention,
             region=region,
             enabled_toolsets=enabled_toolsets or frozenset(),
@@ -856,7 +858,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         return messages
 
     def _tools_for_request(self, whitelisted_tools: list[str] | None) -> list[ToolDefinition]:
-        all_tools = self._registry.get_tool_definitions()
+        ctx = current_execution_ctx.get()
+        denied = ctx.denied_tools if ctx is not None else frozenset()
+        all_tools = [t for t in self._registry.get_tool_definitions() if t.name not in denied]
         if whitelisted_tools is None or "*" in whitelisted_tools:
             return all_tools
         allowed = set(whitelisted_tools)
