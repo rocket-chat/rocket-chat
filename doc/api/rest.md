@@ -388,6 +388,12 @@ against the session, and RLS scopes the workspace to the caller's organization.
 
 ## GitHub App
 
+### `GET /v1/admin/github/install`
+
+Send the administrator to GitHub to install the App, with a fresh signed state.
+
+**Responses:** `200`
+
 ### `GET /v1/admin/github/installations`
 
 List Installations
