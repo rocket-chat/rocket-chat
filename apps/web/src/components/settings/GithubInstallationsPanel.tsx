@@ -13,6 +13,7 @@ interface InstallationList {
 export const GithubInstallationsPanel: React.FC = () => {
   const [data, setData] = useState<InstallationList | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -26,6 +27,11 @@ export const GithubInstallationsPanel: React.FC = () => {
 
   useEffect(() => {
     void load();
+    // GitHub sends the administrator back here once an installation is mapped, or with why not.
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("installation") === "connected") setNotice("The GitHub App installation is mapped.");
+    const refused = params.get("installation_error");
+    if (refused) setError(`The installation was not mapped: ${refused}`);
   }, [load]);
 
   const remove = async (id: number) => {
@@ -88,7 +94,12 @@ export const GithubInstallationsPanel: React.FC = () => {
       )}
       {data.app_configured && !data.install_url && (
         <p className="text-[11px] text-neutral-500">
-          Set GITHUB_APP_SLUG to enable the install link.
+          Set GITHUB_APP_SLUG (the App&apos;s URL name) to enable the install link.
+        </p>
+      )}
+      {notice && (
+        <p data-testid="github-installation-notice" className="text-xs text-emerald-400">
+          {notice}
         </p>
       )}
       {error && <p className="text-xs text-amber-300">{error}</p>}

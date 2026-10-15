@@ -261,3 +261,51 @@ def test_webhook_events_are_attributed_to_the_installations_organization(
     assert asyncio.run(_webhook_identity(_Req(), "bob", 31))[0] == "org_mapped"  # type: ignore[arg-type]
     assert asyncio.run(_webhook_identity(_Req(), "bob", 999))[0] == "fallback_org"  # type: ignore[arg-type]
     assert asyncio.run(_webhook_identity(_Req(), "bob", None))[0] == "fallback_org"  # type: ignore[arg-type]
+
+
+def test_an_app_that_authorizes_users_during_install_is_mapped_through_the_oauth_callback(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With "Request user authorization during installation", GitHub ignores the Setup URL and
+    sends the administrator to the OAuth callback with our install state: it is handed over to
+    the installation mapping instead of failing as an invalid sign-in state."""
+    monkeypatch.setattr(installations, "_memory", {})
+    engine = GitEngine(
+        settings=GitEngineSettings(
+            github_app_id="1", github_app_private_key="k", github_app_slug="rocket-app"
+        )
+    )
+    engine.get_installation_account = AsyncMock(return_value="acme")  # type: ignore[method-assign]
+    app.state.git_engine = engine
+    state = (
+        client.get("/v1/admin/github/installations", headers=ADMIN)
+        .json()["install_url"]
+        .split("state=", 1)[1]
+    )
+
+    other = {**ADMIN, "X-Tenant-User-Id": "someone_else"}
+    refused = client.get(
+        f"/api/auth/github/callback?code=c&installation_id=9&setup_action=install&state={state}",
+        headers=other,
+        follow_redirects=False,
+    )
+    done = client.get(
+        f"/api/auth/github/callback?code=c&installation_id=9&setup_action=install&state={state}",
+        headers=ADMIN,
+        follow_redirects=False,
+    )
+
+    assert "installation_error=" in refused.headers["location"]
+    assert done.headers["location"] == "/settings/github?installation=connected"
+    mapped = client.get("/v1/admin/github/installations", headers=ADMIN).json()["installations"]
+    assert mapped == [{"installation_id": 9, "account_login": "acme"}]
+
+
+def test_a_sign_in_callback_with_an_installation_id_but_no_install_state_is_a_sign_in(
+    client: TestClient,
+) -> None:
+    answer = client.get(
+        "/api/auth/github/callback?code=c&installation_id=9&state=forged", follow_redirects=False
+    )
+
+    assert "InvalidOAuthState" in answer.headers["location"]

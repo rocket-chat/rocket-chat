@@ -40,4 +40,21 @@ test.describe("Blank sessions and GitHub settings", () => {
       /github\.com\/apps\/rocket\/installations\/new/,
     );
   });
+
+  test("the panel says when GitHub sent an administrator back after mapping, or why not", async ({ page }) => {
+    await page.route("**/v1/admin/github/installations", (route) =>
+      route.fulfill({
+        json: { app_configured: true, install_url: null, installations: [] },
+      }),
+    );
+    await page.goto("/settings/github?installation=connected");
+    const panel = page.getByTestId("github-installations");
+    await expect(panel.getByTestId("github-installation-notice")).toHaveText(
+      "The GitHub App installation is mapped.",
+    );
+
+    await page.goto("/settings/github?installation_error=This%20install%20link%20was%20not%20issued%20to%20you.");
+    await expect(panel).toContainText("The installation was not mapped: This install link was not issued to you.");
+    await expect(panel).toContainText("Set GITHUB_APP_SLUG");
+  });
 });
