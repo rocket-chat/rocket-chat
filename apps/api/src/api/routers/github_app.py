@@ -18,7 +18,9 @@ from git_engine.engine import GitEngine
 from pydantic import BaseModel, Field
 
 from api.auth import oauth_state
-from api.auth.access import _get_request_identity, _require_admin
+from api.auth.access import _require_admin
+from api.auth.identity import resolve_identity
+from api.auth.roles import with_live_roles
 from api.services.audit import AuditService
 from api.services.github_installations import (
     bind_installation,
@@ -57,20 +59,33 @@ def _engine(request: Request) -> GitEngine | None:
 
 @router.get("/admin/github/installations", response_model=InstallationList)
 async def list_installations(request: Request) -> InstallationList:
-    org_id, user_id, _ = _require_admin(request)
+    org_id, _, _ = _require_admin(request)
     engine = _engine(request)
     settings = engine.settings if engine else None
     configured = bool(settings and settings.github_app_id and settings.github_app_private_key)
-    url = None
-    if configured and settings and settings.github_app_slug:
-        state = oauth_state.sign({"purpose": _STATE_PURPOSE, "org_id": org_id, "user_id": user_id})
-        url = install_url(settings.github_app_slug, state)
+    # A link of ours that mints GitHub's install link when clicked: the signed state then lives
+    # ten minutes from the click, not from when the settings page was opened.
+    url = (
+        "/v1/admin/github/install" if configured and settings and settings.github_app_slug else None
+    )
     found = await installations_for_org(getattr(request.app.state, "db_manager", None), org_id)
     return InstallationList(
         app_configured=configured,
         install_url=url,
         installations=[InstallationInfo(**vars(i)) for i in found],
     )
+
+
+@router.get("/admin/github/install")
+async def start_installation(request: Request) -> RedirectResponse:
+    """Send the administrator to GitHub to install the App, with a fresh signed state."""
+    org_id, user_id, _ = _require_admin(request)
+    engine = _engine(request)
+    slug = engine.settings.github_app_slug if engine else None
+    if not slug:
+        raise HTTPException(status_code=409, detail="Set GITHUB_APP_SLUG to install the App.")
+    state = oauth_state.sign({"purpose": _STATE_PURPOSE, "org_id": org_id, "user_id": user_id})
+    return RedirectResponse(install_url(slug, state), status_code=303)
 
 
 @router.get("/github/setup")
@@ -82,11 +97,21 @@ async def finish_installation(
 
 
 def is_install_state(state: str | None) -> bool:
-    """Whether ``state`` is a signed install link of ours (not an OAuth sign-in state)."""
-    try:
-        return oauth_state.verify(state or "").get("purpose") == _STATE_PURPOSE
-    except ValueError:
-        return False
+    """Whether ``state`` is a signed install link of ours, expired or not (not a sign-in)."""
+    return oauth_state.signed_purpose(state or "") == _STATE_PURPOSE
+
+
+async def _caller(request: Request) -> tuple[str, str, list[str]]:
+    """The signed-in member, with their roles as stored now.
+
+    GitHub's redirect can land on ``/api/auth/*``, which the authentication middleware does
+    not handle: without it the roles would be the ones frozen in the session cookie at sign-in.
+    """
+    ctx = resolve_identity(request)
+    if ctx is None:
+        raise HTTPException(status_code=401, detail="Sign in to Rocket Chat, then start again.")
+    live = await with_live_roles(ctx, getattr(request.app.state, "db_manager", None))
+    return live.org_id, live.user_id, list(live.roles)
 
 
 async def map_installation(request: Request, installation_id: int, state: str) -> RedirectResponse:
@@ -97,7 +122,10 @@ async def map_installation(request: Request, installation_id: int, state: str) -
     callback URL (which hands the request over). The state must verify and name this same
     administrator, and GitHub must confirm the installation, before it is mapped.
     """
-    org_id, user_id, roles = _get_request_identity(request)
+    try:
+        org_id, user_id, roles = await _caller(request)
+    except HTTPException as err:
+        raise _refused(err.status_code, str(err.detail), installation_id) from err
     try:
         claims: dict[str, Any] = oauth_state.verify(state)
     except ValueError as err:
