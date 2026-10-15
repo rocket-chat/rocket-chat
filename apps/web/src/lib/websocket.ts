@@ -354,6 +354,10 @@ export class MissionWebSocket {
         ) {
           store.setIsExecuting(false);
           store.setIsReasoningActive(false);
+          // A turn that ended (answered, failed or cancelled) waits for nobody any more, so a
+          // question or approval card left on screen would answer nothing.
+          store.setActiveDecision(null);
+          store.setActiveApproval(null);
 
           if (rawStatus === "error" || rawStatus === "failed" || payload.error) {
             const errText = payload.error || payload.message || "Unknown execution error";

@@ -13,46 +13,54 @@ import {
   Lock,
 } from "lucide-react";
 
+// Shown until the organization's roles load; the same as the platform's built-in roles.
+const READ_ONLY_TOOLS = [
+  "file_read",
+  "grep_search",
+  "glob_files",
+  "list_dir",
+  "code_search",
+  "web_search",
+  "web_fetch",
+];
+
 const DEFAULT_SUBAGENTS: SubagentConfig[] = [
   {
     id: "security_auditor",
     name: "Security & Penetration Auditor",
     role_title: "Application Security Specialist",
-    description: "Performs static vulnerability audits, credential leak scans, and OWASP checks.",
-    system_prompt: `You are an autonomous Security Auditor specialist subagent.
-Your goal is to inspect code, dependency manifests, and configurations for vulnerabilities, hardcoded secrets, injection vectors, and authorization flaws.
-Be concise, surgical, and provide actionable remediation patches or suggestions.`,
+    description: "Audits source code for injection attacks, RLS boundary leaks, secret exposure, and permissions.",
+    system_prompt:
+      "You are a dedicated Security Auditor subagent. Inspect source files and configuration for vulnerabilities (OWASP Top 10, SQL injection, RLS bypasses, secret leakage). Synthesize your findings concisely with specific line references and suggested remediations.",
     model: null,
-    max_turns: 4,
-    whitelisted_tools: ["file_read", "bash_exec", "web_search"],
-    temperature: 0.1,
+    max_turns: 12,
+    whitelisted_tools: READ_ONLY_TOOLS,
+    temperature: 0.2,
     enabled: true,
   },
   {
     id: "qa_verifier",
     name: "QA & Test Verifier",
     role_title: "Automated Test Specialist",
-    description: "Runs test suites, analyzes failures, and synthesizes missing regression tests.",
-    system_prompt: `You are an autonomous QA & Verification specialist subagent.
-Your goal is to execute test suites, analyze error traces, and verify that changes satisfy functional contracts without regressions.
-Run targeted test runners and report pass/fail verdicts clearly.`,
+    description: "Executes test suites in the sandbox, synthesizes failing cases, and verifies regressions.",
+    system_prompt:
+      "You are a QA & Test Verifier subagent. Run the tests (run_tests, or bash_exec for anything it does not cover), inspect the failures in the code, and report exactly which tests passed and which failed, with the assertion and the likely cause.",
     model: null,
-    max_turns: 4,
-    whitelisted_tools: ["bash_exec", "file_read", "file_write"],
+    max_turns: 12,
+    whitelisted_tools: ["run_tests", "bash_exec", "file_read", "grep_search", "list_dir"],
     temperature: 0.2,
     enabled: true,
   },
   {
     id: "researcher",
     name: "Codebase & Web Researcher",
-    role_title: "Codebase Architecture & Doc Researcher",
-    description: "Explores symbol hierarchies, traces call paths, and reviews online API documentation.",
-    system_prompt: `You are an autonomous Codebase & Web Researcher specialist subagent.
-Your goal is to locate symbol definitions, investigate library documentation, and synthesize technical findings to unblock the primary agent.
-Do not modify files; focus purely on accurate intelligence gathering.`,
+    role_title: "Technical Exploration Specialist",
+    description: "Explores external documentation, packages, or codebases to answer architectural questions.",
+    system_prompt:
+      "You are a Codebase & Web Researcher subagent. Search technical documentation and read files to answer specific architectural or implementation questions without altering files.",
     model: null,
-    max_turns: 4,
-    whitelisted_tools: ["file_read", "web_search", "web_fetch"],
+    max_turns: 12,
+    whitelisted_tools: READ_ONLY_TOOLS,
     temperature: 0.2,
     enabled: true,
   },
@@ -60,8 +68,14 @@ Do not modify files; focus purely on accurate intelligence gathering.`,
 
 const AVAILABLE_TOOLS = [
   { id: "file_read", name: "File Reader", desc: "Read file slices and analyze syntax" },
+  { id: "grep_search", name: "Content Search", desc: "Search file contents with a pattern" },
+  { id: "glob_files", name: "File Finder", desc: "Find files by name pattern" },
+  { id: "list_dir", name: "Directory Listing", desc: "List a directory's contents" },
+  { id: "code_search", name: "Symbol Search", desc: "Find where functions and types are defined" },
   { id: "file_write", name: "File Writer", desc: "Write files and patch content" },
+  { id: "file_edit", name: "File Editor", desc: "Replace a block in an existing file" },
   { id: "bash_exec", name: "Bash Terminal Exec", desc: "Execute commands in isolated sandbox" },
+  { id: "run_tests", name: "Test Runner", desc: "Run the repository's test suite" },
   { id: "web_search", name: "Live Web Search", desc: "Query internet documentation" },
   { id: "web_fetch", name: "URL Content Ingest", desc: "Download and convert documentation URLs" },
   { id: "git_status", name: "Git Status Check", desc: "Inspect git repository status" },
@@ -325,7 +339,7 @@ export default function SubagentsSettingsPage() {
                 <input
                   type="range"
                   min={1}
-                  max={8}
+                  max={60}
                   step={1}
                   value={formData.max_turns}
                   onChange={(e) => setFormData({ ...formData, max_turns: parseInt(e.target.value) })}

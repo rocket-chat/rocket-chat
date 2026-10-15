@@ -100,5 +100,22 @@ test.describe("Human approval gate", () => {
     await expect.poll(() => decisions.length, { timeout: 10000 }).toBeGreaterThan(0);
     expect(decisions[0]).toBe("ap_e2e_1:false");
   });
-});
 
+  test("withdraws the card when the turn ends without a decision", async ({ page }) => {
+    const { socket, decisions } = await openSessionAndConnect(page, "Cancel while waiting");
+
+    const card = page.getByTestId("approval-card");
+    await emitApprovalUntilVisible(socket, card);
+    await expect(card).toBeVisible();
+
+    socket.send(
+      JSON.stringify({
+        event_type: "status_changed",
+        payload: { status: "cancelled", message: "Cancelled", final: true },
+      }),
+    );
+
+    await expect(card).toBeHidden({ timeout: 10000 });
+    expect(decisions).toEqual([]);
+  });
+});
