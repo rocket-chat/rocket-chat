@@ -28,6 +28,21 @@ def sign(payload: dict[str, Any]) -> str:
     )
 
 
+def signed_purpose(token: str) -> str | None:
+    """The ``purpose`` of a genuine state token even once expired, else ``None``.
+
+    Tells which flow a returning browser belongs to, so an expired link is reported as
+    expired by its own flow instead of being mistaken for another one.
+    """
+    try:
+        claims = jwt.decode(
+            token, get_session_secret(), algorithms=["HS256"], options={"verify_exp": False}
+        )
+    except jwt.InvalidTokenError:
+        return None
+    return str(claims.get("purpose")) if claims.get("typ") == _TYPE else None
+
+
 def verify(token: str) -> dict[str, Any]:
     """The payload of a genuine, unexpired state token, or ``ValueError``."""
     try:

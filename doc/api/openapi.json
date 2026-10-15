@@ -5458,6 +5458,26 @@
         ]
       }
     },
+    "/v1/admin/github/install": {
+      "get": {
+        "description": "Send the administrator to GitHub to install the App, with a fresh signed state.",
+        "operationId": "start_installation_v1_admin_github_install_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Start Installation",
+        "tags": [
+          "GitHub App"
+        ]
+      }
+    },
     "/v1/admin/github/installations": {
       "get": {
         "operationId": "list_installations_v1_admin_github_installations_get",

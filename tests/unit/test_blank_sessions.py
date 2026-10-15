@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 from agent_core.tools.repository import clone_into_workspace
+from api.auth import oauth_state
 from api.main import app
 from api.routers import github_app
 from api.services import github_installations as installations
@@ -179,6 +181,14 @@ async def test_an_installation_belongs_to_one_organization(monkeypatch: pytest.M
 ADMIN = {"X-Tenant-Org-Id": "gh_org", "X-Tenant-User-Id": "gh_admin", "X-User-Role": "admin"}
 
 
+def _install_state(client: TestClient, headers: dict[str, str] = ADMIN) -> str:
+    """Click "Install on a GitHub account": the state GitHub is sent with, minted now."""
+    sent = client.get("/v1/admin/github/install", headers=headers, follow_redirects=False)
+    assert sent.status_code == 303, sent.text
+    assert sent.headers["location"].startswith("https://github.com/apps/")
+    return str(sent.headers["location"].split("state=", 1)[1])
+
+
 def test_the_install_flow_maps_an_installation_only_with_a_matching_signed_state(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -193,9 +203,8 @@ def test_the_install_flow_maps_an_installation_only_with_a_matching_signed_state
 
     listing = client.get("/v1/admin/github/installations", headers=ADMIN).json()
     assert listing["app_configured"] is True
-    url = listing["install_url"]
-    assert url.startswith("https://github.com/apps/rocket-app/installations/new?state=")
-    state = url.split("state=", 1)[1]
+    assert listing["install_url"] == "/v1/admin/github/install"
+    state = _install_state(client)
 
     # A forged state, another administrator's state and a non-admin are all refused.
     assert (
@@ -236,11 +245,7 @@ def test_an_installation_github_does_not_know_is_refused(
     engine.get_installation_account = AsyncMock(return_value=None)  # type: ignore[method-assign]
     app.state.git_engine = engine
     monkeypatch.setattr(github_app, "INSTALLATION_LOOKUP_DELAY_SECONDS", 0)
-    state = (
-        client.get("/v1/admin/github/installations", headers=ADMIN)
-        .json()["install_url"]
-        .split("state=", 1)[1]
-    )
+    state = _install_state(client)
     assert (
         client.get(f"/v1/github/setup?installation_id=404&state={state}", headers=ADMIN).status_code
         == 400
@@ -279,11 +284,7 @@ def test_an_app_that_authorizes_users_during_install_is_mapped_through_the_oauth
     )
     engine.get_installation_account = AsyncMock(return_value="acme")  # type: ignore[method-assign]
     app.state.git_engine = engine
-    state = (
-        client.get("/v1/admin/github/installations", headers=ADMIN)
-        .json()["install_url"]
-        .split("state=", 1)[1]
-    )
+    state = _install_state(client)
 
     other = {**ADMIN, "X-Tenant-User-Id": "someone_else"}
     refused = client.get(
@@ -327,11 +328,7 @@ def test_an_installation_github_only_knows_a_moment_later_is_still_mapped(
     )
     engine.get_installation_account = AsyncMock(side_effect=[None, None, "acme"])  # type: ignore[method-assign]
     app.state.git_engine = engine
-    state = (
-        client.get("/v1/admin/github/installations", headers=ADMIN)
-        .json()["install_url"]
-        .split("state=", 1)[1]
-    )
+    state = _install_state(client)
 
     done = client.get(
         f"/api/auth/github/callback?code=c&installation_id=9&setup_action=install&state={state}",
@@ -352,11 +349,7 @@ def test_a_refused_installation_is_logged_with_its_reason(
             github_app_id="1", github_app_private_key="k", github_app_slug="s"
         )
     )
-    state = (
-        client.get("/v1/admin/github/installations", headers=ADMIN)
-        .json()["install_url"]
-        .split("state=", 1)[1]
-    )
+    state = _install_state(client)
     other = {**ADMIN, "X-Tenant-User-Id": "someone_else"}
 
     client.get(f"/v1/github/setup?installation_id=9&state={state}", headers=other)
@@ -388,3 +381,68 @@ async def test_githubs_answer_is_logged_when_it_does_not_return_the_installation
 
     assert await engine.get_installation_account(77) is None
     assert 'GitHub answered 404 for installation 77: {"message":"Not Found"}' in caplog.text
+
+
+def test_the_install_link_is_minted_when_clicked_and_only_for_administrators(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app.state.git_engine = GitEngine(
+        settings=GitEngineSettings(
+            github_app_id="1", github_app_private_key="k", github_app_slug="s"
+        )
+    )
+    member = {**ADMIN, "X-User-Role": "developer"}
+
+    assert client.get("/v1/admin/github/install", headers=member).status_code == 403
+    first, second = _install_state(client), _install_state(client)
+    assert oauth_state.verify(first)["purpose"] == "github_install"
+    assert first and second
+
+
+def test_an_expired_install_link_is_reported_as_expired_not_as_a_failed_sign_in(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app.state.git_engine = GitEngine(
+        settings=GitEngineSettings(
+            github_app_id="1", github_app_private_key="k", github_app_slug="s"
+        )
+    )
+    monkeypatch.setattr(oauth_state, "STATE_TTL_SECONDS", -60)
+    expired = _install_state(client)
+
+    answer = client.get(
+        f"/api/auth/github/callback?code=c&installation_id=9&setup_action=install&state={expired}",
+        headers=ADMIN,
+        follow_redirects=False,
+    )
+
+    assert "installation_error=The%20install%20link%20expired" in answer.headers["location"]
+
+
+def test_the_callback_judges_the_administrator_by_their_roles_now(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The callback is outside the authentication middleware: it must re-read the roles too,
+    or a member made administrator after signing in is refused (seen on tools-arc)."""
+    monkeypatch.setattr(installations, "_memory", {})
+    engine = GitEngine(
+        settings=GitEngineSettings(
+            github_app_id="1", github_app_private_key="k", github_app_slug="s"
+        )
+    )
+    engine.get_installation_account = AsyncMock(return_value="acme")  # type: ignore[method-assign]
+    app.state.git_engine = engine
+    state = _install_state(client)
+
+    async def promoted(ctx: Any, _db: Any) -> Any:
+        return dataclasses.replace(ctx, roles=["admin"])
+
+    monkeypatch.setattr(github_app, "with_live_roles", promoted)
+    signed_in_as_developer = {**ADMIN, "X-User-Role": "developer"}
+    done = client.get(
+        f"/api/auth/github/callback?code=c&installation_id=9&setup_action=install&state={state}",
+        headers=signed_in_as_developer,
+        follow_redirects=False,
+    )
+
+    assert done.headers["location"] == "/settings/github?installation=connected"
