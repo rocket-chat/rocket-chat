@@ -21,6 +21,13 @@ import {
   OrgScopeSection,
 } from "../../../components/settings/ScopedSettingsSection";
 
+// How the platform reads GitHub for the member's sessions; the sandbox itself holds no credential.
+const READ_ACCESS_LABELS: Record<string, string> = {
+  app: "the GitHub App (read-only)",
+  member: "your linked account",
+  public: "public access only",
+};
+
 interface GitHubCredentialStatus {
   is_linked: boolean;
   username?: string | null;
@@ -116,7 +123,7 @@ function GitHubSettingsContent() {
           avatar_url: null,
           scopes: [],
           auth_type: "none",
-          injection_mode: "app_readonly",
+          injection_mode: "public",
         });
         setSuccessBanner("GitHub credentials unlinked");
         setTimeout(() => setSuccessBanner(null), 3000);
@@ -184,7 +191,7 @@ function GitHubSettingsContent() {
                 </div>
                 <p className="text-[11px] text-muted-foreground mt-0.5">
                   {credStatus?.is_linked
-                    ? `Mode: ${credStatus.auth_type} • Injection: ${credStatus.injection_mode}`
+                    ? `Mode: ${credStatus.auth_type} • GitHub reads via: ${READ_ACCESS_LABELS[credStatus.injection_mode] ?? credStatus.injection_mode}`
                     : "Connect via OAuth or provide a Personal Access Token below."}
                 </p>
               </div>
