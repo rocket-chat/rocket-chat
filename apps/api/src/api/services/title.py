@@ -11,6 +11,7 @@ by the placeholder heuristic. A user rename is never clobbered.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -79,10 +80,15 @@ def sanitize_title(raw: str) -> str | None:
     return title or None
 
 
+# Transports that share a thread between people (Slack) attribute each message with a
+# "[Speaker: name (<@id>)]" prefix for the agent; a title is about the request, not who sent it.
+_SPEAKER_PREFIX = re.compile(r"^\s*\[Speaker:[^\]]*\]\s*")
+
+
 def _first_user_message(conversation: Sequence[ChatMessage]) -> str | None:
     for message in conversation:
         if message.role == "user" and message.content:
-            return message.content
+            return _SPEAKER_PREFIX.sub("", message.content) or None
     return None
 
 

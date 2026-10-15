@@ -137,7 +137,9 @@ class SlackAdmissionMixin(SlackAssistantState):
             allowed_raw=",".join(org_allowed) if org_allowed else self.settings.slack_allowed_tools,
             blocked_raw=self.settings.slack_blocked_tools,
         )[0]
-        if selected is not None and base:
+        # An agent allowed every tool ("*") leaves the Slack selection as it is: intersecting
+        # with the literal wildcard would leave no tool at all.
+        if selected is not None and base and "*" not in base:
             agent_scope = set(base)
             selected = [name for name in selected if name in agent_scope]
         return selected

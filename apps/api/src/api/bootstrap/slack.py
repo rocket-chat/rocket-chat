@@ -19,7 +19,12 @@ from api.services.cluster import LeaderElection
 from api.services.decision_answer import decision_answer_prompt
 from api.services.quota import SlackWorkspaceQuotaService
 from api.services.settings import effective_settings
-from api.services.slack_link import PairingCodes, find_member, workspace_org
+from api.services.slack_link import (
+    PairingCodes,
+    ensure_slack_guest,
+    find_member,
+    workspace_org,
+)
 from api.services.usage import month_start
 from api.turns.gates import take_stored_question
 from api.turns.tasks import run_guarded_turn
@@ -77,6 +82,7 @@ def _build_assistant(
         bind_tenant_fn=callbacks.bind_tenant,
         resolve_workspace_org_fn=callbacks.workspace_org,
         resolve_user_fn=callbacks.resolve_user,
+        guest_user_fn=callbacks.guest_user,
         begin_pairing_fn=callbacks.begin_pairing,
         # Unauthenticated Slack is bounded before any turn starts and ingests files
         # through the same attachment pipeline as the web cockpit.
@@ -133,6 +139,10 @@ class _SlackCallbacks:
         except Exception as err:
             logger.warning("Error resolving slack user %s: %s", slack_user_id, err)
             return None
+
+    async def guest_user(self, org_id: str, team_id: str, slack_user_id: str | None) -> str:
+        """The guest member that owns what an unlinked Slack user (or a shared thread) starts."""
+        return await ensure_slack_guest(self._core.db_manager, org_id, team_id, slack_user_id)
 
     async def begin_pairing(self, slack_user_id: str, team_id: str) -> str | None:
         if not self._core.db_manager:

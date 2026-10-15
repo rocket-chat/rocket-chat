@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
@@ -28,7 +29,7 @@ def _live(stack: Stack, **policy: Any) -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_a_turn_has_one_live_message_that_ends_without_a_stop_button() -> None:
+async def test_a_finished_turn_removes_its_live_message_and_signs_the_answer() -> None:
     stack = Stack(
         ScriptedModel(script=[("think", {"thought": "plan"})], final_text="All done here.")
     )
@@ -40,9 +41,12 @@ async def test_a_turn_has_one_live_message_that_ends_without_a_stop_button() -> 
     assert first["thread_ts"] == THREAD[1]
     assert "stop_turn" in str(first["blocks"])
     assert f"https://rocket.example/chat/{SESSION_ID}" in str(first["blocks"])
-    final = client.chat_update.call_args.kwargs
-    assert "Done" in str(final["blocks"]) and "stop_turn" not in str(final["blocks"])
-    assert "All done here." in stack.posted()
+    client.chat_delete.assert_awaited_once_with(channel=THREAD[0], ts="9.9")
+    answer = stack.say.call_args_list[-1].kwargs
+    assert "All done here." in answer["text"]
+    footer = json.dumps(answer["blocks"][-1])
+    assert f"https://rocket.example/chat/{SESSION_ID}" in footer and "Done in" in footer
+    assert "Done" not in json.dumps([c.kwargs for c in client.chat_update.call_args_list])
 
 
 @pytest.mark.asyncio
@@ -225,3 +229,29 @@ async def test_browser_tools_follow_the_sandbox_the_session_uses(
     )
     await stack.send()
     assert "browser_inspect" in {t.name for t in browser_model.agent_requests()[0].tools}
+
+
+@pytest.mark.asyncio
+async def test_a_failed_turn_keeps_its_live_message_saying_why() -> None:
+    stack = Stack(ScriptedModel(final_text="never"))
+    client = _live(stack)
+
+    async def broken(*_: Any, **__: Any) -> None:
+        raise RuntimeError("model refused")
+
+    stack.assistant._run_shared_turn = broken  # type: ignore[method-assign]
+    await stack.send()
+
+    client.chat_delete.assert_not_called()
+    assert "model refused" in str(client.chat_update.call_args.kwargs["blocks"])
+
+
+@pytest.mark.asyncio
+async def test_a_workspace_that_refuses_the_delete_keeps_a_done_message() -> None:
+    stack = Stack(ScriptedModel(final_text="All done here."))
+    client = _live(stack)
+    client.chat_delete.side_effect = RuntimeError("cant_delete_message")
+
+    await stack.send()
+
+    assert "Done" in str(client.chat_update.call_args.kwargs["blocks"])

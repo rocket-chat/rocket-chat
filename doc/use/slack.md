@@ -9,7 +9,7 @@ If your administrator has [connected Slack](/administer/slack), you can use the 
 
 ## What you see
 
-**One live message per request.** Rocket posts a single message in the thread and updates it as it works: what it is doing right now, the last few steps, a summary ("Edited 2 files · Ran 3 commands"), a **Stop** button and an **Open in Rocket Chat** link. When it finishes, the message becomes "Done in 41s" and the button goes away. Only the person who asked can press Stop.
+**One live message per request.** Rocket posts a single message in the thread and updates it as it works: what it is doing right now, the last few steps, a summary ("Edited 2 files · Ran 3 commands"), a **Stop** button and an **Open in Rocket Chat** link. When it finishes, the message is removed and the answer ends with one line: **Open in Rocket Chat** and what the turn did ("Done in 41s · Edited 2 files · Ran 3 commands"). If the turn is stopped or fails, the message stays and says why. Only the person who asked can press Stop.
 
 **Questions and approvals are buttons in the thread.** When the agent needs a decision, or wants to run something your organization requires [approval](/administer/security#b-per-org-approval-policy) for, it posts buttons. Only the person who started the request can answer. This keeps working after a restart: a question that was waiting when the server restarted is picked up again from the stored question, and the work continues in the same thread.
 
@@ -33,7 +33,7 @@ If your administrator has [connected Slack](/administer/slack), you can use the 
 
 ## Link your account
 
-Without a link, a channel conversation runs as the workspace (no one's personal credentials are ever used in a shared thread). Linking connects you to your own Rocket Chat account for direct messages: your GitHub access, your model keys, your budget.
+Without a link, your direct messages belong to a **guest** member made for your Slack account (it cannot sign in, has no credentials of its own, and an administrator can see its sessions), and a channel conversation belongs to the workspace's guest (no one's personal credentials are ever used in a shared thread). Linking connects you to your own Rocket Chat account for direct messages: your GitHub access, your model keys, your budget. When you link, the sessions your guest started become yours.
 
 1. In Slack run `/rocket pair`. Rocket replies privately with an 8-character code, valid for 10 minutes and usable once.
 2. In Rocket Chat, signed in, open **Settings → Slack** (see [your settings](/use/personal-settings#slack)) and enter the code.

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from api.routers.webhooks import _sync_repository
 from api.services.session_support import (
     ACTIVE_REPOSITORY_KEY,
@@ -12,6 +14,7 @@ from api.services.session_support import (
     remember_active_repository,
 )
 from api.store import InMemorySessionStore
+from api.turns.runner import TurnRunner
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
 from specifications.interfaces.sandbox import ExecResult
@@ -165,3 +168,17 @@ async def test_a_webhook_follow_up_pulls_in_the_active_repository() -> None:
 
     pulls = [w for c, w in driver.workdirs if "git pull" in c]
     assert pulls == ["/workspace/api"]
+
+
+async def test_production_never_invents_a_session_for_a_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A turn whose session is missing used to create one owned by ``dev_user`` in
+    ``default_org``; outside development it is an error instead."""
+    monkeypatch.setenv("ROCKET_AUTO_PROVISION_TENANTS", "false")
+    runner = TurnRunner(
+        SimpleNamespace(store=InMemorySessionStore(), session_id="ghost", prompt="hi")
+    )  # type: ignore[arg-type]
+
+    with pytest.raises(LookupError):
+        await runner._load_session()
