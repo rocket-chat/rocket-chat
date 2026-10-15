@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `agent-core`, `api`, `web`: **Tools can be loaded on demand.** Each allowed tool is always loaded, loaded on demand or not allowed. A tool loaded on demand is listed by name, grouped by server, in the cacheable part of the prompt; the agent loads it with the new `load_tools` tool (or by calling it) and it stays loaded for the session. The organization chooses the default (`general.tool_loading`: `auto`, `all` or `on_demand`, and `general.tool_loading_threshold`); `auto` loads the MCP servers' tools on demand once an agent has more than the threshold (60). An agent can choose its own mode and pin tools or patterns as always loaded. For an agent with three MCP servers this cuts each step from about 200 tool definitions to the platform's own plus the pinned ones.
 - `orchestrator`:
 - `sandboxes`:
 - `api`:
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- `web`: **MCP tools picked one by one in the agent editor now reach the agent.** The editor saved them as `mcp:<server id>:<tool>` while the agent's tools are named `mcp__<server>__<tool>`, so an agent restricted to selected MCP tools received none of them. Re-select them once to save them under the right name.
 - `api`, `web`: **Mapping a GitHub App installation works when the App asks users to authorize during installation.** With that GitHub setting, GitHub ignores the Setup URL and returns the administrator to the OAuth callback with the install link's state. The callback rejected it as an invalid sign-in state, so the installation was never mapped. It is now handed to the installation mapping, with the same checks. **Settings > GitHub** says whether the installation was mapped, and why not. The GitHub guide now gives the exact App settings for both jobs with one Callback URL. GitHub sends the administrator back the moment it creates an installation, before its API returns it: the check now asks again briefly instead of refusing, and every refusal is logged with its reason. The callback now judges the administrator by their current roles, like every other request. Before, it used the roles frozen in the session cookie at sign-in, so a member who became administrator after signing in was refused ("This install link was not issued to you"). The install link is created when it is clicked (`/v1/admin/github/install`), so it no longer expires while the settings page stays open, and an expired link is reported as expired instead of as `InvalidOAuthState`.
 
 ### Security

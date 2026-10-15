@@ -496,6 +496,8 @@ class ToolRegistry:
         if blocked is not None:
             return f"Blocked by an organization hook: {blocked}"
         await self._checkpoint_before_first_change(name, arguments)
+        # A deferred tool called by name (from the list in the prompt) is simply loaded.
+        await self.load([name])
         result = await self._dispatch(name, arguments)
         follow_up = await self._run_hooks("post_tool", name, arguments, result=result)
         return f"{result}\n\n[post_tool hook failed] {follow_up}" if follow_up else result
@@ -535,6 +537,30 @@ class ToolRegistry:
                 detail = (outcome.stdout + outcome.stderr).strip()[-1500:]
                 return f"hook '{hook.command}' exited {outcome.exit_code}: {detail}"
         return None
+
+    def is_external(self, name: str) -> bool:
+        """Whether ``name`` is one of the turn's borrowed tools (its MCP servers)."""
+        provider = self._external_provider()
+        return provider is not None and provider.owns(name)
+
+    @staticmethod
+    def is_deferred(name: str) -> bool:
+        """Whether ``name`` is allowed this turn but not loaded yet."""
+        ctx = current_execution_ctx.get()
+        return ctx is not None and name in ctx.deferred_tools and name not in ctx.loaded_tools
+
+    async def load(self, names: list[str]) -> list[str]:
+        """Load deferred tools for the rest of the session; returns the ones newly loaded."""
+        ctx = current_execution_ctx.get()
+        if ctx is None:
+            return []
+        fresh = [n for n in dict.fromkeys(names) if self.is_deferred(n)]
+        if not fresh:
+            return []
+        ctx.loaded_tools.update(fresh)
+        if remember := self._turn_callback("tools_loaded"):
+            await remember(ctx.session_id, fresh)
+        return fresh
 
     async def _dispatch(self, name: str, arguments: dict[str, Any]) -> str:
         provider = self._external_provider()

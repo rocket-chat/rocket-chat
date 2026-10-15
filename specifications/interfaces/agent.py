@@ -203,6 +203,9 @@ class TurnCallbacks:
     # Called with (session id, folder) when the agent makes another repository the active one,
     # so later turns start there too.
     active_repository_chosen: Callable[[str, str], Awaitable[None]] | None = None
+    # Called with (session id, tool names) when the agent loads deferred tools, so later turns
+    # send them too.
+    tools_loaded: Callable[[str, list[str]], Awaitable[None]] | None = None
     # Follow a pull request or branch: (repo, pull request, branch, wake) -> a note for the agent.
     github_watch: Callable[[str, int | None, str | None, bool], Awaitable[str]] | None = None
     # Stop following: (repo, pull request, branch) -> a note for the agent.
@@ -342,6 +345,27 @@ DEFAULT_PERMISSION_MODE = "auto"
 DEFAULT_MAX_TURNS = 60
 
 
+TOOL_LOADING_MODES = ("all", "on_demand", "auto")
+
+
+@dataclass(frozen=True)
+class ToolLoading:
+    """Which of the agent's tools every request carries, and which it loads when it needs them.
+
+    ``all`` sends every allowed tool. ``on_demand`` sends the platform's own tools (built-in and
+    toolset) plus ``active``; every other allowed tool is *deferred*: listed by name, its
+    definition sent only once the agent loads it. ``auto`` sends everything until the agent has
+    more than ``threshold`` tools, then defers the tools from MCP servers that are not in
+    ``active``. ``active`` holds names or shell-style patterns (``mcp__signoz*__*search*``).
+    """
+
+    mode: str = "all"
+    active: tuple[str, ...] = ()
+    threshold: int = 60
+    # Deferred tools the session already loaded; they stay loaded for later turns.
+    loaded: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True)
 class TurnPolicy:
     """Organization/agent policy applied to one turn (carried on the execution context)."""
@@ -359,6 +383,7 @@ class TurnPolicy:
     # The session's active repository folder (``/workspace/<name>``): where git, test and build
     # tools act when the agent names no folder. Empty until the session clones one.
     active_repository: str = ""
+    tool_loading: ToolLoading = field(default_factory=ToolLoading)
 
 
 @dataclass(frozen=True)
