@@ -223,6 +223,7 @@ async def package_manager(
     manager: str | None = None,
     dev: bool = False,
     timeout_seconds: int = 600,
+    workdir: str = "/workspace",
 ) -> str:
     """Manage project dependencies with the workspace's declared package manager."""
     if action not in _ACTIONS:
@@ -231,7 +232,7 @@ async def package_manager(
         return f"Error: package_manager action '{action}' requires a non-empty 'packages' list"
 
     probe = await driver.exec_command(
-        session_id=session_id, command=_probe_command(), timeout_seconds=30
+        session_id=session_id, command=_probe_command(), workdir=workdir, timeout_seconds=30
     )
     present, package_json_text, pyproject_text = _parse_probe(probe.stdout or "")
 
@@ -248,6 +249,6 @@ async def package_manager(
     typed_action = cast(PackageAction, action)
     command = _build_command(selected, typed_action, packages or [], dev)
     result = await driver.exec_command(
-        session_id=session_id, command=command, timeout_seconds=timeout_seconds
+        session_id=session_id, command=command, workdir=workdir, timeout_seconds=timeout_seconds
     )
     return _format_result(selected, typed_action, result)

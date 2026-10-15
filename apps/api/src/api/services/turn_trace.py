@@ -199,6 +199,12 @@ class TurnTraceAccumulator:
             tokens.update(self._routing)
         if self._usage:
             tokens["usage"] = dict(self._usage)
+            prompt = self._usage.get("prompt_tokens", 0)
+            # Share of the prompt the provider served from its cache: what the request layout
+            # (stable prompt first, rolling breakpoint, volatile context last) is meant to raise.
+            tokens["usage"]["cache_hit_ratio"] = (
+                round(self._usage.get("cache_read_tokens", 0) / prompt, 4) if prompt else 0.0
+            )
             tokens["by_model"] = {
                 model: dict(totals) for model, totals in self._usage_by_model.items()
             }

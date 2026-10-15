@@ -165,8 +165,11 @@ async def clone_repository(
     repository: str,
     branch: str | None = None,
     directory: str | None = None,
+    depth: int | None = None,
 ) -> str:
-    return (await clone_into_workspace(driver, session_id, repository, branch, directory)).message
+    return (
+        await clone_into_workspace(driver, session_id, repository, branch, directory, depth)
+    ).message
 
 
 async def clone_into_workspace(
@@ -175,12 +178,17 @@ async def clone_into_workspace(
     repository: str,
     branch: str | None = None,
     directory: str | None = None,
+    depth: int | None = None,
 ) -> CloneOutcome:
     """Clone ``repository`` into ``/workspace/<name>`` and describe what is there.
 
     Idempotent: an existing clone is refreshed with ``git fetch`` instead of failing, so the
     agent can call this whenever it is unsure the code is present. Returns a plain-language
     result (errors included) because the agent, not a person, reads it.
+
+    A blobless partial clone of one branch: the whole history (so ``git log`` and ``git blame``
+    work) with file contents fetched when first needed, which costs about what a shallow clone
+    did. ``depth`` makes it shallow as well, for very large repositories.
     """
     try:
         repo = parse_repository(repository)
@@ -192,11 +200,13 @@ async def clone_into_workspace(
         return CloneOutcome(f"Error: {missing}.")
 
     branch_option = f"--branch {shlex.quote(branch_name)} " if branch_name else ""
+    shallow = f"--depth {max(1, int(depth))} " if depth else ""
     folder = shlex.quote(target)
     command = (
         f"if git -C {folder} rev-parse --is-inside-work-tree >/dev/null 2>&1; then "
-        f"echo ALREADY_CLONED; git -C {folder} fetch --depth 50 origin 2>&1 | tail -3; "
-        f"else git clone --depth 50 {branch_option}{shlex.quote(repo.url)} {folder} 2>&1; fi "
+        f"echo ALREADY_CLONED; git -C {folder} fetch {shallow}origin 2>&1 | tail -3; "
+        f"else git clone --filter=blob:none --single-branch {shallow}{branch_option}"
+        f"{shlex.quote(repo.url)} {folder} 2>&1; fi "
         # Grouped: without the parentheses the summary's own `;` would run even after a failed clone.
         f"&& cd {folder} && ( {_SUMMARY} )"
     )

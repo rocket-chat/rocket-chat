@@ -1,12 +1,15 @@
 """Getting code: cloning repositories and read-only GitHub lookups."""
 
 import logging
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import Field
+from sandbox_driver.workspace import RepositoryNotFoundError
 
-from agent_core.tools import github_tools
+from agent_core.tools import github_prs, github_tools
 from agent_core.tools import repository as repository_tools
+from agent_core.tools.builtin import github as github_builtin
+from agent_core.tools.github_client import GithubError
 
 if TYPE_CHECKING:
     from agent_core.tools.registry import ToolRegistry
@@ -15,6 +18,12 @@ logger = logging.getLogger(__name__)
 
 
 def register(registry: "ToolRegistry") -> None:
+    _register_clone(registry)
+    _register_watch(registry)
+    _register_github_reads(registry)
+
+
+def _register_clone(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
             "Clone a GitHub repository into the sandbox at /workspace/<name> and describe it "
@@ -38,6 +47,13 @@ def register(registry: "ToolRegistry") -> None:
             str | None,
             Field(description="Folder name under /workspace (default: the repository name)."),
         ] = None,
+        depth: Annotated[
+            int | None,
+            Field(
+                description="Only the latest N commits, for very large repositories (default: "
+                "full history, file contents fetched on demand)."
+            ),
+        ] = None,
     ) -> str:
         target = registry._sandbox_target("clone_repository")
         if not target:
@@ -45,14 +61,46 @@ def register(registry: "ToolRegistry") -> None:
         driver, session_id = target
         await registry._ensure_sandbox(session_id)
         outcome = await repository_tools.clone_into_workspace(
-            driver, session_id, repository, branch, directory
+            driver, session_id, repository, branch, directory, depth
         )
+        message = outcome.message
+        if outcome.folder and registry.remember_active_repository(outcome.folder):
+            message += (
+                f"\n{outcome.folder} is now the active repository: git, test and build tools and "
+                "bash_exec use it when you name no folder."
+            )
         cloned = registry._turn_callback("repository_cloned")
         if outcome.folder and cloned:
             if note := await cloned(session_id, outcome.folder):
-                return f"{outcome.message}\n{note}"
-        return outcome.message
+                return f"{message}\n{note}"
+        return message
 
+    @registry._tool(
+        description=(
+            "Make another cloned repository the active one: git, test and build tools, "
+            "bash_exec and relative file paths use it when you name no folder, in this turn "
+            "and later ones."
+        )
+    )
+    async def set_active_repository(
+        path: Annotated[str, Field(description="The repository's folder, e.g. /workspace/api.")],
+    ) -> str:
+        target = registry._sandbox_target("set_active_repository")
+        if not target:
+            return "Error: Sandbox not initialized for set_active_repository"
+        _, session_id = target
+        await registry._ensure_sandbox(session_id)
+        try:
+            folder = await registry.repository_dir(session_id, path)
+        except RepositoryNotFoundError as err:
+            return f"Error: {err}"
+        registry.choose_active_repository(folder)
+        if chosen := registry._turn_callback("active_repository_chosen"):
+            await chosen(session_id, folder)
+        return f"{folder} is now the active repository."
+
+
+def _register_watch(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
             "Follow a pull request (or a branch) so this session hears about it: CI results, "
@@ -98,6 +146,8 @@ def register(registry: "ToolRegistry") -> None:
             return "Error: following GitHub activity is not available in this session."
         return str(await unfollow(repository, pull_request, branch))
 
+
+def _register_github_reads(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
             "Find GitHub repositories without a sandbox: by owner/organization (its most "
@@ -151,9 +201,10 @@ def register(registry: "ToolRegistry") -> None:
 
     @registry._tool(
         description=(
-            "Look at GitHub issues and pull requests: pass `number` for one with its "
-            "description and latest comments (a PR also shows its branches and size), "
-            "`query` to search, or neither to list the latest. Read-only."
+            "GitHub issues (what `gh issue` does). Read: pass `number` for one issue or pull "
+            "request with its description and latest comments, `query` to search, or neither to "
+            "list the latest. Change (action): create (title, body, labels, assignees), comment, "
+            "edit, close, reopen."
         )
     )
     async def github_issues(
@@ -163,6 +214,22 @@ def register(registry: "ToolRegistry") -> None:
             str | None, Field(description="Search text (GitHub issue search syntax).")
         ] = None,
         state: Annotated[str, Field(description="open, closed or all (when listing).")] = "open",
+        action: Annotated[
+            Literal["create", "comment", "edit", "close", "reopen"] | None,
+            Field(description="A change to make; leave empty to read."),
+        ] = None,
+        title: Annotated[str | None, Field(description="Title (create, edit).")] = None,
+        body: Annotated[str | None, Field(description="Text (create, comment, edit).")] = None,
+        labels: Annotated[list[str] | None, Field(description="Labels (create, edit).")] = None,
+        assignees: Annotated[list[str] | None, Field(description="Logins (create, edit).")] = None,
     ) -> str:
-        access = await registry._github_access()
-        return await github_tools.issues(access, repository, number, query, state)
+        if action is None:
+            access = await registry._github_access()
+            return await github_tools.issues(access, repository, number, query, state)
+        fields = {"title": title, "body": body, "labels": labels, "assignees": assignees}
+        try:
+            slug = repository_tools.parse_repository(repository).slug
+            write = await github_builtin._write(registry, slug)
+            return await github_prs.write_issue(write, slug, number, action, fields)
+        except (GithubError, repository_tools.InvalidRepositoryError) as err:
+            return f"Error: {err}"

@@ -4,6 +4,14 @@
     "name": "web_fetch",
     "parameters": {
       "properties": {
+        "max_chars": {
+          "description": "Characters to return, at most 20000 (default 20000).",
+          "type": "integer"
+        },
+        "start": {
+          "description": "Character offset to read from, to page through (default 0).",
+          "type": "integer"
+        },
         "timeout_seconds": {
           "description": "Request timeout in seconds (default: 15.0).",
           "type": "number"
@@ -378,6 +386,10 @@
           "description": "Branch to check out (default: the default branch).",
           "type": "string"
         },
+        "depth": {
+          "description": "Only the latest N commits, for very large repositories (default: full history, file contents fetched on demand).",
+          "type": "integer"
+        },
         "directory": {
           "description": "Folder name under /workspace (default: the repository name).",
           "type": "string"
@@ -389,6 +401,22 @@
       },
       "required": [
         "repository"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Make another cloned repository the active one: git, test and build tools, bash_exec and relative file paths use it when you name no folder, in this turn and later ones.",
+    "name": "set_active_repository",
+    "parameters": {
+      "properties": {
+        "path": {
+          "description": "The repository's folder, e.g. /workspace/api.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
       ],
       "type": "object"
     }
@@ -487,10 +515,39 @@
     }
   },
   {
-    "description": "Look at GitHub issues and pull requests: pass `number` for one with its description and latest comments (a PR also shows its branches and size), `query` to search, or neither to list the latest. Read-only.",
+    "description": "GitHub issues (what `gh issue` does). Read: pass `number` for one issue or pull request with its description and latest comments, `query` to search, or neither to list the latest. Change (action): create (title, body, labels, assignees), comment, edit, close, reopen.",
     "name": "github_issues",
     "parameters": {
       "properties": {
+        "action": {
+          "description": "A change to make; leave empty to read.",
+          "enum": [
+            "create",
+            "comment",
+            "edit",
+            "close",
+            "reopen"
+          ],
+          "type": "string"
+        },
+        "assignees": {
+          "description": "Logins (create, edit).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "body": {
+          "description": "Text (create, comment, edit).",
+          "type": "string"
+        },
+        "labels": {
+          "description": "Labels (create, edit).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "number": {
           "description": "Issue or PR number.",
           "type": "integer"
@@ -506,6 +563,10 @@
         "state": {
           "description": "open, closed or all (when listing).",
           "type": "string"
+        },
+        "title": {
+          "description": "Title (create, edit).",
+          "type": "string"
         }
       },
       "required": [
@@ -515,20 +576,286 @@
     }
   },
   {
-    "description": "Read file content with optional 1-indexed start and end line ranges.",
+    "description": "Work with a pull request (what `gh pr` does). Read: list, view, files, diff (paged by file), checks, review_threads (with comment and thread ids). Change: edit (title/body/base), ready, draft, request_reviewers, comment, review (event comment|request_changes|approve), reply_to_thread (comment_id), resolve_thread (thread_id), close, reopen, merge (needs approval). Open a pull request with git_open_pr.",
+    "name": "github_pull_request",
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": "What to do.",
+          "enum": [
+            "list",
+            "view",
+            "files",
+            "diff",
+            "checks",
+            "review_threads",
+            "edit",
+            "ready",
+            "draft",
+            "request_reviewers",
+            "comment",
+            "review",
+            "reply_to_thread",
+            "resolve_thread",
+            "close",
+            "reopen",
+            "merge"
+          ],
+          "type": "string"
+        },
+        "base": {
+          "description": "New base branch (edit).",
+          "type": "string"
+        },
+        "body": {
+          "description": "Text: comment, review, reply or new description.",
+          "type": "string"
+        },
+        "comment_id": {
+          "description": "Review comment to reply to.",
+          "type": "integer"
+        },
+        "event": {
+          "description": "comment, request_changes or approve (review).",
+          "type": "string"
+        },
+        "merge_method": {
+          "description": "merge, squash (default) or rebase.",
+          "type": "string"
+        },
+        "number": {
+          "description": "Pull request number.",
+          "type": "integer"
+        },
+        "page": {
+          "description": "Page of files for diff (10 files a page).",
+          "type": "integer"
+        },
+        "repository": {
+          "description": "owner/name or a github.com URL.",
+          "type": "string"
+        },
+        "reviewers": {
+          "description": "GitHub logins (request_reviewers).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "state": {
+          "description": "open, closed or all (list).",
+          "type": "string"
+        },
+        "thread_id": {
+          "description": "Review thread to resolve.",
+          "type": "string"
+        },
+        "title": {
+          "description": "New title (edit).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "GitHub Actions (what `gh run` does). Read: runs (optionally on a branch), run_view (its jobs and failed steps), job_logs (the end of a job's log, where failures are). Change: rerun_failed, cancel, dispatch_workflow (workflow + ref + inputs).",
+    "name": "github_actions",
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": "What to do.",
+          "enum": [
+            "runs",
+            "run_view",
+            "job_logs",
+            "rerun_failed",
+            "cancel",
+            "dispatch_workflow"
+          ],
+          "type": "string"
+        },
+        "branch": {
+          "description": "Branch to list runs of.",
+          "type": "string"
+        },
+        "inputs": {
+          "description": "Workflow inputs (dispatch).",
+          "type": "object"
+        },
+        "job_id": {
+          "description": "Job id (job_logs).",
+          "type": "integer"
+        },
+        "ref": {
+          "description": "Branch or tag to run on (dispatch).",
+          "type": "string"
+        },
+        "repository": {
+          "description": "owner/name or a github.com URL.",
+          "type": "string"
+        },
+        "run_id": {
+          "description": "Workflow run id.",
+          "type": "integer"
+        },
+        "workflow": {
+          "description": "Workflow file or id (dispatch).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "GitHub releases (what `gh release` does): list, view (by tag), create or edit (tag_name, name, body, draft, prerelease, target_commitish).",
+    "name": "github_releases",
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": "What to do.",
+          "enum": [
+            "list",
+            "view",
+            "create",
+            "edit"
+          ],
+          "type": "string"
+        },
+        "body": {
+          "description": "Release notes.",
+          "type": "string"
+        },
+        "draft": {
+          "description": "Create as a draft.",
+          "type": "boolean"
+        },
+        "name": {
+          "description": "Release title.",
+          "type": "string"
+        },
+        "prerelease": {
+          "description": "Mark as a pre-release.",
+          "type": "boolean"
+        },
+        "repository": {
+          "description": "owner/name or a github.com URL.",
+          "type": "string"
+        },
+        "tag_name": {
+          "description": "Release tag.",
+          "type": "string"
+        },
+        "target_commitish": {
+          "description": "Branch or commit to tag.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "repository",
+        "action"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Search GitHub (what `gh search` does): code, issues (and pull requests) or commits, optionally within one repository. Uses GitHub search syntax.",
+    "name": "github_search",
+    "parameters": {
+      "properties": {
+        "kind": {
+          "description": "What to search.",
+          "enum": [
+            "code",
+            "issues",
+            "commits"
+          ],
+          "type": "string"
+        },
+        "query": {
+          "description": "Search text, GitHub syntax.",
+          "type": "string"
+        },
+        "repository": {
+          "description": "owner/name to search within.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "query"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Any other GitHub REST or GraphQL call (what `gh api` does), when no dedicated github_* tool covers it. REST: method + path (e.g. GET /repos/o/r/branches), query, body, paginate. GraphQL: graphql (+ variables; a mutation needs repository). Reads need no approval; changes follow the permission mode, DELETE always asks. Secrets, keys, webhooks, protection, access and administration are refused.",
+    "name": "github_api",
+    "parameters": {
+      "properties": {
+        "body": {
+          "description": "JSON body.",
+          "type": "object"
+        },
+        "graphql": {
+          "description": "A GraphQL query or mutation.",
+          "type": "string"
+        },
+        "method": {
+          "description": "GET, POST, PATCH, PUT or DELETE.",
+          "type": "string"
+        },
+        "paginate": {
+          "description": "GET every page (up to 5).",
+          "type": "boolean"
+        },
+        "path": {
+          "description": "REST path, e.g. /repos/o/r/labels.",
+          "type": "string"
+        },
+        "query": {
+          "description": "Query parameters.",
+          "type": "object"
+        },
+        "repository": {
+          "description": "owner/name a mutation changes.",
+          "type": "string"
+        },
+        "variables": {
+          "description": "GraphQL variables.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Read a file with line numbers, 400 lines at a time unless you give a range; the result says how many lines the file has and how to read on. The numbers are not part of the file: leave them out of file_edit blocks.",
     "name": "file_read",
     "parameters": {
       "properties": {
         "end_line": {
-          "description": "Optional 1-indexed end line.",
+          "description": "Optional 1-indexed last line (default: 400 lines on).",
           "type": "integer"
         },
+        "line_numbers": {
+          "description": "Prefix each line with its number (default: true).",
+          "type": "boolean"
+        },
         "path": {
-          "description": "Path to the file to read.",
+          "description": "File to read. Relative paths are inside the active repository; absolute ones as given.",
           "type": "string"
         },
         "start_line": {
-          "description": "Optional 1-indexed start line.",
+          "description": "Optional 1-indexed first line (default 1).",
           "type": "integer"
         }
       },
@@ -552,7 +879,7 @@
           "type": "boolean"
         },
         "path": {
-          "description": "Target workspace path to create or overwrite.",
+          "description": "File to create or overwrite. Relative paths are inside the active repository; absolute ones as given.",
           "type": "string"
         }
       },
@@ -569,7 +896,7 @@
     "parameters": {
       "properties": {
         "path": {
-          "description": "Target workspace file path to edit.",
+          "description": "File to edit. Relative paths are inside the active repository; absolute ones as given.",
           "type": "string"
         },
         "replacement_block": {
@@ -599,7 +926,7 @@
           "type": "string"
         },
         "path": {
-          "description": "Target workspace file path to patch.",
+          "description": "File to patch. Relative paths are inside the active repository; absolute ones as given.",
           "type": "string"
         }
       },
@@ -637,7 +964,7 @@
     "parameters": {
       "properties": {
         "path": {
-          "description": "Directory path to list (default: '.').",
+          "description": "Directory to list (default: '.'). Relative paths are inside the active repository; absolute ones as given.",
           "type": "string"
         }
       },
@@ -725,12 +1052,16 @@
     }
   },
   {
-    "description": "Execute a shell command inside the active sandbox environment.",
+    "description": "Execute a shell command inside the sandbox. Each call is a fresh shell: `cd` and exported variables do not carry over, so pass `cwd` instead of `cd`.",
     "name": "bash_exec",
     "parameters": {
       "properties": {
         "command": {
           "description": "The shell command to execute.",
+          "type": "string"
+        },
+        "cwd": {
+          "description": "Folder to run in, absolute or relative to /workspace. Default: the session's active repository, else /workspace.",
           "type": "string"
         },
         "timeout_seconds": {
@@ -753,6 +1084,10 @@
           "description": "Optional explicit test command overriding detection.",
           "type": "string"
         },
+        "path": {
+          "description": "Project folder, e.g. 'my-app' or 'my-app/packages/api'. Default: the session's active repository, or the only repository under /workspace.",
+          "type": "string"
+        },
         "timeout_seconds": {
           "description": "Test execution timeout in seconds (default: 600).",
           "type": "integer"
@@ -768,6 +1103,10 @@
       "properties": {
         "command": {
           "description": "Optional explicit lint command overriding detection.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Project folder, e.g. 'my-app' or 'my-app/packages/api'. Default: the session's active repository, or the only repository under /workspace.",
           "type": "string"
         },
         "timeout_seconds": {
@@ -787,6 +1126,10 @@
           "description": "Optional explicit typecheck command overriding detection.",
           "type": "string"
         },
+        "path": {
+          "description": "Project folder, e.g. 'my-app' or 'my-app/packages/api'. Default: the session's active repository, or the only repository under /workspace.",
+          "type": "string"
+        },
         "timeout_seconds": {
           "description": "Timeout (default 600).",
           "type": "integer"
@@ -802,6 +1145,10 @@
       "properties": {
         "command": {
           "description": "Optional explicit build command overriding detection.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Project folder, e.g. 'my-app' or 'my-app/packages/api'. Default: the session's active repository, or the only repository under /workspace.",
           "type": "string"
         },
         "timeout_seconds": {
@@ -846,6 +1193,10 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "path": {
+          "description": "Project folder, e.g. 'my-app' or 'my-app/packages/api'. Default: the session's active repository, or the only repository under /workspace.",
+          "type": "string"
         },
         "timeout_seconds": {
           "description": "Timeout (default 600).",
@@ -988,20 +1339,29 @@
     }
   },
   {
-    "description": "Return the porcelain git status (current branch + changed/untracked files) of the workspace.",
+    "description": "Return the porcelain git status (current branch + changed/untracked files) of a repository.",
     "name": "git_status",
     "parameters": {
-      "properties": {},
+      "properties": {
+        "path": {
+          "description": "Repository folder, e.g. 'my-app' for /workspace/my-app. Default: the session's active repository (the first one cloned), or the only repository under /workspace.",
+          "type": "string"
+        }
+      },
       "type": "object"
     }
   },
   {
-    "description": "Show the current unified git diff (optionally staged, scoped to a path, or stat-only).",
+    "description": "Show the current unified git diff (optionally staged, scoped to a file, or stat-only).",
     "name": "git_diff",
     "parameters": {
       "properties": {
+        "file": {
+          "description": "Optional file, relative to the repository, to scope the diff to.",
+          "type": "string"
+        },
         "path": {
-          "description": "Optional file path to scope the diff to.",
+          "description": "Repository folder, e.g. 'my-app' for /workspace/my-app. Default: the session's active repository (the first one cloned), or the only repository under /workspace.",
           "type": "string"
         },
         "staged": {
@@ -1025,12 +1385,16 @@
           "description": "Optional author filter.",
           "type": "string"
         },
+        "file": {
+          "description": "Optional file or folder to scope the history to.",
+          "type": "string"
+        },
         "max_count": {
           "description": "Maximum commits to return (default 20, max 100).",
           "type": "integer"
         },
         "path": {
-          "description": "Optional path to scope the history to.",
+          "description": "Repository folder, e.g. 'my-app' for /workspace/my-app. Default: the session's active repository (the first one cloned), or the only repository under /workspace.",
           "type": "string"
         }
       },
@@ -1038,7 +1402,7 @@
     }
   },
   {
-    "description": "Create a git commit (signed with co-author trailers when the GitHub App is configured). Prefer a checkpoint first for destructive work.",
+    "description": "Commit every change in a repository, following the organization's authorship and signing policy (co-author trailers included). Prefer a checkpoint first for destructive work.",
     "name": "git_commit",
     "parameters": {
       "properties": {
@@ -1055,6 +1419,10 @@
         },
         "message": {
           "description": "Commit message.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Repository folder, e.g. 'my-app' for /workspace/my-app. Default: the session's active repository (the first one cloned), or the only repository under /workspace.",
           "type": "string"
         }
       },
@@ -1076,6 +1444,10 @@
         "name": {
           "description": "New branch name.",
           "type": "string"
+        },
+        "path": {
+          "description": "Repository folder, e.g. 'my-app' for /workspace/my-app. Default: the session's active repository (the first one cloned), or the only repository under /workspace.",
+          "type": "string"
         }
       },
       "required": [
@@ -1085,12 +1457,16 @@
     }
   },
   {
-    "description": "Tag the current HEAD as a restorable checkpoint. Cheap undo point before large or risky edits.",
+    "description": "Snapshot a repository, uncommitted work included, as a restorable checkpoint. Cheap undo point before large or risky edits.",
     "name": "git_checkpoint",
     "parameters": {
       "properties": {
         "label": {
           "description": "Optional human-readable label suffix.",
+          "type": "string"
+        },
+        "path": {
+          "description": "Repository folder, e.g. 'my-app' for /workspace/my-app. Default: the session's active repository (the first one cloned), or the only repository under /workspace.",
           "type": "string"
         }
       },
@@ -1098,7 +1474,7 @@
     }
   },
   {
-    "description": "Restore the workspace to a checkpoint or commit. mode='files' restores tracked files safely; mode='hard' discards all changes and requires approval.",
+    "description": "Restore a repository to a checkpoint or commit. mode='files' restores tracked files safely; mode='hard' discards all changes and requires approval.",
     "name": "git_revert",
     "parameters": {
       "properties": {
@@ -1108,6 +1484,10 @@
             "files",
             "hard"
           ],
+          "type": "string"
+        },
+        "path": {
+          "description": "Repository folder, e.g. 'my-app' for /workspace/my-app. Default: the session's active repository (the first one cloned), or the only repository under /workspace.",
           "type": "string"
         },
         "reference": {
@@ -1135,7 +1515,7 @@
           "type": "boolean"
         },
         "path": {
-          "description": "Repository folder when it is not /workspace itself, e.g. 'backend-services' for /workspace/backend-services (found automatically when there is only one).",
+          "description": "Repository folder, e.g. 'my-app' for /workspace/my-app. Default: the session's active repository (the first one cloned), or the only repository under /workspace.",
           "type": "string"
         }
       },
@@ -1152,7 +1532,7 @@
           "type": "string"
         },
         "path": {
-          "description": "Repository folder when it is not /workspace itself (see git_push).",
+          "description": "Repository folder, e.g. 'my-app' for /workspace/my-app. Default: the session's active repository (the first one cloned), or the only repository under /workspace.",
           "type": "string"
         },
         "target_branch": {

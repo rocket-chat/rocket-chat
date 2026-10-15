@@ -7,16 +7,16 @@ FROM node:22-bookworm-slim AS node
 FROM python:3.12-slim-bookworm
 
 ARG UV_VERSION=0.5.14
-ARG GH_VERSION=2.63.2
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential ca-certificates curl fd-find git gnupg jq less openssh-client procps ripgrep unzip \
     && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
-    && arch="$(dpkg --print-architecture)" \
-    && curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${arch}.tar.gz" \
-        | tar -xz --strip-components=2 -C /usr/local/bin "gh_${GH_VERSION}_linux_${arch}/bin/gh" \
     && rm -rf /var/lib/apt/lists/*
+
+# The sandbox holds no GitHub credential, so the GitHub CLI cannot work here. A `gh` that says
+# which tool to use instead saves the agent from retrying it or hunting for a token.
+COPY deploy/docker/gh-unavailable.sh /usr/local/bin/gh
 
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules

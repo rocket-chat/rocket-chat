@@ -22,7 +22,7 @@ from api.models import (
     UpdateSessionRequest,
 )
 from api.services.sandbox_catalogue import SandboxCatalogue
-from api.services.session_support import _CLIENT_PATCHABLE_METADATA, _to_response
+from api.services.session_support import _CLIENT_PATCHABLE_METADATA, _to_response, apply_sharing
 from api.services.settings import (
     effective_settings,
 )
@@ -218,13 +218,40 @@ async def update_session(
         raise HTTPException(status_code=404, detail="Session not found")
     _check_session_access(record, req_user, roles, require_write=True)
 
-    is_owner_or_admin = "admin" in roles or record.tenant_user_id == req_user
+    _check_patch_rights(req, "admin" in roles or record.tenant_user_id == req_user)
+    # Applied to the stored record under its row lock: a turn may be recording its answer or
+    # its active repository at the same moment, and a whole-record write would erase them.
+    updated = await store.mutate_session(
+        session_id, record.tenant_org_id, lambda current: _apply_patch(current, req)
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return _to_response(updated)
+
+
+def _check_patch_rights(req: UpdateSessionRequest, is_owner_or_admin: bool) -> None:
     if (req.is_shared is not None or req.collaborators is not None) and not is_owner_or_admin:
         raise HTTPException(
             status_code=403,
             detail="Forbidden: Only session owner or admin can configure sharing",
         )
+    requested_mode = (req.metadata or {}).get("permission_mode")
+    if requested_mode is None:
+        return
+    if requested_mode not in PERMISSION_MODES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"permission_mode must be one of: {', '.join(PERMISSION_MODES)}",
+        )
+    if not is_owner_or_admin:
+        # A collaborator may use the session but not loosen the owner's supervision.
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: Only the session owner or an admin can change the permission mode",
+        )
 
+
+def _apply_patch(record: SessionRecord, req: UpdateSessionRequest) -> None:
     meta = dict(record.metadata) if isinstance(record.metadata, dict) else {}
     if req.title is not None:
         record.title = req.title
@@ -243,24 +270,8 @@ async def update_session(
         meta["checklist"] = req.checklist
     # The transcript is server-owned (it is the agent's memory); clients cannot rewrite it.
     if req.metadata is not None:
-        requested_mode = req.metadata.get("permission_mode")
-        if requested_mode is not None:
-            if requested_mode not in PERMISSION_MODES:
-                raise HTTPException(
-                    status_code=422,
-                    detail=f"permission_mode must be one of: {', '.join(PERMISSION_MODES)}",
-                )
-            if not is_owner_or_admin:
-                # A collaborator may use the session but not loosen the owner's supervision.
-                raise HTTPException(
-                    status_code=403,
-                    detail="Forbidden: Only the session owner or an admin can change the permission mode",
-                )
         meta.update({k: v for k, v in req.metadata.items() if k in _CLIENT_PATCHABLE_METADATA})
     record.metadata = meta
-
-    await store.update_session(record)
-    return _to_response(record)
 
 
 @router.post("/sessions/{session_id}/share", response_model=SessionResponse)
@@ -285,15 +296,14 @@ async def share_session(
             detail="Forbidden: Only session owner or admin can configure sharing",
         )
 
-    record.is_shared = req.is_shared
-    record.collaborators = req.collaborators
-    meta = dict(record.metadata) if isinstance(record.metadata, dict) else {}
-    meta["is_shared"] = req.is_shared
-    meta["collaborators"] = req.collaborators
-    record.metadata = meta
-
-    await store.update_session(record)
-    return _to_response(record)
+    updated = await store.mutate_session(
+        session_id,
+        record.tenant_org_id,
+        lambda current: apply_sharing(current, req.is_shared, req.collaborators),
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return _to_response(updated)
 
 
 @router.delete("/sessions/{session_id}")

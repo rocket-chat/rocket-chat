@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
+from api.auth import git_gateway_token
 from api.services.credentials import (
     decrypt_secret,
     delete_user_credential,
@@ -95,14 +96,14 @@ async def test_resolve_git_credentials_priority_user_token() -> None:
         db_mgr=None,
     )
 
-    assert bundle.mode == "user_token"
+    assert bundle.mode == "member"
     assert bundle.token == token
     assert bundle.author_name == "astro-dev", "the GitHub username, not the display name"
     assert bundle.source_details["username"] == "astro-dev"
 
 
 @pytest.mark.asyncio
-async def test_resolve_git_credentials_priority_app_readonly() -> None:
+async def test_resolve_git_credentials_priority_app() -> None:
     user_id = "unlinked_user"
     org_id = "space_agency"
     # Ensure unlinked
@@ -124,7 +125,7 @@ async def test_resolve_git_credentials_priority_app_readonly() -> None:
         db_mgr=None,
     )
 
-    assert bundle.mode == "app_readonly"
+    assert bundle.mode == "app"
     assert bundle.token == "ghs_temp_installation_token_abc"
     assert bundle.author_name == "Rocket Bot"
     assert bundle.author_email == "bot@rocket.test"
@@ -147,58 +148,61 @@ async def test_resolve_git_credentials_fallback_none() -> None:
         user_overrides={"git_author_name": "Custom Operator"},
     )
 
-    assert bundle.mode == "none"
+    assert bundle.mode == "public"
     assert bundle.token is None
     assert bundle.author_name == "Custom Operator"
 
 
 @pytest.mark.asyncio
-async def test_inject_git_credentials_into_sandbox() -> None:
+async def test_inject_git_credentials_into_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ROCKET_GIT_GATEWAY_URL", "http://gw.internal:8000")
     driver = FakeSandboxDriver()
     driver.script_command(
         "git config", ExecResult(exit_code=0, stdout="", stderr="", duration_ms=1)
     )
     bundle = GitCredentialBundle(
         token="gho_test_token",
-        mode="user_token",
+        mode="member",
         author_name="Alice Developer",
         author_email="alice@company.com",
+        user_token="gho_test_token",
     )
 
-    await inject_git_credentials_into_sandbox(driver, "session_xyz", bundle)
+    await inject_git_credentials_into_sandbox(
+        driver, "session_xyz", bundle, org_id="o", user_id="u", api_url="https://api.github.com"
+    )
 
     script = driver.exec_calls[-1][1]
     assert "user.name 'Alice Developer'" in script
     assert "user.email alice@company.com" in script or "user.email 'alice@company.com'" in script
-    # Identity and a token-less helper go into git config...
-    assert "credential.helper" in script and "GITHUB_TOKEN" in script
-    # ...but the secret never touches the sandbox's disk, dotfiles or git URLs.
-    assert "gho_test_token" not in script
-    assert "store --file" not in script  # no on-disk credential store
-    assert "insteadOf" not in script
-    # It travels as per-command environment instead.
-    assert driver.merged_env("session_xyz", None) == {
-        "GITHUB_TOKEN": "gho_test_token",
-        "GH_TOKEN": "gho_test_token",
-        "GIT_TERMINAL_PROMPT": "0",
-    }
+    # The sandbox holds no GitHub token: not on disk, not in git config, not in its environment.
+    env = driver.merged_env("session_xyz", None)
+    assert "gho_test_token" not in script and "gho_test_token" not in str(env)
+    assert "GITHUB_TOKEN" not in env and "GH_TOKEN" not in env
+    assert "--unset-all credential.helper" in script, "the old token helper is removed"
+    # Its git reaches GitHub through the gateway, with a session-scoped capability.
+    assert env["GIT_CONFIG_KEY_0"] == "url.http://gw.internal:8000/v1/git/.insteadOf"
+    header = env[f"GIT_CONFIG_VALUE_{int(env['GIT_CONFIG_COUNT']) - 1}"]
+    grant = git_gateway_token.verify(header.split(": ", 1)[1])
+    assert (grant.session_id, grant.org_id, grant.user_id) == ("session_xyz", "o", "u")
 
 
 @pytest.mark.asyncio
-async def test_a_revoked_token_is_removed_from_the_session_environment() -> None:
+async def test_no_credential_mode_hands_the_sandbox_a_github_token() -> None:
     driver = FakeSandboxDriver()
     driver.script_command(
         "git config", ExecResult(exit_code=0, stdout="", stderr="", duration_ms=1)
     )
-    linked = GitCredentialBundle(
-        token="t", mode="user_token", author_name="A", author_email="a@x.io"
-    )
-    await inject_git_credentials_into_sandbox(driver, "s", linked)
-    unlinked = GitCredentialBundle(token=None, mode="none", author_name="A", author_email="a@x.io")
-    await inject_git_credentials_into_sandbox(driver, "s", unlinked)
-
-    assert "GITHUB_TOKEN" not in driver.merged_env("s", None)
-    assert "--unset-all credential.helper" in driver.exec_calls[-1][1]
+    for mode, token in (("app", "ghs_app"), ("member", "gho_member"), ("public", None)):
+        bundle = GitCredentialBundle(
+            token=token, mode=mode, author_name="A", author_email="a@x.io", user_token=token
+        )
+        await inject_git_credentials_into_sandbox(
+            driver, "s", bundle, org_id="o", user_id="u", api_url="https://api.github.com"
+        )
+        env = driver.merged_env("s", None)
+        assert "GIT_CONFIG_COUNT" in env
+        assert not any(value.startswith(("ghs_", "gho_")) for value in env.values()), mode
 
 
 _REAL_CLIENT = httpx.AsyncClient
@@ -278,7 +282,7 @@ async def test_an_expired_link_does_not_beat_the_app_and_is_reported(
         user_id=user_id, org_id=org_id, git_engine=engine, db_mgr=None, repo="acme/private"
     )
 
-    assert bundle.mode == "app_readonly"
+    assert bundle.mode == "app"
     assert bundle.token == "ghs_app_installation_token"
     assert bundle.warning == EXPIRED_LINK_WARNING
 
@@ -302,7 +306,7 @@ async def test_an_expired_link_with_no_app_yields_no_token_not_a_dead_one(
         user_id=user_id, org_id=org_id, git_engine=None, db_mgr=None
     )
 
-    assert bundle.mode == "none" and bundle.token is None
+    assert bundle.mode == "public" and bundle.token is None
     assert bundle.warning == EXPIRED_LINK_WARNING
 
 

@@ -28,7 +28,15 @@ MARKER_DIR = f"{WORKSPACE}/.rocket"
 SETUP_TIMEOUT_SECONDS = 900
 MAX_COMMAND_CHARS = 8000
 _DEVCONTAINER_HOOKS = ("onCreateCommand", "postCreateCommand")
-_NO_CREDENTIALS = {"GITHUB_TOKEN": "", "GH_TOKEN": "", "GIT_ASKPASS": ""}
+# Setup scripts are the repository's own code: they run without the gateway capability (and
+# without any token an older sandbox may still carry), so they can only fetch public code.
+_NO_CREDENTIALS = {
+    "GITHUB_TOKEN": "",
+    "GH_TOKEN": "",
+    "GIT_ASKPASS": "",
+    "GIT_CONFIG_COUNT": "0",
+    **{f"GIT_CONFIG_{part}_{index}": "" for part in ("KEY", "VALUE") for index in range(8)},
+}
 
 
 @dataclass(frozen=True)

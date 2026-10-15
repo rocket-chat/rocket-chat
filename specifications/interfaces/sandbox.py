@@ -64,6 +64,9 @@ class WorkspaceSpec:
     block_internal_subnets: bool = False
     # Run as uid 1000 with every capability dropped instead of the default root-with-reduced-caps.
     require_non_root: bool = False
+    # Platform services the sandbox must always reach whatever the egress policy says, as
+    # "host:port" (the git gateway). Allowed by exact host and port only.
+    platform_endpoints: list[str] = field(default_factory=list)
 
 
 @dataclass

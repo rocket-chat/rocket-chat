@@ -31,6 +31,15 @@ def _parse_arguments(raw: Any) -> Any:
         return {}
 
 
+# Tools whose success means commits left the sandbox: each publication is audited on its own.
+_PUBLISHING_TOOLS = frozenset({"git_push", "git_open_pr"})
+
+
+def _published(result: object) -> bool:
+    text = str(result or "")
+    return text.startswith(("Published ", "Pushed ", "Pull request opened"))
+
+
 class TurnEventHandlers:
     """Dispatch table: one method per orchestrator event type."""
 
@@ -159,6 +168,14 @@ class TurnEventHandlers:
             redacted=bool(redaction is not None and redaction.applied),
             redaction_count=redaction.count if redaction is not None else 0,
         )
+        if tool_name in _PUBLISHING_TOOLS and _published(result_output):
+            await ctx.audit.record_git_publish(
+                org_id=ctx.session.tenant_org_id,
+                actor_user_id=ctx.session.tenant_user_id,
+                session_id=ctx.session_id,
+                tool_name=tool_name,
+                outcome=str(result_output).splitlines()[0],
+            )
         await self._publish(EventType.TOOL_COMPLETED, tool_data)
         # Stream command output to the terminal stream for bash tools
         if tool_name == "bash_exec" and result_output:

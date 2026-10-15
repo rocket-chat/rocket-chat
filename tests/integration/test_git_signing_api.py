@@ -18,6 +18,8 @@ pytestmark = pytest.mark.skipif(not gpg_available(), reason="needs GnuPG")
 ORG = "signing_api_org"
 ALICE = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "alice", "X-User-Role": "developer"}
 BOB = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "bob", "X-User-Role": "developer"}
+# Long and distinctive: a short one turns up by chance in the armored public key.
+SECRET_PASSPHRASE = "correct-horse-battery-staple"
 VIEWER = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "viewer", "X-User-Role": "readonly"}
 
 
@@ -36,11 +38,11 @@ async def api() -> AsyncClient:
 async def test_an_imported_key_is_shown_without_its_private_half(
     api: AsyncClient, tmp_path: pathlib.Path
 ) -> None:
-    private, _ = make_key(tmp_path, "Alice <alice@example.com>", passphrase="pw")
+    private, _ = make_key(tmp_path, "Alice <alice@example.com>", passphrase=SECRET_PASSPHRASE)
 
     saved = await api.put(
         "/v1/user/git-signing",
-        json={"private_key": private, "passphrase": "pw"},
+        json={"private_key": private, "passphrase": SECRET_PASSPHRASE},
         headers=ALICE,
     )
 
@@ -49,7 +51,7 @@ async def test_an_imported_key_is_shown_without_its_private_half(
     assert body["configured"] is True and body["commit_email"] == "alice@example.com"
     assert body["has_passphrase"] is True and len(body["fingerprint"]) == 40
     assert "BEGIN PGP PUBLIC KEY BLOCK" in body["public_key"]
-    assert "PRIVATE" not in saved.text and "pw" not in saved.text.replace("passphrase", "")
+    assert "PRIVATE" not in saved.text and SECRET_PASSPHRASE not in saved.text
     assert body["available"] is True and body["commit_as_me"] is False
 
     await save_user_config(None, ORG, "alice", "user_preferences", {"commit_as_me": True})

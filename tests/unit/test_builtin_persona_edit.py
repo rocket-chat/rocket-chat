@@ -63,7 +63,7 @@ def test_a_second_save_updates_the_same_edit_and_reset_restores_the_shipped_agen
     restored = _general(client)
     assert (
         restored["customized"] is False
-        and "Senior Autonomous Software Engineer" in restored["system_prompt"]
+        and "versatile senior software engineer" in restored["system_prompt"]
     )
 
 

@@ -10,8 +10,10 @@ from __future__ import annotations
 from agent_core.tools import git_tools
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from sandbox_driver.workspace import RepositoryNotFoundError, resolve_repository_dir
 
 from api.auth.access import _check_session_access, _get_request_identity
+from api.services.session_support import active_repository_of
 from specifications.interfaces.sandbox import SandboxDriverProtocol, SandboxStatus
 from specifications.interfaces.session import SessionStoreProtocol
 
@@ -27,7 +29,10 @@ class CheckpointResponse(BaseModel):
 class CheckpointList(BaseModel):
     checkpoints: list[CheckpointResponse] = Field(default_factory=list)
     available: bool = Field(
-        ..., description="False when the sandbox is not running or the workspace is not a git repo"
+        ..., description="False when the sandbox is not running or holds no git repository"
+    )
+    repository: str | None = Field(
+        default=None, description="The repository folder the checkpoints belong to"
     )
 
 
@@ -46,7 +51,8 @@ class RewindRequest(BaseModel):
 
 async def _running_workspace(
     session_id: str, request: Request, *, require_write: bool
-) -> SandboxDriverProtocol | None:
+) -> tuple[SandboxDriverProtocol, str] | None:
+    """The running sandbox and the session's repository folder, or None when there is neither."""
     _, user_id, roles = _get_request_identity(request)
     store: SessionStoreProtocol = request.app.state.session_store
     record = await store.get_session(session_id)
@@ -56,27 +62,38 @@ async def _running_workspace(
     driver: SandboxDriverProtocol | None = getattr(request.app.state, "sandbox_driver", None)
     if driver is None or await driver.get_status(session_id) != SandboxStatus.RUNNING:
         return None
-    return driver
+    try:
+        folder = await resolve_repository_dir(
+            driver, session_id, active=active_repository_of(record) or None
+        )
+    except RepositoryNotFoundError:
+        return None
+    return driver, folder
 
 
-def _require_driver(driver: SandboxDriverProtocol | None) -> SandboxDriverProtocol:
-    if driver is None:
+def _require_workspace(
+    workspace: tuple[SandboxDriverProtocol, str] | None,
+) -> tuple[SandboxDriverProtocol, str]:
+    if workspace is None:
         raise HTTPException(
             status_code=409,
-            detail="The sandbox is not running; send a message to start it, then try again.",
+            detail="There is no repository to checkpoint: the sandbox is not running or holds "
+            "no git repository.",
         )
-    return driver
+    return workspace
 
 
 @router.get("/sessions/{session_id}/checkpoints", response_model=CheckpointList)
 async def list_checkpoints(session_id: str, request: Request) -> CheckpointList:
     """Checkpoints of the session's workspace, newest first."""
-    driver = await _running_workspace(session_id, request, require_write=False)
-    if driver is None or not await git_tools.is_git_workspace(driver, session_id):
+    workspace = await _running_workspace(session_id, request, require_write=False)
+    if workspace is None:
         return CheckpointList(available=False)
-    found = await git_tools.list_checkpoints(driver, session_id)
+    driver, folder = workspace
+    found = await git_tools.list_checkpoints(driver, session_id, folder)
     return CheckpointList(
         available=True,
+        repository=folder,
         checkpoints=[
             CheckpointResponse(name=c.name, sha=c.sha, created_at=c.created_at) for c in found
         ],
@@ -88,10 +105,10 @@ async def create_checkpoint(
     session_id: str, body: CreateCheckpointRequest, request: Request
 ) -> CheckpointList:
     """Snapshot the workspace now (including uncommitted work)."""
-    driver = _require_driver(await _running_workspace(session_id, request, require_write=True))
-    if not await git_tools.is_git_workspace(driver, session_id):
-        raise HTTPException(status_code=409, detail="The workspace is not a git repository.")
-    outcome = await git_tools.git_checkpoint(driver, session_id, body.label)
+    driver, folder = _require_workspace(
+        await _running_workspace(session_id, request, require_write=True)
+    )
+    outcome = await git_tools.git_checkpoint(driver, session_id, body.label, folder)
     if outcome.startswith("Error:"):
         raise HTTPException(status_code=500, detail=outcome)
     return await list_checkpoints(session_id, request)
@@ -102,12 +119,14 @@ async def rewind_to_checkpoint(
     session_id: str, body: RewindRequest, request: Request
 ) -> dict[str, str]:
     """Restore the workspace to a checkpoint the platform created."""
-    driver = _require_driver(await _running_workspace(session_id, request, require_write=True))
-    known = {c.name for c in await git_tools.list_checkpoints(driver, session_id)}
+    driver, folder = _require_workspace(
+        await _running_workspace(session_id, request, require_write=True)
+    )
+    known = {c.name for c in await git_tools.list_checkpoints(driver, session_id, folder)}
     if body.reference not in known:
         # Only checkpoints, never an arbitrary ref: this endpoint is a rewind, not a reset tool.
         raise HTTPException(status_code=404, detail="Checkpoint not found")
-    outcome = await git_tools.git_revert(driver, session_id, body.reference, body.mode)
+    outcome = await git_tools.git_revert(driver, session_id, body.reference, body.mode, folder)
     if outcome.startswith("Error:"):
         raise HTTPException(status_code=500, detail=outcome)
     return {"status": "restored", "reference": body.reference, "mode": body.mode}

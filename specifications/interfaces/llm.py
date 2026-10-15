@@ -132,6 +132,9 @@ class ChatMessage:
     tool_call_id: str | None = None
     tool_calls: list[dict[str, Any]] | None = None
     reasoning: str | None = None
+    # The provider's own reasoning blocks (Anthropic-style ``thinking`` with its signature), which
+    # such providers require back with the tool calls they led to.
+    reasoning_blocks: list[dict[str, Any]] | None = None
     cacheable: bool = False  # Marks a provider prompt-cache breakpoint (stable prefix)
     # Multimodal parts for the current turn only. None on every message
     # restored from history, so a past attachment can never be replayed.
@@ -202,6 +205,8 @@ class StreamChunk:
     is_finished: bool = False
     finish_reason: str | None = None
     token_usage: dict[str, int] | None = None
+    # Pieces of the provider's reasoning blocks (thinking text, then its signature).
+    reasoning_blocks: list[dict[str, Any]] | None = None
     # Set (with `finish_reason="error"`) when the provider call failed; consumers must treat
     # it as a failure rather than as model output.
     error: str | None = None
@@ -209,6 +214,14 @@ class StreamChunk:
 
 class ModelExecutionError(RuntimeError):
     """The model provider call failed (reported by a `StreamChunk` carrying `error`)."""
+
+
+# `StreamChunk.finish_reason` of a call refused because the request exceeds the model's window.
+CONTEXT_WINDOW_EXCEEDED = "context_window_exceeded"
+
+
+class ContextWindowExceededError(ModelExecutionError):
+    """The request was larger than the model's context window; compacting it may help."""
 
 
 class LLMGatewayProtocol(ABC):

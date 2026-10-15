@@ -11,8 +11,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from llm_gateway.tokens import estimated_usage
+
 from agent_core.context import current_execution_ctx
+from agent_core.dispatcher import ToolDispatcher
 from agent_core.tools.registry import ToolRegistry
+from agent_core.truncation import split_truncated, truncation_notice
 from specifications.interfaces.agent import (
     AgentEvent,
     SubagentConfig,
@@ -27,6 +31,20 @@ from specifications.interfaces.llm import (
     ToolDefinition,
 )
 
+# Searching a codebase takes several steps before reading: four left no room to report.
+DEFAULT_SUBAGENT_TURNS = 12
+# Inspection only: what the read-only roles, and a role nobody configured, may use.
+READ_ONLY_TOOLS = [
+    "file_read", "grep_search", "glob_files", "list_dir", "code_search", "web_search", "web_fetch",
+]  # fmt: skip
+EDIT_OR_COMMAND_TOOLS = frozenset(
+    {"file_write", "file_edit", "apply_patch", "apply_diff_file", "bash_exec", "run_tests"}
+)
+FINAL_REPORT_NOTE = (
+    "You have used all your steps. Do not call tools: report now what you found, what you "
+    "could not check, and what the main agent should do next."
+)
+
 DEFAULT_SUBAGENT_CONFIGS: dict[str, SubagentConfig] = {
     "security_auditor": SubagentConfig(
         id="security_auditor",
@@ -38,8 +56,8 @@ DEFAULT_SUBAGENT_CONFIGS: dict[str, SubagentConfig] = {
             "vulnerabilities (OWASP Top 10, SQL injection, RLS bypasses, secret leakage). "
             "Synthesize your findings concisely with specific line references and suggested remediations."
         ),
-        whitelisted_tools=["file_read", "web_search", "web_fetch"],
-        max_turns=4,
+        whitelisted_tools=[*READ_ONLY_TOOLS],
+        max_turns=DEFAULT_SUBAGENT_TURNS,
     ),
     "qa_verifier": SubagentConfig(
         id="qa_verifier",
@@ -47,11 +65,12 @@ DEFAULT_SUBAGENT_CONFIGS: dict[str, SubagentConfig] = {
         role_title="Automated Test Specialist",
         description="Executes test suites in the sandbox, synthesizes failing cases, and verifies regressions.",
         system_prompt=(
-            "You are a QA & Test Verifier subagent. Run tests using bash_exec, inspect outputs, "
-            "and synthesize an exact diagnostic report showing passed vs failed assertions."
+            "You are a QA & Test Verifier subagent. Run the tests (run_tests, or bash_exec for "
+            "anything it does not cover), inspect the failures in the code, and report exactly "
+            "which tests passed and which failed, with the assertion and the likely cause."
         ),
-        whitelisted_tools=["bash_exec", "file_read"],
-        max_turns=4,
+        whitelisted_tools=["run_tests", "bash_exec", "file_read", "grep_search", "list_dir"],
+        max_turns=DEFAULT_SUBAGENT_TURNS,
     ),
     "researcher": SubagentConfig(
         id="researcher",
@@ -62,14 +81,10 @@ DEFAULT_SUBAGENT_CONFIGS: dict[str, SubagentConfig] = {
             "You are a Codebase & Web Researcher subagent. Search technical documentation and read files "
             "to answer specific architectural or implementation questions without altering files."
         ),
-        whitelisted_tools=["file_read", "web_search", "web_fetch"],
-        max_turns=4,
+        whitelisted_tools=[*READ_ONLY_TOOLS],
+        max_turns=DEFAULT_SUBAGENT_TURNS,
     ),
 }
-
-
-# What a delegate may use when the model names a role nobody configured: read-only inspection.
-READ_ONLY_TOOLS = ["file_read", "grep_search", "glob_files", "list_dir", "web_search", "web_fetch"]
 
 
 NO_DELEGATION = frozenset({"delegate_subagent", "delegate_subagents_parallel"})
@@ -85,7 +100,7 @@ def _fallback_config(role_key: str) -> SubagentConfig:
         description="Custom delegated subagent",
         system_prompt=f"You are a specialized {role_key} subagent. Complete the requested task efficiently.",
         whitelisted_tools=list(READ_ONLY_TOOLS),
-        max_turns=4,
+        max_turns=DEFAULT_SUBAGENT_TURNS,
     )
 
 
@@ -96,6 +111,10 @@ class _Generation:
     text: str = ""
     tool_calls: dict[int, dict[str, Any]] = field(default_factory=dict)
     usage: dict[str, int] | None = None
+    finish_reason: str | None = None
+
+    def produced_text(self) -> str:
+        return self.text + "".join(call["arguments"] for call in self.tool_calls.values())
 
     def add_tool_call_delta(self, delta: dict[str, Any]) -> None:
         index = delta.get("index", 0)
@@ -117,9 +136,12 @@ class SubagentRunner:
         gateway: LLMGatewayProtocol,
         registry: ToolRegistry,
         configs: dict[str, SubagentConfig] | None = None,
+        dispatcher: ToolDispatcher | None = None,
     ) -> None:
         self.gateway = gateway
         self.registry = registry
+        # Shared with the main turn, so a delegate's calls count against the same limits.
+        self.dispatcher = dispatcher or ToolDispatcher(registry=registry)
         self.configs: dict[str, SubagentConfig] = configs or dict(DEFAULT_SUBAGENT_CONFIGS)
 
     async def run(
@@ -200,7 +222,10 @@ class _SubagentExecution:
         self._tools = runner.tools_for(config)
         self._permitted = {tool.name for tool in self._tools}
         self._messages: list[ChatMessage] = [
-            ChatMessage(role="system", content=config.system_prompt),
+            ChatMessage(
+                role="system",
+                content=f"{config.system_prompt}\n\n{workspace_brief(self._permitted)}",
+            ),
             ChatMessage(
                 role="user",
                 content=(
@@ -224,9 +249,29 @@ class _SubagentExecution:
                 return
             if generation.text:
                 self._final_summary = generation.text
+            generation.tool_calls, cut = split_truncated(
+                generation.tool_calls, generation.finish_reason
+            )
+            if cut:
+                self._messages.append(ChatMessage(role="user", content=truncation_notice(cut)))
+                if not generation.tool_calls:
+                    continue
             if not generation.tool_calls:
                 return
             await self._run_tool_calls(generation)
+        await self._final_report()
+
+    async def _final_report(self) -> None:
+        """The steps ran out while the delegate was still working: one tool-less call turns
+        what it gathered into a report instead of returning its last half-thought."""
+        self._messages.append(ChatMessage(role="user", content=FINAL_REPORT_NOTE))
+        try:
+            generation = await self._generate(with_tools=False)
+        except Exception as err:
+            self._final_summary = f"Subagent error during its final report: {err}"
+            return
+        if generation.text:
+            self._final_summary = generation.text
 
     def result(self, duration_ms: int) -> SubagentTaskResult:
         return SubagentTaskResult(
@@ -277,12 +322,12 @@ class _SubagentExecution:
             {"subagent_id": self._subagent_id, "delta": delta, "is_reasoning": is_reasoning},
         )
 
-    async def _generate(self) -> _Generation:
+    async def _generate(self, with_tools: bool = True) -> _Generation:
         turn_ctx = current_execution_ctx.get()
         model_request = ModelRequest(
             model=self._model,
             messages=self._messages,
-            tools=self._tools,
+            tools=self._tools if with_tools else None,
             temperature=self._config.temperature,
             # Subagent requests inherit the turn's model data-governance requirement.
             zero_retention=turn_ctx.zero_retention if turn_ctx else False,
@@ -294,6 +339,8 @@ class _SubagentExecution:
                 raise ModelExecutionError(chunk.error)
             if chunk.token_usage:
                 generation.usage = chunk.token_usage
+            if chunk.finish_reason:
+                generation.finish_reason = chunk.finish_reason
             if chunk.reasoning_delta:
                 await self._emit_progress(chunk.reasoning_delta, is_reasoning=True)
             if chunk.text_delta:
@@ -315,8 +362,9 @@ class _SubagentExecution:
                 prompt_tokens = generation.usage.get("prompt_tokens", 0)
                 completion_tokens = generation.usage.get("completion_tokens", 0)
             else:
-                prompt_tokens = max(50, sum(len(m.content or "") // 4 for m in self._messages))
-                completion_tokens = max(10, len(generation.text) // 4)
+                prompt_tokens, completion_tokens = estimated_usage(
+                    self._model, self._messages, self._tools, generation.produced_text()
+                )
             await gateway.record_usage(
                 tenant_org_id=ctx.tenant_org_id if ctx else "default_org",
                 tenant_user_id=ctx.tenant_user_id if ctx else "dev_user",
@@ -364,7 +412,33 @@ class _SubagentExecution:
                 f"Blocked: the '{tool_name}' tool is not available to the "
                 f"'{self._config.id}' subagent."
             )
+        dispatcher = self._runner.dispatcher
         try:
-            return await self._runner.registry.call_tool(tool_name, args)
+            return await dispatcher.run_guarded(self._session_id, tool_name, args)
+        except TimeoutError:
+            return f"Tool execution timed out after {dispatcher.tool_timeout_seconds}s"
         except Exception as err:
             return f"Tool execution error: {err}"
+
+
+def workspace_brief(permitted: set[str]) -> str:
+    """How the sandbox works, for a delegate that starts without the main turn's context."""
+    ctx = current_execution_ctx.get()
+    active = ctx.active_repository if ctx is not None else ""
+    lines = [
+        "Workspace: repositories are cloned into /workspace/<name>.",
+        (
+            f"The active repository is {active}: relative paths and commands use it."
+            if active
+            else "No repository is active: use absolute /workspace/... paths."
+        ),
+        "Each bash_exec runs in a fresh shell (no cd or exports carry over).",
+        "Tool output is clamped: search (grep_search, glob_files, code_search) before reading, "
+        "and read large files by line range.",
+    ]
+    if not permitted & EDIT_OR_COMMAND_TOOLS:
+        lines.append(
+            "Your tools are read-only: do not try to change anything. Report what you found; "
+            "the main agent makes the changes."
+        )
+    return "\n".join(lines)

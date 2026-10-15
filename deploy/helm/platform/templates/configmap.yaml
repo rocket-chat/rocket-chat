@@ -44,6 +44,9 @@ data:
   {{- if .Values.backend.env.ROCKET_TOOL_MAX_CONCURRENCY }}
   ROCKET_TOOL_MAX_CONCURRENCY: {{ .Values.backend.env.ROCKET_TOOL_MAX_CONCURRENCY | quote }}
   {{- end }}
+  {{- if .Values.backend.env.ROCKET_TOOL_PROCESS_CONCURRENCY }}
+  ROCKET_TOOL_PROCESS_CONCURRENCY: {{ .Values.backend.env.ROCKET_TOOL_PROCESS_CONCURRENCY | quote }}
+  {{- end }}
   {{- if .Values.backend.env.ROCKET_TOOL_TIMEOUT_SECONDS }}
   ROCKET_TOOL_TIMEOUT_SECONDS: {{ .Values.backend.env.ROCKET_TOOL_TIMEOUT_SECONDS | quote }}
   {{- end }}
@@ -65,6 +68,12 @@ data:
   ROCKET_DEFAULT_SANDBOX_IMAGE: {{ . | quote }}
   {{- end }}
   K8S_SANDBOX_NAMESPACE: {{ .Values.sandbox.namespace | default "agent-sandboxes" | quote }}
+  # Sandboxes clone and fetch through the API's read-only git gateway (they hold no GitHub
+  # credential); restricted sandboxes are given a NetworkPolicy rule for these pods and port.
+  ROCKET_GIT_GATEWAY_URL: {{ printf "http://%s-backend.%s.svc:%v" (include "rocket-chat.fullname" .) .Release.Namespace (.Values.backend.service.port | default 8000) | quote }}
+  ROCKET_PLATFORM_NAMESPACE: {{ .Release.Namespace | quote }}
+  ROCKET_PLATFORM_POD_LABELS: {{ printf "app.kubernetes.io/name=%s-backend,app.kubernetes.io/instance=%s" (include "rocket-chat.name" .) .Release.Name | quote }}
+  ROCKET_PLATFORM_POD_PORT: "8000"
   K8S_STORAGE_CLASS: {{ .Values.sandbox.storageClass | default "" | quote }}
   {{- if and .Values.sandbox .Values.sandbox.inactivity }}
   SANDBOX_INACTIVITY_PAUSE_SECONDS: {{ .Values.sandbox.inactivity.pauseSeconds | default 1800 | quote }}

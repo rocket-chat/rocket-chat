@@ -222,13 +222,6 @@ spec:
                   name: {{ .Values.github.existingSecret }}
                   key: {{ .Values.github.existingSecretWebhookSecretKey }}
               {{- end }}
-              {{- if .Values.github.existingSecretTokenKey }}
-            - name: GITHUB_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.github.existingSecret }}
-                  key: {{ .Values.github.existingSecretTokenKey }}
-              {{- end }}
             {{- end }}
             {{- if .Values.backend.extraEnv }}
             {{- toYaml .Values.backend.extraEnv | nindent 12 }}

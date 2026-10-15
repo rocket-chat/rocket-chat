@@ -159,6 +159,16 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Organization default model (below the agent and the user's choice).",
         ),
         _spec(
+            "context_windows",
+            "dict",
+            {},
+            "org",
+            _TURN,
+            "Context-window size in tokens per model name or pattern (e.g. "
+            '{"my-provider/*": 32000}), for models whose size is not known to the platform; '
+            "drives when long conversations are compacted.",
+        ),
+        _spec(
             "fallback_models",
             "list",
             [],
@@ -458,7 +468,8 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "all",
             "org",
             _GIT_CREDS,
-            'Repositories an App token may access: "all" or a comma-separated list.',
+            'Repositories the GitHub App acts on for the agent, reading and changing: "all" or a '
+            "comma-separated list. Elsewhere the member's linked account is used.",
         ),
     ),
     "mcp": (

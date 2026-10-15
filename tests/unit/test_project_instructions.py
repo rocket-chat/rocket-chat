@@ -20,8 +20,8 @@ async def _driver(files: dict[str, str]) -> FakeSandboxDriver:
     return driver
 
 
-def test_repository_checkout_is_searched_before_the_workspace_root() -> None:
-    assert candidate_paths("https://github.com/acme/api.git") == [
+def test_the_active_repository_is_searched_before_the_workspace_root() -> None:
+    assert candidate_paths("/workspace/api") == [
         "/workspace/api/AGENTS.md",
         "/workspace/api/CLAUDE.md",
         "/workspace/AGENTS.md",

@@ -24,6 +24,7 @@ from api.services.metrics import (
     websocket_connection_opened,
 )
 from api.services.pending_gates import pending_gates
+from api.services.session_support import apply_sharing
 from api.turns.gates import _forget_pending_decisions, take_stored_question
 from api.turns.tasks import _spawn_background_turn
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
@@ -383,12 +384,11 @@ class SessionSocket:
         record = await self._store.get_session(self._session_id)
         if not record:
             return
-        record.is_shared = is_shared
-        record.collaborators = collaborators
-        if isinstance(record.metadata, dict):
-            record.metadata["is_shared"] = is_shared
-            record.metadata["collaborators"] = collaborators
-        await self._store.update_session(record)
+        await self._store.mutate_session(
+            self._session_id,
+            record.tenant_org_id,
+            lambda current: apply_sharing(current, is_shared, collaborators),
+        )
         await self._event_bus.publish(
             SessionEvent(
                 session_id=self._session_id,

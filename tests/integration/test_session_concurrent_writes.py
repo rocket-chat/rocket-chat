@@ -15,6 +15,7 @@ import uuid
 import pytest
 from api.db.session import current_tenant_org_id
 from api.main import app
+from api.services.session_support import ACTIVE_REPOSITORY_KEY, remember_active_repository
 from fastapi.testclient import TestClient
 
 from specifications.interfaces.llm import ChatMessage
@@ -103,3 +104,43 @@ def test_many_concurrent_appends_all_survive() -> None:
     assert sorted(m.content for m in final.conversation_history) == sorted(
         f"m{n}" for n in range(12)
     )
+
+
+def test_a_clone_a_rename_an_answer_and_a_mode_change_all_survive() -> None:
+    with TestClient(app) as client:
+        session_id = client.post(
+            "/v1/sessions", json={"title": "together"}, headers=HEADERS
+        ).json()["session_id"]
+        store = app.state.session_store
+
+        async def together() -> SessionRecord:
+            current_tenant_org_id.set("test_org")
+            await asyncio.gather(
+                remember_active_repository(store, session_id, "test_org", "/workspace/api"),
+                store.mutate_session(
+                    session_id, "test_org", lambda record: setattr(record, "title", "Renamed")
+                ),
+                store.mutate_session(
+                    session_id,
+                    "test_org",
+                    lambda record: record.conversation_history.append(
+                        ChatMessage(role="assistant", content="the answer")
+                    ),
+                ),
+            )
+            final = await store.get_session(session_id)
+            assert final is not None
+            return final
+
+        final = client.portal.call(together)
+        mode = client.patch(
+            f"/v1/sessions/{session_id}", json={"metadata": {"permission_mode": "ask"}},
+            headers=HEADERS,
+        )  # fmt: skip
+        assert mode.status_code == 200, mode.text
+        after = mode.json()
+
+    assert final.title == "Renamed"
+    assert [m.content for m in final.conversation_history] == ["the answer"]
+    assert final.metadata[ACTIVE_REPOSITORY_KEY] == "/workspace/api"
+    assert after["metadata"][ACTIVE_REPOSITORY_KEY] == "/workspace/api"

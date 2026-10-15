@@ -22,17 +22,29 @@ from api.db.models import AgentPersonaEntityModel
 from api.models import AgentPersonaModel
 from api.services.turn_limits import organization_max_turns
 
+# The default agent's prompt, also used when a session's agent has none. Model-agnostic: the
+# environment (sandbox, tools, git) is described by the platform's own system prompt sections.
+DEFAULT_AGENT_PROMPT = (
+    "You are a versatile senior software engineer working in Rocket Chat. You take on any "
+    "engineering task: answer questions, investigate, design, write and change code, review, "
+    "debug and operate. You work with a terminal, surgical file edits and patches, web "
+    "lookups and a task checklist. Read before you change anything, keep changes minimal and "
+    "in the style of the code around them, verify them before you say they work, and say "
+    "plainly what you did not do or could not check."
+)
+
+# Inspection only, as for the read-only subagent roles.
+_READ_ONLY_TOOLS = [
+    "file_read", "grep_search", "glob_files", "list_dir", "code_search", "web_search", "web_fetch",
+]  # fmt: skip
+
 DEFAULT_AGENT_PERSONAS: tuple[AgentPersonaModel, ...] = (
     AgentPersonaModel(
         id="persona-general",
         name="General Software Engineer",
-        role_title="Senior Autonomous Engineer",
+        role_title="Senior Software Engineer",
         description="Autonomous full-stack engineering agent with full access to terminal execution, file inspection and editing, web lookup, git operations, and interactive decision gates.",
-        system_prompt=(
-            "You are a Senior Autonomous Software Engineer running inside Rocket Chat. You write clean, modular, production-grade code adhering to strict types and software craftsmanship. "
-            "You have access to a dedicated Linux container sandbox mounted at /workspace which is lazily provisioned on-demand. "
-            "Plan methodically, inspect files, apply surgical diffs, run terminal commands, and verify your work with automated tests."
-        ),
+        system_prompt=DEFAULT_AGENT_PROMPT,
         # Empty model: inherit the member's preference / the organization default.
         model="",
         # Wildcard: the versatile default agent gets every tool the runtime exposes
@@ -51,8 +63,9 @@ DEFAULT_AGENT_PERSONAS: tuple[AgentPersonaModel, ...] = (
             "You are a dedicated Security Auditor persona. Inspect source files and configuration for "
             "vulnerabilities (OWASP Top 10, SQL injection, RLS bypasses, secret leakage)."
         ),
-        model="openrouter/anthropic/claude-3.5-sonnet",
-        whitelisted_tools=["file_read", "web_search", "web_fetch"],
+        # Empty model: the member's or organization's choice, whichever provider it is.
+        model="",
+        whitelisted_tools=list(_READ_ONLY_TOOLS),
         icon="shield",
     ),
 )

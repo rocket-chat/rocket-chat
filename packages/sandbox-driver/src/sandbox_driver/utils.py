@@ -50,14 +50,22 @@ def parse_memory_to_bytes(mem_str: str) -> int:
     return int(val * multiplier)
 
 
-def create_tar_archive(filename: str, content: bytes) -> bytes:
-    """Pack file content into a tar archive bytes buffer for container put_archive."""
+def create_tar_archive(
+    filename: str, content: bytes, mode: int = 0o644, uid: int = 0, gid: int = 0
+) -> bytes:
+    """Pack file content into a tar archive bytes buffer for container put_archive.
+
+    ``put_archive`` gives the file exactly the mode and owner the archive names, so the caller
+    passes the ones the file should keep (its own, or its folder's owner for a new file).
+    """
     tar_stream = io.BytesIO()
     with tarfile.open(fileobj=tar_stream, mode="w") as tar:
         tarinfo = tarfile.TarInfo(name=filename)
         tarinfo.size = len(content)
         tarinfo.mtime = int(time.time())
-        tarinfo.mode = 0o644
+        tarinfo.mode = mode
+        tarinfo.uid = uid
+        tarinfo.gid = gid
         tar.addfile(tarinfo, io.BytesIO(content))
     return tar_stream.getvalue()
 

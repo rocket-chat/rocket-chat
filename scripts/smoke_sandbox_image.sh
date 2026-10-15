@@ -9,6 +9,8 @@ run() { docker run --rm --cap-drop ALL --security-opt no-new-privileges:true "$i
 for tool in git gh rg fd jq node pnpm npm uv python3 make gcc base64 find stat; do
   run "command -v $tool >/dev/null" || { echo "missing tool: $tool" >&2; exit 1; }
 done
+# There is no GitHub credential in a sandbox: `gh` must point the agent to its GitHub tools.
+run 'gh pr list 2>&1 | grep -q github_pull_request' || { echo "gh must name the agent's GitHub tools" >&2; exit 1; }
 [ "$(run 'id -u')" = "1000" ] || { echo "image must default to uid 1000" >&2; exit 1; }
 run 'touch /workspace/.probe && rm /workspace/.probe' || { echo "/workspace not writable" >&2; exit 1; }
 run 'cd /tmp && git init -q probe && git -C probe -c user.name=t -c user.email=t@t commit -q --allow-empty -m probe'

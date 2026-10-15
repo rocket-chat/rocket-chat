@@ -1,21 +1,41 @@
 """Reading, editing and searching files in the workspace."""
 
 import logging
+from dataclasses import asdict, replace
 from typing import TYPE_CHECKING, Annotated
 
 from pydantic import Field
+from sandbox_driver.workspace import WORKSPACE
 
 from agent_core.context import current_execution_ctx
 from agent_core.tools import code_search as code_search_tools
 from agent_core.tools import tier2
-from specifications.interfaces.agent import (
-    AgentEvent,
-)
+from specifications.interfaces.agent import AgentEvent, FileDiff
 
 if TYPE_CHECKING:
     from agent_core.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+RELATIVE_PATHS = "{}. Relative paths are inside the active repository; absolute ones as given."
+
+
+def emit_file_diff(registry: "ToolRegistry", diff: FileDiff | None) -> None:
+    """Tell the turn a file changed, once: through the turn's diff collaborator when it has
+    one (it publishes the event), else on the turn's event queue."""
+    if diff is None:
+        return
+    # Diff events name files relative to /workspace, whatever path the tool was given.
+    diff = replace(diff, path=diff.path.removeprefix(f"{WORKSPACE}/"))
+    on_diff = registry._turn_callback("diff")
+    if on_diff:
+        on_diff(diff)
+        return
+    ctx = current_execution_ctx.get()
+    if ctx and ctx.event_queue:
+        ctx.event_queue.put_nowait(
+            AgentEvent(event_type="file_diff", session_id=ctx.session_id, payload=asdict(diff))
+        )
 
 
 def register(registry: "ToolRegistry") -> None:
@@ -26,25 +46,40 @@ def register(registry: "ToolRegistry") -> None:
 
 def _register_file_editing_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
-        description="Read file content with optional 1-indexed start and end line ranges."
+        description=(
+            "Read a file with line numbers, 400 lines at a time unless you give a range; the "
+            "result says how many lines the file has and how to read on. The numbers are not "
+            "part of the file: leave them out of file_edit blocks."
+        )
     )
     async def file_read(
-        path: Annotated[str, Field(description="Path to the file to read.")],
+        path: Annotated[str, Field(description=RELATIVE_PATHS.format("File to read"))],
         start_line: Annotated[
-            int | None, Field(description="Optional 1-indexed start line.")
+            int | None, Field(description="Optional 1-indexed first line (default 1).")
         ] = None,
-        end_line: Annotated[int | None, Field(description="Optional 1-indexed end line.")] = None,
+        end_line: Annotated[
+            int | None, Field(description="Optional 1-indexed last line (default: 400 lines on).")
+        ] = None,
+        line_numbers: Annotated[
+            bool, Field(description="Prefix each line with its number (default: true).")
+        ] = True,
     ) -> str:
         ctx = current_execution_ctx.get()
         s_id = ctx.session_id if ctx else registry._session_id
         if not registry._driver or not s_id:
             return "Error: Sandbox not initialized for file_read"
         await registry._ensure_sandbox(s_id)
-        return await tier2.file_read(registry._driver, s_id, path, start_line, end_line)
+        target = registry.workspace_file(path)
+        result = await tier2.file_read(
+            registry._driver, s_id, target, start_line, end_line, line_numbers
+        )
+        return registry.explain_missing(path, result)
 
     @registry._tool(description="Write or overwrite file contents in the sandbox workspace.")
     async def file_write(
-        path: Annotated[str, Field(description="Target workspace path to create or overwrite.")],
+        path: Annotated[
+            str, Field(description=RELATIVE_PATHS.format("File to create or overwrite"))
+        ],
         content: Annotated[str, Field(description="String content to write.")],
         overwrite: Annotated[
             bool, Field(description="Whether to overwrite existing file (default: true).")
@@ -55,11 +90,15 @@ def _register_file_editing_tools(registry: "ToolRegistry") -> None:
         if not registry._driver or not s_id:
             return "Error: Sandbox not initialized for file_write"
         await registry._ensure_sandbox(s_id)
-        return await tier2.file_write(registry._driver, s_id, path, content, overwrite)
+        msg, diff = await tier2.file_write(
+            registry._driver, s_id, registry.workspace_file(path), content, overwrite
+        )
+        emit_file_diff(registry, diff)
+        return msg
 
     @registry._tool(description="Perform resilient block replacement in a workspace file.")
     async def file_edit(
-        path: Annotated[str, Field(description="Target workspace file path to edit.")],
+        path: Annotated[str, Field(description=RELATIVE_PATHS.format("File to edit"))],
         target_block: Annotated[
             str, Field(description="Exact or near-exact block of lines to replace.")
         ],
@@ -71,29 +110,16 @@ def _register_file_editing_tools(registry: "ToolRegistry") -> None:
             return "Error: Sandbox not initialized for file_edit"
         await registry._ensure_sandbox(s_id)
         msg, diff = await tier2.file_edit(
-            registry._driver, s_id, path, target_block, replacement_block
+            registry._driver, s_id, registry.workspace_file(path), target_block, replacement_block
         )
-        if diff is not None:
-            if ctx and ctx.event_queue:
-                from dataclasses import asdict
-
-                ctx.event_queue.put_nowait(
-                    AgentEvent(
-                        event_type="file_diff",
-                        session_id=ctx.session_id,
-                        payload=asdict(diff),
-                    )
-                )
-            on_diff = registry._turn_callback("diff")
-            if on_diff:
-                on_diff(diff)
-        return msg
+        emit_file_diff(registry, diff)
+        return registry.explain_missing(path, msg)
 
 
 def _register_patch_tools(registry: "ToolRegistry") -> None:
     @registry._tool(description="Apply a unified diff patch to a file in the workspace.")
     async def apply_patch(
-        path: Annotated[str, Field(description="Target workspace file path to patch.")],
+        path: Annotated[str, Field(description=RELATIVE_PATHS.format("File to patch"))],
         patch_content: Annotated[str, Field(description="Unified diff patch content.")],
     ) -> str:
         ctx = current_execution_ctx.get()
@@ -101,7 +127,11 @@ def _register_patch_tools(registry: "ToolRegistry") -> None:
         if not registry._driver or not s_id:
             return "Error: Sandbox not initialized for apply_patch"
         await registry._ensure_sandbox(s_id)
-        return await tier2.apply_patch(registry._driver, s_id, path, patch_content)
+        msg, diff = await tier2.apply_patch(
+            registry._driver, s_id, registry.workspace_file(path), patch_content
+        )
+        emit_file_diff(registry, diff)
+        return msg
 
     @registry._tool(
         description=(
@@ -131,21 +161,7 @@ def _register_patch_tools(registry: "ToolRegistry") -> None:
         driver, session_id = target
         await registry._ensure_sandbox(session_id)
         msg, diff = await tier2.apply_diff_file(driver, session_id, diff_content, path)
-        if diff is not None:
-            ctx = current_execution_ctx.get()
-            if ctx and ctx.event_queue:
-                from dataclasses import asdict
-
-                ctx.event_queue.put_nowait(
-                    AgentEvent(
-                        event_type="file_diff",
-                        session_id=ctx.session_id,
-                        payload=asdict(diff),
-                    )
-                )
-            on_diff = registry._turn_callback("diff")
-            if on_diff:
-                on_diff(diff)
+        emit_file_diff(registry, diff)
         return msg
 
 
@@ -154,14 +170,17 @@ def _register_file_search_tools(registry: "ToolRegistry") -> None:
         description="List the contents of a directory in the sandbox workspace (long format)."
     )
     async def list_dir(
-        path: Annotated[str, Field(description="Directory path to list (default: '.').")] = ".",
+        path: Annotated[
+            str, Field(description=RELATIVE_PATHS.format("Directory to list (default: '.')"))
+        ] = ".",
     ) -> str:
         ctx = current_execution_ctx.get()
         s_id = ctx.session_id if ctx else registry._session_id
         if not registry._driver or not s_id:
             return "Error: Sandbox not initialized for list_dir"
         await registry._ensure_sandbox(s_id)
-        return await tier2.list_dir(registry._driver, s_id, path)
+        result = await tier2.list_dir(registry._driver, s_id, registry.workspace_file(path))
+        return registry.explain_missing(path, result)
 
     @registry._tool(
         description=(
@@ -190,7 +209,13 @@ def _register_file_search_tools(registry: "ToolRegistry") -> None:
             return "Error: Sandbox not initialized for grep_search"
         await registry._ensure_sandbox(s_id)
         return await tier2.grep_search(
-            registry._driver, s_id, pattern, path, file_glob, case_sensitive, max_results
+            registry._driver,
+            s_id,
+            pattern,
+            registry.workspace_file(path),
+            file_glob,
+            case_sensitive,
+            max_results,
         )
 
     @registry._tool(
@@ -209,7 +234,9 @@ def _register_file_search_tools(registry: "ToolRegistry") -> None:
         if not registry._driver or not s_id:
             return "Error: Sandbox not initialized for glob_files"
         await registry._ensure_sandbox(s_id)
-        return await tier2.glob_files(registry._driver, s_id, pattern, path)
+        return await tier2.glob_files(
+            registry._driver, s_id, pattern, registry.workspace_file(path)
+        )
 
     @registry._tool(
         description=(
@@ -243,5 +270,5 @@ def _register_file_search_tools(registry: "ToolRegistry") -> None:
         driver, session_id = target
         await registry._ensure_sandbox(session_id)
         return await code_search_tools.search_code(
-            driver, session_id, query, path, file_glob, max_results
+            driver, session_id, query, registry.workspace_file(path), file_glob, max_results
         )

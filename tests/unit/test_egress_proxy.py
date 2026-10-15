@@ -192,3 +192,14 @@ async def test_garbage_requests_are_rejected_without_crashing_the_proxy() -> Non
         assert (await _request(port, b"GET http://x.example/ HTTP/1.1\r\n\r\n")).startswith(
             b"HTTP/1.1 403"
         ), "an unresolvable name is refused"
+
+
+def test_the_platform_gateway_is_reachable_whatever_the_policy() -> None:
+    policy = Policy.build("github.com", True, "host.docker.internal:8000")
+
+    assert policy.decide("host.docker.internal", _addr("192.168.65.254"), 8000) == (True, "")
+    assert policy.decide("HOST.docker.internal.", _addr("192.168.65.254"), 8000)[0]
+    assert not policy.decide("host.docker.internal", _addr("192.168.65.254"), 5432)[0], (
+        "only the gateway's port, not the host"
+    )
+    assert not policy.decide("host.docker.internal", _addr("192.168.65.254"))[0]

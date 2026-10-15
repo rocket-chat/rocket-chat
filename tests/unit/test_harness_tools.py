@@ -50,15 +50,12 @@ def test_system_prompt_render_handles_empty_sections() -> None:
     assert SystemPrompt.from_text(None).render() == ""
 
 
-def test_seed_messages_mark_only_stable_prefix_cacheable() -> None:
+def test_the_seed_is_only_the_stable_prompt_marked_cacheable() -> None:
     seed = AsyncReActOrchestrator._build_seed_messages(
         SystemPrompt(stable="STABLE", dynamic="VOLATILE"), None
     )
-    assert [m.role for m in seed] == ["system", "system"]
-    assert seed[0].content == "STABLE"
-    assert seed[0].cacheable is True
-    assert seed[1].content == "VOLATILE"
-    assert seed[1].cacheable is False
+    # The volatile part goes after the conversation (``_TurnRun.context_note``).
+    assert [(m.role, m.content, m.cacheable) for m in seed] == [("system", "STABLE", True)]
 
 
 def test_seed_messages_legacy_single_prompt_is_fully_stable() -> None:
@@ -77,7 +74,7 @@ def test_prepare_dispatch_messages_keeps_seed_out_of_conversation() -> None:
 
     messages = orchestrator._prepare_dispatch_messages("gpt-4o", seed_messages, conversation)
 
-    assert [m.role for m in messages] == ["system", "system", "user"]
+    assert [m.role for m in messages] == ["system", "user"]
     # The session conversation must never contain the system prompt itself.
     assert [m.role for m in conversation] == ["user"]
 

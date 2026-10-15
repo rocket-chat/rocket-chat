@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -42,6 +43,28 @@ TOOL_MARKER = "[stub:tool]"
 QUESTION_MARKER = "[stub:question]"
 # A command (as opposed to the read-only tool above): what permission modes gate.
 BASH_MARKER = "[stub:bash]"
+# A file write: what the cockpit's list of changes shows.
+WRITE_MARKER = "[stub:write]"
+STUB_WRITTEN_PATH = "notes/written_by_agent.md"
+
+# marker -> (tool, JSON arguments, what the stub says it is doing)
+_MARKER_CALLS: dict[str, tuple[str, str, str]] = {
+    TOOL_MARKER: (
+        "list_dir",
+        '{"path": "/workspace"}',
+        "inspecting the workspace before answering",
+    ),
+    BASH_MARKER: (
+        "bash_exec",
+        '{"command": "echo stub-ran"}',
+        "running a command in the workspace",
+    ),
+    WRITE_MARKER: (
+        "file_write",
+        '{"path": "' + STUB_WRITTEN_PATH + '", "content": "# Written by the agent\\n"}',
+        "writing a note in the workspace",
+    ),
+}
 
 
 def stub_enabled(env: dict[str, str] | None = None) -> bool:
@@ -88,6 +111,10 @@ def _example_for_schema(schema: dict[str, Any], name: str = "") -> Any:
     return f"stub {name}".strip()
 
 
+# The engine's per-request notes (``agent_core.notes``); not what a person asked.
+_REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
+
+
 class DeterministicStubGateway(LLMGatewayProtocol):
     """Scripted gateway whose streamed output depends only on the request content."""
 
@@ -107,11 +134,14 @@ class DeterministicStubGateway(LLMGatewayProtocol):
         """The freshest input the model is expected to answer: the latest user or tool message.
 
         Tool results count because that is what a real model responds to after a tool
-        call; falling back to the very last message keeps the stub total.
+        call. The engine's ``<system-reminder>`` notes are context, not the input, so they are
+        skipped; falling back to the very last message keeps the stub total.
         """
         for message in reversed(messages):
             if message.role in ("user", "tool"):
-                return message.content or ""
+                text = _REMINDER.sub("", message.content or "").strip()
+                if text:
+                    return text
         return (messages[-1].content or "") if messages else ""
 
     def _script(self, prompt: str) -> tuple[str, str, dict[str, object] | None]:
@@ -119,31 +149,15 @@ class DeterministicStubGateway(LLMGatewayProtocol):
         fingerprint = _fingerprint(prompt)
         summary = " ".join(prompt.split())[:120]
 
-        if TOOL_MARKER in prompt:
-            tool_call: dict[str, object] | None = {
-                "index": 0,
-                "id": f"call_stub_{fingerprint}",
-                "type": "function",
-                "function": {"name": "list_dir", "arguments": '{"path": "/workspace"}'},
-            }
-            return (
-                f"Stub reasoning [{fingerprint}]: inspecting the workspace before answering.",
-                "",
-                tool_call,
-            )
-
-        if BASH_MARKER in prompt:
-            command_call: dict[str, object] | None = {
-                "index": 0,
-                "id": f"call_stub_{fingerprint}",
-                "type": "function",
-                "function": {"name": "bash_exec", "arguments": '{"command": "echo stub-ran"}'},
-            }
-            return (
-                f"Stub reasoning [{fingerprint}]: running a command in the workspace.",
-                "",
-                command_call,
-            )
+        for marker, (name, arguments, intent) in _MARKER_CALLS.items():
+            if marker in prompt:
+                call: dict[str, object] = {
+                    "index": 0,
+                    "id": f"call_stub_{fingerprint}",
+                    "type": "function",
+                    "function": {"name": name, "arguments": arguments},
+                }
+                return f"Stub reasoning [{fingerprint}]: {intent}.", "", call
 
         reasoning = f"Stub reasoning [{fingerprint}]: single pass, no tools required."
         if QUESTION_MARKER in prompt:

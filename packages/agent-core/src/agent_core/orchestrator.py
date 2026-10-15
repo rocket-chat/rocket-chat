@@ -5,11 +5,14 @@ import logging
 import os
 import uuid
 from collections import OrderedDict
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
 from typing import Any
+
+from llm_gateway.reasoning import merge_reasoning_blocks
+from llm_gateway.tokens import estimated_usage
 
 from agent_core.checklist import stale_notice, unfinished_notice
 from agent_core.context import (
@@ -29,9 +32,12 @@ from agent_core.leaked_calls import (
     contains_leaked_calls,
     strip_leaked_calls,
 )
+from agent_core.notes import with_cache_breakpoint, with_turn_notes, without_engine_notes
 from agent_core.subagents import SubagentRunner
+from agent_core.tool_slot import human_wait
 from agent_core.tools.registry import ToolRegistry
 from agent_core.transcript import RecordingList, repair_tool_pairs
+from agent_core.truncation import split_truncated, truncation_notice
 from specifications.interfaces.agent import (
     APPROVAL_GRANTED_PREFIX,
     DEFAULT_MAX_TURNS,
@@ -49,13 +55,17 @@ from specifications.interfaces.agent import (
     TurnPolicy,
 )
 from specifications.interfaces.llm import (
+    CONTEXT_WINDOW_EXCEEDED,
     AttachmentRef,
     ChatMessage,
+    ContextWindowExceededError,
     LLMGatewayProtocol,
     ModelExecutionError,
     ModelRequest,
     ModelRouterProtocol,
     ModelScope,
+    StreamChunk,
+    ToolDefinition,
     current_model_scope,
 )
 from specifications.interfaces.transcript import TranscriptStoreProtocol
@@ -77,6 +87,89 @@ class OrchestratorState(str, Enum):
 
 
 @dataclass
+class _ModelReply:
+    """What one model call produced, reasoning included (some providers need it back)."""
+
+    text: str
+    tool_calls: dict[int, dict[str, Any]]
+    reasoning: str = ""
+    reasoning_blocks: list[dict[str, Any]] = field(default_factory=list)
+    finish_reason: str | None = None
+
+
+class _StreamCollector:
+    """Folds one model stream into a reply, forwarding reasoning and answer text as they come."""
+
+    def __init__(
+        self,
+        session_id: str,
+        event_queue: asyncio.Queue[AgentEvent | None],
+        emit_answer: Callable[[str, asyncio.Queue[AgentEvent | None], str], Awaitable[None]],
+    ) -> None:
+        self.session_id = session_id
+        self.event_queue = event_queue
+        self.emit_answer = emit_answer
+        self.leak_filter = LeakFilter()
+        self.text = ""
+        self.reasoning = ""
+        self.reasoning_blocks: list[dict[str, Any]] = []
+        self.tool_calls: dict[int, dict[str, Any]] = {}
+        self.reported_usage: dict[str, int] | None = None
+        self.finish_reason: str | None = None
+
+    async def feed(self, chunk: StreamChunk) -> None:
+        if chunk.error:
+            if chunk.finish_reason == CONTEXT_WINDOW_EXCEEDED:
+                raise ContextWindowExceededError(chunk.error)
+            raise ModelExecutionError(chunk.error)
+        if chunk.token_usage:
+            self.reported_usage = chunk.token_usage
+        if chunk.finish_reason:
+            self.finish_reason = chunk.finish_reason
+        if chunk.reasoning_blocks:
+            merge_reasoning_blocks(self.reasoning_blocks, chunk.reasoning_blocks)
+        if chunk.reasoning_delta:
+            self.reasoning += chunk.reasoning_delta
+            await self.event_queue.put(
+                AgentEvent(
+                    event_type="thought",
+                    session_id=self.session_id,
+                    payload={"delta": chunk.reasoning_delta, "is_reasoning": True},
+                )
+            )
+            await asyncio.sleep(0)
+        if chunk.text_delta:
+            self.text += chunk.text_delta
+            await self.emit_answer(
+                self.session_id, self.event_queue, self.leak_filter.feed(chunk.text_delta)
+            )
+            await asyncio.sleep(0)
+        if chunk.tool_call_delta:
+            self._add_tool_call_delta(chunk.tool_call_delta)
+
+    def _add_tool_call_delta(self, delta: dict[str, Any]) -> None:
+        index = delta.get("index", 0)
+        call = self.tool_calls.setdefault(
+            index, {"id": delta.get("id"), "name": "", "arguments": ""}
+        )
+        function = delta.get("function") or {}
+        if function.get("name"):
+            call["name"] = function["name"]
+        if function.get("arguments"):
+            call["arguments"] += function["arguments"]
+
+    def produced_text(self) -> str:
+        """Everything the model wrote, tool-call arguments included: all of it is billed."""
+        arguments = "".join(call["arguments"] for call in self.tool_calls.values())
+        return self.text + self.reasoning + arguments
+
+    def reply(self) -> _ModelReply:
+        return _ModelReply(
+            self.text, self.tool_calls, self.reasoning, self.reasoning_blocks, self.finish_reason
+        )
+
+
+@dataclass
 class _TurnRun:
     """Everything one ReAct turn needs between its phases."""
 
@@ -93,6 +186,27 @@ class _TurnRun:
     pending_attachments: list[AttachmentRef]
     checklist_reminded: bool = False
     leak_retries: int = 0
+    # The provider refused a request as larger than its window once; the next refusal is final.
+    compacted_for_overflow: bool = False
+    # Engine instructions for the model (see notes.py): rendered at the end of requests, never
+    # stored. Sticky ones last for the rest of the turn, the others for the next request only.
+    sticky_notes: list[str] = field(default_factory=list)
+    next_notes: list[str] = field(default_factory=list)
+    # The volatile context of this turn (routing, background processes, GitHub activity,
+    # recalled memories): after the conversation, so it never breaks the cached prefix.
+    context_note: str = ""
+
+    def current_notes(self) -> list[str]:
+        return [
+            *([self.context_note] if self.context_note else []),
+            *self.sticky_notes,
+            *self.next_notes,
+        ]
+
+    def take_notes(self) -> list[str]:
+        notes = [*([self.context_note] if self.context_note else []), *self.sticky_notes]
+        notes, self.next_notes = [*notes, *self.next_notes], []
+        return notes
 
 
 class AsyncReActOrchestrator(AgentOrchestratorProtocol):
@@ -128,13 +242,12 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             m.strip() for m in (os.getenv("ROCKET_FALLBACK_MODELS") or "").split(",") if m.strip()
         ]
 
-        self.subagent_runner = SubagentRunner(
-            gateway=gateway, registry=registry, configs=subagent_configs
-        )
-        self._registry.bind_subagent_runner(self.subagent_runner)
-
         # Decomposed modular subsystems
         self.dispatcher = ToolDispatcher(registry=registry)
+        self.subagent_runner = SubagentRunner(
+            gateway=gateway, registry=registry, configs=subagent_configs, dispatcher=self.dispatcher
+        )
+        self._registry.bind_subagent_runner(self.subagent_runner)
         self.gates = DecisionGateManager()
         # Set by multi-replica deployments so decisions can reach the replica running the turn.
         self.cluster_relay: ClusterRelayProtocol | None = None
@@ -153,11 +266,14 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         self._active_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def _wait_for_human(self, wait_event: asyncio.Event) -> None:
-        if self.human_wait_scope is None:
-            await wait_event.wait()
-            return
-        async with self.human_wait_scope():
-            await wait_event.wait()
+        # A person may take hours: the waiting tool call keeps no concurrency permit and its
+        # clock stops (human_wait), and the host may release the process-wide turn slot.
+        async with human_wait():
+            if self.human_wait_scope is None:
+                await wait_event.wait()
+                return
+            async with self.human_wait_scope():
+                await wait_event.wait()
 
     async def _conversation_for(self, session_id: str, org_id: str) -> list[ChatMessage]:
         """The live conversation for a session, rehydrated from the durable log if needed."""
@@ -173,7 +289,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             except Exception:
                 # Starting cold is better than failing the turn; the failure is logged.
                 logger.exception("Transcript rehydration failed for session %s", session_id)
-        conversation = RecordingList(repair_tool_pairs(loaded))
+        # Older versions stored control notices as mid-history system messages; they must not
+        # reach a provider again (see notes.py).
+        conversation = RecordingList(repair_tool_pairs(without_engine_notes(loaded)))
         self._session_histories[session_id] = conversation
         return conversation
 
@@ -308,12 +426,15 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 )
             )
 
-            await self._wait_for_human(wait_event)
+            try:
+                await self._wait_for_human(wait_event)
+            finally:
+                answer = self.gates.forget_question(question_id)
 
             if self._cancel_flags.get(session_id, False):
                 return "Execution was cancelled by the user."
 
-            selected_options, custom_text = self.gates.get_question_answer(question_id)
+            selected_options, custom_text = answer
             self._session_states[session_id] = OrchestratorState.RUNNING.value
             await event_queue.put(
                 AgentEvent(
@@ -382,12 +503,14 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 )
             )
 
-            await self._wait_for_human(wait_event)
+            try:
+                await self._wait_for_human(wait_event)
+            finally:
+                approved = self.gates.forget_approval(action_id)
 
             if self._cancel_flags.get(session_id, False):
                 return "Approval aborted: execution was cancelled by the user."
 
-            approved = self.gates.get_approval_decision(action_id)
             self._session_states[session_id] = OrchestratorState.RUNNING.value
             await event_queue.put(
                 AgentEvent(
@@ -452,6 +575,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             plan_mode=(policy or TurnPolicy()).permission_mode == "plan",
             policy=policy or TurnPolicy(),
             sandbox_capabilities=(policy.sandbox_capabilities if policy is not None else None),
+            active_repository=(policy.active_repository if policy is not None else ""),
             callbacks=self._build_turn_callbacks(
                 session_id,
                 event_queue,
@@ -529,13 +653,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         whitelisted_tools: list[str] | None = None,
         role: str = "react",
         tool_choice: str | None = None,
-    ) -> tuple[str, dict[int, dict[str, Any]]]:
-        all_tools = self._registry.get_tool_definitions()
-        if whitelisted_tools is not None and "*" not in whitelisted_tools:
-            allowed_set = set(whitelisted_tools)
-            tools_for_request = [t for t in all_tools if t.name in allowed_set]
-        else:
-            tools_for_request = all_tools
+    ) -> _ModelReply:
+        tools_for_request = self._tools_for_request(whitelisted_tools)
 
         exec_ctx = current_execution_ctx.get()
         generation = exec_ctx.policy.generation if exec_ctx else GenerationParams()
@@ -560,46 +679,11 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             region=exec_ctx.region if exec_ctx else "",
         )
 
-        assistant_text = ""
-        tool_calls_raw: dict[int, dict[str, Any]] = {}
-        leak_filter = LeakFilter()
-
-        reported_usage: dict[str, int] | None = None
+        stream = _StreamCollector(session_id, event_queue, self._emit_answer_text)
         async for chunk in self._gateway.chat_stream(request):
-            if chunk.error:
-                raise ModelExecutionError(chunk.error)
-            if chunk.token_usage:
-                reported_usage = chunk.token_usage
-            if chunk.reasoning_delta:
-                await event_queue.put(
-                    AgentEvent(
-                        event_type="thought",
-                        session_id=session_id,
-                        payload={"delta": chunk.reasoning_delta, "is_reasoning": True},
-                    )
-                )
-                await asyncio.sleep(0)
-            if chunk.text_delta:
-                assistant_text += chunk.text_delta
-                await self._emit_answer_text(
-                    session_id, event_queue, leak_filter.feed(chunk.text_delta)
-                )
-                await asyncio.sleep(0)
-            if chunk.tool_call_delta:
-                idx = chunk.tool_call_delta.get("index", 0)
-                if idx not in tool_calls_raw:
-                    tool_calls_raw[idx] = {
-                        "id": chunk.tool_call_delta.get("id"),
-                        "name": "",
-                        "arguments": "",
-                    }
-                func = chunk.tool_call_delta.get("function") or {}
-                if func.get("name"):
-                    tool_calls_raw[idx]["name"] = func["name"]
-                if func.get("arguments"):
-                    tool_calls_raw[idx]["arguments"] += func["arguments"]
-
-        await self._emit_answer_text(session_id, event_queue, leak_filter.finish())
+            await stream.feed(chunk)
+        await self._emit_answer_text(session_id, event_queue, stream.leak_filter.finish())
+        reported_usage = stream.reported_usage
 
         # Record usage telemetry into gateway ledger for org and user accounting
         cur_ctx = current_execution_ctx.get()
@@ -609,13 +693,15 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
 
         if reported_usage:
             p_toks = reported_usage.get("prompt_tokens", 0)
+            if exec_ctx is not None and role == "react":
+                exec_ctx.measured_prompt_tokens = p_toks
             c_toks = reported_usage.get("completion_tokens", 0)
             cache_read = reported_usage.get("cache_read_tokens", 0)
             cache_creation = reported_usage.get("cache_creation_tokens", 0)
         else:
-            # Estimate: approximate tokens from messages and assistant text if provider omitted usage
-            p_toks = max(50, sum(len(m.content or "") // 4 for m in messages))
-            c_toks = max(10, len(assistant_text) // 4)
+            p_toks, c_toks = estimated_usage(
+                eff_model, messages, tools_for_request, stream.produced_text()
+            )
             cache_read = 0
             cache_creation = 0
 
@@ -654,7 +740,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             )
         )
 
-        return assistant_text, tool_calls_raw
+        return stream.reply()
 
     async def _execute_single_tool(
         self,
@@ -677,18 +763,16 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
     def _build_seed_messages(
         parts: SystemPrompt | None, fallback_text: str | None
     ) -> list[ChatMessage]:
-        """Compose the leading system messages for a dispatch.
+        """The one leading system message of every request: the session-stable prompt.
 
-        The stable prefix is emitted as its own cacheable message so a provider
-        cache breakpoint can never include volatile (per-turn) content.
+        The volatile part goes after the conversation instead (``_TurnRun.context_note``): a
+        request is cached up to the first byte that differs, so anything that changes from turn
+        to turn placed before the history would make the whole history uncacheable.
         """
         prompt = parts or SystemPrompt.from_text(fallback_text)
-        seed: list[ChatMessage] = []
-        if prompt.stable:
-            seed.append(ChatMessage(role="system", content=prompt.stable, cacheable=True))
-        if prompt.dynamic:
-            seed.append(ChatMessage(role="system", content=prompt.dynamic))
-        return seed
+        if not prompt.stable:
+            return []
+        return [ChatMessage(role="system", content=prompt.stable, cacheable=True)]
 
     def _prepare_dispatch_messages(
         self,
@@ -709,6 +793,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         """A model-backed summarizer for Tier-3 context compaction (cheap `summarize` route)."""
 
         async def _summarize(middle: list[ChatMessage]) -> str:
+            transcript = render_transcript(middle)
             request = ModelRequest(
                 model=model,
                 messages=[
@@ -716,14 +801,15 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                         role="system",
                         content=(
                             "You compress the middle of a long coding-agent session so work can "
-                            "continue. Write a dense summary: goal, decisions made, files "
-                            "touched, commands run and their outcomes, open problems. Plain "
-                            "text, no preamble."
+                            "continue. Write a dense summary: the current goal (given first), "
+                            "decisions made, files touched, commands run and their outcomes, "
+                            "the checklist state, open problems. Plain text, no preamble."
                         ),
                     ),
-                    ChatMessage(role="user", content=render_transcript(middle)),
+                    ChatMessage(role="user", content=transcript),
                 ],
-                max_tokens=700,
+                # About a tenth of what is compacted (4 characters a token), within bounds.
+                max_tokens=max(700, min(4_000, len(transcript) // 40)),
                 temperature=0.1,
                 stream=False,
             )
@@ -743,17 +829,38 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         summary_model: str,
         seed_messages: list[ChatMessage],
         conversation: list[ChatMessage],
+        whitelisted_tools: list[str] | None = None,
+        force_compaction: bool = False,
     ) -> list[ChatMessage]:
         """Compose the request payload with model-summarized compaction when needed."""
         messages = [*seed_messages, *conversation]
-        cleaned = await self.context_manager.enforce_hygiene_async(
-            model, messages, summarize=self._make_summarizer(summary_model)
-        )
+        exec_ctx = current_execution_ctx.get()
+        summarize = self._make_summarizer(summary_model)
+        if force_compaction:
+            cleaned = await self.context_manager.compact_with_summary(messages, summarize)
+        else:
+            cleaned = await self.context_manager.enforce_hygiene_async(
+                model,
+                messages,
+                summarize=summarize,
+                tools=self._tools_for_request(whitelisted_tools),
+                measured_tokens=exec_ctx.measured_prompt_tokens if exec_ctx else 0,
+                overrides=exec_ctx.policy.generation.context_windows if exec_ctx else (),
+            )
         if cleaned != messages:
+            if exec_ctx is not None:
+                exec_ctx.measured_prompt_tokens = 0  # measured before compaction
             del conversation[:]
             conversation.extend(cleaned[len(seed_messages) :])
             return [*seed_messages, *conversation]
         return messages
+
+    def _tools_for_request(self, whitelisted_tools: list[str] | None) -> list[ToolDefinition]:
+        all_tools = self._registry.get_tool_definitions()
+        if whitelisted_tools is None or "*" in whitelisted_tools:
+            return all_tools
+        allowed = set(whitelisted_tools)
+        return [tool for tool in all_tools if tool.name in allowed]
 
     @staticmethod
     def _bounded_observation_summary(
@@ -768,15 +875,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 blocks.append(f"{index}. {snippet}")
         return "\n".join(blocks)
 
-    async def _synthesize_final_answer(
-        self,
-        session_id: str,
-        event_queue: asyncio.Queue[AgentEvent | None],
-        model: str,
-        seed_messages: list[ChatMessage],
-        conversation: list[ChatMessage],
-        turn_limit: int,
-    ) -> str:
+    async def _synthesize_final_answer(self, run: _TurnRun) -> str:
         """Force a plain-text final answer, retrying then falling back deterministically.
 
         Called both when the turn budget is exhausted and after a mid-turn error. The
@@ -786,47 +885,42 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
 
         async def _attempt() -> str:
             messages = await self._prepare_dispatch_messages_async(
-                model, model, seed_messages, conversation
+                run.react_model, run.react_model, run.seed_messages, run.conversation
             )
-            text, _ = await self._stream_model_step(
-                session_id,
-                messages,
-                event_queue,
-                model=model,
+            reply = await self._stream_model_step(
+                run.session_id,
+                with_turn_notes(with_cache_breakpoint(messages), run.take_notes()),
+                run.event_queue,
+                model=run.react_model,
                 whitelisted_tools=None,
                 role="react",
                 tool_choice="none",
             )
-            return text.strip()
+            return reply.text.strip()
 
         text = await _attempt()
         if text:
             return text
 
-        conversation.append(
-            ChatMessage(
-                role="system",
-                content=(
-                    "Your previous response was empty or attempted a tool call. Respond now "
-                    "with PLAIN TEXT ONLY: a complete, direct final answer to the user's "
-                    "request, using the information already gathered. Do not call any tool."
-                ),
-            )
+        run.next_notes.append(
+            "Your previous response was empty or attempted a tool call. Respond now "
+            "with PLAIN TEXT ONLY: a complete, direct final answer to the user's "
+            "request, using the information already gathered. Do not call any tool."
         )
         text = await _attempt()
         if text:
             return text
 
         # Deterministic fallback so the turn never completes with a blank answer.
-        observations = self._bounded_observation_summary(conversation)
+        observations = self._bounded_observation_summary(run.conversation)
         fallback = (
-            f"I reached the {turn_limit}-step limit before producing a final answer. "
+            f"I reached the {run.turn_limit}-step limit before producing a final answer. "
             "Here is what I gathered so far:\n\n" + (observations or "(no tool observations)")
         )
-        await event_queue.put(
+        await run.event_queue.put(
             AgentEvent(
                 event_type="thought",
-                session_id=session_id,
+                session_id=run.session_id,
                 payload={"delta": fallback, "is_reasoning": False},
             )
         )
@@ -924,13 +1018,15 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         # A previous turn may have been cut off between a tool call and its result.
         conversation[:] = repair_tool_pairs(conversation)
         seed_messages = self._build_seed_messages(system_prompt_parts, system_prompt)
-        # Recall happens once at turn start. Recovered knowledge is volatile (memories are
-        # written over time), so it goes in its own non-cacheable system message *after* the
-        # stable prefix - never inside it - keeping the cached prefix byte-identical
-        # across turns even for a session with memories.
+        # Recall happens once at turn start. Memories are written over time, so they belong
+        # with the volatile context at the end of the request, never in the cached prefix.
         memory_context = await self._registry.build_memory_context(user_message)
-        if isinstance(memory_context, str) and memory_context.strip():
-            seed_messages = [*seed_messages, ChatMessage(role="system", content=memory_context)]
+        dynamic = system_prompt_parts.dynamic if system_prompt_parts is not None else ""
+        context = [
+            part.strip()
+            for part in (dynamic, memory_context if isinstance(memory_context, str) else "")
+            if part and part.strip()
+        ]
         return _TurnRun(
             session_id=session_id,
             org_id=org_id,
@@ -946,6 +1042,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             # ReAct step and every later turn re-sends the plain user message, keeping the
             # attachment bytes out of the cached prefix (spec 8.2.2, invariant 1).
             pending_attachments=list(attachments or []),
+            context_note="\n\n".join(context),
         )
 
     async def _emit(self, run: _TurnRun, event_type: str, payload: dict[str, Any]) -> None:
@@ -985,30 +1082,78 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
     async def _react_step(self, run: _TurnRun, step: int, soft_warn_at: int) -> bool:
         """One model call and the tools it asked for; True once the turn is complete."""
         if step == soft_warn_at:
-            run.conversation.append(
-                ChatMessage(
-                    role="system",
-                    content=(
-                        f"Budget notice: {run.turn_limit - step} of {run.turn_limit} reasoning "
-                        "steps remain. Begin converging now - stop opening new lines of "
-                        "investigation and be ready to deliver a complete final answer."
-                    ),
-                )
+            run.sticky_notes.append(
+                f"Budget notice: {run.turn_limit - step} of {run.turn_limit} reasoning "
+                "steps remain. Begin converging now - stop opening new lines of "
+                "investigation and be ready to deliver a complete final answer."
             )
         if reminder := stale_notice(run.conversation):
-            run.conversation.append(ChatMessage(role="system", content=reminder))
-        # Apply progressive context hygiene before dispatching to the model
+            run.next_notes.append(reminder)
+        try:
+            reply = await self._model_step(run)
+        except ContextWindowExceededError:
+            if run.compacted_for_overflow:
+                raise
+            # The estimate was short of the provider's count: compact now and try once more.
+            run.compacted_for_overflow = True
+            logger.warning("Context window exceeded in %s; compacting", run.session_id)
+            reply = await self._model_step(run, force_compaction=True)
+        assistant_text = reply.text
+        tool_calls, cut = split_truncated(reply.tool_calls, reply.finish_reason)
+        if cut:
+            logger.warning("A reply in %s was cut off at the token limit", run.session_id)
+            run.next_notes.append(truncation_notice(cut))
+            if not tool_calls:
+                return False
+        if not tool_calls and contains_leaked_calls(assistant_text):
+            return await self._handle_leaked_calls(run, assistant_text)
+        if not tool_calls:
+            run.conversation.append(
+                ChatMessage(
+                    role="assistant",
+                    content=assistant_text,
+                    reasoning=reply.reasoning or None,
+                    reasoning_blocks=reply.reasoning_blocks or None,
+                )
+            )
+            # Once per turn: a second reminder would loop a model that cannot finish the list.
+            if not run.checklist_reminded and (reminder := unfinished_notice(run.conversation)):
+                run.checklist_reminded = True
+                run.next_notes.append(reminder)
+                await self._flush_transcript(run.session_id, run.org_id, run.conversation)
+                return False
+            self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
+            await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
+            return True
+        await self.dispatcher.execute_tool_calls(
+            run.session_id,
+            tool_calls,
+            run.event_queue,
+            run.conversation,
+            text=assistant_text,
+            reasoning=reply.reasoning,
+            reasoning_blocks=reply.reasoning_blocks,
+        )
+        await self._flush_transcript(run.session_id, run.org_id, run.conversation)
+        return False
+
+    async def _model_step(self, run: _TurnRun, force_compaction: bool = False) -> _ModelReply:
+        """Build one ReAct request (hygiene, attachments, notes) and stream the model's reply."""
         messages = await self._prepare_dispatch_messages_async(
-            run.react_model, run.summary_model, run.seed_messages, run.conversation
+            run.react_model,
+            run.summary_model,
+            run.seed_messages,
+            run.conversation,
+            whitelisted_tools=run.whitelisted_tools,
+            force_compaction=force_compaction,
         )
         # The user's files ride the first dispatch only; images the agent asked to
         # see (view_image) ride every dispatch of this turn, and neither is stored.
         in_view = [*run.pending_attachments, *(run.exec_ctx.turn_images if run.exec_ctx else [])]
         if in_view:
             messages = self._attach_to_current_user_turn(messages, in_view)
-            run.pending_attachments = []
-
-        assistant_text, tool_calls = await self._stream_model_step(
+        messages = with_turn_notes(with_cache_breakpoint(messages), run.current_notes())
+        reply = await self._stream_model_step(
             run.session_id,
             messages,
             run.event_queue,
@@ -1016,24 +1161,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             whitelisted_tools=run.whitelisted_tools,
             role="react",
         )
-        if not tool_calls and contains_leaked_calls(assistant_text):
-            return await self._handle_leaked_calls(run, assistant_text)
-        if not tool_calls:
-            run.conversation.append(ChatMessage(role="assistant", content=assistant_text))
-            # Once per turn: a second reminder would loop a model that cannot finish the list.
-            if not run.checklist_reminded and (reminder := unfinished_notice(run.conversation)):
-                run.checklist_reminded = True
-                run.conversation.append(ChatMessage(role="system", content=reminder))
-                await self._flush_transcript(run.session_id, run.org_id, run.conversation)
-                return False
-            self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
-            await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
-            return True
-        await self._execute_tool_calls(
-            run.session_id, tool_calls, run.event_queue, run.conversation
-        )
-        await self._flush_transcript(run.session_id, run.org_id, run.conversation)
-        return False
+        # Consumed only once a request went through, so a retry carries them again.
+        run.pending_attachments, run.next_notes = [], []
+        return reply
 
     async def _handle_leaked_calls(self, run: _TurnRun, assistant_text: str) -> bool:
         """The model wrote tool calls as text: ask for a real call, or say so and stop.
@@ -1049,8 +1179,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 run.session_id,
                 run.leak_retries,
             )
-            run.conversation.append(ChatMessage(role="system", content=LEAK_NOTICE))
-            await self._flush_transcript(run.session_id, run.org_id, run.conversation)
+            run.next_notes.append(LEAK_NOTICE)
             return False
         said = strip_leaked_calls(assistant_text)
         answer = f"{said}\n\n{LEAK_GIVE_UP}".strip()
@@ -1084,25 +1213,14 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             "running",
             f"Turn limit reached ({limit} turns). Synthesizing final answer...",
         )
-        run.conversation.append(
-            ChatMessage(
-                role="system",
-                content=(
-                    f"The maximum allowed turn limit ({limit} turns) has been reached. "
-                    "Do NOT attempt to call any more tools. Based on all gathered investigation results, "
-                    "code readings, commands, and observations in the conversation so far, "
-                    "synthesize a comprehensive, clear, and direct final answer addressing the user's request."
-                ),
-            )
+        run.sticky_notes.append(
+            f"The maximum allowed turn limit ({limit} turns) has been reached. "
+            "Do NOT attempt to call any more tools in this turn. Based on all gathered "
+            "investigation results, code readings, commands, and observations in the "
+            "conversation so far, synthesize a comprehensive, clear, and direct final answer "
+            "addressing the user's request."
         )
-        text = await self._synthesize_final_answer(
-            run.session_id,
-            run.event_queue,
-            run.react_model,
-            run.seed_messages,
-            run.conversation,
-            limit,
-        )
+        text = await self._synthesize_final_answer(run)
         run.conversation.append(ChatMessage(role="assistant", content=text))
         self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
         await self._emit_status(
@@ -1137,23 +1255,12 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                     "error": str(err),
                 },
             )
-            run.conversation.append(
-                ChatMessage(
-                    role="system",
-                    content=(
-                        f"An error occurred during turn execution: {err}. "
-                        "Do NOT call any tools. Synthesize the findings and progress gathered so far."
-                    ),
-                )
+            run.sticky_notes.append(
+                f"An error occurred during turn execution: {err}. "
+                "Do NOT call any tools in this turn. Synthesize the findings and progress "
+                "gathered so far."
             )
-            text = await self._synthesize_final_answer(
-                run.session_id,
-                run.event_queue,
-                run.react_model,
-                run.seed_messages,
-                run.conversation,
-                run.turn_limit,
-            )
+            text = await self._synthesize_final_answer(run)
             run.conversation.append(ChatMessage(role="assistant", content=text))
         except Exception:
             pass

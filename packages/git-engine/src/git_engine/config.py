@@ -2,6 +2,7 @@
 
 import os
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 
 @dataclass
@@ -17,8 +18,10 @@ class GitEngineSettings:
     allow_unsigned_webhooks: bool = False
     # fnmatch patterns ("org/*") of repositories whose events may start sessions; empty = any.
     allowed_repos: tuple[str, ...] = ()
-    github_token: str | None = None
     github_api_url: str = "https://api.github.com"
+    # Where branches are pushed and their base fetched from; empty means GitHub's web host for
+    # ``github_api_url`` (tests point it at local repositories).
+    git_base_url: str = ""
     # The App's URL slug, used to build the "install on GitHub" link for an organization.
     github_app_slug: str | None = None
     # Legacy single-tenant behaviour: mint tokens for whichever installation GitHub lists first
@@ -60,7 +63,6 @@ class GitEngineSettings:
             allowed_repos=tuple(
                 p.strip() for p in os.getenv("GITHUB_ALLOWED_REPOS", "").split(",") if p.strip()
             ),
-            github_token=os.getenv("GITHUB_TOKEN") or os.getenv("GITHUB_PAT"),
             github_api_url=os.getenv("GITHUB_API_URL", "https://api.github.com"),
             github_app_slug=os.getenv("GITHUB_APP_SLUG") or None,
             allow_unmapped_installations=os.getenv(
@@ -72,3 +74,13 @@ class GitEngineSettings:
             default_branch=os.getenv("GIT_DEFAULT_BRANCH", "main"),
             github_app_permissions=perms_dict,
         )
+
+
+def github_web_url(api_url: str) -> str:
+    """``https://github.com`` for github.com, ``https://host`` for GitHub Enterprise Server."""
+    parsed = urlparse(api_url)
+    host = parsed.hostname or "github.com"
+    if host == "api.github.com":
+        return "https://github.com"
+    port = f":{parsed.port}" if parsed.port else ""
+    return f"{parsed.scheme or 'https'}://{host}{port}"

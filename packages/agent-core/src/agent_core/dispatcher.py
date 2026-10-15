@@ -17,6 +17,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from agent_core.repeats import repeated_failure_note
+from agent_core.tool_slot import ToolSlot, current_tool_slot
 from agent_core.tools.registry import ToolRegistry
 from agent_core.transcript import INTERRUPTED_TOOL_RESULT
 from specifications.interfaces.agent import AgentEvent
@@ -24,12 +25,16 @@ from specifications.interfaces.llm import ChatMessage
 
 _tracer = trace.get_tracer("agent_core.dispatcher")
 
-# A turn may fan out several tools at once (parallel reads, subagent delegations). Both
-# the fan-out width and each tool's wall-clock budget are bounded so one session cannot
-# exhaust the pod or hang a turn forever. The timeout is deliberately generous (matches
-# the sandbox lifetime) because a legitimate install/build can run for minutes.
+# A turn may fan out several tools at once (parallel reads, subagent delegations). The fan-out
+# of one session, the tools running in the whole process and each tool's working time are all
+# bounded, so one session cannot starve the others, exhaust the pod or hang a turn forever. The
+# timeout is deliberately generous (matches the sandbox lifetime) because a legitimate
+# install/build can run for minutes. Time spent waiting for a person is not working time.
 _DEFAULT_MAX_CONCURRENCY = 8
+_DEFAULT_PROCESS_CONCURRENCY = 64
 _DEFAULT_TOOL_TIMEOUT_SECONDS = 600
+# How often the watchdog looks at a call that is waiting for a person.
+_WATCH_INTERVAL_SECONDS = 1.0
 
 
 def _env_positive_int(name: str, default: int) -> int:
@@ -54,6 +59,10 @@ def _parse_arguments(raw_args: Any) -> tuple[dict[str, Any], str | None]:
     return parsed, None
 
 
+# Edits of one file are serialised: concurrent read-modify-write would lose one of them.
+_PATH_LOCKED_TOOLS = frozenset({"file_write", "file_edit", "apply_patch", "apply_diff_file"})
+
+
 class ToolDispatcher:
     """Dispatches tool executions in parallel with serialized file locking per path."""
 
@@ -63,21 +72,26 @@ class ToolDispatcher:
         *,
         max_concurrency: int | None = None,
         tool_timeout_seconds: int | None = None,
+        process_concurrency: int | None = None,
     ) -> None:
         self.registry = registry
         # (session_id, path) -> [lock, holders]. Scoped per session so two sessions editing
         # a same-named file do not serialize each other, and entries are dropped as soon
         # as nobody holds or awaits them, which keeps the map from growing for ever.
         self._file_locks: dict[tuple[str, str], list[Any]] = {}
+        # Per session: how many of one session's calls run at once.
         self.max_concurrency = max_concurrency or _env_positive_int(
             "ROCKET_TOOL_MAX_CONCURRENCY", _DEFAULT_MAX_CONCURRENCY
+        )
+        self.process_concurrency = process_concurrency or _env_positive_int(
+            "ROCKET_TOOL_PROCESS_CONCURRENCY", _DEFAULT_PROCESS_CONCURRENCY
         )
         self.tool_timeout_seconds = tool_timeout_seconds or _env_positive_int(
             "ROCKET_TOOL_TIMEOUT_SECONDS", _DEFAULT_TOOL_TIMEOUT_SECONDS
         )
-        # Bound concurrent tool executions across the whole process; the per-path file
-        # locks below still serialize mutations of a single file.
-        self._semaphore = asyncio.Semaphore(self.max_concurrency)
+        self._process_limit = asyncio.Semaphore(self.process_concurrency)
+        # session_id -> [semaphore, users]; dropped when no call of the session holds or awaits it.
+        self._session_limits: dict[str, list[Any]] = {}
 
     @asynccontextmanager
     async def file_lock(self, session_id: str, file_path: str) -> AsyncIterator[None]:
@@ -94,6 +108,59 @@ class ToolDispatcher:
             entry[1] -= 1
             if entry[1] == 0:
                 self._file_locks.pop(key, None)
+
+    @asynccontextmanager
+    async def _slot(self, session_id: str) -> AsyncIterator[ToolSlot]:
+        """A slot under the session's and the process's limits, released on exit."""
+        entry = self._session_limits.get(session_id)
+        if entry is None:
+            entry = [asyncio.Semaphore(self.max_concurrency), 0]
+            self._session_limits[session_id] = entry
+        entry[1] += 1
+        slot = ToolSlot([entry[0], self._process_limit], self.tool_timeout_seconds)
+        try:
+            await slot.acquire()
+            yield slot
+        finally:
+            slot.release()
+            entry[1] -= 1
+            if entry[1] == 0:
+                self._session_limits.pop(session_id, None)
+
+    async def _within_budget(self, slot: ToolSlot, name: str, args: dict[str, Any]) -> str:
+        """Run the tool, failing it once its working time (waits for a person excluded) is spent."""
+        token = current_tool_slot.set(slot)
+        try:
+            task = asyncio.ensure_future(self.registry.call_tool(name, args))
+        finally:
+            current_tool_slot.reset(token)
+        try:
+            while True:
+                remaining = slot.remaining()
+                if remaining <= 0 and not slot.waiting:
+                    task.cancel()
+                    await asyncio.wait({task})
+                    raise TimeoutError
+                timeout = _WATCH_INTERVAL_SECONDS if slot.waiting else remaining
+                done, _ = await asyncio.wait({task}, timeout=min(timeout, _WATCH_INTERVAL_SECONDS))
+                if done:
+                    return task.result()
+        except asyncio.CancelledError:
+            task.cancel()
+            raise
+
+    async def _run_tool(self, session_id: str, name: str, args: dict[str, Any]) -> str:
+        async with self._slot(session_id) as slot:
+            return await self._within_budget(slot, name, args)
+
+    async def run_guarded(self, session_id: str, name: str, args: dict[str, Any]) -> str:
+        """Run one tool under the session's limits, its time budget and, for an edit, the
+        file's lock. Raises ``TimeoutError`` when the budget is spent."""
+        file_path = args.get("path")
+        if name in _PATH_LOCKED_TOOLS and file_path:
+            async with self.file_lock(session_id, str(file_path)):
+                return await self._run_tool(session_id, name, args)
+        return await self._run_tool(session_id, name, args)
 
     async def execute_single_tool(
         self,
@@ -116,15 +183,6 @@ class ToolDispatcher:
         start_time = time.monotonic()
         args, argument_error = _parse_arguments(raw_args)
 
-        # Acquire per-file lock for mutating tools to prevent concurrency corruption
-        file_path = args.get("path")
-        needs_lock = tool_name in (
-            "file_write",
-            "file_edit",
-            "apply_patch",
-            "apply_diff_file",
-        ) and bool(file_path)
-
         timeout_seconds = self.tool_timeout_seconds
         timed_out = False
         # Tool arguments are deliberately not span attributes: they can carry secrets.
@@ -134,15 +192,7 @@ class ToolDispatcher:
             try:
                 if argument_error is not None:
                     raise ValueError(argument_error)
-                if needs_lock:
-                    async with self.file_lock(session_id, str(file_path)):
-                        output = await asyncio.wait_for(
-                            self.registry.call_tool(tool_name, args), timeout=timeout_seconds
-                        )
-                else:
-                    output = await asyncio.wait_for(
-                        self.registry.call_tool(tool_name, args), timeout=timeout_seconds
-                    )
+                output = await self.run_guarded(session_id, tool_name, args)
                 status = "completed"
             except TimeoutError:
                 # Distinguish an over-budget tool from a failed one: the trace records both the
@@ -184,6 +234,10 @@ class ToolDispatcher:
         tool_calls_raw: dict[int, dict[str, Any]],
         event_queue: asyncio.Queue[AgentEvent | None],
         messages: list[ChatMessage],
+        *,
+        text: str = "",
+        reasoning: str = "",
+        reasoning_blocks: list[dict[str, Any]] | None = None,
     ) -> None:
         ordered = list(tool_calls_raw.values())
         # The assistant message and its results must agree on ids, and providers may omit
@@ -193,6 +247,11 @@ class ToolDispatcher:
         messages.append(
             ChatMessage(
                 role="assistant",
+                # What the model said and thought before calling: some providers require the
+                # reasoning back with these calls (see ``llm_gateway.gateway.reasoning_replay``).
+                content=text or None,
+                reasoning=reasoning or None,
+                reasoning_blocks=reasoning_blocks or None,
                 tool_calls=[
                     {
                         "id": tc["id"],
@@ -206,14 +265,13 @@ class ToolDispatcher:
 
         outputs: dict[str, str] = {}
 
-        # Fan out emitted tool calls concurrently, but never more than the bounded
-        # semaphore allows; each call carries its own per-tool timeout inside
-        # execute_single_tool, so a slow tool cannot hold the whole batch open.
+        # Fan out emitted tool calls concurrently; each call takes its own slot (bounded per
+        # session and per process) and carries its own budget, so a slow tool cannot hold the
+        # whole batch open.
         async def _bounded(tc: dict[str, Any]) -> None:
-            async with self._semaphore:
-                call_id, _name, output, _duration = await self.execute_single_tool(
-                    session_id, tc, event_queue
-                )
+            call_id, _name, output, _duration = await self.execute_single_tool(
+                session_id, tc, event_queue
+            )
             outputs[call_id] = output
 
         try:

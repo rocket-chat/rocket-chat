@@ -11,6 +11,7 @@ from typing import Any
 
 from api.services.git_credentials import GitCredentialBundle
 from api.services.github_watches import GithubWatchStore, pending_events_notice
+from api.services.personas import DEFAULT_AGENT_PROMPT
 from api.services.process_tracker import (
     REPORTED_METADATA_KEY,
     ProcessTracker,
@@ -18,53 +19,60 @@ from api.services.process_tracker import (
     unreported_exits,
 )
 from api.services.project_instructions import load_project_instructions
+from api.services.session_support import active_repository_of
 from api.services.settings import effective_settings
 from api.services.skills_lookup import list_visible_skills
 from api.turns.context import TurnContext
-from specifications.interfaces.agent import SystemPrompt
+from specifications.interfaces.agent import GitPolicy, SystemPrompt
 from specifications.interfaces.sandbox import SandboxStatus
 from specifications.interfaces.session import SessionRecord
 
-DEFAULT_AGENT_PROMPT = (
-    "You are a Senior Autonomous Software Engineer running inside Rocket Chat. "
-    "You write clean, modular, production-grade code adhering to strict types and software craftsmanship. "
-    "Plan methodically, inspect files, apply surgical diffs, and verify your work with automated tests."
-)
-
 # How the sandbox works and how the agent gets code into it.
 SANDBOX_GUIDANCE: tuple[str, ...] = (
-    "\n[Runtime Environment & Lazy Sandbox Architecture]",
-    "- Working Directory: `/workspace` (isolated container sandbox). It starts BLANK: no "
-    "repository is checked out and nothing from earlier sessions is there.",
+    "\n[Runtime environment]",
+    "- The sandbox starts BLANK: no repository is checked out and nothing from earlier "
+    "sessions is there. It starts on demand, when a tool needs it.",
     "- Many tasks need no sandbox and no repository. Answer from reasoning, knowledge "
-    "bases (`kb_search`), skills, web search or the GitHub read tools whenever that is "
-    "enough. The sandbox starts on demand, only when a tool needs it (`bash_exec`, "
-    "`file_read`, `file_edit`, `apply_patch`, `file_write`, `clone_repository`, "
-    "`execute_skill`).",
-    "- If code is needed, first work out WHICH repository, before touching the sandbox: "
-    "(1) the user's wording and the conversation; (2) `kb_search` and the skills you can "
-    "read - they often hold the service-to-repository map; (3) the GitHub read tools: "
-    "`github_find_repositories` (by owner or search text), `github_read_file` (a README, "
-    "AGENTS.md or a directory listing, without cloning) and `github_issues` (an issue or "
-    "pull request and its discussion). If a GitHub MCP connector is connected, its "
-    "`mcp__github__*` tools are available too.",
-    "- Once a repository is cloned, read and search it in the sandbox (`file_read`, "
-    "`list_dir`, `grep_search`, `glob_files`) - never with `github_read_file`, which is only "
-    "for repositories you have not cloned.",
-    "- Then fetch it with `clone_repository` (`owner/name` -> `/workspace/<name>`; safe "
-    "to repeat; it authenticates with the member's linked GitHub account or the "
-    "organization's GitHub App by itself). Do not search the environment for tokens and "
-    "do not run `git clone` with credentials yourself. If access is refused, continue "
-    "without that repository where you can and say what you could not reach.",
+    "bases (`kb_search`), skills, web search or the GitHub tools whenever that is enough.",
+    "- If code is needed, first work out WHICH repository: (1) the user's wording and the "
+    "conversation; (2) `kb_search` and the skills you can read, which often map services to "
+    "repositories; (3) `github_find_repositories`, `github_read_file` (a README, AGENTS.md "
+    "or a directory, without cloning) and `github_issues`. A connected GitHub MCP server "
+    "adds its own `mcp__github__*` tools.",
+    "- Then fetch it with `clone_repository` (`owner/name` -> `/workspace/<name>`; safe to "
+    "repeat). Once cloned, read it in the sandbox, never with `github_read_file`. If access "
+    "is refused, continue without it where you can and say what you could not reach.",
     "- `ask_question` BLOCKS the whole turn until the person answers, possibly for hours. "
-    "Treat it as a last resort for a choice you cannot make safely and that changes the "
-    "outcome. Prefer to look it up with the tools above, or pick the most reasonable "
-    "option, state your assumption in the answer and continue.",
-    "- The default image already has git, Python with uv, Node, build tools, ripgrep and "
-    "fd; install anything else with the package manager.",
-    "- Shell & Tools: bash (`bash_exec`), file operations (`file_read`, `file_edit`, "
-    "`apply_patch`, `file_write`), `clone_repository`, web search, GitHub lookups and "
-    "subagents.",
+    "Treat it as a last resort, for a choice you cannot make safely and that changes the "
+    "outcome; "
+    "otherwise look it up, or pick the most reasonable option, state your assumption and "
+    "continue.",
+    "- The default image has git, Python with uv, Node, build tools, ripgrep and fd; "
+    "install anything else with the package manager.",
+)
+
+WORKSPACE_GUIDANCE: tuple[str, ...] = (
+    "\n[Workspace]",
+    "- Each repository lives in `/workspace/<name>`. The first one you clone becomes the "
+    "active repository; `set_active_repository` switches. Git, test, lint and build tools "
+    "act on it unless you pass `path`, `bash_exec` runs in it unless you pass `cwd`, and "
+    "relative file paths are inside it.",
+    "- Every `bash_exec` is a fresh shell: `cd`, `export` and shell variables do not carry "
+    "over. Pass `cwd`, or chain commands with `&&` in one call.",
+    "- Tool output is clamped (head and tail, with the hidden range marked). Search first "
+    "(`grep_search`, `glob_files`, `code_search`), then read only what you need: "
+    "`file_read` returns 400 numbered lines at a time and takes a line range; `web_fetch` "
+    "pages long documents with `start`.",
+)
+
+EDITING_GUIDANCE: tuple[str, ...] = (
+    "\n[Editing and verifying]",
+    "- Change existing files with `file_edit` (an exact block of the current text, without "
+    "the line numbers `file_read` shows) or `apply_patch` (a unified diff); create new files "
+    "with `file_write`. Do not rewrite a whole existing file to change part of it.",
+    "- Verify in the repository with `run_tests`, `lint`, `typecheck` or `build` (or the "
+    "project's own commands). Report failures with their output; never claim a check you "
+    "did not run.",
 )
 
 WORKING_STYLE_GUIDANCE = (
@@ -78,7 +86,10 @@ WORKING_STYLE_GUIDANCE = (
     "say what you could not find.\n"
     "- For work of three or more steps keep `update_task_checklist` current as you go and "
     "settled before you answer. Say you are nearly done only when the next step is the final "
-    "answer."
+    "answer.\n"
+    "- Hand focused research, security review or test runs to a subagent "
+    "(`delegate_subagent`) when it saves you steps; it reports back and changes nothing "
+    "unless its tools allow it."
 )
 
 SHOWING_WORK_GUIDANCE = (
@@ -92,26 +103,47 @@ SHOWING_WORK_GUIDANCE = (
     "the browser sandbox image)."
 )
 
+SIGNING_GUIDANCE = {
+    "github_app": "GitHub signs the commits when `git_push` publishes them (Verified, made "
+    "by the organization's GitHub App); their hashes change, and the local branch follows.",
+    "gpg_key": "The member's key signs the commits when `git_push` publishes them; their "
+    "hashes change, and the local branch follows.",
+    "none": "Commits are published as they are, unsigned.",
+}
 
-def git_guidance(git_bundle: GitCredentialBundle | None) -> list[str]:
-    """What the agent may assume about git authentication, and any problem with it."""
-    if git_bundle and git_bundle.token:
-        lines = [
-            f"- Git Authentication: Pre-authenticated for reading from GitHub (mode={git_bundle.mode}). "
-            f"Committer identity: '{git_bundle.author_name}' <{git_bundle.author_email}>. "
-            "`git clone`, `git fetch` and read-only GitHub API calls work without asking the user for credentials. "
-            "Do not `git push`: it is refused here. Commit locally, then call the `git_push` tool "
-            "(or `git_open_pr` to also open the pull request); it publishes with credentials you "
-            "do not hold and signs commits as the organization requires. Changes to GitHub itself "
-            "(pull requests, comments) go through the `github_*` and `git_open_pr` tools."
-        ]
-    else:
-        lines = [
-            "- Git Authentication: No GitHub token configured for this session. Public repositories can be cloned, but private access requires user authentication in Settings."
-        ]
+
+def git_guidance(git_bundle: GitCredentialBundle | None, policy: GitPolicy) -> list[str]:
+    """How the agent works with git and GitHub here, and any problem with its access."""
+    reach = {
+        "app": "repositories the organization's GitHub App can read",
+        "member": "repositories the member's linked GitHub account can read",
+    }.get(git_bundle.mode if git_bundle else "", "public repositories only")
+    signing = SIGNING_GUIDANCE.get(policy.signing_mode, SIGNING_GUIDANCE["none"])
+    lines = [
+        "\n[Git and GitHub]",
+        "- The sandbox holds no GitHub credential and needs none: `git clone` and `git fetch` "
+        f"of GitHub URLs work through the platform ({reach}). `git push` and the `gh` CLI do "
+        "not work here. Do not search the environment for tokens.",
+        f"- Never commit to `{policy.default_branch}`: create a branch (`git_branch`), commit "
+        "(`git_commit`), then publish with `git_push`, or `git_open_pr` to also open the pull "
+        f"request. {signing}",
+        "- Everything else on GitHub goes through the platform's tools: `github_pull_request` "
+        "(diff, checks, review threads, replies, reviews, merge), `github_actions` (runs, a "
+        "failed job's log, re-runs), `github_issues`, `github_releases`, `github_search`, and "
+        "`github_api` for anything they do not cover. Answer a review with `reply_to_thread`; "
+        "diagnose CI from `job_logs`.",
+        f"- Committer identity: '{git_bundle.author_name}' <{git_bundle.author_email}>."
+        if git_bundle
+        else "- Committer identity: the organization's bot.",
+    ]
+    if git_bundle and git_bundle.mode == "public":
+        lines.append(
+            "- Private repositories need the member to link GitHub in Settings > Git & version "
+            "control, or an administrator to map the organization's GitHub App."
+        )
     if git_bundle and git_bundle.warning:
         lines.append(
-            "- Git Authentication problem: the member's linked GitHub token is no longer "
+            "- Git authentication problem: the member's linked GitHub token is no longer "
             "valid and was withheld. Do not search the environment for credentials or "
             "retry authentication; tell the user to reconnect GitHub in Settings > Git & "
             "version control (or ask an administrator to map the GitHub App installation)."
@@ -132,7 +164,8 @@ async def _organization_guidance(ctx: TurnContext, member_prefs: dict[str, Any])
         )
     if session.git_repo:
         lines.append(
-            f"- Active Repository: `{session.git_repo}` (branch: `{session.git_branch or 'main'}`)."
+            f"- Repository for this session: `{session.git_repo}` (branch: "
+            f"`{session.git_branch or 'main'}`)."
         )
     return lines
 
@@ -173,23 +206,21 @@ async def build_system_prompt(
     ctx: TurnContext, git_bundle: GitCredentialBundle, member_prefs: dict[str, Any]
 ) -> SystemPrompt:
     """Compose the cacheable prefix and the per-turn suffix."""
-    req, overlay = ctx.req, ctx.req.overlay
+    overlay = ctx.req.overlay
     base = ctx.binding.system_prompt or DEFAULT_AGENT_PROMPT
 
     env_details = [
         *SANDBOX_GUIDANCE,
+        *WORKSPACE_GUIDANCE,
+        *EDITING_GUIDANCE,
         WORKING_STYLE_GUIDANCE,
         SHOWING_WORK_GUIDANCE,
-        *git_guidance(git_bundle),
+        *git_guidance(git_bundle, ctx.binding.policy.git),
     ]
     env_details += await _organization_guidance(ctx, member_prefs)
     env_details += await _skills_guidance(ctx)
-    if req.driver is not None and ctx.session.sandbox_status == SandboxStatus.RUNNING:
-        instructions = await load_project_instructions(
-            req.driver, ctx.session_id, ctx.session.git_repo
-        )
-        if instructions:
-            env_details.append(instructions)
+    if instructions := await _project_instructions(ctx):
+        env_details.append(instructions)
 
     # Runtime facts (workspace, committer, repository) are session-stable, so they belong in
     # the cacheable prefix rather than the volatile suffix. The "why this model" notice is
@@ -213,6 +244,36 @@ async def build_system_prompt(
         + (f"\n{github_note}" if github_note else "")
         + (f"\n{overlay.dynamic}" if overlay and overlay.dynamic else ""),
     )
+
+
+PROJECT_INSTRUCTIONS_KEY = "project_instructions"
+
+
+async def _project_instructions(ctx: TurnContext) -> str | None:
+    """The active repository's own instructions (AGENTS.md and the like).
+
+    Read from the sandbox when it runs and remembered on the session, so a turn that finds
+    the sandbox asleep sends the same stable prompt instead of breaking the prompt cache.
+    """
+    req, session = ctx.req, ctx.session
+    repository = active_repository_of(session)
+    metadata = session.metadata if isinstance(session.metadata, dict) else {}
+    remembered = metadata.get(PROJECT_INSTRUCTIONS_KEY) or {}
+    if req.driver is None or session.sandbox_status != SandboxStatus.RUNNING:
+        same = remembered.get("repository") == repository
+        return (str(remembered.get("text") or "") or None) if same else None
+    text = await load_project_instructions(req.driver, ctx.session_id, repository) or ""
+    if remembered != {"repository": repository, "text": text}:
+
+        def remember(record: SessionRecord) -> None:
+            known = record.metadata if isinstance(record.metadata, dict) else {}
+            record.metadata = {
+                **known,
+                PROJECT_INSTRUCTIONS_KEY: {"repository": repository, "text": text},
+            }
+
+        await req.store.mutate_session(session.session_id, session.tenant_org_id, remember)
+    return text or None
 
 
 async def _github_activity_note(ctx: TurnContext) -> str | None:

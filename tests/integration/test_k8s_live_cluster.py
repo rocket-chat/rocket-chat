@@ -417,3 +417,86 @@ async def test_a_process_group_dies_together_in_a_pod(driver: K8sSandboxDriver) 
     await processes.stop_process(driver, session_id, tree)
     left = await driver.exec_command(session_id, "pgrep -x sleep || echo none", timeout_seconds=15)
     assert "none" in left.stdout
+
+
+async def test_the_session_environment_never_appears_on_a_command_line(
+    driver: K8sSandboxDriver,
+) -> None:
+    session_id = await _started(driver)
+    secret = f"cap-{uuid.uuid4().hex}"
+    driver.set_session_env(session_id, {"ROCKET_TEST_CAPABILITY": secret})
+
+    seen = await driver.exec_command(session_id, 'printf %s "$ROCKET_TEST_CAPABILITY"')
+    running = asyncio.create_task(driver.exec_command(session_id, "sleep 4"))
+    await asyncio.sleep(1.5)
+    listed = await driver.exec_command(
+        session_id, "cat /proc/[0-9]*/cmdline 2>/dev/null | tr '\\0' ' '"
+    )
+    await running
+
+    assert seen.stdout == secret, "the command sees its environment"
+    assert "sleep 4" in listed.stdout, "the concurrent command was listed"
+    assert secret not in listed.stdout, "no process argv carries the value"
+
+
+async def test_a_restricted_sandbox_reaches_the_platform_pods_and_nothing_else(
+    driver: K8sSandboxDriver,
+) -> None:
+    from sandbox_driver.egress import PlatformPeer
+
+    labels = {"app.kubernetes.io/name": "rocket-live-platform"}
+    api = client.CoreV1Api()
+    await api.create_namespaced_pod(
+        driver.namespace,
+        client.V1Pod(
+            metadata=client.V1ObjectMeta(name="platform", labels=labels),
+            spec=client.V1PodSpec(
+                containers=[
+                    client.V1Container(
+                        name="http",
+                        image=IMAGE,
+                        image_pull_policy="IfNotPresent",
+                        command=["python3", "-m", "http.server", "8000"],
+                    )
+                ]
+            ),
+        ),
+    )
+    for _ in range(60):
+        pod = await api.read_namespaced_pod("platform", driver.namespace)
+        if pod.status.phase == "Running" and pod.status.pod_ip:
+            break
+        await asyncio.sleep(2)
+    address = pod.status.pod_ip
+    driver._platform_peer = PlatformPeer(driver.namespace, labels, 8000)
+
+    session_id = await _started(driver, block_internal_subnets=True)
+    await asyncio.sleep(3)  # let the policy controller program the rule
+
+    assert (await _http_status(driver, session_id, f"http://{address}:8000/")).startswith("2")
+    assert await _http_status(driver, session_id, "https://kubernetes.default.svc") in ("000", "")
+
+
+async def test_a_timed_out_command_reports_what_it_printed(driver: K8sSandboxDriver) -> None:
+    from agent_core.tools import tier2
+
+    session_id = await _started(driver)
+
+    out = await tier2.bash_exec(
+        driver, session_id, "echo before-the-hang; echo err-line >&2; sleep 30", timeout_seconds=3
+    )
+
+    assert "timed out after 3s" in out and "before-the-hang" in out and "err-line" in out
+
+
+async def test_an_edit_keeps_a_scripts_executable_bit(driver: K8sSandboxDriver) -> None:
+    session_id = await _started(driver)
+    await driver.exec_command(
+        session_id,
+        "printf '#!/bin/sh\\necho v1\\n' > /workspace/run.sh && chmod 755 /workspace/run.sh",
+    )
+
+    await driver.write_file(session_id, "/workspace/run.sh", "#!/bin/sh\necho v2\n")
+    ran = await driver.exec_command(session_id, "stat -c %a /workspace/run.sh && /workspace/run.sh")
+
+    assert ran.stdout.split() == ["755", "v2"]

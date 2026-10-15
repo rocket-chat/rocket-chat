@@ -27,6 +27,8 @@ class _RepoDriver(FakeSandboxDriver):
         self.commands.append(command)
         if command.startswith("git rev-parse --git-dir"):
             return ExecResult(0, ".git\n", "", 1)
+        if command.startswith("git rev-parse --show-toplevel"):
+            return ExecResult(0, "/workspace\n", "", 1)
         if command.startswith("git for-each-ref"):
             return ExecResult(0, LISTING, "", 1)
         if command.startswith("git tag -l"):
@@ -70,7 +72,7 @@ def test_without_a_running_sandbox_the_list_is_unavailable_not_an_error(
 ) -> None:
     app.state.sandbox_driver = _RepoDriver()
     body = client.get(f"/v1/sessions/{session_id}/checkpoints", headers=OWNER).json()
-    assert body == {"checkpoints": [], "available": False}
+    assert body == {"checkpoints": [], "available": False, "repository": None}
 
 
 def test_checkpoints_are_listed_newest_first(

@@ -22,8 +22,14 @@ def register(registry: "ToolRegistry") -> None:
         timeout_seconds: Annotated[
             float, Field(description="Request timeout in seconds (default: 15.0).")
         ] = 15.0,
+        start: Annotated[
+            int, Field(description="Character offset to read from, to page through (default 0).")
+        ] = 0,
+        max_chars: Annotated[
+            int, Field(description="Characters to return, at most 20000 (default 20000).")
+        ] = 20_000,
     ) -> str:
-        return await tier1.web_fetch(url, timeout_seconds)
+        return await tier1.web_fetch(url, timeout_seconds, start, max_chars)
 
     @registry._tool(
         description=("Perform a web search and return structured title, URL, and snippet results.")

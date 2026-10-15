@@ -135,6 +135,6 @@ async def test_heavy_coding_orchestration_context_hygiene() -> None:
         # Head lines present
         assert "compile step 0" in tm.content
         # Marker present due to clamping
-        assert "TRUNCATED" in tm.content
+        assert "hidden;" in tm.content
         # Tail lines present
         assert "Build succeeded with 0 errors" in tm.content

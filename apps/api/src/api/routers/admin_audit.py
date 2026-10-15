@@ -31,7 +31,7 @@ class AuditEventResponse(BaseModel):
     event_type: str = Field(
         ...,
         description="tool_call | approval_request | approval_decision | model_call | "
-        "credential_change | settings_change",
+        "credential_change | settings_change | git_publish",
     )
     actor_user_id: str | None = Field(default=None, description="User who caused the event")
     session_id: str | None = Field(default=None, description="Session the event belongs to")

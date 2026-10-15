@@ -11,7 +11,9 @@ import litellm
 
 from llm_gateway.pricing import estimate_cost_usd
 from llm_gateway.reasoning import ReasoningStreamFilter
+from llm_gateway.tokens import estimated_usage
 from specifications.interfaces.llm import (
+    CONTEXT_WINDOW_EXCEEDED,
     AttachmentRef,
     BudgetGuardProtocol,
     BYOKCredentials,
@@ -53,6 +55,55 @@ _VISION_MODEL_MARKERS = (
 logger = logging.getLogger(__name__)
 
 
+_BLOCKS, _CONTENT = "thinking_blocks", "reasoning_content"
+
+
+def reasoning_replay(model: str) -> str | None:
+    """How a provider family wants a model's reasoning back, if at all.
+
+    Anthropic-style extended thinking (direct, or through OpenRouter, Bedrock or Vertex) needs
+    its signed thinking blocks with the tool calls they led to; DeepSeek's reasoning models need
+    ``reasoning_content`` back during a tool loop; OpenAI's Chat Completions API takes none, and
+    Gemini's thought signatures already travel in the tool-call ids LiteLLM gives out.
+    """
+    name = (model or "").lower()
+    if "claude" in name or "anthropic" in name:
+        return _BLOCKS
+    if "deepseek" in name:
+        return _CONTENT
+    return None
+
+
+def _current_turn_start(messages: list[ChatMessage]) -> int:
+    """Index of the latest message the person wrote (the tool loop of the turn follows it)."""
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.role == "user" and not (message.content or "").startswith("<system-reminder>"):
+            return index
+    return 0
+
+
+def _attach_reasoning(
+    entry: dict[str, Any], message: ChatMessage, replay: str | None, *, in_current_turn: bool
+) -> None:
+    if replay == _BLOCKS and message.reasoning_blocks:
+        entry["thinking_blocks"] = message.reasoning_blocks
+    elif replay == _CONTENT and in_current_turn and message.reasoning and message.tool_calls:
+        entry["reasoning_content"] = message.reasoning
+
+
+def misplaced_system_messages(messages: list[ChatMessage]) -> int:
+    """How many ``system`` messages come after the first non-system message."""
+    started = False
+    count = 0
+    for message in messages:
+        if message.role != "system":
+            started = True
+        elif started:
+            count += 1
+    return count
+
+
 class LiteLLMGateway(LLMGatewayProtocol):
     """Universal LLM router managing provider dispatch, credential injection, and token streaming."""
 
@@ -78,9 +129,21 @@ class LiteLLMGateway(LLMGatewayProtocol):
     def _format_request_messages(
         self, messages: list[ChatMessage], model: str, explicit_cache: bool = False
     ) -> list[dict[str, Any]]:
+        if misplaced := misplaced_system_messages(messages):
+            # Several provider translations move every system message into the system prompt,
+            # out of its place in the conversation; per-turn notes belong in a user reminder.
+            logger.warning(
+                "%d system message(s) after the conversation started in a request to %s",
+                misplaced,
+                model,
+            )
         formatted: list[dict[str, Any]] = []
-        for msg in messages:
+        replay = reasoning_replay(model)
+        turn_start = _current_turn_start(messages)
+        for position, msg in enumerate(messages):
             entry: dict[str, Any] = {"role": msg.role}
+            if msg.role == "assistant":
+                _attach_reasoning(entry, msg, replay, in_current_turn=position >= turn_start)
             if msg.attachments:
                 entry["content"] = self._format_attachment_content(msg, model, explicit_cache)
             elif msg.content is not None:
@@ -289,7 +352,11 @@ class LiteLLMGateway(LLMGatewayProtocol):
             "temperature": request.temperature,
             "stream": True,
         }
+        if request.thinking_budget_tokens is not None and reasoning_replay(model) == _BLOCKS:
+            # Anthropic-style extended thinking accepts only the default temperature.
+            kwargs.pop("temperature")
         kwargs.update(self._generation_options(request))
+        kwargs.update(_usage_options(model))
         formatted_tools = self._format_request_tools(request.tools, explicit_cache)
         if formatted_tools:
             kwargs["tools"] = formatted_tools
@@ -339,15 +406,23 @@ class LiteLLMGateway(LLMGatewayProtocol):
 
     @staticmethod
     def _provider_error_chunks(model: str, error: Exception) -> list[StreamChunk]:
-        provider = model.split("/")[0] if "/" in model else "LLM"
-        help_msg = (
-            f"⚠️ LLM Provider Error ({provider}): {error}. "
-            "Please configure a valid API key (e.g., OPENROUTER_API_KEY in .env, or add your BYOK provider key in Settings > Models)."
-        )
-        return [
-            StreamChunk(text_delta=help_msg),
-            StreamChunk(is_finished=True, finish_reason="error"),
-        ]
+        """A failure the person can act on, as an error: never as the model's answer.
+
+        Reported as model output it was stored as the reply, titled the session and taught the
+        next turn that the assistant had said it.
+        """
+        provider = model.split("/")[0] if "/" in model else "the provider"
+        if isinstance(error, litellm.exceptions.NotFoundError):
+            hint = (
+                f"The model '{model}' was not found at {provider}: check its name in the agent "
+                "or in Settings > Models."
+            )
+        else:
+            hint = (
+                f"{provider} refused the credentials: add or fix the provider key in Settings > "
+                "Models (or the deployment's key, e.g. OPENROUTER_API_KEY)."
+            )
+        return [StreamChunk(is_finished=True, finish_reason="error", error=f"{hint} ({error})")]
 
     @staticmethod
     def _usage_from_chunk(chunk: Any) -> dict[str, int] | None:
@@ -392,6 +467,9 @@ class LiteLLMGateway(LLMGatewayProtocol):
         )
         if provider_reasoning:
             yield StreamChunk(reasoning_delta=provider_reasoning)
+        blocks = getattr(delta, "thinking_blocks", None)
+        if blocks:
+            yield StreamChunk(reasoning_blocks=[dict(block) for block in blocks])
 
         # 2. Text tokens, filtered for in-band <think>...</think> tags
         content = getattr(delta, "content", None)
@@ -436,8 +514,12 @@ class LiteLLMGateway(LLMGatewayProtocol):
             return
 
         finished = False
+        latest_usage: dict[str, int] | None = None
         async for chunk in response:
-            usage_dict = self._usage_from_chunk(chunk)
+            # Providers put usage on the finishing chunk, on a trailing chunk without choices
+            # or on an ordinary content chunk; keep the latest wherever it came.
+            usage_dict = self._usage_from_chunk(chunk) or latest_usage
+            latest_usage = usage_dict
             choices = getattr(chunk, "choices", None)
             if not choices:
                 if usage_dict:
@@ -464,7 +546,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
         if not finished:
             for pending in self._filtered_chunks(reasoning_filter.flush()):
                 yield pending
-            yield StreamChunk(is_finished=True)
+            yield StreamChunk(is_finished=True, token_usage=latest_usage)
 
     async def chat_stream(
         self,
@@ -504,28 +586,36 @@ class LiteLLMGateway(LLMGatewayProtocol):
             return
 
         usage: dict[str, int] | None = None
-        produced = 0
+        produced: list[str] = []
         failed = False
         try:
             async for chunk in self._stream_model(request.model, request):
+                if chunk.error:
+                    failed = True  # a refused call costs nothing; it is not billed
                 if chunk.token_usage:
                     usage = chunk.token_usage
-                produced += len(chunk.text_delta or "") + len(chunk.reasoning_delta or "")
+                produced.append(_produced_text(chunk))
                 yield chunk
         except Exception as err:
             failed = True
-            # A failure is a failure, never model output: consumers raise on `error`.
-            yield StreamChunk(is_finished=True, finish_reason="error", error=str(err))
+            # A failure is a failure, never model output: consumers raise on `error`. A request
+            # too large for the window is named, so the caller can compact and retry.
+            reason = (
+                CONTEXT_WINDOW_EXCEEDED
+                if isinstance(err, litellm.exceptions.ContextWindowExceededError)
+                else "error"
+            )
+            yield StreamChunk(is_finished=True, finish_reason=reason, error=str(err))
         finally:
             if not failed:
-                await self._record_call(scope, request, usage, produced, key_source)
+                await self._record_call(scope, request, usage, "".join(produced), key_source)
 
     async def _record_call(
         self,
         scope: ModelScope | None,
         request: ModelRequest,
         usage: dict[str, int] | None,
-        produced_chars: int,
+        produced: str,
         key_source: str,
     ) -> None:
         if scope is None or self.usage_sink is None:
@@ -534,9 +624,9 @@ class LiteLLMGateway(LLMGatewayProtocol):
             prompt = int(usage.get("prompt_tokens", 0))
             completion = int(usage.get("completion_tokens", 0))
         else:
-            # The provider sent no usage block: bill a character-based estimate rather than 0.
-            prompt = max(50, sum(len(m.content or "") for m in request.messages) // 4)
-            completion = max(10, produced_chars // 4)
+            prompt, completion = estimated_usage(
+                request.model, request.messages, request.tools, produced
+            )
         try:
             await self.usage_sink.record(
                 UsageEvent(
@@ -669,3 +759,19 @@ class LiteLLMGateway(LLMGatewayProtocol):
                 "cost_usd": cost,
             }
         )
+
+
+def _usage_options(model: str) -> dict[str, Any]:
+    """Ask for the usage block where the provider only sends it on request (OpenAI-compatible
+    APIs); LiteLLM reports it natively for the others, which reject the option."""
+    try:
+        supported = litellm.get_supported_openai_params(model=model) or []
+    except Exception:
+        return {}
+    return {"stream_options": {"include_usage": True}} if "stream_options" in supported else {}
+
+
+def _produced_text(chunk: StreamChunk) -> str:
+    """What a chunk adds to the reply, tool-call arguments included: they are output tokens."""
+    arguments = ((chunk.tool_call_delta or {}).get("function") or {}).get("arguments") or ""
+    return (chunk.text_delta or "") + (chunk.reasoning_delta or "") + arguments

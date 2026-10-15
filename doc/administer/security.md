@@ -138,6 +138,7 @@ approver attribution:
 | `model_call` | each provider call, with effective model and token totals |
 | `credential_change` | linking/unlinking a GitHub credential (never the secret) |
 | `settings_change` | org/user settings mutations (keys only, never values) |
+| `git_publish` | each branch the agent published (`git_push`, `git_open_pr`): repository, branch, how it was signed and the head commit, from the publication's own summary |
 
 Administrators read the trail with `GET /v1/admin/audit?cursor=`, keyset-paginated newest
 first; the response also carries the retention windows in force.

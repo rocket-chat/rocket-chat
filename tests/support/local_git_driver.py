@@ -22,6 +22,13 @@ _BASE64_SHIM = (
 )
 
 
+# GNU ``stat -c %s <path>`` (the file's size), which ``sandbox_driver.blobs`` runs; BSD stat
+# on a developer's Mac spells it differently.
+_STAT_SHIM = (
+    "#!/bin/sh\nexec python3 -c 'import os,sys\nprint(os.path.getsize(sys.argv[-1]))' \"$@\"\n"
+)
+
+
 class LocalGitDriver:
     """Just enough of the sandbox driver: ``exec_command`` in a working directory.
 
@@ -31,9 +38,10 @@ class LocalGitDriver:
     def __init__(self, workdir: pathlib.Path, shim_dir: pathlib.Path) -> None:
         self.workdir = workdir
         shim_dir.mkdir(parents=True, exist_ok=True)
-        shim = shim_dir / "base64"
-        shim.write_text(_BASE64_SHIM)
-        shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
+        for name, script in (("base64", _BASE64_SHIM), ("stat", _STAT_SHIM)):
+            shim = shim_dir / name
+            shim.write_text(script)
+            shim.chmod(shim.stat().st_mode | stat.S_IEXEC)
         self._path = f"{shim_dir}:{os.environ['PATH']}"
         self.calls: list[tuple[str, dict[str, str]]] = []
         self.session_env: dict[str, str] = {}
@@ -77,9 +85,43 @@ class LocalGitDriver:
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(process.communicate(), timeout_seconds)
+        # Paths printed from inside read as the sandbox's own (`git rev-parse --show-toplevel`).
+        real = str(self.workdir.resolve())
         return ExecResult(
             exit_code=process.returncode or 0,
-            stdout=stdout.decode(errors="replace"),
-            stderr=stderr.decode(errors="replace"),
+            stdout=stdout.decode(errors="replace").replace(real, "/workspace"),
+            stderr=stderr.decode(errors="replace").replace(real, "/workspace"),
             duration_ms=0,
         )
+
+    def _local(self, path: str) -> pathlib.Path:
+        relative = path.removeprefix("/workspace").lstrip("/") if path.startswith("/") else path
+        return self.workdir / relative
+
+    async def read_file(
+        self, session_id: str, path: str, start_line: int | None = None, end_line: int | None = None
+    ) -> str:
+        target = self._local(path)
+        if not target.is_file():
+            raise FileNotFoundError(path)
+        return target.read_text()
+
+    async def write_file(
+        self, session_id: str, path: str, content: str, overwrite: bool = True
+    ) -> None:
+        target = self._local(path)
+        if target.exists() and not overwrite:
+            raise FileExistsError(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+
+    async def apply_patch(self, session_id: str, path: str, patch_content: str) -> bool:
+        from sandbox_driver.patcher import apply_unified_diff
+
+        target = self._local(path)
+        if not target.is_file():
+            return False
+        applied, patched = apply_unified_diff(target.read_text(), patch_content)
+        if applied:
+            target.write_text(patched)
+        return applied

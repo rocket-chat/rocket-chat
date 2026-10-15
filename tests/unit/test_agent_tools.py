@@ -60,15 +60,19 @@ async def test_tier2_sandbox_delegation() -> None:
     # 1. bash_exec
     bash_out = await registry.call_tool("bash_exec", {"command": "echo hello world"})
     assert "hello world" in bash_out
-    mock_driver.exec_command.assert_awaited_once_with(
-        session_id="test_session", command="echo hello world", timeout_seconds=120
+    # Around the command itself, the repository's changed files are fingerprinted (diffs).
+    mock_driver.exec_command.assert_any_await(
+        session_id="test_session",
+        command="echo hello world",
+        workdir="/workspace",
+        timeout_seconds=120,
     )
 
     # 2. file_read
     read_out = await registry.call_tool("file_read", {"path": "test.txt"})
-    assert read_out == "file content line 1\n"
+    assert read_out == "     1\tfile content line 1\n"
     mock_driver.read_file.assert_awaited_once_with(
-        session_id="test_session", path="test.txt", start_line=None, end_line=None
+        session_id="test_session", path="/workspace/test.txt"
     )
 
     # 3. file_write
@@ -77,7 +81,7 @@ async def test_tier2_sandbox_delegation() -> None:
     )
     assert "Successfully wrote" in write_out
     mock_driver.write_file.assert_awaited_once_with(
-        session_id="test_session", path="out.txt", content="hello", overwrite=True
+        session_id="test_session", path="/workspace/out.txt", content="hello", overwrite=True
     )
 
     # 4. apply_patch
@@ -86,7 +90,7 @@ async def test_tier2_sandbox_delegation() -> None:
     )
     assert "Patch successfully applied" in patch_out
     mock_driver.apply_patch.assert_awaited_once_with(
-        session_id="test_session", path="file.py", patch_content="diff content"
+        session_id="test_session", path="/workspace/file.py", patch_content="diff content"
     )
 
 
