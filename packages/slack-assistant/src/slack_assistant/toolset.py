@@ -5,7 +5,7 @@ from typing import Any
 
 from agent_core.context import current_execution_ctx
 
-from slack_assistant.state import SlackAssistantState
+from slack_assistant.directory import MAX_MATCHES, SlackDirectoryMixin, person_line
 from slack_assistant.thread_context import (
     build_channel_transcript,
     build_thread_transcript,
@@ -15,7 +15,7 @@ from specifications.interfaces.llm import ToolDefinition
 logger = logging.getLogger(__name__)
 
 
-class SlackToolsetMixin(SlackAssistantState):
+class SlackToolsetMixin(SlackDirectoryMixin):
     """The Slack toolset: thread/channel reads, discovery and policy-gated outbound actions."""
 
     def _register_slack_context_tools(self) -> None:
@@ -35,13 +35,21 @@ class SlackToolsetMixin(SlackAssistantState):
             ToolDefinition(
                 name="slack_read_thread",
                 description=(
-                    "Fetch the full transcript of the current Slack thread, including "
-                    "messages that did not mention you. Use it when earlier thread "
-                    "context is needed to answer accurately."
+                    "Fetch the full transcript of a Slack thread, including messages that did "
+                    "not mention you: the current thread by default, or another one (channel + "
+                    "thread_ts) in a public or allowlisted channel."
                 ),
                 parameters_json_schema={
                     "type": "object",
                     "properties": {
+                        "channel": {
+                            "type": "string",
+                            "description": "Channel id of another thread (optional).",
+                        },
+                        "thread_ts": {
+                            "type": "string",
+                            "description": "Timestamp of that thread's first message.",
+                        },
                         "limit": {
                             "type": "integer",
                             "description": "Maximum number of messages to retrieve (default: 50).",
@@ -56,13 +64,16 @@ class SlackToolsetMixin(SlackAssistantState):
             ToolDefinition(
                 name="slack_read_channel_history",
                 description=(
-                    "Fetch recent messages from the current Slack channel, optionally "
-                    "before a given timestamp. Use it to read preceding channel "
-                    "messages outside the current thread."
+                    "Fetch recent messages from a Slack channel (the current one by default, "
+                    "or a public or allowlisted channel), optionally before a timestamp."
                 ),
                 parameters_json_schema={
                     "type": "object",
                     "properties": {
+                        "channel": {
+                            "type": "string",
+                            "description": "Channel id to read instead of the current one.",
+                        },
                         "limit": {
                             "type": "integer",
                             "description": "Maximum number of messages to retrieve (default: 50).",
@@ -90,6 +101,9 @@ class SlackToolsetMixin(SlackAssistantState):
 
     def _slack_tool_specs(self) -> list[tuple[str, str, dict[str, Any], Any]]:
         """The outbound/discovery half of the Slack toolset (name, doc, schema, handler)."""
+        return [*self._slack_core_specs(), *self._slack_directory_specs()]
+
+    def _slack_core_specs(self) -> list[tuple[str, str, dict[str, Any], Any]]:
         return [
             (
                 "slack_list_conversations",
@@ -115,7 +129,8 @@ class SlackToolsetMixin(SlackAssistantState):
             ),
             (
                 "slack_resolve_user",
-                "Resolve a Slack user's id from their name, real name or email.",
+                "Resolve a Slack user's id from their name, handle, real name or email "
+                "(partial names give the closest candidates). slack_get_user gives details.",
                 {
                     "type": "object",
                     "properties": {
@@ -236,19 +251,33 @@ class SlackToolsetMixin(SlackAssistantState):
             logger.debug("Failed loading Slack thread context: %s", err)
             return ""
 
-    async def _tool_read_thread(self, limit: int = 50) -> str:
-        """Tool handler: fetch and render the current thread transcript."""
-        context = self._current_slack_context()
-        if not context:
-            return "Error: no active Slack thread context is available."
-        channel_id, thread_ts = context
+    async def _read_target(
+        self, channel: str | None, thread_ts: str | None
+    ) -> tuple[str, str] | str:
+        """The (channel, thread) to read, or why it may not be read."""
+        current = self._current_slack_context()
+        if not channel:
+            return current if current else "Error: no active Slack thread context is available."
+        if not await self._readable_channel(channel):
+            return f"Blocked: {channel} is private and not the conversation you are in."
+        return channel, thread_ts or ""
+
+    async def _tool_read_thread(
+        self, limit: int = 50, channel: str | None = None, thread_ts: str | None = None
+    ) -> str:
+        """Tool handler: fetch and render a thread transcript (the current one by default)."""
+        if channel and not thread_ts:
+            return "Error: give the thread_ts of the thread to read in that channel."
         if not self._slack_api_ready:
             return "Error: Slack API client is not connected."
         try:
+            target = await self._read_target(channel, thread_ts)
+            if isinstance(target, str):
+                return target
             transcript = await build_thread_transcript(
                 self.app.client,
-                channel_id,
-                thread_ts,
+                target[0],
+                target[1],
                 self._resolve_slack_user_name,
                 limit=limit,
                 max_chars=self.settings.slack_thread_context_max_chars,
@@ -260,19 +289,18 @@ class SlackToolsetMixin(SlackAssistantState):
             return f"Error: unable to read Slack thread ({err})."
 
     async def _tool_read_channel_history(
-        self, limit: int = 50, before_ts: str | None = None
+        self, limit: int = 50, before_ts: str | None = None, channel: str | None = None
     ) -> str:
-        """Tool handler: fetch and render recent channel history."""
-        context = self._current_slack_context()
-        if not context:
-            return "Error: no active Slack channel context is available."
-        channel_id, _thread_ts = context
+        """Tool handler: fetch and render recent history of a channel (the current one by default)."""
         if not self._slack_api_ready:
             return "Error: Slack API client is not connected."
         try:
+            target = await self._read_target(channel, None)
+            if isinstance(target, str):
+                return target
             transcript = await build_channel_transcript(
                 self.app.client,
-                channel_id,
+                target[0],
                 self._resolve_slack_user_name,
                 limit=limit,
                 latest=before_ts,
@@ -358,24 +386,17 @@ class SlackToolsetMixin(SlackAssistantState):
         if not self._slack_api_ready:
             return "Error: Slack API client is not connected."
         try:
-            raw = await self.app.client.users_list(limit=200)
-            members: list[Any] = list(raw.get("members") or [])
-            needle = query.strip().lower()
-            for member in members:
-                profile = member.get("profile") or {}
-                email = str(profile.get("email", "")).lower()
-                if needle in (
-                    str(member.get("id", "")).lower(),
-                    str(member.get("name", "")).lower(),
-                    str(member.get("real_name", "")).lower(),
-                    email,
-                ):
-                    # The e-mail may be used to find someone but is not disclosed.
-                    return f"{member.get('id')} — {member.get('real_name') or member.get('name')}"
-            return f"No Slack user matched '{query}'."
+            found = await self._find_users(query)
         except Exception as err:
             logger.warning("slack_resolve_user failed: %s", err)
             return f"Error: unable to resolve user ({err})."
+        if not found:
+            return f"No Slack user matched '{query}'."
+        # The e-mail may be used to find someone but is not disclosed.
+        lines = [person_line(member) for member in found[:MAX_MATCHES]]
+        if len(lines) == 1:
+            return lines[0]
+        return f"Several users match '{query}':\n" + "\n".join(f"- {line}" for line in lines)
 
     async def _tool_send_message(
         self, channel: str, text: str, thread_ts: str | None = None

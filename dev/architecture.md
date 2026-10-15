@@ -137,7 +137,7 @@ Every transport (web socket, REST, Slack, GitHub webhook, scheduled mission, res
 
 ## 8. Slack (`packages/slack-assistant`)
 
-`SlackAssistant` is assembled from mixins that share the state declared in `state.py`: `toolset` (Slack tools and policy), `gates` (buttons, Stop, durable ownership), `admission` (rate limits, quotas, organization policy), `turn_stream` (run a turn and render events), `entrypoints` (`/rocket`, the "Ask Rocket" shortcut, App Home, mission reports). `progress.py`, `artifacts.py`, `health.py`, `block_kit.py` are plain helpers. Behaviour worth knowing:
+`SlackAssistant` is assembled from mixins that share the state declared in `state.py`: `toolset` (Slack tools and policy; `directory` adds the read-only people, user group, channel member and permalink tools, with `_readable_channel`: the current conversation, an allowlisted channel or a public one), `gates` (buttons, Stop, durable ownership), `admission` (rate limits, quotas, organization policy), `turn_stream` (run a turn and render events), `entrypoints` (`/rocket`, the "Ask Rocket" shortcut, App Home, mission reports). `progress.py`, `artifacts.py`, `health.py`, `block_kit.py` are plain helpers. Behaviour worth knowing:
 
 * One live progress message per request, edited in place, with a Stop button only the requester can use; long answers and diffs go out as files.
 * A thread's pending question survives restarts: the requester is stored on the session (`slack_turn_requester`) and a question whose turn died is answered from its stored copy.

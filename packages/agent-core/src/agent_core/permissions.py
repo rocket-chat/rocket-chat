@@ -17,6 +17,21 @@ from agent_core.tools.github_ci import ACTIONS_READ, RELEASES_READ
 from agent_core.tools.github_generic import call_is_critical, call_is_read
 from agent_core.tools.github_prs import PR_READ_ACTIONS
 
+# The Slack toolset's reads: conversations, people, user groups and links.
+SLACK_READ_TOOLS: frozenset[str] = frozenset(
+    {
+        "slack_read_thread",
+        "slack_read_channel_history",
+        "slack_list_conversations",
+        "slack_resolve_user",
+        "slack_get_user",
+        "slack_list_user_groups",
+        "slack_get_user_group_members",
+        "slack_list_channel_members",
+        "slack_get_permalink",
+    }
+)
+
 # Calls that cannot change the workspace, the repository or the outside world.
 READ_TOOLS: frozenset[str] = frozenset(
     {
@@ -45,6 +60,7 @@ READ_TOOLS: frozenset[str] = frozenset(
         # Recording that the session follows a pull request; nothing on GitHub changes.
         "github_watch",
         "github_unwatch",
+        *SLACK_READ_TOOLS,
         "recall",
         "web_fetch",
         "web_search",
@@ -67,9 +83,13 @@ EDIT_TOOLS: frozenset[str] = frozenset(
     {"file_write", "file_edit", "apply_patch", "apply_diff_file"}
 )
 # Publishing changes leaves the sandbox: commits, branches, pull requests.
+# Messages and reactions in Slack reach other people: they are publications too.
 PUBLISH_TOOLS: frozenset[str] = frozenset(
-    {"git_commit", "git_branch", "git_push", "git_open_pr", "git_revert"}
-)
+    {
+        "git_commit", "git_branch", "git_push", "git_open_pr", "git_revert",
+        "slack_send_message", "slack_send_dm", "slack_add_reaction",
+    }
+)  # fmt: skip
 
 # GitHub tools whose calls are reads or changes depending on their action (or method).
 _GITHUB_READ_ACTIONS: dict[str, frozenset[str]] = {

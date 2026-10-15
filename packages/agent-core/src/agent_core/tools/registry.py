@@ -21,6 +21,7 @@ from sandbox_driver.workspace import (
 from agent_core.context import current_execution_ctx
 from agent_core.permissions import (
     ACTION_CLASSIFIED_TOOLS,
+    SLACK_READ_TOOLS,
     approval_needed,
     changes_workspace,
     is_read_call,
@@ -98,6 +99,7 @@ class ToolRegistry:
             "github_find_repositories",
             "github_read_file",
             "github_search",
+            *SLACK_READ_TOOLS,
             "recall",
             "web_fetch",
             "web_search",
