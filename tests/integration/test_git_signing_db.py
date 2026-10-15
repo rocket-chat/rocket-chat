@@ -32,11 +32,14 @@ OTHER = {
     "X-User-Role": "developer",
 }
 
+# Long and distinctive: a short one turns up by chance in the base64 ciphertext.
+SECRET_PASSPHRASE = "correct-horse-battery-staple"
+
 
 def test_the_key_is_encrypted_at_rest_private_to_its_owner_and_removable(
     tmp_path: pathlib.Path,
 ) -> None:
-    private, _ = make_key(tmp_path, "Owner <owner@example.com>", passphrase="pw")
+    private, _ = make_key(tmp_path, "Owner <owner@example.com>", passphrase=SECRET_PASSPHRASE)
     with TestClient(app) as client:
         manager = app.state.db_manager
 
@@ -60,14 +63,18 @@ def test_the_key_is_encrypted_at_rest_private_to_its_owner_and_removable(
         try:
             saved = client.put(
                 "/v1/user/git-signing",
-                json={"private_key": private, "passphrase": "pw"},
+                json={"private_key": private, "passphrase": SECRET_PASSPHRASE},
                 headers=OWNER,
             )
             assert saved.status_code == 200, saved.text
             assert saved.json()["commit_email"] == "owner@example.com"
 
             secrets = client.portal.call(stored)
-            assert len(secrets) == 1 and "PRIVATE KEY" not in secrets[0] and "pw" not in secrets[0]
+            assert (
+                len(secrets) == 1
+                and "PRIVATE KEY" not in secrets[0]
+                and SECRET_PASSPHRASE not in secrets[0]
+            )
 
             assert client.get("/v1/user/git-signing", headers=OTHER).json()["configured"] is False
         finally:

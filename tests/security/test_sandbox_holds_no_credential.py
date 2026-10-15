@@ -80,24 +80,26 @@ def github(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-async def _configure(org: str, member: bool, signing: str) -> None:
+async def _configure(org: str, user: str, member: bool, signing: str) -> None:
     await save_org_config(None, org, "github", {"commit_signing_mode": signing}, [])
     if not member:
         return
-    await store_user_credential(None, "u1", org, "github", MEMBER_TOKEN, {"login": "octocat"})
+    await store_user_credential(None, user, org, "github", MEMBER_TOKEN, {"login": "octocat"})
     await store_user_credential(
-        None, "u1", org, "git_signing",
+        None, user, org, "git_signing",
         json.dumps({"private_key": PRIVATE_KEY, "passphrase": PASSPHRASE}),
         {"fingerprint": "ABCD" * 10, "commit_email": "octo@example.com"},
     )  # fmt: skip
-    await save_user_config(None, org, "u1", "user_preferences", {"commit_as_me": True})
+    await save_user_config(None, org, user, "user_preferences", {"commit_as_me": True})
 
 
 @pytest.mark.parametrize("signing", ["github_app", "gpg_key", "none"])
 @pytest.mark.parametrize("source", ["app", "member", "app+member", "none"])
 async def test_no_secret_reaches_the_sandbox_or_the_model(source: str, signing: str) -> None:
     org = f"org_nosecret_{source.replace('+', '_')}_{signing}"
-    await _configure(org, "member" in source, signing)
+    # A user of its own: the in-memory credential store is shared by the whole test run.
+    user = f"user_{org}"
+    await _configure(org, user, "member" in source, signing)
     driver = FakeSandboxDriver()
     driver.script_command("git clone", ExecResult(0, "main\nabc Initial\n", "", 1))
     engine = _Engine(app="app" in source)
@@ -107,6 +109,7 @@ async def test_no_secret_reaches_the_sandbox_or_the_model(source: str, signing: 
         script=SCRIPT,
         driver=driver,
         git_engine=engine,
+        user=user,
     )
 
     assert engine.published, "the turn did publish"
