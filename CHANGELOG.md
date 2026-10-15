@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
-- `api`, `web`: **Mapping a GitHub App installation works when the App asks users to authorize during installation.** With that GitHub setting, GitHub ignores the Setup URL and returns the administrator to the OAuth callback with the install link's state. The callback rejected it as an invalid sign-in state, so the installation was never mapped. It is now handed to the installation mapping, with the same checks. **Settings > GitHub** says whether the installation was mapped, and why not.
+- `api`, `web`: **Mapping a GitHub App installation works when the App asks users to authorize during installation.** With that GitHub setting, GitHub ignores the Setup URL and returns the administrator to the OAuth callback with the install link's state. The callback rejected it as an invalid sign-in state, so the installation was never mapped. It is now handed to the installation mapping, with the same checks. **Settings > GitHub** says whether the installation was mapped, and why not. The GitHub guide now gives the exact App settings for both jobs with one Callback URL.
 
 ### Security
 

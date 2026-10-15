@@ -69,7 +69,7 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | `OIDC_JWKS_URL` | string | discovered | JWKS endpoint for bearer-token validation. Only needed for providers without OIDC discovery; otherwise the `jwks_uri` from discovery is used. |
 | `OIDC_CLIENT_ID` | string | `None` | OAuth client ID for enterprise OpenID Connect. |
 | `OIDC_CLIENT_SECRET` | string | `None` | OAuth client secret for enterprise OpenID Connect. |
-| `GITHUB_CLIENT_ID` | string | `None` | GitHub OAuth client ID for 1-click user authentication and account linking. |
+| `GITHUB_CLIENT_ID` | string | `None` | The GitHub App's **Client ID**, for linking members' GitHub accounts (with `GITHUB_CLIENT_SECRET`, a client secret generated on the App's page). The App's Callback URL is `https://<your Rocket Chat>/api/auth/github/callback`. |
 | `GITHUB_CLIENT_SECRET` | string | `None` | GitHub OAuth client secret for authentication. |
 | `GOOGLE_CLIENT_ID` | string | `None` | Google OAuth client ID for corporate Google Workspace login. |
 | `GOOGLE_CLIENT_SECRET` | string | `None` | Google OAuth client secret. |
