@@ -17,6 +17,21 @@ If your administrator has [connected Slack](/administer/slack), you can use the 
 
 **Files you attach are read.** Logs, screenshots and CSVs attached to a message that mentions Rocket are downloaded into the sandbox and shown to the model.
 
+## What the agent can do in Slack
+
+Besides your workspace tools, the agent has Slack's own:
+
+| Tool | What it does |
+| :--- | :--- |
+| `slack_read_thread`, `slack_read_channel_history` | Read the thread or channel it was asked in, or another thread or channel that is public or allowlisted. |
+| `slack_list_conversations`, `slack_list_channel_members` | Find channels, and who is in one. |
+| `slack_resolve_user`, `slack_get_user` | Find someone by name, handle or e-mail; see their title, timezone, status and user groups. Their e-mail is never shown. |
+| `slack_list_user_groups`, `slack_get_user_group_members` | List user groups (`@backend`, `@oncall`…) and their members, and how to mention a group (`<!subteam^ID>`). |
+| `slack_get_permalink` | Link to a message. |
+| `slack_send_message`, `slack_send_dm`, `slack_add_reaction` | Post, message someone, react. These follow your organization's Slack policy and permission mode. |
+
+Reading never needs approval, even in *Plan* mode. A private channel or another person's direct messages are only readable from inside that conversation.
+
 ## Ways to start
 
 | You do | What happens |
