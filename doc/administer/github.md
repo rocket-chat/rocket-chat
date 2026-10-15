@@ -145,6 +145,13 @@ One GitHub App serves the whole platform, but an installation belongs to one Git
 2. As an organization administrator open **Settings > GitHub > GitHub App installations** and choose **Install on a GitHub account**. The link carries a signed, short-lived `state` naming your organization and you.
 3. GitHub sends you back with the installation id; Rocket Chat confirms with GitHub that it is a real installation of this App and maps it to your organization.
 
+For GitHub to send you back, the App's settings on GitHub need one of:
+
+* a **Setup URL** of `https://<your Rocket Chat>/api/v1/github/setup` with **Redirect on update** ticked (so configuring an existing installation also comes back); or
+* **Request user authorization (OAuth) during installation** turned on. GitHub then ignores the Setup URL and sends you to the App's OAuth **Callback URL**, which must be Rocket Chat's GitHub callback (`https://<your Rocket Chat>/api/auth/github/callback`, the one used to link member accounts). Rocket Chat recognises the install link there and maps the installation the same way.
+
+To map an installation that already exists, use the same link: GitHub shows the account's existing installation; open its configuration and save it. **Settings > GitHub** then says whether the installation was mapped, and if not, why.
+
 Agents of an organization only ever use the installations mapped to it (matched to the repository owner), and GitHub webhook events are attributed to the organization that mapped the installation they came through. An organization with no mapping gets no App token. Single-organization installs that predate mapping can keep the old behaviour with `GITHUB_APP_ALLOW_UNMAPPED_INSTALLATIONS=true` (`github.allowUnmappedInstallations` in the Helm chart) and set `ROCKET_WEBHOOK_ORG_ID` for webhook sessions.
 
 ## Sessions that follow a pull request

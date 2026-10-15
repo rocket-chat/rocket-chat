@@ -281,6 +281,10 @@ Return available SSO providers configured in environment.
 
 Handle OAuth 2.0 authorization callback, exchange token, provision user, and set session.
 
+A GitHub App that asks for user authorization during installation sends the administrator
+here instead of to its Setup URL: that redirect carries our signed install state and the
+installation id, and is handed to the installation mapping.
+
 **Parameters**
 
 | Name | In | Required | Type |
@@ -289,6 +293,7 @@ Handle OAuth 2.0 authorization callback, exchange token, provision user, and set
 | code | query | no | string |
 | state | query | no | string |
 | error | query | no | string |
+| installation_id | query | no | integer |
 
 **Responses:** `200`
 

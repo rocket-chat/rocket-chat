@@ -72,6 +72,25 @@ async def finish_installation(
     request: Request, installation_id: int, state: str = "", setup_action: str = ""
 ) -> RedirectResponse:
     """GitHub's post-install redirect: map the installation to the organization in ``state``."""
+    return await map_installation(request, installation_id, state)
+
+
+def is_install_state(state: str | None) -> bool:
+    """Whether ``state`` is a signed install link of ours (not an OAuth sign-in state)."""
+    try:
+        return oauth_state.verify(state or "").get("purpose") == _STATE_PURPOSE
+    except ValueError:
+        return False
+
+
+async def map_installation(request: Request, installation_id: int, state: str) -> RedirectResponse:
+    """Map ``installation_id`` to the organization the signed ``state`` names.
+
+    GitHub sends the administrator back here after an install or a configuration change: to the
+    Setup URL, or, when the App asks for user authorization during installation, to its OAuth
+    callback URL (which hands the request over). The state must verify and name this same
+    administrator, and GitHub must confirm the installation, before it is mapped.
+    """
     org_id, user_id, roles = _get_request_identity(request)
     try:
         claims: dict[str, Any] = oauth_state.verify(state)
