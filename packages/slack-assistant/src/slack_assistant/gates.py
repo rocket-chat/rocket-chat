@@ -159,22 +159,3 @@ class SlackGatesMixin(SlackAssistantState):
         self._background.add(task)
         task.add_done_callback(self._background.discard)
         return True
-
-    async def _stop_turn(self, body: dict[str, Any], say: AsyncSay) -> None:
-        """The Stop button of the live progress message: only the requester may end the turn."""
-        await self._bind_click_tenant(body)
-        actions = body.get("actions", [])
-        session_id = str(actions[0].get("value", "")) if actions else ""
-        clicker = str(body.get("user", {}).get("id", ""))
-        thread_ts = str(
-            body.get("container", {}).get("thread_ts")
-            or body.get("message", {}).get("thread_ts", "")
-        )
-        requester = await self._durable_requester(session_id) if session_id else None
-        if not session_id or requester is None or requester != clicker:
-            await say(
-                text=f"<@{clicker}> only the person who asked can stop this.", thread_ts=thread_ts
-            )
-            return
-        await self.orchestrator.cancel_turn(session_id)
-        await say(text=f":stop_button: Stopped by <@{clicker}>.", thread_ts=thread_ts)

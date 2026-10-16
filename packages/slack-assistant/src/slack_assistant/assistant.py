@@ -22,7 +22,7 @@ from slack_bolt.request.async_request import AsyncBoltRequest
 from slack_bolt.response import BoltResponse as AsyncBoltResponse
 
 from slack_assistant.admission import SlackAdmissionMixin
-from slack_assistant.block_kit import SHARE_ACTION_ID, STOP_ACTION_ID
+from slack_assistant.block_kit import SHARE_ACTION_ID
 from slack_assistant.bot import SlackBot
 from slack_assistant.config import SlackAssistantSettings
 from slack_assistant.entrypoints import SlackEntrypointsMixin
@@ -39,10 +39,10 @@ from slack_assistant.guardrails import (
 )
 from slack_assistant.health import EventDeduplicator, SocketHealth
 from slack_assistant.policy import ChannelProfile, SlackOrgPolicy
-from slack_assistant.progress import ProgressMessage
 from slack_assistant.ratelimit import BoundedRateLimiter
 from slack_assistant.routing import ROUTE_KEY, Routing, SlackRoutingMixin
 from slack_assistant.state import ClassifyFn, RunTurnFn, SlackAssistantState
+from slack_assistant.stream import TurnStream
 from slack_assistant.toolset import SlackToolsetMixin
 from slack_assistant.turn_stream import SlackTurnStreamMixin, TurnOutcome, TurnView
 from specifications.interfaces.agent import (
@@ -451,11 +451,6 @@ class SlackAssistant(
             await ack()
             await self._resolve_approval(body, say, approved=False)
 
-        @self.app.action(STOP_ACTION_ID)
-        async def handle_stop_turn(ack: AsyncAck, body: dict[str, Any], say: AsyncSay) -> None:
-            await ack()
-            await self._stop_turn(body, say)
-
         @self.app.action(SHARE_ACTION_ID)
         async def handle_share(ack: AsyncAck, body: dict[str, Any]) -> None:
             await ack()
@@ -756,20 +751,19 @@ class SlackAssistant(
     async def _run_and_report(
         self, view: TurnView, admitted: _Admitted, overlay: TurnOverlay
     ) -> None:
-        """Run the turn with its live progress message, then post the result."""
+        """Run the turn, its steps streamed into its reply, then post the result."""
         session_id = view.session_id
         turn_started = self._clock()
         await self._remember_requester(session_id, admitted.session_org_id, view.requester_slack_id)
         if admitted.org_policy.live_progress and self._slack_api_ready and not view.private:
-            view.progress = ProgressMessage(
+            view.stream = TurnStream(
                 self.app.client,
                 view.channel_id,
                 view.thread_ts,
-                session_id=session_id,
-                link_url=view.link_url,
+                recipient_user_id=view.requester_slack_id,
+                recipient_team_id=admitted.team_id or None,
                 clock=self._clock,
             )
-            await view.progress.start()
         self._active_turns.add(session_id)
         error: str | None = None
         try:
@@ -787,13 +781,10 @@ class SlackAssistant(
             self._active_turns.discard(session_id)
             await self._safely_update_status(view.status_fn, "")
         if error:
-            if view.progress is not None:
-                await view.progress.finish(ok=False, error=error)
             self._failures.record_failure(admitted.team_scope, self._clock())
-            await view.say_fn(
-                text=f"⚠️ I encountered an error while processing your request: {error}",
-                thread_ts=view.thread_ts,
-            )
+            notice = f"⚠️ I encountered an error while processing your request: {error}"
+            if view.stream is None or not await view.stream.finish(notice, []):
+                await view.say_fn(text=notice, thread_ts=view.thread_ts)
             return
         self._failures.record_success(admitted.team_scope)
         if view.private:
@@ -808,9 +799,6 @@ class SlackAssistant(
             )
             return
         await self._post_result(view, admitted.org_policy)
-        # Removed only once the answer is in the thread, so the thread is never left empty.
-        if view.progress is not None:
-            await view.progress.finish(ok=True)
         await self._maybe_notify(
             view.outcome,
             view.channel_id,
@@ -942,7 +930,7 @@ class SlackAssistant(
             f"You are responding inside a Slack thread (channel '{channel_id}', thread "
             f"'{thread_ts}'). Before any actionable work call `update_status` with a concise "
             "present-continuous summary (e.g. 'Cloning repository', 'Running test suite') - "
-            "the Slack UI shows it as the live progress loader. "
+            "Slack shows it as the status line under the thread. "
             "Each user message is prefixed '[Speaker: <name> (<@id>)]'; attribute statements "
             "to the right person. "
             "Your final answer is delivered to the person by the platform: just write it. Never "

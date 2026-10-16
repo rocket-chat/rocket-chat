@@ -582,8 +582,8 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             True,
             "org",
             "packages/slack-assistant/src/slack_assistant/policy.py",
-            "While a turn runs, show a progress message with its recent steps and a Stop button "
-            "(removed when the turn finishes; kept when it is stopped or fails).",
+            "Stream each tool call into the reply as a step while a turn runs, then write the "
+            "answer into the same message; off, the answer is posted when the turn ends.",
         ),
         _spec(
             "long_output_to_file",
