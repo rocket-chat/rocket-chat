@@ -258,32 +258,39 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     await expect(page.getByText("Here is the summary of the analyzed workspace files.")).toBeVisible();
   });
 
-  test("deletes all ongoing sessions and seats user in a clean new session with no context", async ({ page, request }) => {
-    // 1. Ensure at least two sessions exist
-    await request.post("http://localhost:8000/v1/sessions", { data: { title: "Mission A" } });
-    await request.post("http://localhost:8000/v1/sessions", { data: { title: "Mission B" } });
+  test("an admin sees other members' sessions only on request, and CLEAR deletes only their own", async ({ page, request }) => {
+    const mine = `Mission mine ${Date.now()}`;
+    const theirs = `Mission of a teammate ${Date.now()}`;
+    await request.post("http://localhost:8000/v1/sessions", { data: { title: mine } });
+    const teammate = await request.post("http://localhost:8000/v1/sessions", {
+      headers: { "X-Tenant-User-Id": "teammate_scope", "X-User-Role": "developer" },
+      data: { title: theirs },
+    });
+    expect(teammate.ok()).toBeTruthy();
 
     await page.goto("/");
     await expect(page).toHaveURL(/\/chat\/.+/);
     const initialSessionUrl = page.url();
+    const sidebar = page.getByTestId("session-sidebar");
+    await expect(sidebar.getByText(mine)).toBeVisible({ timeout: 10000 });
+    await expect(sidebar.getByText(theirs)).toHaveCount(0);
 
-    // Accept window confirm dialog when clicking clear all
+    const everyone = page.getByTestId("toggle-org-sessions-btn");
+    await everyone.click();
+    await expect(everyone).toHaveAttribute("aria-pressed", "true");
+    await expect(sidebar.getByText(theirs)).toBeVisible({ timeout: 10000 });
+
     page.on("dialog", (dialog) => dialog.accept());
+    await page.getByTestId("clear-all-sessions-btn").click();
 
-    // 2. Click CLEAR ALL in sidebar
-    const clearAllBtn = page.getByTestId("clear-all-sessions-btn");
-    await expect(clearAllBtn).toBeVisible({ timeout: 10000 });
-    await clearAllBtn.click();
-
-    // 3. Assert URL transitioned to the new session
     await expect(page).not.toHaveURL(initialSessionUrl, { timeout: 10000 });
     await expect(page).toHaveURL(/\/chat\/.+/);
+    await expect(sidebar.getByText(mine)).toHaveCount(0, { timeout: 10000 });
+    await expect(sidebar.getByText(theirs)).toBeVisible();
+    await expect(page.locator(".continuous-flight-stream")).toBeVisible();
 
-    // 4. Assert sidebar shows exactly 1 session
-    await expect(page.getByText(/Sessions/i).first()).toBeVisible();
-
-    // 5. Assert chat log stream is in clean initialized state
-    const chatStream = page.locator(".continuous-flight-stream");
-    await expect(chatStream).toBeVisible();
+    await everyone.click();
+    await expect(everyone).toHaveAttribute("aria-pressed", "false");
+    await expect(sidebar.getByText(theirs)).toHaveCount(0, { timeout: 10000 });
   });
 });

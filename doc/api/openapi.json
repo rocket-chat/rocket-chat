@@ -8684,39 +8684,23 @@
     },
     "/v1/sessions": {
       "get": {
-        "description": "List one keyset page of sessions, newest ``(updated_at, session_id)`` first.",
+        "description": "List one keyset page of sessions, newest ``(updated_at, session_id)`` first.\n\nThe list is always the authenticated identity's organization. Administrators see their\nown sessions like everyone else unless they ask for the whole organization.",
         "operationId": "list_sessions_v1_sessions_get",
         "parameters": [
           {
+            "description": "`mine`: the caller's sessions and those shared with them. `organization`: every session of the organization (administrators only).",
             "in": "query",
-            "name": "tenant_org_id",
+            "name": "scope",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
+              "default": "mine",
+              "description": "`mine`: the caller's sessions and those shared with them. `organization`: every session of the organization (administrators only).",
+              "enum": [
+                "mine",
+                "organization"
               ],
-              "title": "Tenant Org Id"
-            }
-          },
-          {
-            "in": "query",
-            "name": "tenant_user_id",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Tenant User Id"
+              "title": "Scope",
+              "type": "string"
             }
           },
           {
@@ -8878,7 +8862,7 @@
     },
     "/v1/sessions/reset": {
       "post": {
-        "description": "Delete all active sessions for the current user and seat them in a fresh blank session.",
+        "description": "Delete every session the caller owns and seat them in a fresh blank session.\n\nOnly the caller's own sessions go, administrators included: sessions shared with them\nand other members' sessions are kept.",
         "operationId": "reset_all_sessions_v1_sessions_reset_post",
         "responses": {
           "200": {

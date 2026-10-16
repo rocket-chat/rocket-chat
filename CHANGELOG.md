@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 ### Security
+- `api`: **`GET /v1/sessions` no longer accepts `tenant_org_id` or `tenant_user_id`.** An administrator could pass another organization's id and, on PostgreSQL, the listing ran under that organization's row-level security context, so it returned that organization's sessions. The list is now always the authenticated identity's organization.
 
 ## [0.3.1] - 2026-10-16
 
@@ -41,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `slack-assistant`: **A Slack reply streams its steps, then its answer, in one message.** It uses Slack's agent streaming API: each tool call appears as a step while it runs (collapsible "thinking steps"), and the answer is written into the same message, with Slack's status line under the thread meanwhile. The separate progress message and its **Stop** button are gone; stop a turn with the bot's slash command (`/<command> stop`).
 - `slack-assistant`, `api`, `web`: **Each bot has its own slash command**, named after its Slack display name (`/triage` for `@triage`) or chosen in the bot's **Connection** tab (migration `030_slack_bot_command`), in its generated manifest. A bot's name now comes from its Slack display name, refreshed by **Test connection**; it used to keep the username Slack fixed when the app was created. Slack gives a command several apps declare to the most recently installed one, so a shared `/rocket` reached a single bot. Bots still answer `/rocket` for apps installed from an older manifest. `/rocket-pair` is gone: link your account with the bot's command, `/<command> pair`.
+- `api`, `web`: **Administrators see their own sessions by default.** The sidebar lists an administrator's own sessions and those shared with them, like any member's; the new **ALL** toggle (`GET /v1/sessions?scope=organization`, administrators only) lists every session of the organization, with each one's owner on hover. **CLEAR** deletes only the caller's own sessions, archived ones included, and keeps other members' and shared sessions; it used to stop after the organization's first 200 sessions, and showed an invented session when the request failed.
 - `slack-assistant`, `api`: `SLACK_TEAM_ID`, `SLACK_DEFAULT_ORG_ID`, `SLACK_DM_POLICY`, `SLACK_OUTBOUND_CHANNELS`, `SLACK_ALLOWED_TOOLS` and `SLACK_WEB_BASE_URL` are deprecated in favour of the workspace binding and the organization's `slack` settings.
 - `api`, `helm`: **`SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are ignored** (start-up warns while they are set), and the Helm values `backend.slack.botToken`, `appToken` and `existingSecret*` are gone. Add the Slack app as a bot in **Settings → Slack**; its threads start new sessions.
 
