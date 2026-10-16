@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import pathlib
+import subprocess
 
 import pytest
 from api.services.credentials import get_user_credential
@@ -33,7 +34,23 @@ async def test_a_key_is_parsed_tested_and_its_public_half_returned(tmp_path: pat
     assert info.emails == ("octo@example.com",) and info.expires_at is None
     assert "BEGIN PGP PUBLIC KEY BLOCK" in info.public_key
     assert "PRIVATE" not in info.public_key
-    assert info.public_key.strip().splitlines()[-2:] == public.strip().splitlines()[-2:]
+    # The same key, not the same armored text: two exports of one key can differ in bytes
+    # (and so in their checksum line), depending on the GnuPG version and keyring.
+    assert _fingerprints(info.public_key) == _fingerprints(public) == [info.fingerprint]
+
+
+def _fingerprints(armored: str) -> list[str]:
+    shown = subprocess.run(
+        ["gpg", "--batch", "--with-colons", "--show-keys"],
+        input=armored,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=30,
+    ).stdout
+    rows = [line.split(":") for line in shown.splitlines()]
+    primary = [i for i, row in enumerate(rows) if row[0] == "pub"]
+    return [rows[i + 1][9] for i in primary if i + 1 < len(rows) and rows[i + 1][0] == "fpr"]
 
 
 async def test_a_wrong_passphrase_is_explained(tmp_path: pathlib.Path) -> None:
