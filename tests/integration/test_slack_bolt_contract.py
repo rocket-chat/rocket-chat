@@ -282,8 +282,9 @@ async def test_slacks_stop_button_stops_the_requesters_turn_and_ends_the_session
         model.gate.set()
         await asyncio.wait_for(turn, 10)
 
-    posted = json.dumps(bolt.client.sent("chat.postMessage"))
-    assert "Stopped by <@U1>" in posted and "Fixed it." not in posted
+    posted = json.dumps(bolt.client.sent("chat.postMessage"), ensure_ascii=False)
+    assert "⏹️ Stopped by <@U1>" in posted and "Fixed it." not in posted
+    assert ":stop_button:" not in posted, "shortcodes are not rendered in streamed markdown"
     assert statuses()[-1] == "active", "Slack keeps the session working until the app ends it"
 
     await bolt.dispatch(_stop_click("U1", "Ev_STOP_IDLE"))

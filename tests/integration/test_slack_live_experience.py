@@ -47,18 +47,14 @@ async def test_a_turn_streams_its_current_step_then_the_answer_in_the_same_reply
     assert start["thread_ts"] == THREAD[1] and start["task_display_mode"] == "timeline"
     assert (start["recipient_user_id"], start["recipient_team_id"]) == ("U1", "T1")
     first = start["chunks"][0]
-    assert (first["type"], first["status"], first["details"]) == (
-        "task_update",
-        "in_progress",
-        "Step 1",
-    )
+    assert (first["type"], first["status"]) == ("task_update", "in_progress")
+    assert "details" not in first, "Slack appends details on every update"
     second = client.chat_appendStream.call_args.kwargs["chunks"][0]
     assert second["id"] == first["id"], "one card, updated in place: no list of finished steps"
-    assert second["details"] == "Step 2"
     stop = client.chat_stopStream.call_args.kwargs
     summary, answer = stop["chunks"]
     assert summary["id"] == first["id"] and summary["status"] == "complete"
-    assert summary["details"] == "2 steps" and summary["title"].startswith("Done in")
+    assert summary["title"].startswith("Done in") and summary["title"].endswith("2 steps")
     assert stop["ts"] == "9.9" and answer == {"type": "markdown_text", "text": "All done here."}
     footer = json.dumps(stop["blocks"])
     assert f"https://rocket.example/chat/{SESSION_ID}" in footer and "Done in" in footer

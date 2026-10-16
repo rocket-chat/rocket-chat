@@ -37,7 +37,13 @@ def test_only_workspace_work_is_snapshotted() -> None:
     assert touches_workspace("file_write", {"path": "a"})
     assert touches_workspace("bash_exec", {"command": "make"})
     assert touches_workspace("git_commit", {"message": "m"})
-    for name in ("slack_send_message", "github_pull_request", "load_tools", "mcp__grafana__q"):
+    for name in (
+        "slack_send_message",
+        "github_pull_request",
+        "load_tools",
+        "execute_skill",
+        "mcp__grafana__q",
+    ):
         assert not touches_workspace(name, {"action": "merge"}), name
     assert approval_needed("ask", "load_tools", {"names": ["x"]}) is None, "loading is a read"
 
@@ -48,6 +54,7 @@ def test_only_workspace_work_is_snapshotted() -> None:
         ("slack_send_message", False),
         ("mcp__grafana__query", False),
         ("load_tools", False),
+        ("execute_skill", False),
         ("github_pull_request", False),
         ("file_write", True),
     ],
@@ -80,3 +87,39 @@ async def test_a_turn_starts_its_sandbox_only_to_change_it(tool: str, starts_san
         current_execution_ctx.reset(token)
 
     assert bool(started) is starts_sandbox
+
+
+@pytest.mark.parametrize(
+    ("runtime", "code", "starts_sandbox"),
+    [("text", "", False), ("python", "def run(**_):\n    return 'ok'\n", True)],
+)
+async def test_a_skill_starts_the_sandbox_only_when_it_runs_code(
+    runtime: str, code: str, starts_sandbox: bool
+) -> None:
+    from api.services import skills_lookup
+    from sandbox_driver.fake_driver import FakeSandboxDriver
+
+    from tests.turn_harness import run_turn
+
+    org = f"org_skill_{runtime}"
+    skills_lookup._memory_skills[org] = {
+        "skill_1": {
+            "name": "triage",
+            "runtime": runtime,
+            "code": code,
+            "body": "# Triage\nStart with the logs.",
+            "scope": "org",
+        }
+    }
+    driver = FakeSandboxDriver()
+    try:
+        await run_turn(
+            org,
+            script=[("execute_skill", {"skill_name": "triage", "arguments": {}})],
+            driver=driver,
+        )
+    finally:
+        skills_lookup._memory_skills.pop(org, None)
+
+    started = f"session_{org}" in driver._specs
+    assert started is starts_sandbox, "instructions are read back, only code needs a sandbox"
