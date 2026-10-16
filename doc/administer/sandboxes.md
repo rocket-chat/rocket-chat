@@ -59,6 +59,8 @@ The governance settings can restrict what a sandbox reaches: an allowlist of hos
 
 ## Sleeping and cleanup
 
+A sandbox starts with the first tool call that needs it. On Kubernetes that call waits up to 2 minutes for the pod, long enough for the cluster to add a node to a full pool. A pod still waiting after that is kept, and the next call waits on it; a pod whose image cannot be pulled fails at once with the reason.
+
 A sandbox with no activity for the idle period is stopped and its workspace volume is kept (the operator sets the period with `SANDBOX_INACTIVITY_PAUSE_SECONDS`: 30 minutes on Docker, 10 minutes on Kubernetes by default), so the next turn finds the repositories it cloned. Running processes end when a sandbox sleeps.
 
 A kept volume still costs storage. After **`workspace_release_days`** (Settings → Sandboxes, 7 days by default, 0 = keep it as long as the session exists) without activity in the session, the volume is deleted too; a sandbox type can set its own delay. The session stays: its next turn starts with a blank sandbox, and the agent is told the workspace was released, so it clones again (work that was not pushed is gone). Workspaces are also removed with their session.

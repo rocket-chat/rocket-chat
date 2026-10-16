@@ -109,6 +109,10 @@ _UNRECOVERABLE_WAITING_REASONS = frozenset(
     {"ImagePullBackOff", "InvalidImageName", "ErrImageNeverPull", "CreateContainerConfigError"}
 )
 _MAX_KUBELET_MESSAGE_CHARS = 300
+# How long a sandbox start waits for its pod to run. Generous on purpose: when the pool has no
+# room the cluster adds a node, which takes one to two minutes, and the first tool call of a
+# session (often a clone) waits on it.
+POD_START_TIMEOUT_SECONDS = 120.0
 
 
 def _raise_if_container_cannot_start(pod: client.V1Pod, pod_name: str) -> None:
@@ -467,6 +471,29 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
 
         raise SandboxTimeoutError(f"Timed out waiting for Pod {pod_name} to enter Running state")
 
+    async def _await_start(
+        self, core_v1: client.CoreV1Api, pod_name: str, session_id: str
+    ) -> None:
+        """Wait for the pod to run; a pod that cannot start is removed, a slow one is kept."""
+        try:
+            await self._wait_for_pod_running(
+                core_v1, pod_name, session_id, timeout_seconds=POD_START_TIMEOUT_SECONDS
+            )
+        except SandboxTimeoutError as err:
+            # Still Pending: usually a node being added or a large image being pulled. The pod
+            # is kept so the next start resumes the wait instead of queueing a new pod.
+            raise SandboxTimeoutError(
+                f"The sandbox is still starting after {POD_START_TIMEOUT_SECONDS:.0f}s (pod "
+                f"{pod_name} is waiting for a node or its image); it keeps starting, so retry "
+                "the same command in a minute."
+            ) from err
+        except SandboxError:
+            # A pod that never started keeps its image: remove it so the next attempt (after
+            # the image or catalogue is fixed) creates a fresh one instead of reusing it.
+            await self._delete_pod_quietly(core_v1, pod_name)
+            raise
+        self.record_activity(session_id)
+
     async def start_sandbox(self, session_id: str) -> None:
         """Spin up ephemeral pod mounting the session PVC with node-affinity pinning."""
         spec = self._specs.get(session_id)
@@ -501,6 +528,11 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                 if existing_pod.spec and existing_pod.spec.node_name:
                     self._node_affinity_cache[session_id] = existing_pod.spec.node_name
                 return
+            if phase == "Pending" and not is_terminating:
+                # An earlier start ran out of time while the pod waited for a node or its image:
+                # keep waiting on it, since recreating it would start scheduling over.
+                await self._await_start(core_v1, pod_name, session_id)
+                return
 
             # Force purge dead, evicted, or failed pod before recreating
             await core_v1.delete_namespaced_pod(
@@ -528,15 +560,7 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
             if err.status != 409:
                 raise SandboxError(f"Failed creating Pod {pod_name}: {err}") from err
 
-        try:
-            await self._wait_for_pod_running(core_v1, pod_name, session_id, timeout_seconds=45.0)
-        except SandboxError:
-            # A pod that never started keeps its image: remove it so the next attempt (after
-            # the image or catalogue is fixed) creates a fresh one instead of reusing it.
-            await self._delete_pod_quietly(core_v1, pod_name)
-            raise
-
-        self.record_activity(session_id)
+        await self._await_start(core_v1, pod_name, session_id)
 
     async def _preferred_node(self, core_v1: client.CoreV1Api, session_id: str) -> str | None:
         """The node whose volume attachment or warm pods make it the cheapest place to resume."""
