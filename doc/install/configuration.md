@@ -101,6 +101,7 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | `SANDBOX_INACTIVITY_PAUSE_SECONDS` | int | `300` (5 min) | Time of inactivity before a sandbox pod is hibernated (scale-to-zero) to free CPU and RAM while preserving the bound PVC. |
 | `SANDBOX_INACTIVITY_CLEANUP_SECONDS` | int | `0` (off) | Idle time after which the Pod and PVC of a hibernated sandbox whose session no longer exists are removed. Workspaces of live sessions are never purged. |
 | `K8S_SANDBOX_RUNTIME_CLASS` | string | `None` | RuntimeClass for sandbox pods (e.g. `gvisor`, `kata-qemu`). |
+| `K8S_SANDBOX_PROFILES` | JSON | *(empty)* | Placement profiles organization administrators may choose per sandbox type: an object of name → `{description, nodeSelector, tolerations, runtimeClassName, priorityClassName, labels, annotations, storageClassName, resources: {requests, limits}}` (Helm `sandbox.profiles`). An invalid definition is logged and offers no profile. |
 | `K8S_WARMED_POOL_SIZE` | int | `0` | Number of pre-warmed idle Pods to maintain in the sandbox namespace for instant turn startup. |
 | `K8S_WARMED_IMAGE` | string | Same as default | Container image used for pre-warmed pool pods. |
 | `K8S_IMAGE_PULL_SECRETS` | string | `None` | Comma-delimited list of Kubernetes Secret names for pulling sandbox images from private container registries. |

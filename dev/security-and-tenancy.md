@@ -31,7 +31,8 @@ Application-level `WHERE org_id = …` is not trusted. Isolation is enforced by 
 * Every tenant table has `ENABLE` **and** `FORCE ROW LEVEL SECURITY` and a policy on `org_id = current_setting('app.current_org_id', true)`; member-scoped rows add `user_id = current_setting('app.current_user_id', true)`. `FORCE` matters: it applies the policy to the table owner too.
 * The application connects as a non-superuser role (`rocket_app`, `DATABASE_URL`); superusers bypass RLS. Migrations connect as the schema owner (`ADMIN_DATABASE_URL`).
 * `DatabaseSessionManager.session(tenant_org_id=…)` sets the context with `set_config(…, true)` — transaction-local, so it is cleared on commit/rollback and can never leak through the connection pool. The HTTP middleware binds the caller's organization into the `current_tenant_org_id` context variable for every request; code that runs outside a request (WebSocket handlers, Slack, background tasks, resumed turns) must bind it explicitly.
-* Cross-tenant jobs — the retention sweeper, turn-lease recovery, the mission claimer and the remote-MCP refresh — use the schema-owner connection on purpose and are the only code that does.
+* Cross-tenant jobs — the retention sweeper, turn-lease recovery, the mission claimer, the remote-MCP refresh, the Slack bot manager's bot listing and the workspace release sweep — use the schema-owner connection on purpose and are the only code that does.
+* Sandbox placement (node selectors, tolerations, runtime and priority classes) is defined only by the operator as named profiles; organization administrators choose a profile, never its contents, so no organization can schedule onto nodes a shared cluster reserves.
 * Tests that need RLS run against a real PostgreSQL (`tests/security`, `tests/integration`; `test_schema_ownership.py` checks that tables are owned and forced correctly), so a missing policy is a test failure, not a review comment.
 
 ## 4. Secrets

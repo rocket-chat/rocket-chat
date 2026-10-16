@@ -67,6 +67,9 @@ class WorkspaceSpec:
     # Platform services the sandbox must always reach whatever the egress policy says, as
     # "host:port" (the git gateway). Allowed by exact host and port only.
     platform_endpoints: list[str] = field(default_factory=list)
+    # A placement profile the operator defined (node pool, tolerations, sizing); drivers that
+    # place nothing (Docker) ignore it. Empty: the deployment's default placement.
+    profile: str = ""
 
 
 @dataclass

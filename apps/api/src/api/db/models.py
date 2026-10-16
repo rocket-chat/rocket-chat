@@ -888,6 +888,11 @@ class SandboxCatalogueModel(Base):
     )
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    profile: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    cpu_limit: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    memory_limit: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    disk_size: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    release_after_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class GithubWatchModel(Base):

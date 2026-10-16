@@ -3316,10 +3316,22 @@
             "title": "Capabilities",
             "type": "array"
           },
+          "cpu_limit": {
+            "default": "",
+            "maxLength": 16,
+            "title": "Cpu Limit",
+            "type": "string"
+          },
           "description": {
             "default": "",
             "maxLength": 500,
             "title": "Description",
+            "type": "string"
+          },
+          "disk_size": {
+            "default": "",
+            "maxLength": 16,
+            "title": "Disk Size",
             "type": "string"
           },
           "image": {
@@ -3333,11 +3345,34 @@
             "title": "Is Default",
             "type": "boolean"
           },
+          "memory_limit": {
+            "default": "",
+            "maxLength": 16,
+            "title": "Memory Limit",
+            "type": "string"
+          },
           "name": {
             "maxLength": 80,
             "minLength": 1,
             "title": "Name",
             "type": "string"
+          },
+          "profile": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Profile",
+            "type": "string"
+          },
+          "release_after_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release After Days"
           }
         },
         "required": [
@@ -3388,6 +3423,18 @@
             ],
             "title": "Capabilities"
           },
+          "cpu_limit": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Limit"
+          },
           "description": {
             "anyOf": [
               {
@@ -3399,6 +3446,18 @@
               }
             ],
             "title": "Description"
+          },
+          "disk_size": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Size"
           },
           "image": {
             "anyOf": [
@@ -3424,6 +3483,18 @@
             ],
             "title": "Is Default"
           },
+          "memory_limit": {
+            "anyOf": [
+              {
+                "maxLength": 16,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Limit"
+          },
           "name": {
             "anyOf": [
               {
@@ -3436,9 +3507,50 @@
               }
             ],
             "title": "Name"
+          },
+          "profile": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Profile"
+          },
+          "release_after_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Release After Days"
           }
         },
         "title": "SandboxPatch",
+        "type": "object"
+      },
+      "SandboxProfileView": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description"
+        ],
+        "title": "SandboxProfileView",
         "type": "object"
       },
       "SandboxView": {
@@ -3450,8 +3562,20 @@
             "title": "Capabilities",
             "type": "array"
           },
+          "cpu_limit": {
+            "default": "",
+            "description": "CPU cores for this type; empty inherits",
+            "title": "Cpu Limit",
+            "type": "string"
+          },
           "description": {
             "title": "Description",
+            "type": "string"
+          },
+          "disk_size": {
+            "default": "",
+            "description": "Workspace volume size (e.g. 50Gi); empty inherits",
+            "title": "Disk Size",
             "type": "string"
           },
           "id": {
@@ -3466,9 +3590,33 @@
             "title": "Is Default",
             "type": "boolean"
           },
+          "memory_limit": {
+            "default": "",
+            "description": "Memory for this type (e.g. 8Gi); empty inherits",
+            "title": "Memory Limit",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "profile": {
+            "default": "",
+            "description": "Operator-defined placement profile; empty: none",
+            "title": "Profile",
+            "type": "string"
+          },
+          "release_after_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Days an idle session keeps its workspace; empty inherits",
+            "title": "Release After Days"
           }
         },
         "required": [
@@ -6314,6 +6462,32 @@
           }
         },
         "summary": "Create Sandbox",
+        "tags": [
+          "Sandboxes"
+        ]
+      }
+    },
+    "/v1/admin/sandboxes/profiles": {
+      "get": {
+        "description": "The placement profiles this deployment's operator defined, to choose per sandbox type.",
+        "operationId": "list_sandbox_profiles_v1_admin_sandboxes_profiles_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SandboxProfileView"
+                  },
+                  "title": "Response List Sandbox Profiles V1 Admin Sandboxes Profiles Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Sandbox Profiles",
         "tags": [
           "Sandboxes"
         ]

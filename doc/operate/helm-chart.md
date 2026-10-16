@@ -219,6 +219,14 @@ sandbox:
     pauseSeconds: 1800 # 30 minutes idle -> hibernate sandbox pod
     cleanupSeconds: 0 # 0 = never purge on a timer; >0 purges workspaces of deleted sessions only
   runtimeClassName: "" # e.g. gvisor / kata-qemu
+  # Placement profiles organization administrators may choose per sandbox type (only
+  # operators define them). Pod-spec field names; every field optional.
+  profiles:
+    gpu:
+      description: "GPU pool for ML work"
+      nodeSelector: {pool: gpu}
+      tolerations: [{key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}]
+      resources: {requests: {cpu: "2", memory: 8Gi}, limits: {cpu: "8", memory: 32Gi}}
   quota:
     enabled: true
     pods: "50"

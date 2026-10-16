@@ -52,6 +52,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 
 | Setting | Scope | Type / values | Default | Description |
 | :-- | :-- | :-- | :-- | :-- |
+| `workspace_release_days` | Organization | min 0, max 365 | `7` | Days an idle session keeps its workspace volume (the repositories it cloned) after its sandbox stopped; then the volume is deleted and the next turn starts blank. 0 keeps it as long as the session exists. A sandbox type can set its own. |
 | `default_image` | Organization | str | `ghcr.io/rocket-chat/sandbox:latest` | Seeds the sandbox catalogue the first time the organization uses it (the default entry); afterwards manage images under Settings > Organization > Sandboxes. The default is the devbox image with git, Python, Node and common dev tools. |
 | `allowed_images` | Organization | list | empty | Legacy fnmatch patterns of extra images sessions may use. Literal images seed the sandbox catalogue; prefer adding entries to the catalogue, which also declares what each image can do. |
 | `cpu_limit` | Organization | min 0.1 | `2.0` | CPU cores per sandbox. |

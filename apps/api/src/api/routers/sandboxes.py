@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
+from sandbox_driver.profiles import configured_profiles
 
 from api.auth.access import _get_request_identity, _require_admin
 from api.services.audit import AuditService
@@ -24,6 +25,18 @@ class SandboxView(BaseModel):
     description: str
     capabilities: list[str]
     is_default: bool
+    profile: str = Field("", description="Operator-defined placement profile; empty: none")
+    cpu_limit: str = Field("", description="CPU cores for this type; empty inherits")
+    memory_limit: str = Field("", description="Memory for this type (e.g. 8Gi); empty inherits")
+    disk_size: str = Field("", description="Workspace volume size (e.g. 50Gi); empty inherits")
+    release_after_days: int | None = Field(
+        None, description="Days an idle session keeps its workspace; empty inherits"
+    )
+
+
+class SandboxProfileView(BaseModel):
+    name: str
+    description: str
 
 
 class SandboxCatalogueView(BaseModel):
@@ -37,6 +50,11 @@ class SandboxBody(BaseModel):
     description: str = Field(default="", max_length=500)
     capabilities: list[str] = Field(default_factory=list)
     is_default: bool = False
+    profile: str = Field(default="", max_length=64)
+    cpu_limit: str = Field(default="", max_length=16)
+    memory_limit: str = Field(default="", max_length=16)
+    disk_size: str = Field(default="", max_length=16)
+    release_after_days: int | None = None
 
 
 class SandboxPatch(BaseModel):
@@ -45,6 +63,11 @@ class SandboxPatch(BaseModel):
     description: str | None = Field(default=None, max_length=500)
     capabilities: list[str] | None = None
     is_default: bool | None = None
+    profile: str | None = Field(default=None, max_length=64)
+    cpu_limit: str | None = Field(default=None, max_length=16)
+    memory_limit: str | None = Field(default=None, max_length=16)
+    disk_size: str | None = Field(default=None, max_length=16)
+    release_after_days: int | None = None
 
 
 def catalogue_for(request: Request) -> SandboxCatalogue:
@@ -70,6 +93,16 @@ async def list_sandboxes(request: Request) -> SandboxCatalogueView:
     org_id, _, _ = _get_request_identity(request)
     entries = await catalogue_for(request).entries(org_id)
     return SandboxCatalogueView(sandboxes=[_view(e) for e in entries], capabilities=CAPABILITIES)
+
+
+@router.get("/admin/sandboxes/profiles", response_model=list[SandboxProfileView])
+async def list_sandbox_profiles(request: Request) -> list[SandboxProfileView]:
+    """The placement profiles this deployment's operator defined, to choose per sandbox type."""
+    _require_admin(request)
+    return [
+        SandboxProfileView(name=p.name, description=p.description)
+        for p in configured_profiles().values()
+    ]
 
 
 @router.post("/admin/sandboxes", response_model=SandboxView)

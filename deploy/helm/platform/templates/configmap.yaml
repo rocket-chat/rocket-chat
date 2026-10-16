@@ -82,6 +82,9 @@ data:
   {{- if .Values.sandbox.imagePullSecrets }}
   K8S_IMAGE_PULL_SECRETS: {{ join "," .Values.sandbox.imagePullSecrets | quote }}
   {{- end }}
+  {{- if .Values.sandbox.profiles }}
+  K8S_SANDBOX_PROFILES: {{ .Values.sandbox.profiles | toJson | quote }}
+  {{- end }}
   {{- if .Values.sandbox.runtimeClassName }}
   K8S_SANDBOX_RUNTIME_CLASS: {{ .Values.sandbox.runtimeClassName | quote }}
   {{- end }}

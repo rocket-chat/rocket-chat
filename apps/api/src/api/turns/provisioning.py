@@ -12,7 +12,7 @@ from api.services.git_credentials import (
 )
 from api.services.git_gateway_env import gateway_endpoint, github_api_url_of
 from api.services.repo_setup import find_setup_plan, run_setup
-from api.services.sandbox_catalogue import SandboxCatalogue
+from api.services.sandbox_catalogue import SandboxCatalogue, SandboxEntry
 from api.services.sandbox_quota import enforce_running_sandbox_quota
 from api.services.session_support import _repo_slug
 from api.services.settings import (
@@ -167,16 +167,16 @@ async def provision_session_sandbox(
         session_id=session_id,
         limit=int(sandbox_cfg.get("max_running_sandboxes") or 0),
     )
+    sandbox_type = chosen or await catalogue.resolve(t_org, image=image)
     await driver.ensure_workspace(
         WorkspaceSpec(
             session_id=session_id,
             tenant_org_id=t_org,
             tenant_user_id=t_user,
             container_image=image,
-            resources=ResourceLimits(
-                cpu_cores=float(binding.cpu_limit or sandbox_cfg["cpu_limit"]),
-                memory_limit=binding.memory_limit or str(sandbox_cfg["memory_limit"]),
-            ),
+            # The agent's own sizing, else its sandbox type's, else the organization's.
+            resources=_resources(binding, sandbox_type, sandbox_cfg),
+            profile=sandbox_type.profile if sandbox_type else "",
             # Data-egress governance (G5): carry the org's computed allowlist
             # onto the workspace spec so the driver can enforce it.
             egress_allowlist=list(egress_allowed_cidrs),
@@ -231,3 +231,14 @@ async def _expand_slash_command(
     if skill is None or skill.runtime != "text" or not skill.body:
         return prompt
     return expand_skill(skill.body, invocation.arguments)
+
+
+def _resources(
+    binding: Any, sandbox_type: SandboxEntry | None, sandbox_cfg: dict[str, Any]
+) -> ResourceLimits:
+    own = sandbox_type or SandboxEntry(id="", org_id="", name="", image="")
+    return ResourceLimits(
+        cpu_cores=float(binding.cpu_limit or own.cpu_limit or sandbox_cfg["cpu_limit"]),
+        memory_limit=binding.memory_limit or own.memory_limit or str(sandbox_cfg["memory_limit"]),
+        disk_size=own.disk_size or ResourceLimits().disk_size,
+    )
