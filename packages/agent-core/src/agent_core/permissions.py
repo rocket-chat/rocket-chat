@@ -183,7 +183,9 @@ def touches_workspace(name: str, arguments: dict[str, Any]) -> bool:
     """Whether the call may change the sandbox's files or repositories: what a turn checkpoint
     protects. Publishing to Slack or GitHub and external (MCP) tools act elsewhere, so they
     must not start a sandbox only to snapshot it."""
-    if name.startswith("mcp__"):
+    # A skill's code runs in a scratch directory and an instructions skill runs nothing; the
+    # skill callback starts the sandbox itself when the skill has code.
+    if name.startswith("mcp__") or name == "execute_skill":
         return False
     kind = _classify(name, arguments)[0]
     if kind == "publish":

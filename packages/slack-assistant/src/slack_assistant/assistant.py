@@ -789,7 +789,8 @@ class SlackAssistant(
         stopped_by = self._stopped_by.pop(view.session_id, None)
         if stopped_by is None:
             return False
-        notice = f":stop_button: Stopped by <@{stopped_by}>."
+        # A streamed reply is markdown, where Slack does not turn ":stop_button:" into an emoji.
+        notice = f"⏹️ Stopped by <@{stopped_by}>."
         if view.stream is None or not await view.stream.finish(notice, [], failed=True):
             await view.say_fn(text=notice, thread_ts=view.thread_ts)
         await self._set_session_status(view.channel_id, view.thread_ts, "active")

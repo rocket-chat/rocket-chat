@@ -97,6 +97,9 @@ async def build_turn_callbacks(
         if skill is None:
             return f"Skill '{skill_name}' not found."
         if skill.runtime == "python" and skill.code:
+            # Only code needs the sandbox; an instructions skill is just read back.
+            if driver is not None:
+                await ensure_sandbox(ctx.session_id)
             ok, out, _, _ = await test_skill_execution(
                 driver, ctx.session_id, skill_name, skill.code, args
             )
