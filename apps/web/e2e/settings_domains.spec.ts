@@ -51,6 +51,9 @@ test.describe("Schema-driven settings forms", () => {
   test("a locked member default is shown as locked on the member's page", async ({ page }) => {
     await page.goto("/settings/org");
     const memberDefault = page.getByTestId("settings-field-user_preferences-suggest_next_questions");
+    // Unchecking a box that is not checked yet is a no-op that does not wait, and the form
+    // shows booleans unchecked until the stored values arrive: wait for them first.
+    await expect(memberDefault).toBeEnabled();
     await memberDefault.uncheck();
     await page.getByTestId("settings-lock-user_preferences-suggest_next_questions").check();
     await page.getByTestId("settings-save-user_preferences").click();
