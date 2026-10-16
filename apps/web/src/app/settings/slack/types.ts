@@ -31,6 +31,8 @@ export interface SlackBot {
   bot_user_id?: string | null;
   app_id?: string | null;
   handle?: string | null;
+  slash_command?: string | null;
+  command?: string;
   agent_id?: string | null;
   response_mode: "thread" | "private";
   respond_in_dms: boolean;

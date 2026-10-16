@@ -743,6 +743,8 @@ class SlackBotModel(Base):
     bot_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     app_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     handle: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # The bot's slash command; NULL names it after the handle.
+    slash_command: Mapped[str | None] = mapped_column(String(32), nullable=True)
     agent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     response_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="thread")
     respond_in_dms: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

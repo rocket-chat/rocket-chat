@@ -1626,6 +1626,7 @@ Register a new Slack bot with its encrypted tokens and identity.
 | name | string | yes |  |
 | bot_token | string | yes | Slack bot token starting with xoxb- |
 | app_token | string | yes | Slack app-level token starting with xapp- |
+| slash_command | string | no | Empty: named after the bot's handle |
 | agent_id | string | no |  |
 | response_mode | string | no |  |
 | respond_in_dms | boolean | no |  |
@@ -1667,6 +1668,7 @@ Update a Slack bot's configuration or rotate its tokens.
 | name | string | no |  |
 | bot_token | string | no |  |
 | app_token | string | no |  |
+| slash_command | string | no |  |
 | agent_id | string | no |  |
 | response_mode | string | no |  |
 | respond_in_dms | boolean | no |  |
@@ -1737,7 +1739,8 @@ Classify a sample message with the bot's router without storing a decision.
 
 ### `POST /v1/admin/slack/bots/{bot_id}/test`
 
-Validate a bot's stored tokens against Slack auth.test.
+Validate a bot's stored tokens with Slack, and refresh what Slack says about the bot
+(its display name changes when the app's manifest does).
 
 **Parameters**
 

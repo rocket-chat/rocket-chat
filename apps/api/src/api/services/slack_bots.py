@@ -8,6 +8,7 @@ security; the manager reads every organization's bots on the schema-owner connec
 from __future__ import annotations
 
 import builtins
+import re
 import time
 import uuid
 from dataclasses import dataclass, field, fields, replace
@@ -21,6 +22,7 @@ from api.db.models import SlackBotModel
 from api.db.session import DatabaseSessionManager
 
 MAX_BOTS_PER_ORG = 20
+_COMMAND = re.compile(r"/[a-z0-9_-]{1,31}")
 # The organization's `slack` settings a bot may override (the rest stay organization-wide).
 POLICY_KEYS = frozenset(
     {
@@ -55,6 +57,7 @@ class SlackBotRecord:
     bot_user_id: str | None = None
     app_id: str | None = None
     handle: str | None = None
+    slash_command: str | None = None
     agent_id: str | None = None
     response_mode: str = "thread"
     respond_in_dms: bool = True
@@ -90,6 +93,7 @@ EDITABLE = frozenset(
     {
         "name",
         "enabled",
+        "slash_command",
         "agent_id",
         "response_mode",
         "respond_in_dms",
@@ -113,9 +117,15 @@ def validate(record: SlackBotRecord) -> SlackBotRecord:
         raise SlackBotError(f"Unknown policy keys: {', '.join(sorted(unknown))}.")
     if record.router is not None:
         _validate_router(record.router)
+    command = (record.slash_command or "").strip().lower() or None
+    if command is not None and not _COMMAND.fullmatch(command):
+        raise SlackBotError(
+            "A slash command is '/' then up to 31 lowercase letters, digits, '-' or '_'."
+        )
     return replace(
         record,
         name=record.name.strip()[:100],
+        slash_command=command,
         listen_channels=sorted({c.strip() for c in record.listen_channels if c.strip()}),
         private_reaction=record.private_reaction.strip(":") or "white_check_mark",
     )
@@ -136,6 +146,11 @@ def _validate_router(raw: dict[str, Any]) -> None:
         raise SlackBotError("Minimum confidence is between 0 and 1.")
 
 
+def slash_command_of(record: SlackBotRecord) -> str:
+    """The bot's own command if it chose one, else one named after its handle."""
+    return record.slash_command or command_for(record.handle or record.name)
+
+
 def runtime_bot(record: SlackBotRecord, tokens: SlackTokens) -> SlackBot:
     """The package's view of a stored bot, ready to connect."""
     return SlackBot(
@@ -152,7 +167,7 @@ def runtime_bot(record: SlackBotRecord, tokens: SlackTokens) -> SlackBot:
         private_reaction=record.private_reaction,
         private_dm_result=record.private_dm_result,
         policy=dict(record.policy),
-        command=command_for(record.handle or record.name),
+        command=slash_command_of(record),
     )
 
 
