@@ -35,7 +35,13 @@ async def _provision(org: str, **binding: Any) -> Any:
         git_engine=None,
         session_id=f"session_{org}",
         binding=SimpleNamespace(
-            **{"sandbox_image": "", "cpu_limit": "", "memory_limit": "", **binding}
+            **{
+                "sandbox_image": "",
+                "sandbox_id": "",
+                "cpu_limit": "",
+                "memory_limit": "",
+                **binding,
+            }
         ),
         egress_allowed_cidrs=[],
         block_internal_subnets=False,
@@ -107,7 +113,12 @@ def _turn(org: str, driver: Any = None) -> Any:
         ),
         session=SimpleNamespace(tenant_org_id=org, tenant_user_id="u1"),
         binding=SimpleNamespace(
-            knowledge_base_ids=(), skill_ids=(), cpu_limit="", memory_limit="", sandbox_image=""
+            knowledge_base_ids=(),
+            skill_ids=(),
+            cpu_limit="",
+            memory_limit="",
+            sandbox_image="",
+            sandbox_id="",
         ),
         governance=SimpleNamespace(
             egress=SimpleNamespace(allowed_cidrs=[], block_internal_subnets=False)
@@ -312,7 +323,7 @@ async def test_an_organization_at_its_running_sandbox_cap_cannot_start_another()
             db_mgr=None,
             git_engine=None,
             session_id="one_too_many",
-            binding=SimpleNamespace(sandbox_image="", cpu_limit="", memory_limit=""),
+            binding=SimpleNamespace(sandbox_image="", sandbox_id="", cpu_limit="", memory_limit=""),
             egress_allowed_cidrs=[],
             block_internal_subnets=False,
             fallback_user="u1",

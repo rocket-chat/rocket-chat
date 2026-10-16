@@ -357,6 +357,8 @@ export interface AgentPersonaConfig {
   customized?: boolean;
   icon?: string;
   sandbox_image?: string;
+  /** Sandbox type its sessions start in when their creator picks none; empty: the default. */
+  sandbox_id?: string;
   cpu_limit?: string;
   memory_limit?: string;
   temperature?: number;

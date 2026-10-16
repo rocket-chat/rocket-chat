@@ -1,5 +1,7 @@
 """Unit tests for Cascading Settings API and Session Reset endpoint."""
 
+import uuid
+
 import pytest
 from api.main import app
 from api.routers import session_crud
@@ -190,8 +192,10 @@ def test_session_reset_deletes_only_the_callers_own_sessions(
 ) -> None:
     """An administrator's reset keeps other members' sessions and pages past one batch."""
     monkeypatch.setattr(session_crud, "RESET_BATCH", 2)
-    admin = {"X-Tenant-Org-Id": "reset_org", "X-Tenant-User-Id": "admin", "X-User-Role": "admin"}
-    member = {"X-Tenant-Org-Id": "reset_org", "X-Tenant-User-Id": "member"}
+    # Its own organization: a database kept between runs still holds the last run's sessions.
+    org = f"reset_org_{uuid.uuid4().hex[:8]}"
+    admin = {"X-Tenant-Org-Id": org, "X-Tenant-User-Id": "admin", "X-User-Role": "admin"}
+    member = {"X-Tenant-Org-Id": org, "X-Tenant-User-Id": "member"}
     own = [
         client.post("/v1/sessions", json={}, headers=admin).json()["session_id"] for _ in range(5)
     ]

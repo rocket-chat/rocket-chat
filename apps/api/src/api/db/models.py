@@ -483,6 +483,7 @@ class AgentPersonaEntityModel(Base):
     )
     icon: Mapped[str] = mapped_column(String(50), default="bot")
     sandbox_image: Mapped[str] = mapped_column(String(255), default="python:3.12-slim")
+    sandbox_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     cpu_limit: Mapped[str] = mapped_column(String(50), default="2.0")
     memory_limit: Mapped[str] = mapped_column(String(50), default="4Gi")
     temperature: Mapped[float | None] = mapped_column(Float, nullable=True)

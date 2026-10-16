@@ -256,12 +256,14 @@ class TurnRunner:
     ) -> AgentBinding:
         """Tell the registry what this session's sandbox can do, so unsupported tools are hidden."""
         catalogue = SandboxCatalogue(self.req.db_mgr)
-        entry = await catalogue.resolve(
+        chosen = await catalogue.chosen(
             session.tenant_org_id,
-            sandbox_id=metadata.get("sandbox_id"),
-            image=None
-            if metadata.get("sandbox_id")
-            else session.container_image or binding.sandbox_image or None,
+            session_sandbox_id=metadata.get("sandbox_id"),
+            session_image=session.container_image,
+            agent_sandbox_id=binding.sandbox_id,
+        )
+        entry = chosen or await catalogue.resolve(
+            session.tenant_org_id, image=session.container_image or binding.sandbox_image or None
         )
         capabilities = entry.capability_set if entry is not None else frozenset[str]()
         return replace(binding, policy=replace(binding.policy, sandbox_capabilities=capabilities))

@@ -37,6 +37,13 @@ class AgentPersonaModel(BaseModel):
     sandbox_image: str = Field(
         default="", description="Sandbox image; empty inherits the organization default"
     )
+    sandbox_id: str = Field(
+        default="",
+        description=(
+            "Sandbox type the agent's sessions start in when their creator picks none; "
+            "empty uses the organization's default"
+        ),
+    )
     cpu_limit: str = Field(default="", description="CPU cores; empty inherits the org setting")
     memory_limit: str = Field(
         default="", description="Memory limit; empty inherits the org setting"
