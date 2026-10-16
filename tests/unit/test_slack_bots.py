@@ -579,6 +579,8 @@ def test_a_bot_can_choose_its_slash_command() -> None:
     assert runtime_bot(chosen, SlackTokens("x", "y")).command == "/ask-rocky"
     commands = manifest(chosen)["features"]["slash_commands"]
     assert [c["command"] for c in commands] == ["/ask-rocky"], "one command, pairing included"
+    events = manifest(chosen)["settings"]["event_subscriptions"]["bot_events"]
+    assert "agent_session_stopped" in events, "Slack shows its stop button only when subscribed"
     for bad in ("rocky", "/", "/has space", "/" + "x" * 40):
         with pytest.raises(SlackBotError):
             validate(replace(record, slash_command=bad))

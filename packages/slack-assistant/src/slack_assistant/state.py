@@ -60,7 +60,6 @@ class SlackAssistantState:
     _resolve_workspace_org_fn: Callable[[str], Awaitable[str | None]] | None
     _begin_pairing_fn: Callable[[str, str], Awaitable[str | None]] | None
     _resolve_slack_policy_fn: Callable[[str], Awaitable[SlackOrgPolicy]] | None
-    _notifications_enabled_fn: Callable[[str, str], Awaitable[bool]] | None
     _audit_fn: Callable[[str, dict[str, Any]], Awaitable[None]] | None
     _read_file_bytes_fn: Callable[[str, str], Awaitable[bytes]] | None
     # (session id, question id, chosen options, free text) -> the prompt that continues the
@@ -73,6 +72,8 @@ class SlackAssistantState:
     _background: set[asyncio.Task[Any]]
     _session_policy: dict[str, tuple[str | None, set[str]]]
     _active_turns: set[str]
+    # Turns their requester stopped from Slack, and who stopped them.
+    _stopped_by: dict[str, str]
     _rate_counters: dict[str, int]
     _user_rate_limiter: BoundedRateLimiter | None
     _channel_rate_limiter: BoundedRateLimiter | None

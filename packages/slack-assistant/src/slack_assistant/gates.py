@@ -159,3 +159,39 @@ class SlackGatesMixin(SlackAssistantState):
         self._background.add(task)
         task.add_done_callback(self._background.discard)
         return True
+
+    async def _stop_agent_session(self, event: dict[str, Any], body: dict[str, Any]) -> None:
+        """Slack's stop button on a working thread (``agent_session_stopped``).
+
+        Only the person who asked stops the turn; the turn then ends saying who stopped it.
+        Slack leaves the session "processing" until the app moves it, so with nothing to stop
+        (or a stranger's click) the session is set back to what it really is.
+        """
+        channel, thread_ts = str(event.get("channel", "")), str(event.get("thread_ts", ""))
+        clicker = str(event.get("user", ""))
+        self._bind_tenant(await self._workspace_org(str(body.get("team_id") or self.team_id or "")))
+        running = False
+        for session_id in (
+            self.get_session_id(channel, thread_ts, private_for=clicker),
+            self.get_session_id(channel, thread_ts),
+        ):
+            if session_id not in self._active_turns:
+                continue
+            running = True
+            if await self._durable_requester(session_id) == clicker:
+                self._stopped_by[session_id] = clicker
+                await self.orchestrator.cancel_turn(session_id)
+                return
+        await self._set_session_status(channel, thread_ts, "processing" if running else "active")
+
+    async def _set_session_status(self, channel_id: str, thread_ts: str, status: str) -> None:
+        """Slack's agent session state of a thread: "processing" shows its working indicator
+        and stop button, "active" clears them."""
+        if not (self._slack_api_ready and channel_id and thread_ts):
+            return
+        try:
+            await self.app.client.agents_sessions_setStatus(
+                channel_id=channel_id, thread_ts=thread_ts, status=status
+            )
+        except Exception as err:
+            logger.debug("Agent session status not set (%s): %s", status, err)

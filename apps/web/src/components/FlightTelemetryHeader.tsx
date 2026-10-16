@@ -16,7 +16,9 @@ import {
   History,
   Brain,
   Share2,
+  MessageSquare,
 } from "lucide-react";
+import { slackThreadLink } from "../lib/slack";
 
 export const FlightTelemetryHeader: React.FC = () => {
   const {
@@ -35,6 +37,7 @@ export const FlightTelemetryHeader: React.FC = () => {
     isLeftSidebarOpen,
     setIsLeftSidebarOpen,
   } = useMissionStore();
+  const slackLink = slackThreadLink(session?.metadata);
 
   const [isShareOpen, setIsShareOpen] = useState(false);
 
@@ -64,6 +67,18 @@ export const FlightTelemetryHeader: React.FC = () => {
         <h1 className="text-sm font-semibold text-foreground flex items-center gap-2 min-w-0 truncate max-w-[34vw] sm:max-w-md">
           <span className="truncate">{session?.title || "New Session"}</span>
         </h1>
+        {slackLink && (
+          <a
+            href={slackLink}
+            target="_blank"
+            rel="noopener noreferrer"
+            data-testid="open-in-slack"
+            className="hidden sm:inline-flex items-center gap-1 shrink-0 text-xs text-neutral-500 hover:text-brand dark:text-neutral-400"
+          >
+            <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
+            Open in Slack
+          </a>
+        )}
 
         <div className="h-3.5 w-px bg-surface-border hidden sm:block" />
 

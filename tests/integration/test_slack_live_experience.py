@@ -20,6 +20,7 @@ def _live(stack: Stack, **policy: Any) -> AsyncMock:
     """Make the stack behave as a connected workspace with a recording Slack client."""
     client = AsyncMock()
     client.chat_postMessage.return_value = {"ts": "9.9"}
+    client.chat_getPermalink.return_value = {}
     stack.assistant.app = SimpleNamespace(client=client)  # type: ignore[assignment]
     stack.assistant._slack_api_ready = True
     stack.assistant.settings = stack.assistant.settings.model_copy(
@@ -29,29 +30,47 @@ def _live(stack: Stack, **policy: Any) -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_a_turn_streams_its_steps_and_writes_the_answer_into_the_same_reply() -> None:
+async def test_a_turn_streams_its_current_step_then_the_answer_in_the_same_reply() -> None:
     stack = Stack(
-        ScriptedModel(script=[("think", {"thought": "plan"})], final_text="All done here.")
+        ScriptedModel(
+            script=[("think", {"thought": "plan"}), ("think", {"thought": "again"})],
+            final_text="All done here.",
+        )
     )
     client = _live(stack)
     client.chat_startStream.return_value = {"ts": "9.9"}
+    client.chat_getPermalink.return_value = {"permalink": "https://acme.slack.com/p1"}
 
     await stack.send()
 
     start = client.chat_startStream.call_args.kwargs
     assert start["thread_ts"] == THREAD[1] and start["task_display_mode"] == "timeline"
     assert (start["recipient_user_id"], start["recipient_team_id"]) == ("U1", "T1")
-    assert start["chunks"][0]["type"] == "task_update"
-    assert start["chunks"][0]["status"] == "in_progress"
-    done = client.chat_appendStream.call_args.kwargs["chunks"][0]
-    assert done["id"] == start["chunks"][0]["id"] and done["status"] == "complete"
+    first = start["chunks"][0]
+    assert (first["type"], first["status"], first["details"]) == (
+        "task_update",
+        "in_progress",
+        "Step 1",
+    )
+    second = client.chat_appendStream.call_args.kwargs["chunks"][0]
+    assert second["id"] == first["id"], "one card, updated in place: no list of finished steps"
+    assert second["details"] == "Step 2"
     stop = client.chat_stopStream.call_args.kwargs
-    assert stop["ts"] == "9.9" and stop["markdown_text"] == "All done here."
+    summary, answer = stop["chunks"]
+    assert summary["id"] == first["id"] and summary["status"] == "complete"
+    assert summary["details"] == "2 steps" and summary["title"].startswith("Done in")
+    assert stop["ts"] == "9.9" and answer == {"type": "markdown_text", "text": "All done here."}
     footer = json.dumps(stop["blocks"])
     assert f"https://rocket.example/chat/{SESSION_ID}" in footer and "Done in" in footer
     assert "stop_turn" not in footer, "no Stop button: the slash command stops a turn"
     stack.say.assert_not_awaited()
     client.chat_postMessage.assert_not_awaited()
+    assert "Turn complete" not in json.dumps([c.kwargs for c in client.mock_calls]), "no notice"
+    client.agents_sessions_setStatus.assert_awaited_with(
+        channel_id=THREAD[0], thread_ts=THREAD[1], status="active"
+    )
+    record = await stack.store.get_session(SESSION_ID)
+    assert record is not None and record.metadata["slack_permalink"] == "https://acme.slack.com/p1"
 
 
 @pytest.mark.asyncio

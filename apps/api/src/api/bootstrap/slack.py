@@ -238,7 +238,6 @@ def _build_assistant(
         ),
         ingest_attachment_fn=core.attachment_service.store_bytes,
         resolve_slack_policy_fn=callbacks.resolve_policy,
-        notifications_enabled_fn=callbacks.notifications_enabled,
         audit_fn=callbacks.audit,
         read_file_bytes_fn=callbacks.read_sandbox_file,
         answer_stored_question_fn=callbacks.answer_stored_question,
@@ -375,10 +374,6 @@ class _SlackCallbacks:
         """The org's Slack policy from the `slack` settings domain."""
         conf = await effective_settings(self._core.db_manager, org_id, "slack")
         return SlackOrgPolicy.from_settings(conf)
-
-    async def notifications_enabled(self, org_id: str, user_id: str) -> bool:
-        prefs = await effective_settings(self._core.db_manager, org_id, "user_preferences", user_id)
-        return bool(prefs.get("slack_notifications_enabled", True))
 
     async def audit(self, event_type: str, payload: dict[str, Any]) -> None:
         ctx = current_execution_ctx.get()

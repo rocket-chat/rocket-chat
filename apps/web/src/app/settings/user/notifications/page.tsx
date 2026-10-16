@@ -22,7 +22,7 @@ export default function UserPreferencesPage() {
             domain="user_preferences"
             mode="user"
             title="Agent & notifications"
-            only={["suggest_next_questions", "slack_notifications_enabled"]}
+            only={["suggest_next_questions"]}
           />
         </div>
       </div>

@@ -1,8 +1,9 @@
 """A turn's reply in its thread, streamed with Slack's agent streaming API.
 
-One message per turn: each tool call appears as a task card while it runs (Slack's "thinking
-steps", collapsed by default), and the answer is written into the same message when the turn
-ends. It replaces a separate progress message: the thread gets one reply, and Slack's status
+One message per turn: a single task card shows the step the turn is on (Slack's "thinking
+steps"), and when the turn ends it becomes a one-line summary and the answer is written into the
+same message. One card rather than one per tool call: an agent can call dozens of tools, and a
+card per call buried the answer under a list of finished steps. It replaces a separate progress message: the thread gets one reply, and Slack's status
 line under it says the bot is working. The stream opens on the first tool call, so a turn that
 only answers posts a plain reply. Any Slack failure turns the stream off and the answer is
 posted the usual way; it never fails the turn.
@@ -20,6 +21,7 @@ logger = logging.getLogger(__name__)
 # Slack's limits: 256 characters per task chunk, 12,000 per markdown text.
 TASK_CHARS = 256
 ANSWER_CHARS = 11_500
+STEP_CARD = "steps"
 _READ_TOOLS = frozenset({"file_read", "list_dir", "glob_files", "code_search", "grep_search"})
 _EDIT_TOOLS = frozenset({"file_edit", "file_write", "apply_patch", "apply_diff_file"})
 
@@ -48,7 +50,7 @@ class TurnStream:
         self._started_at = clock()
         self.ts: str | None = None
         self._broken = False
-        self._tasks: dict[str, str] = {}
+        self._steps = 0
         self._edited: set[str] = set()
         self._commands = 0
         self._reads = 0
@@ -58,28 +60,28 @@ class TurnStream:
         """The message exists and can still be written to."""
         return self.ts is not None and not self._broken
 
-    async def tool_started(
-        self, call_id: str, name: str, arguments: dict[str, Any], label: str
-    ) -> None:
+    async def tool_started(self, name: str, arguments: dict[str, Any], label: str) -> None:
         self._count(name, arguments)
-        self._tasks[call_id] = label
-        await self._task(call_id, label, "in_progress")
+        self._steps += 1
+        await self._task(_card(label, "in_progress", f"Step {self._steps}"))
 
-    async def tool_completed(self, call_id: str, ok: bool) -> None:
-        label = self._tasks.get(call_id)
-        if label is not None:
-            await self._task(call_id, label, "complete" if ok else "error")
-
-    async def finish(self, answer: str, blocks: list[dict[str, Any]]) -> bool:
-        """Write the answer and close the message; False when the stream cannot take it (the
-        caller then posts the answer itself)."""
+    async def finish(
+        self, answer: str, blocks: list[dict[str, Any]], *, failed: bool = False
+    ) -> bool:
+        """Close the step card with the turn's summary and write the answer; False when the
+        stream cannot take it (the caller then posts the answer itself)."""
         if not self.started:
             return False
+        summary = self.outcome_line() if not failed else "Stopped"
+        chunks = [
+            _card(summary, "error" if failed else "complete", _plural(self._steps, "step")),
+            {"type": "markdown_text", "text": answer[:ANSWER_CHARS] or "Done."},
+        ]
         try:
             await self._client.chat_stopStream(
                 channel=self._channel,
                 ts=self.ts,
-                markdown_text=answer[:ANSWER_CHARS] or "Done.",
+                chunks=chunks,
                 **({"blocks": blocks} if blocks else {}),
             )
         except Exception as err:
@@ -94,13 +96,7 @@ class TurnStream:
         elapsed = int(self._clock() - self._started_at)
         return " · ".join(part for part in (f"Done in {elapsed}s", self._summary()) if part)
 
-    async def _task(self, call_id: str, title: str, status: str) -> None:
-        chunk = {
-            "type": "task_update",
-            "id": call_id,
-            "title": title[:TASK_CHARS],
-            "status": status,
-        }
+    async def _task(self, chunk: dict[str, Any]) -> None:
         if self._broken:
             return
         try:
@@ -144,3 +140,14 @@ class TurnStream:
         if self._reads:
             parts.append(f"Read {_plural(self._reads, 'file')}")
         return " · ".join(parts)
+
+
+def _card(title: str, status: str, details: str) -> dict[str, Any]:
+    """The turn's one step card; the same id updates it in place."""
+    return {
+        "type": "task_update",
+        "id": STEP_CARD,
+        "title": title[:TASK_CHARS],
+        "status": status,
+        "details": details[:TASK_CHARS],
+    }

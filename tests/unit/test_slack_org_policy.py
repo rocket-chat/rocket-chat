@@ -130,16 +130,3 @@ async def test_email_auto_link_can_be_disabled() -> None:
         ("U1", None, "default_org"),
         ("U1", "alice@acme.io", "default_org"),
     ]
-
-
-@pytest.mark.asyncio
-async def test_member_can_turn_off_completion_notices() -> None:
-    for enabled, expected_posts in ((True, 1), (False, 0)):
-        notifications = AsyncMock(return_value=enabled)
-        assistant, _ = _assistant(SlackOrgPolicy(), notifications_enabled_fn=notifications)
-        assistant.settings.slack_proactive_notify_after_seconds = 0
-        poster = AsyncMock()
-        assistant.app = MagicMock()
-        assistant.app.client.chat_postMessage = poster
-        await _send(assistant, "im")
-        assert poster.await_count == expected_posts, enabled
