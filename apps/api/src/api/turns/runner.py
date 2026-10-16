@@ -49,7 +49,7 @@ from api.services.turn_trace import (
 )
 from api.telemetry import traced_turn
 from api.turns.callbacks import build_turn_callbacks
-from api.turns.context import TurnContext, TurnRequest, TurnState
+from api.turns.context import TurnContext, TurnRequest, TurnSelection, TurnState
 from api.turns.events import TurnEventHandlers
 from api.turns.finalise import housekeeping, persist_trace, publish_followup, record_answer
 from api.turns.prompt import build_system_prompt
@@ -146,6 +146,33 @@ class TurnRunner:
         await req.store.create_session(session)
         return session
 
+    async def _record_binding(self, ctx: TurnContext, agent: tuple[str, str]) -> None:
+        """Record the agent and model this turn runs with on its user message (the history
+        keeps who answered) and as the session's selection (its next turn and tab start there)."""
+        req = self.req
+        raw = not agent[0]
+        agent_id, agent_name = agent
+        model = ctx.effective_model
+
+        def record(session: SessionRecord) -> None:
+            for message in reversed(session.conversation_history):
+                if message.role == "user":
+                    message.agent_id, message.agent_name, message.model = (
+                        agent_id,
+                        agent_name,
+                        model,
+                    )
+                    break
+            if req.selection is None:
+                return
+            known = session.metadata if isinstance(session.metadata, dict) else {}
+            choice = {"inference_mode": "direct" if raw else "agent", "selected_model": model}
+            if not raw:
+                choice["agent_id"] = agent_id
+            session.metadata = {**known, **choice}
+
+        await req.store.mutate_session(req.session_id, ctx.session.tenant_org_id, record)
+
     async def _record_user_message(self, session: SessionRecord) -> None:
         req = self.req
         # A resumed turn continues the user's last instruction: the notice in `prompt` is for
@@ -194,12 +221,14 @@ class TurnRunner:
             db_mgr=req.db_mgr,
             org_id=session.tenant_org_id,
             user_id=session.tenant_user_id,
-            agent_id=metadata.get("agent_id") or (overlay.default_agent_id if overlay else None),
+            agent_id=_chosen_agent(_selection(req.selection, metadata), metadata, overlay),
             request_model=req.model,
             enabled_toolsets=self._toolsets(session),
             global_default_model=req.orchestrator.default_model,
             session_permission_mode=metadata.get("permission_mode"),
         )
+        if _selection(req.selection, metadata).raw:
+            binding = _raw(binding)
         binding = await self._with_sandbox_capabilities(binding, session, metadata)
         model = binding.model or str(req.orchestrator.default_model)
         router = binding.model_router
@@ -246,8 +275,17 @@ class TurnRunner:
     async def _execute(self, ctx: TurnContext) -> None:
         req, session = self.req, ctx.session
         await self._auto_title(ctx)
+        agent = _answering_agent(ctx)
+        await self._record_binding(ctx, agent)
         await self._publish(
-            EventType.STATUS_CHANGED, {"status": "running", "message": "Analyzing instruction..."}
+            EventType.STATUS_CHANGED,
+            {
+                "status": "running",
+                "message": "Analyzing instruction...",
+                "agent_id": agent[0],
+                "agent_name": agent[1],
+                "model": ctx.effective_model,
+            },
         )
 
         member_prefs = await effective_settings(
@@ -477,6 +515,7 @@ async def execute_turn_background(
     attachment_ids: list[str] | None = None,
     overlay: TurnOverlay | None = None,
     resume_attempt: int = 0,
+    selection: TurnSelection | None = None,
 ) -> None:
     """Run one turn of ``session_id``; the entry point web, Slack, webhooks and missions share."""
     await TurnRunner(
@@ -497,6 +536,7 @@ async def execute_turn_background(
             attachment_ids=attachment_ids,
             overlay=overlay,
             resume_attempt=resume_attempt,
+            selection=selection,
         )
     ).run()
 
@@ -504,3 +544,40 @@ async def execute_turn_background(
 def _restriction(whitelist: list[str] | None) -> list[str] | None:
     """An agent's tool list as ``TurnOverlay.tool_scope`` expects it: ``None`` when unrestricted."""
     return None if whitelist is None or "*" in whitelist else whitelist
+
+
+def _selection(chosen: TurnSelection | None, metadata: dict[str, Any]) -> TurnSelection:
+    """This turn's choice, else the session's: a turn sent without one (the API, Slack) runs
+    like the session's last turn."""
+    if chosen is not None:
+        return chosen
+    return TurnSelection(raw=metadata.get("inference_mode") == "direct")
+
+
+def _chosen_agent(
+    selection: TurnSelection | None, metadata: dict[str, Any], overlay: TurnOverlay | None
+) -> str | None:
+    """The agent of this turn: none for a raw turn, else the composer's choice, else the
+    session's, else the transport's default (a Slack bot's)."""
+    if selection is not None and selection.raw:
+        return None
+    chosen = selection.agent_id if selection is not None else None
+    return chosen or metadata.get("agent_id") or (overlay.default_agent_id if overlay else None)
+
+
+def _raw(binding: AgentBinding) -> AgentBinding:
+    """A turn with no agent: the platform's generic prompt and every tool, all loaded."""
+    loading = replace(binding.policy.tool_loading, mode="all", active=())
+    return replace(
+        binding,
+        id="",
+        name="",
+        system_prompt=None,
+        whitelisted_tools=None,
+        policy=replace(binding.policy, tool_loading=loading),
+    )
+
+
+def _answering_agent(ctx: TurnContext) -> tuple[str, str]:
+    """(id, name) of the agent answering: empty for a raw turn."""
+    return ctx.binding.id or "", ctx.binding.name or ""

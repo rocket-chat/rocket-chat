@@ -9,7 +9,7 @@ import { ApprovalCard } from "./ApprovalCard";
 import { ActionGroup } from "./ActionGroup";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { TaskChecklist } from "./TaskChecklist";
-import { FlightLogEntry } from "../types/mission";
+import { FlightLogEntry, TurnBinding } from "../types/mission";
 import { RocketChatIcon } from "./RocketChatLogo";
 import { CockpitEmptyState } from "./CockpitEmptyState";
 import { ArrowDown, Check, Copy, Info, Zap, FileText, GitFork } from "lucide-react";
@@ -40,7 +40,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     activeApproval,
     isExecuting,
     statusMessage,
-    activeAgent,
+    turnBinding,
     isStreamContinuous,
     session,
     fetchSessions,
@@ -314,7 +314,9 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
                   <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border border-brand/25 bg-brand/10 text-brand">
                     <RocketChatIcon className="h-3 w-3" />
                   </span>
-                  {activeAgent?.name || "Rocket Chat"}
+                  <AnsweredBy
+                    binding={item.entry.answeredBy ?? (item.entry.isPersisted ? null : turnBinding)}
+                  />
                 </span>
                 <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
                   {item.entry.timestamp && (
@@ -405,3 +407,16 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     </div>
   );
 };
+
+/** Who answered a turn: its own agent and model, never the composer's current selection. */
+function AnsweredBy({ binding }: { binding: TurnBinding | null }) {
+  if (!binding) return <>Rocket Chat</>;
+  return (
+    <>
+      <span data-testid="answered-by">{binding.agentName || "Raw model"}</span>
+      <span className="font-mono text-[11px] font-normal text-neutral-500">
+        {binding.model.split("/").pop()}
+      </span>
+    </>
+  );
+}

@@ -34,6 +34,10 @@ class StatusPayload(TypedDict):
     turns_taken: NotRequired[int]
     max_turns: NotRequired[int]
     reason: NotRequired[str]
+    # On the turn's "running" status: the agent (empty for a raw turn) and model it runs with.
+    agent_id: NotRequired[str]
+    agent_name: NotRequired[str]
+    model: NotRequired[str]
 
 
 class ToolStartedPayload(TypedDict):

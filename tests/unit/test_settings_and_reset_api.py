@@ -41,13 +41,13 @@ def test_members_cannot_write_organization_managed_keys(client: TestClient) -> N
     headers = {"X-Tenant-Org-Id": "test_org", "X-Tenant-User-Id": "user_1"}
     res = client.put(
         "/v1/settings/github",
-        json={"overrides": {"commit_authorship_policy": "bot_only"}},
+        json={"overrides": {"bot_author_name": "Someone else"}},
         headers=headers,
     )
     assert res.status_code == 422
     assert res.json()["detail"] == [
         {
-            "key": "commit_authorship_policy",
+            "key": "bot_author_name",
             "message": "can only be set by an organization administrator",
         }
     ]

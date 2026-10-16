@@ -14,6 +14,7 @@ export const createAgentsSlice: StateCreator<MissionStore, [], [], AgentsSlice> 
   selectedModel: "openrouter/deepseek/deepseek-v4.1-flash",
   permissionMode: "",
   selectedSandboxId: "",
+  modelsLoaded: false,
   availableModels: [
     { id: "openrouter/deepseek/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", context_window: 131072, provider: "DeepSeek" },
     { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet", context_window: 200000, provider: "Anthropic" },
@@ -112,8 +113,12 @@ export const createAgentsSlice: StateCreator<MissionStore, [], [], AgentsSlice> 
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
           set({ availableAgents: data });
-          const current = get().activeAgent;
-          const matching = data.find((a: AgentPersonaConfig) => a.id === current.id);
+          // The open session's agent wins: it may have been restored before the list arrived,
+          // when only the defaults were known.
+          const session = get().session;
+          const wanted =
+            session?.agent_id || (session?.metadata?.agent_id as string | undefined) || get().activeAgent.id;
+          const matching = data.find((a: AgentPersonaConfig) => a.id === wanted);
           if (matching) {
             set({ activeAgent: matching });
           }
@@ -129,7 +134,7 @@ export const createAgentsSlice: StateCreator<MissionStore, [], [], AgentsSlice> 
       if (res.ok) {
         const data = await res.json();
         if (data.models && Array.isArray(data.models) && data.models.length > 0) {
-          set({ availableModels: data.models });
+          set({ availableModels: data.models, modelsLoaded: true });
           if (data.default_model && !get().selectedModel) {
             set({ selectedModel: data.default_model });
           }

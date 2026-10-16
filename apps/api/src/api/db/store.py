@@ -380,6 +380,9 @@ class PostgresSessionStore(SessionStoreProtocol):
             data["reasoning"] = msg.reasoning
         if msg.author_user_id:
             data["author_user_id"] = msg.author_user_id
+        for key in ("agent_id", "agent_name", "model"):
+            if getattr(msg, key) is not None:
+                data[key] = getattr(msg, key)
         return data
 
     def _dict_to_chat_message(self, data: dict[str, Any]) -> ChatMessage:
@@ -390,6 +393,9 @@ class PostgresSessionStore(SessionStoreProtocol):
             tool_call_id=data.get("tool_call_id"),
             reasoning=data.get("reasoning"),
             author_user_id=data.get("author_user_id"),
+            agent_id=data.get("agent_id"),
+            agent_name=data.get("agent_name"),
+            model=data.get("model"),
         )
 
     def _model_to_record(self, model: SessionModel) -> SessionRecord:

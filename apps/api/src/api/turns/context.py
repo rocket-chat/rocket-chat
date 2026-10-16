@@ -29,6 +29,18 @@ from specifications.interfaces.session import SessionRecord, SessionStoreProtoco
 
 
 @dataclass(frozen=True)
+class TurnSelection:
+    """What the person chose for this turn in the composer: an agent, or a raw model.
+
+    ``raw`` runs no agent at all (generic prompt, every tool loaded) on the turn's model;
+    otherwise ``agent_id`` names the agent, falling back to the session's.
+    """
+
+    agent_id: str | None = None
+    raw: bool = False
+
+
+@dataclass(frozen=True)
 class TurnRequest:
     session_id: str
     prompt: str
@@ -46,6 +58,7 @@ class TurnRequest:
     attachment_ids: list[str] | None = None
     overlay: TurnOverlay | None = None
     resume_attempt: int = 0
+    selection: TurnSelection | None = None
 
 
 @dataclass

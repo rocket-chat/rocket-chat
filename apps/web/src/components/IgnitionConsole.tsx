@@ -438,9 +438,12 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
             <div className="relative" ref={dropdownRef}>
               <button
                 type="button"
+                data-testid="agent-model-picker"
+                aria-label="Agent or model for your next message"
+                aria-expanded={isModeDropdownOpen}
                 onClick={() => setIsModeDropdownOpen(!isModeDropdownOpen)}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface hover:bg-elevated border border-border text-foreground hover:border-primary/40 transition-colors cursor-pointer select-none"
-                title="Select Active Language Model or Agent"
+                title="Agent or model for your next message"
               >
                 {inferenceMode === "agent" ? (
                   <>
@@ -459,7 +462,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                       {currentModelObj.name}
                     </span>
                     <span className="text-[10px] text-muted-foreground font-mono hidden md:inline">
-                      (Direct)
+                      (no agent)
                     </span>
                   </>
                 )}
@@ -518,7 +521,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                     {/* Section 2: Direct Models (Raw LLM Mode) */}
                     <div>
                       <div className="text-[10px] font-mono text-muted-foreground uppercase px-2 mb-1 flex items-center justify-between">
-                        <span>Direct Models ({availableModels.length})</span>
+                        <span>Models, no agent ({availableModels.length})</span>
                       </div>
 
                       {/* Live Model Search Filter */}

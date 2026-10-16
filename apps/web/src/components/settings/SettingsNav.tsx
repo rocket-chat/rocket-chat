@@ -227,8 +227,13 @@ export const SettingsNav: React.FC = () => {
                       />
                       <span>{item.label}</span>
                     </span>
-                    {isLocked && (
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-lg bg-surface-card border border-surface-border text-neutral-500">
+                    {/* Marked for administrators too: what they change here applies to everyone. */}
+                    {item.requiresAdmin && (
+                      <span
+                        data-testid="nav-admin-only"
+                        title="Administrators only: applies to the whole organization"
+                        className="text-[9px] px-1.5 py-0.5 rounded-lg bg-surface-card border border-surface-border text-neutral-700 dark:text-neutral-300"
+                      >
                         ADMIN
                       </span>
                     )}

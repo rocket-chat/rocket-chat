@@ -1,4 +1,5 @@
 import type {
+  TurnBinding,
   AgentPersonaConfig,
   ApprovalRequestInfo,
   AttachmentInfo,
@@ -77,6 +78,8 @@ export interface AgentsSlice {
   setPermissionMode: (mode: PermissionMode) => void;
   setSelectedSandboxId: (id: string) => void;
   fetchAgents: () => Promise<void>;
+  /** The full catalogue arrived (the placeholder list is shown until then). */
+  modelsLoaded: boolean;
   fetchModels: () => Promise<void>;
   setSelectedModel: (model: string) => void;
   setAvailableModels: (models: ModelOption[]) => void;
@@ -96,6 +99,9 @@ export interface StreamSlice {
   activeDiffIndex: number;
   terminalLogs: string;
   tokenRate: number;
+  /** The agent and model of the turn running now (from its "running" status). */
+  turnBinding: TurnBinding | null;
+  setTurnBinding: (binding: TurnBinding | null) => void;
   setConnected: (connected: boolean) => void;
   setStatusMessage: (msg: string) => void;
   setIsExecuting: (exec: boolean) => void;

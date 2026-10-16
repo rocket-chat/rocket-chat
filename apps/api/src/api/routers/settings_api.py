@@ -135,6 +135,23 @@ async def reset_user_domain_settings(domain: str, request: Request) -> dict[str,
     return (await resolve_settings(db_mgr, org_id, domain, None)).to_dict()
 
 
+@router.delete("/settings/{domain}/{key}")
+async def reset_user_setting(domain: str, key: str, request: Request) -> dict[str, Any]:
+    """Remove one personal override: the setting follows the organization's value again,
+    including its later changes."""
+    org_id, user_id, roles = _get_request_identity(request)
+    if "readonly" in roles:
+        raise HTTPException(
+            status_code=403, detail="Forbidden: Read-only role cannot reset settings"
+        )
+    _require_known_domain(domain)
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    current = await load_user_config(db_mgr, org_id, user_id, domain)
+    if current.pop(key, None) is not None:
+        await save_user_config(db_mgr, org_id, user_id, domain, current)
+    return (await resolve_settings(db_mgr, org_id, domain, user_id)).to_dict()
+
+
 @router.get("/admin/settings/{domain}")
 async def get_org_admin_settings(domain: str, request: Request) -> dict[str, Any]:
     """Retrieve organization-wide policy configuration and locked keys (admin only)."""

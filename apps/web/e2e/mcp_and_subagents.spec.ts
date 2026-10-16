@@ -162,13 +162,12 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     const mainContent = page.getByRole("main");
     await expect(mainContent.getByRole("heading", { name: /Model Defaults/i })).toBeVisible();
 
-    // Verify select element is present and contains populated models from API
-    const select = mainContent.locator("select");
-    await expect(select).toBeVisible();
-
-    // Expect multiple options/optgroups loaded dynamically
-    const options = select.locator("option");
-    await expect(options).not.toHaveCount(0);
+    // The searchable picker lists the models the API returns
+    const picker = mainContent.getByTestId("preferred-model");
+    await expect(picker).toBeVisible();
+    await picker.click();
+    await expect(mainContent.getByRole("option").first()).toBeVisible();
+    await mainContent.getByRole("option").nth(1).click();
 
     // Save changes
     const saveButton = page.getByRole("button", { name: /Save Changes/i });

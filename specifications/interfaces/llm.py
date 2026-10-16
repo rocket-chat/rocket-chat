@@ -141,6 +141,11 @@ class ChatMessage:
     attachments: list[AttachmentRef] | None = None
     # Who wrote a user message in a shared session; display metadata only, never sent to a model.
     author_user_id: str | None = None
+    # On a user message: the agent and model the turn answering it ran with (display only), so
+    # the history keeps who answered when the session's selection changes later.
+    agent_id: str | None = None
+    agent_name: str | None = None
+    model: str | None = None
 
 
 @dataclass

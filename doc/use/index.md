@@ -26,7 +26,7 @@ Under the composer you can set, before you start:
 | **Attach** | Add a log, a screenshot or a CSV (you can also drag or paste). The agent reads it. |
 | **Permission mode** | How closely the agent is supervised: *Plan* (read-only), *Ask* (approve every edit, command and publish), *Auto-edit*, *Auto*, or *Default* (your organization's choice). |
 | **Sandbox** | Which sandbox the session starts in, when your organization offers more than one. A session keeps the sandbox it started with. |
-| **Agent and model** | A persona and the model it uses. |
+| **Agent or model** | Who answers your next message: an agent (its instructions, tools, skills and model), or a model with no agent (a generic assistant with every tool loaded). It applies from your next message on; each answer keeps the agent and model that wrote it, and each session remembers its own choice, so switching sessions switches the selection with them. |
 
 ## 2. Watch it work
 

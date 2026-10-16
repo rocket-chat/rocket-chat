@@ -5,6 +5,7 @@ import { PageHeader } from "../../../components/ui/PageHeader";
 
 import { Field, Input, Select, Textarea } from "../../../components/ui/Field";
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { ModelPicker } from "../../../components/ui/ModelPicker";
 import { useMissionStore } from "../../../lib/store";
 import {
   AgentPersonaConfig,
@@ -74,7 +75,6 @@ export default function AgentsSettingsPage() {
     setAvailableAgents,
     activeAgent,
     selectAgent,
-    availableModels,
     fetchAgents,
   } = useMissionStore();
 
@@ -322,7 +322,7 @@ export default function AgentsSettingsPage() {
       description: "Custom agent persona with tailored system instructions and scoped permissions.",
       system_prompt:
         "You are an autonomous engineering agent specialized in mission-critical development. Verify all solutions with automated tests and follow clean code craftsmanship.",
-      model: availableModels[0]?.id || "openrouter/deepseek/deepseek-v4.1-flash",
+      model: "",
       whitelisted_tools: ["bash_exec", "file_read", "file_write"],
       skill_ids: [],
       knowledge_base_ids: [],
@@ -564,21 +564,19 @@ export default function AgentsSettingsPage() {
             )}
           </Field>
 
-          {/* Default Model */}
-          <Field label="DEFAULT LLM BACKEND">
+          <Field
+            label="Model"
+            hint="Empty uses the member's preferred model, else the organization's default."
+          >
             {(control) => (
-              <Select {...control}
-                  disabled={!canEditCurrentAgent}
-                  value={formData.model}
-                  onChange={(e) => setFormData({ ...formData, model: e.target.value })}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-void text-xs text-foreground focus:outline-none focus:border-cyan disabled:opacity-60"
-                >
-                  {availableModels.map((m) => (
-                    <option key={m.id} value={m.id} className="bg-void text-foreground">
-                      {m.name} ({m.provider}) - {m.id}
-                    </option>
-                  ))}
-              </Select>
+              <ModelPicker
+                {...control}
+                data-testid="agent-model"
+                disabled={!canEditCurrentAgent}
+                value={formData.model || ""}
+                onChange={(model) => setFormData({ ...formData, model })}
+                inheritLabel="Organization default"
+              />
             )}
           </Field>
 
