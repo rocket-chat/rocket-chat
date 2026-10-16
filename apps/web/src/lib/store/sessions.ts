@@ -8,6 +8,10 @@ import type {
 import { convertHistoryToFlightLogs } from "./helpers";
 import type { MissionStore, SessionsSlice } from "./types";
 
+// Listing requests overlap (switching scope or the archived view while a CLEAR re-lists): only
+// the latest one may write the list, or a slow earlier response shows the view just left.
+let latestListing = 0;
+
 export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSlice> = (set, get) => ({
   session: null,
   sessions: [],
@@ -106,6 +110,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
   },
   setSessions: (sessions) => set({ sessions }),
   fetchSessions: async (includeArchived = get().sessionsIncludeArchived, scope = get().sessionsScope) => {
+    const ticket = ++latestListing;
     set({ isLoadingSessions: true, sessionsIncludeArchived: includeArchived, sessionsScope: scope });
     try {
       // The backend always lists the authenticated identity's organization; the client
@@ -117,6 +122,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       });
       if (res.ok) {
         const data = await res.json();
+        if (ticket !== latestListing) return;
         if (Array.isArray(data)) {
           set({
             sessions: data,
@@ -130,12 +136,13 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
     } catch {
       // Offline fallback
     } finally {
-      set({ isLoadingSessions: false });
+      if (ticket === latestListing) set({ isLoadingSessions: false });
     }
   },
   loadMoreSessions: async () => {
     const { sessionsNextCursor, sessionsIncludeArchived, sessionsScope, isLoadingSessions } = get();
     if (!sessionsNextCursor || isLoadingSessions) return;
+    const ticket = ++latestListing;
     set({ isLoadingSessions: true });
     try {
       const params = new URLSearchParams({
@@ -149,6 +156,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       });
       if (res.ok) {
         const data = await res.json();
+        if (ticket !== latestListing) return;
         if (Array.isArray(data)) {
           set((state) => {
             const known = new Set(state.sessions.map((s) => s.session_id));
@@ -162,7 +170,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
     } catch {
       // Keep the pages already loaded; the button stays available for a retry.
     } finally {
-      set({ isLoadingSessions: false });
+      if (ticket === latestListing) set({ isLoadingSessions: false });
     }
   },
   initDraftSession: () => {
