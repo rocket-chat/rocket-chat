@@ -36,5 +36,5 @@ uv run pytest tests/integration/test_slack_interoperability.py -v
 
 ## Environment Variables
 
-- `SLACK_BOT_TOKEN`: Slack bot user token (`xoxb-...`).
-- `SLACK_APP_TOKEN`: Slack app-level token with `connections:write` scope (`xapp-...`).
+- Bot tokens are not environment variables: the API builds a `SlackBot` (`bot.py`) per bot configured in the cockpit and passes it to `SlackAssistant(bot=...)`.
+- `SLACK_BLOCKED_TOOLS`, `SLACK_USER_TURNS_PER_MINUTE`, `SLACK_CHANNEL_TURNS_PER_MINUTE`, `SLACK_MAX_ATTACHMENTS_PER_TURN` and the other `SLACK_*` limits in `config.py` apply to every bot.

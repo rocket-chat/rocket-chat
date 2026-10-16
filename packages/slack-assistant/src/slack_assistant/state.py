@@ -15,6 +15,7 @@ from agent_core.tools.registry import ToolRegistry
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp, AsyncAssistant
 
+from slack_assistant.bot import ClassifyRequest, RouteDecision, SlackBot
 from slack_assistant.config import SlackAssistantSettings
 from slack_assistant.file_ingestion import FileDownloader
 from slack_assistant.guardrails import FailureTracker, WorkspaceQuotaGate
@@ -27,6 +28,9 @@ from specifications.interfaces.sandbox import SandboxDriverProtocol
 from specifications.interfaces.session import SessionStoreProtocol
 
 RunTurnFn = Callable[..., Awaitable[None]]
+# The classifier's decision for a message, or None when it could not decide (the router's
+# fallback applies).
+ClassifyFn = Callable[[ClassifyRequest], Awaitable[RouteDecision | None]]
 
 
 class SlackAssistantState:
@@ -77,6 +81,8 @@ class SlackAssistantState:
     _user_pairings: dict[str, str]
     _slack_user_cache: dict[str, dict[str, Any]]
     _session_meta: dict[str, tuple[str, str]]
+    bot: SlackBot | None
+    _classify_fn: ClassifyFn | None
     _slack_api_ready: bool
     _dedupe: EventDeduplicator
     _health: SocketHealth
@@ -117,11 +123,18 @@ class SlackAssistantState:
         team_id: str | None = None,
         files: list[dict[str, Any]] | None = None,
         ephemeral_fn: Callable[..., Any] | None = None,
+        message_ts: str | None = None,
     ) -> None:
         raise NotImplementedError
 
-    @staticmethod
-    def get_session_id(channel_id: str, thread_ts: str) -> str:
-        """Derive sanitized 1:1 session identifier compatible with Docker naming rules."""
+    def get_session_id(
+        self, channel_id: str, thread_ts: str, private_for: str | None = None
+    ) -> str:
+        """The thread's session id (Docker-name safe). Each bot has its own sessions, so two
+        bots answering in one thread never share a conversation; a private request gets the
+        requester's own session, which nobody else in the thread can reach."""
         sanitized_ts = thread_ts.replace(".", "_")
-        return f"slack_{channel_id}_{sanitized_ts}"
+        bot = getattr(self, "bot", None)
+        prefix = f"slack_{bot.session_key}_" if bot is not None else "slack_"
+        suffix = f"_{private_for}" if private_for else ""
+        return f"{prefix}{channel_id}_{sanitized_ts}{suffix}"

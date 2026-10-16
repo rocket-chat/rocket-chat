@@ -52,8 +52,7 @@ backend:
   encryption:
     masterKey: "0123456789abcdef0123456789abcdef"
   slack:
-    botToken: "xoxb-..."
-    appToken: "xapp-..."
+    # Bots and their tokens are added in the cockpit (Settings -> Slack), not here.
     threadContextLimit: 20      # Recent thread messages auto-injected into the agent prompt
     threadContextMaxChars: 6000 # Character budget for the injected transcript
     channelHistoryLimit: 50     # Max messages for the slack_read_channel_history tool
@@ -173,13 +172,9 @@ github:
   appIdKey: "GITHUB_APP_ID"                     # Optional: GitHub App ID
   privateKeyKey: "GITHUB_APP_PRIVATE_KEY"       # Optional: RSA private key PEM
   webhookSecretKey: "GITHUB_WEBHOOK_SECRET"     # Optional: Webhook HMAC secret
-
-backend:
-  slack:
-    existingSecret: "slack-credentials"
-    botTokenKey: "SLACK_BOT_TOKEN"
-    appTokenKey: "SLACK_APP_TOKEN"
 ```
+
+Slack tokens are not deployment values: each Slack bot's tokens are pasted in **Settings → Slack** and stored encrypted with the master key. The chart's former `backend.slack.botToken`, `appToken` and `existingSecret*` values were removed in 0.3.1.
 
 ### Authentication & Single Sign-On (NextAuth, Google & OIDC)
 Rocket Chat supports NextAuth, Google Workspace, GitHub OAuth, and OIDC JWT validation out of the box. You can configure identity providers via Helm values:

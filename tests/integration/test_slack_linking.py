@@ -93,10 +93,14 @@ def test_admin_binds_the_connected_workspace_to_their_org(monkeypatch: pytest.Mo
     monkeypatch.delenv("ROCKET_TRUST_PROXY_HEADERS", raising=False)
     reset_memory_workspaces()
 
-    class _Assistant:
+    class _Bot:
         team_id = "T_ACME"
 
-    app.state.slack_assistant = _Assistant()
+    class _Bots:
+        async def list(self, org_id: str) -> list[_Bot]:
+            return [_Bot()]
+
+    monkeypatch.setattr(app.state, "slack_bot_store", _Bots(), raising=False)
     admin = _client("boss", "org_a", ["admin", "developer"])
     member = _client("dev", "org_a", ["developer"])
 

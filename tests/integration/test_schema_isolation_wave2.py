@@ -25,6 +25,8 @@ from api.db.models import (
     OrganizationModel,
     SessionModel,
     SessionSummaryModel,
+    SlackBotModel,
+    SlackRouteDecisionModel,
     SlackWorkspaceQuotaModel,
     UserModel,
 )
@@ -42,6 +44,8 @@ NEW_WAVE2_TABLES: tuple[str, ...] = (
     "slack_workspace_quotas",
     # Added by M12 (migration 009) and covered by the same isolation guarantees.
     "session_messages",
+    "slack_bots",
+    "slack_route_decisions",
 )
 RLS_TABLES: tuple[str, ...] = ("sessions", *NEW_WAVE2_TABLES)
 
@@ -266,12 +270,33 @@ async def test_new_wave2_tables_deny_cross_tenant_reads(
                 updated_at=now,
             )
         )
+        session.add(
+            SlackBotModel(
+                id=f"bot_{suffix}",
+                org_id=org_a,
+                name="Triage Bot",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            SlackRouteDecisionModel(
+                id=f"dec_{suffix}",
+                org_id=org_a,
+                bot_id=f"bot_{suffix}",
+                channel_id="C_MAIN",
+                thread_ts="1700000000.1",
+                created_at=now,
+            )
+        )
 
     for model in (
         AttachmentModel,
         MemoryModel,
         SessionSummaryModel,
         SlackWorkspaceQuotaModel,
+        SlackBotModel,
+        SlackRouteDecisionModel,
     ):
         # The owning tenant sees exactly its row; no explicit WHERE clause is used, so a
         # non-empty result can only come from RLS leaking the row.

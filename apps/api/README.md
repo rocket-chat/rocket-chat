@@ -27,8 +27,6 @@ uv run pytest tests/integration/test_slack_interoperability.py -v
 
 ## Environment Variables
 
-- `SLACK_BOT_TOKEN`: (Optional) Slack bot OAuth token (`xoxb-...`) to boot embedded Slack Assistant.
-- `SLACK_APP_TOKEN`: (Optional) Slack app-level token (`xapp-...`) enabling Socket Mode.
 - `OPENROUTER_API_KEY`: (Optional) OpenRouter API key for LLM gateway inference.
 - `ANTHROPIC_API_KEY`: (Optional) Anthropic direct API key.
 - `OPENAI_API_KEY`: (Optional) OpenAI direct API key.
