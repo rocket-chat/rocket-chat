@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator
+from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -16,6 +17,9 @@ from api.services.slack_bots import (
     SlackBotStore,
     SlackIdentity,
     SlackTokens,
+    runtime_bot,
+    slash_command_of,
+    validate,
 )
 from api.services.slack_routing import (
     RouterClassification,
@@ -318,7 +322,7 @@ def test_slack_bots_admin_endpoints(api_client: TestClient) -> None:
         patch("api.routers.slack_bots._apply_to_running_bots", AsyncMock()),
         patch(
             "api.routers.slack_bots.check_tokens",
-            AsyncMock(
+            checked := AsyncMock(
                 return_value=SlackIdentity(
                     team_id="T_TEST",
                     team_name="Test Workspace",
@@ -356,11 +360,19 @@ def test_slack_bots_admin_endpoints(api_client: TestClient) -> None:
         assert manifest_res.status_code == 200
         assert "display_information" in manifest_res.json()
 
-        # 6. Test connection
+        # 6. Test connection, after the Slack app was renamed: the bot follows its new name
+        checked.return_value = replace(checked.return_value, handle="Rocky")
         test_res = api_client.post(f"/v1/admin/slack/bots/{bot_id}/test")
         assert test_res.status_code == 200
         assert test_res.json()["ok"] is True
-        assert test_res.json()["handle"] == "rocket-bot"
+        assert test_res.json()["handle"] == "Rocky"
+        refreshed = api_client.get(f"/v1/admin/slack/bots/{bot_id}").json()
+        assert (refreshed["handle"], refreshed["command"]) == ("Rocky", "/rocky")
+
+        chosen = api_client.put(f"/v1/admin/slack/bots/{bot_id}", json={"slash_command": "/ask"})
+        assert chosen.json()["command"] == "/ask"
+        refused = api_client.put(f"/v1/admin/slack/bots/{bot_id}", json={"slash_command": "ask"})
+        assert refused.status_code == 400
 
         # 7. Update bot
         up_res = api_client.put(
@@ -537,3 +549,35 @@ async def test_systemone_fallback_to_structured(monkeypatch: pytest.MonkeyPatch)
         assert res["confidence"] == 0.88
         assert res["reason"] == "Fallback to structured"
         mock_struct.assert_awaited_once()
+
+
+async def test_the_handle_is_the_name_people_see_not_the_original_username() -> None:
+    client = MagicMock()
+    client.auth_test = AsyncMock(
+        return_value={"team_id": "T1", "team": "Acme", "user_id": "UBOT", "user": "dify"}
+    )
+    client.bots_info = AsyncMock(return_value={"bot": {"app_id": "A1"}})
+    client.apps_connections_open = AsyncMock(return_value={"ok": True})
+    client.users_info = AsyncMock(
+        return_value={"user": {"profile": {"display_name": "Rocky", "real_name": "Rocky"}}}
+    )
+    with patch("api.services.slack_bot_setup.AsyncWebClient", return_value=client):
+        identity = await check_tokens(SlackTokens("xoxb-1", "xapp-1"))
+        client.users_info.side_effect = RuntimeError("missing_scope")
+        fallback = await check_tokens(SlackTokens("xoxb-1", "xapp-1"))
+
+    assert identity.handle == "Rocky"
+    assert fallback.handle == "dify", "without the profile, the username"
+
+
+def test_a_bot_can_choose_its_slash_command() -> None:
+    record = SlackBotRecord(id="b1", org_id="o", name="Rocky", handle="Rocky")
+    assert slash_command_of(record) == "/rocky"
+    chosen = validate(replace(record, slash_command=" /Ask-Rocky "))
+    assert chosen.slash_command == "/ask-rocky"
+    assert slash_command_of(chosen) == "/ask-rocky"
+    assert runtime_bot(chosen, SlackTokens("x", "y")).command == "/ask-rocky"
+    assert manifest(chosen)["features"]["slash_commands"][0]["command"] == "/ask-rocky"
+    for bad in ("rocky", "/", "/has space", "/" + "x" * 40):
+        with pytest.raises(SlackBotError):
+            validate(replace(record, slash_command=bad))

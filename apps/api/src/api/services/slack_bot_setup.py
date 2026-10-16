@@ -10,11 +10,16 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from slack_assistant.bot import command_for
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
-from api.services.slack_bots import SlackBotError, SlackBotRecord, SlackIdentity, SlackTokens
+from api.services.slack_bots import (
+    SlackBotError,
+    SlackBotRecord,
+    SlackIdentity,
+    SlackTokens,
+    slash_command_of,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -69,13 +74,28 @@ async def check_tokens(tokens: SlackTokens) -> SlackIdentity:
         logger.warning("Slack token check failed: %s", type(err).__name__)
         raise SlackBotError("Slack could not be reached to check the tokens.") from err
     bot_info: dict[str, Any] = info.get("bot") or {}
+    bot_user_id = str(auth.get("user_id", ""))
     return SlackIdentity(
         team_id=str(auth.get("team_id", "")),
         team_name=str(auth.get("team", "")),
-        bot_user_id=str(auth.get("user_id", "")),
+        bot_user_id=bot_user_id,
         app_id=str(bot_info.get("app_id", "")),
-        handle=str(auth.get("user", "")),
+        handle=await _display_name(bot, bot_user_id) or str(auth.get("user", "")),
     )
+
+
+async def _display_name(bot: AsyncWebClient, bot_user_id: str) -> str:
+    """The name people see and mention (the manifest's ``bot_user.display_name``).
+
+    ``auth.test`` returns the bot user's username, which Slack fixes when the app is created
+    and keeps when the display name changes, so it can name the app's first identity.
+    """
+    try:
+        profile = ((await bot.users_info(user=bot_user_id)).get("user") or {}).get("profile") or {}
+    except Exception as err:
+        logger.info("Bot display name unavailable: %s", type(err).__name__)
+        return ""
+    return str(profile.get("display_name") or profile.get("real_name") or "").strip()
 
 
 def manifest(record: SlackBotRecord, web_url: str = "") -> dict[str, Any]:
@@ -97,7 +117,7 @@ def manifest(record: SlackBotRecord, web_url: str = "") -> dict[str, Any]:
             "bot_user": {"display_name": handle, "always_online": True},
             "slash_commands": [
                 {
-                    "command": command_for(record.handle or record.name),
+                    "command": slash_command_of(record),
                     "description": "Start, list or stop work",
                     "usage_hint": "new <task> | status | stop | pair",
                     "should_escape": False,

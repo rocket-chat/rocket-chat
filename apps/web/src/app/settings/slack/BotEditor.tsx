@@ -34,6 +34,7 @@ export function BotEditor({ bot, agentOptions, onClose, onSaved }: BotEditorProp
 
   // Form state
   const [name, setName] = useState(bot?.name || "");
+  const [slashCommand, setSlashCommand] = useState(bot?.slash_command || "");
   const [botToken, setBotToken] = useState("");
   const [appToken, setAppToken] = useState("");
   const [agentId, setAgentId] = useState(bot?.agent_id || (agentOptions[0]?.value || ""));
@@ -193,6 +194,7 @@ export function BotEditor({ bot, agentOptions, onClose, onSaved }: BotEditorProp
 
     const payload: Record<string, unknown> = {
       name: name.trim(),
+      slash_command: slashCommand.trim() || null,
       agent_id: brainType === "agent" ? agentId : null,
       response_mode: responseMode,
       respond_in_dms: respondInDms,
@@ -332,6 +334,20 @@ export function BotEditor({ bot, agentOptions, onClose, onSaved }: BotEditorProp
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Senior Backend Assistant"
+                  />
+                )}
+              </Field>
+              <Field
+                label="Slash command"
+                hint={`Empty: named after the bot (${bot?.command || "from its Slack name"}). Each bot needs its own: Slack sends a command two apps share to the one installed last. Copy the manifest into the Slack app after changing it.`}
+              >
+                {(props) => (
+                  <Input
+                    {...props}
+                    data-testid="bot-command-input"
+                    value={slashCommand}
+                    onChange={(e) => setSlashCommand(e.target.value)}
+                    placeholder={bot?.command || "/rocky"}
                   />
                 )}
               </Field>

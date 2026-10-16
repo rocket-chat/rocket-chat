@@ -3986,6 +3986,18 @@
               }
             ],
             "title": "Router"
+          },
+          "slash_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Empty: named after the bot's handle",
+            "title": "Slash Command"
           }
         },
         "required": [
@@ -4053,6 +4065,12 @@
               }
             ],
             "title": "Bot User Id"
+          },
+          "command": {
+            "default": "/rocket",
+            "description": "The slash command the bot answers",
+            "title": "Command",
+            "type": "string"
           },
           "created_at": {
             "title": "Created At",
@@ -4129,6 +4147,18 @@
               }
             ],
             "title": "Router"
+          },
+          "slash_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The command the bot chose, if any",
+            "title": "Slash Command"
           },
           "team_id": {
             "anyOf": [
@@ -4306,6 +4336,17 @@
               }
             ],
             "title": "Router"
+          },
+          "slash_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slash Command"
           }
         },
         "title": "SlackBotUpdateRequest",
@@ -6799,7 +6840,7 @@
     },
     "/v1/admin/slack/bots/{bot_id}/test": {
       "post": {
-        "description": "Validate a bot's stored tokens against Slack auth.test.",
+        "description": "Validate a bot's stored tokens with Slack, and refresh what Slack says about the bot\n(its display name changes when the app's manifest does).",
         "operationId": "test_bot_connection_v1_admin_slack_bots__bot_id__test_post",
         "parameters": [
           {
