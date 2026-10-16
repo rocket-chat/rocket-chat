@@ -760,3 +760,52 @@ async def test_a_first_pull_error_is_given_time_to_clear(mock_clients, spec):
     await driver.start_sandbox(spec.session_id)
 
     core_v1.delete_namespaced_pod.assert_not_awaited()
+
+
+def _pod(phase: str) -> MagicMock:
+    pod = MagicMock()
+    pod.status.phase = phase
+    pod.status.reason = None
+    pod.status.container_statuses = []
+    pod.spec.node_name = "k8s-worker-node-7" if phase == "Running" else None
+    pod.metadata.deletion_timestamp = None
+    return pod
+
+
+@pytest.mark.asyncio
+async def test_a_slow_start_keeps_its_pod_and_the_next_start_waits_on_it(
+    mock_clients, spec, monkeypatch
+):
+    """A pod still Pending when the wait ends (a node being added) is not recreated."""
+    from sandbox_driver import k8s_driver
+    from sandbox_driver.exceptions import SandboxTimeoutError
+
+    monkeypatch.setattr(k8s_driver, "POD_START_TIMEOUT_SECONDS", 0.3)
+    core_v1, ws_core_v1 = mock_clients
+    driver = K8sSandboxDriver(
+        namespace="agent-sandboxes", core_v1_api=core_v1, ws_core_v1_api=ws_core_v1
+    )
+    driver._specs[spec.session_id] = spec
+    core_v1.read_namespaced_persistent_volume_claim.return_value = MagicMock()
+    pending = _pod("Pending")
+    core_v1.read_namespaced_pod.side_effect = None
+    core_v1.read_namespaced_pod.return_value = pending
+
+    with pytest.raises(SandboxTimeoutError, match="still starting"):
+        await driver.start_sandbox(spec.session_id)
+    core_v1.delete_namespaced_pod.assert_not_called()
+
+    core_v1.create_namespaced_pod.reset_mock()
+    core_v1.read_namespaced_pod.return_value = None
+    core_v1.read_namespaced_pod.side_effect = [pending, pending, _pod("Running")]
+    await driver.start_sandbox(spec.session_id)
+
+    core_v1.create_namespaced_pod.assert_not_called()
+    core_v1.delete_namespaced_pod.assert_not_called()
+    assert driver._node_affinity_cache[spec.session_id] == "k8s-worker-node-7"
+
+
+def test_a_sandbox_start_waits_two_minutes_for_a_node() -> None:
+    from sandbox_driver.k8s_driver import POD_START_TIMEOUT_SECONDS
+
+    assert POD_START_TIMEOUT_SECONDS == 120.0
