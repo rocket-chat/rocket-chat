@@ -417,6 +417,8 @@ export function SchemaSettingsForm({
                       type="checkbox"
                       data-testid={`settings-lock-${key}-${field.key}`}
                       checked={lockedKeys.includes(field.key)}
+                      // The stored locks arrive with the values and would undo a click made first.
+                      disabled={!loaded}
                       onChange={(e) =>
                         setLockedKeys((prev) =>
                           e.target.checked ? [...prev, field.key] : prev.filter((k) => k !== field.key),

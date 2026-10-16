@@ -50,6 +50,9 @@ export default defineConfig({
             ADMIN_DATABASE_URL: process.env.E2E_ADMIN_DATABASE_URL ?? "",
             TEST_DATABASE_URL: "",
             DEV_AUTH_BYPASS: "true",
+            // Specs act as other members through identity headers; on PostgreSQL their user
+            // rows must exist (sessions reference users), so unknown identities are created.
+            ROCKET_AUTO_PROVISION_TENANTS: "true",
             // The MCP runner started below: command (stdio) servers are exercised for real.
             MCP_RUNNER_URL: "http://127.0.0.1:8100",
             MCP_RUNNER_TOKEN: "e2e-runner-token-0123456789",
