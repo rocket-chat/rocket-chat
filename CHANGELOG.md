@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `orchestrator`:
+- `sandboxes`:
+- `api`:
+- `web`:
+- `settings`:
+- `git`:
+- `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.3.1] - 2026-10-16
+
+### Added
 - `slack-assistant`, `api`, `web`: **Several Slack bots per organization, with response modes and message routing.** Each bot is its own Slack app (`@handle`), added in **Settings → Slack** with its tokens (stored encrypted, shown as fingerprints), and answers with its own agent or a router. The cockpit generates the Slack app manifest and checks the tokens with `auth.test`; the first bot binds its workspace to the organization.
   - **Response modes:** `thread` answers in the thread as before; `private` marks the request with a reaction and works in a session only the requester sees, sending them an ephemeral link and summary with a **Share in thread** button (optionally also a direct message). A channel can override the mode.
   - **Routing:** a router classifies each new request to a route (description, examples, agent, response mode) or dismisses it before any session exists; it falls back below a minimum confidence, keeps a thread on its route, and logs every decision (**Activity** tab, **Try it** box). Classifications are billed to the organization like any model call.
