@@ -106,14 +106,6 @@ class SlackAssistantSettings(BaseSettings):
         validation_alias="SLACK_CHANNEL_TURNS_PER_MINUTE",
         description="Sustained per-channel turn budget per minute (token-bucket capacity).",
     )
-    slack_proactive_notify_after_seconds: int = Field(
-        default=120,
-        validation_alias="SLACK_PROACTIVE_NOTIFY_AFTER_SECONDS",
-        description=(
-            "Post an explicit completion notice into the originating thread when a turn "
-            "runs longer than this many seconds."
-        ),
-    )
     slack_file_download_timeout_seconds: float = Field(
         default=30.0,
         validation_alias="SLACK_FILE_DOWNLOAD_TIMEOUT_SECONDS",

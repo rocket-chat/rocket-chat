@@ -244,3 +244,47 @@ async def test_the_stop_command_only_stops_the_callers_own_turn(bolt: BoltStack)
     finally:
         model.gate.set()
         await asyncio.wait_for(turn, 10)
+
+
+def _stop_click(user: str, event_id: str) -> dict[str, Any]:
+    body = payload("event_agent_session_stopped", event_id=event_id)
+    body["event"] = {**body["event"], "user": user}
+    return body
+
+
+@pytest.mark.asyncio
+async def test_slacks_stop_button_stops_the_requesters_turn_and_ends_the_session(
+    bolt: BoltStack,
+) -> None:
+    model = bolt.stack.model
+    model.gate = asyncio.Event()
+    cancelled: list[str] = []
+
+    async def cancel_turn(session_id: str) -> None:
+        cancelled.append(session_id)
+
+    bolt.assistant.orchestrator.cancel_turn = cancel_turn  # type: ignore[method-assign]
+    turn = asyncio.create_task(bolt.dispatch(payload("event_app_mention")))
+    await asyncio.wait_for(model.started.wait(), 5)
+    await _wait_for(lambda: "slack_C1_1700000000_000100" in bolt.assistant._active_turns)
+
+    def statuses() -> list[str]:
+        return [args["status"] for args in bolt.client.sent("agents.sessions.setStatus")]
+
+    try:
+        await bolt.dispatch(_stop_click("U2", "Ev_STOP_STRANGER"))
+        assert cancelled == []
+        assert statuses()[-1] == "processing", "a stranger's click leaves the work running"
+
+        await bolt.dispatch(_stop_click("U1", "Ev_STOP_OWNER"))
+        assert cancelled == ["slack_C1_1700000000_000100"]
+    finally:
+        model.gate.set()
+        await asyncio.wait_for(turn, 10)
+
+    posted = json.dumps(bolt.client.sent("chat.postMessage"))
+    assert "Stopped by <@U1>" in posted and "Fixed it." not in posted
+    assert statuses()[-1] == "active", "Slack keeps the session working until the app ends it"
+
+    await bolt.dispatch(_stop_click("U1", "Ev_STOP_IDLE"))
+    assert statuses()[-1] == "active", "a stuck indicator with nothing running is cleared"

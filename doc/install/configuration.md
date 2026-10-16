@@ -149,7 +149,6 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 | `SLACK_FAILURE_COOLDOWN_SECONDS` | int | `300` | Cooldown after the failure breaker trips. |
 | `SLACK_USER_TURNS_PER_MINUTE` | int | `12` | Token-bucket capacity per `(team, user)`. Platform-level ceiling. |
 | `SLACK_CHANNEL_TURNS_PER_MINUTE` | int | `30` | Token-bucket capacity per `(team, channel)`. Platform-level ceiling. |
-| `SLACK_PROACTIVE_NOTIFY_AFTER_SECONDS` | int | `120` | Post a completion notice into the originating thread after a turn runs this long. |
 | `SLACK_FILE_DOWNLOAD_TIMEOUT_SECONDS` | float | `30` | Download timeout for Slack-hosted files. |
 | `SLACK_DM_POLICY` | enum | `paired` | *(Deprecated)* Who the agent may DM. Configured per bot under **Policy**; inherits organization policy by default. |
 | `SLACK_HEALTH_CHECK_SECONDS` | float | `30` | How often the Socket Mode watchdog checks the connection; two failed checks in a row reconnect it (`0` disables it). |

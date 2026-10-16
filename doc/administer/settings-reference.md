@@ -143,6 +143,5 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | `git_author_email` | Org default, member override | str | empty | Commit author e-mail; empty uses the linked GitHub account's primary e-mail, then its noreply address. |
 | `commit_as_me` | Org default, member override | bool | `False` | Commit as yourself, signed with the GPG key you imported in Git & version control. Applies only when the organization's commit signing mode is gpg_key; otherwise the organization's authorship policy decides. |
 | `git_branch_prefix` | Org default, member override | str | `feat/rocket-` | Prefix the agent uses for the branches it creates. |
-| `slack_notifications_enabled` | Org default, member override | bool | `True` | Receive Slack completion notices for long-running turns. |
 | `preferred_model` | Org default, member override | str | empty | Preferred model (below the agent, above the organization default); empty uses the organization default. |
 | `suggest_next_questions` | Org default, member override | bool | `True` | Suggest a probable next prompt after each turn. |

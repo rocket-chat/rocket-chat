@@ -855,14 +855,6 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Prefix the agent uses for the branches it creates.",
         ),
         _spec(
-            "slack_notifications_enabled",
-            "bool",
-            True,
-            "both",
-            "apps/api/src/api/bootstrap/slack.py",
-            "Receive Slack completion notices for long-running turns.",
-        ),
-        _spec(
             "preferred_model",
             "str",
             # Empty means "no preference". A concrete default would count as the member's own

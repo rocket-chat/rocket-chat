@@ -58,6 +58,7 @@ oauth_config:
 settings:
   event_subscriptions:
     bot_events:
+      - agent_session_stopped # Slack's stop button under a working thread
       - app_home_opened
       - app_mention
       - assistant_thread_started
@@ -134,7 +135,7 @@ An organization can run several bots in the same Slack workspace (e.g. `@RocketD
 | `allowed_tools` | Which tools the Slack path may use. `*` means every tool, including the tools of the MCP servers the agent can reach, except the deployment's blocked list (`SLACK_BLOCKED_TOOLS`). A list names the tools exactly, so MCP tools must be listed by name (`mcp__<server>__<tool>`). |
 | `auto_link_by_verified_email` | Link Slack users to members by their verified e-mail. |
 | `web_base_url` | The public address of Rocket Chat, for "Open in Rocket Chat" links (falls back to `ROCKET_PUBLIC_URL`). |
-| `live_progress` | Stream each tool call into the reply as a step (Slack's collapsible "thinking steps"), then write the answer into the same message. Switched off, only Slack's status line shows progress and the answer is posted when the turn ends. Stop a turn with the bot's slash command (`/<command> stop`). |
+| `live_progress` | Show the step the turn is on in its reply (one card, updated in place), then write a one-line summary and the answer into the same message. Switched off, only Slack's status line shows progress and the answer is posted when the turn ends. Either way, the person who asked can stop a turn with Slack's stop button under the thread (the app must subscribe to `agent_session_stopped`) or the bot's command (`/<command> stop`). |
 | `long_output_to_file`, `long_output_chars` | Attach long answers and large diffs as files, and the length that counts as long. |
 | `channel_profiles` | Per-channel behaviour (below). |
 
@@ -166,7 +167,7 @@ Guests have the `readonly` role, no password and no linked accounts, so they can
 
 ### Safety limits (deployment-wide)
 
-Environment variables bound what an unlinked Slack user can cost or break: `SLACK_USER_TURNS_PER_MINUTE`, `SLACK_CHANNEL_TURNS_PER_MINUTE`, `SLACK_MAX_ATTACHMENTS_PER_TURN`, `SLACK_MAX_CONSECUTIVE_FAILURES` / `SLACK_FAILURE_COOLDOWN_SECONDS` (a circuit breaker), `SLACK_ALLOWED_TOOLS` / `SLACK_BLOCKED_TOOLS` (by default `git_revert`, `git_open_pr` and `git_push` are blocked on the unauthenticated path), `SLACK_PROACTIVE_NOTIFY_AFTER_SECONDS` (a completion notice for long turns, which members can switch off) and `SLACK_HEALTH_CHECK_SECONDS` (below). The settings reference lists every key.
+Environment variables bound what an unlinked Slack user can cost or break: `SLACK_USER_TURNS_PER_MINUTE`, `SLACK_CHANNEL_TURNS_PER_MINUTE`, `SLACK_MAX_ATTACHMENTS_PER_TURN`, `SLACK_MAX_CONSECUTIVE_FAILURES` / `SLACK_FAILURE_COOLDOWN_SECONDS` (a circuit breaker), `SLACK_ALLOWED_TOOLS` / `SLACK_BLOCKED_TOOLS` (by default `git_revert`, `git_open_pr` and `git_push` are blocked on the unauthenticated path), and `SLACK_HEALTH_CHECK_SECONDS` (below). The settings reference lists every key.
 
 ---
 

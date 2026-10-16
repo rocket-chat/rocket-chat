@@ -100,7 +100,6 @@ data:
   SLACK_FAILURE_COOLDOWN_SECONDS: {{ .Values.backend.slack.failureCooldownSeconds | default 300 | quote }}
   SLACK_USER_TURNS_PER_MINUTE: {{ .Values.backend.slack.userTurnsPerMinute | default 12 | quote }}
   SLACK_CHANNEL_TURNS_PER_MINUTE: {{ .Values.backend.slack.channelTurnsPerMinute | default 30 | quote }}
-  SLACK_PROACTIVE_NOTIFY_AFTER_SECONDS: {{ .Values.backend.slack.proactiveNotifyAfterSeconds | default 120 | quote }}
   SLACK_FILE_DOWNLOAD_TIMEOUT_SECONDS: {{ .Values.backend.slack.fileDownloadTimeoutSeconds | default 30 | quote }}
   SLACK_DM_POLICY: {{ .Values.backend.slack.dmPolicy | default "paired" | quote }}
   SLACK_OUTBOUND_CHANNELS: {{ .Values.backend.slack.outboundChannels | default "" | quote }}

@@ -1,0 +1,18 @@
+{
+  "token": "verification-token",
+  "team_id": "T1",
+  "api_app_id": "A1",
+  "event": {
+    "type": "agent_session_stopped",
+    "channel": "C1",
+    "user": "U1",
+    "streaming_message_ts": [],
+    "thread_ts": "1700000000.000100",
+    "event_ts": "1700000005.000100"
+  },
+  "type": "event_callback",
+  "event_id": "Ev_AGENT_STOPPED_1",
+  "event_time": 1700000005,
+  "authorizations": [{"enterprise_id": null, "team_id": "T1", "user_id": "UBOT", "is_bot": true, "is_enterprise_install": false}],
+  "is_ext_shared_channel": false
+}

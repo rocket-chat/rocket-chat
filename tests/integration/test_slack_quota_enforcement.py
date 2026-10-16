@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from api.services.quota import (
@@ -371,44 +371,6 @@ async def test_attachments_are_delegated_and_noted_in_the_dynamic_prompt() -> No
 
 def _async_recorder() -> Any:
     return AsyncMock()
-
-
-async def test_long_turn_posts_a_proactive_completion_notice() -> None:
-    clock = FakeClock(0.0)
-
-    class AdvancingOrchestrator(RecordingOrchestrator):
-        def process_user_turn(self, *args: Any, **kwargs: Any) -> AsyncIterator[AgentEvent]:
-            self.calls += 1
-            self.last_system_prompt = kwargs.get("system_prompt_parts")
-
-            async def _gen() -> AsyncIterator[AgentEvent]:
-                clock.advance(200.0)
-                if False:  # pragma: no cover - keeps this an async generator
-                    yield AgentEvent(event_type="status", session_id="s", payload={})
-
-            return _gen()
-
-    app = MagicMock()
-    app.client = MagicMock()
-    app.client.chat_postMessage = AsyncMock()
-    settings = SlackAssistantSettings(slack_proactive_notify_after_seconds=120)
-    assistant = make_slack(
-        orchestrator=AdvancingOrchestrator(), settings=settings, clock=clock, app=app
-    )
-
-    await assistant.process_incoming_request(
-        channel_id="C1",
-        thread_ts="1.0",
-        raw_text="<@UBOT> long job",
-        say_fn=_async_recorder(),
-        user_id="U1",
-        team_id="T1",
-    )
-
-    app.client.chat_postMessage.assert_called_once()
-    notice = app.client.chat_postMessage.call_args.kwargs["text"]
-    assert "Turn complete" in notice
-    assert app.client.chat_postMessage.call_args.kwargs["thread_ts"] == "1.0"
 
 
 @pytest.mark.asyncio
