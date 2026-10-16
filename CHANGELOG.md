@@ -48,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api`, `helm`: **`SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are ignored** (start-up warns while they are set), and the Helm values `backend.slack.botToken`, `appToken` and `existingSecret*` are gone. Add the Slack app as a bot in **Settings → Slack**; its threads start new sessions.
 
 ### Fixed
+- `web`: **Locking a setting for members while the settings page loads is no longer undone.** The **Lock for members** box could be ticked before the organization's settings arrived, which then cleared it; it now waits for them, like the fields.
 - `web`: **Text typed while a conversation is opening is no longer lost.** The composer accepted input before the conversation in the address had loaded, saved it under the previous one, then replaced it with the opened conversation's empty draft. It now waits, read-only, until the conversation is open.
 - `web`: the header's Rocket logo rendered small inside a boxed border, and the hover highlight filled that box solid orange instead of just outlining it. The icon now sits unboxed at full size, with a thin orange ring that hugs its own squircle shape from the outside on hover.
 - `git`, `agent-core`: **`git_push` tells the agent which commit became which** when publication re-creates the commits (GitHub-signed, re-signed with the member's key, or credited to the member): the sandbox's branch already moved onto the published history, but the agent only saw the new head and could keep using hashes that no longer exist.
