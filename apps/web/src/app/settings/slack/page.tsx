@@ -313,19 +313,6 @@ export default function SlackSettingsPage() {
         <SlackLinkPanel />
       </UserScopeSection>
 
-      {/* User Notifications */}
-      <UserScopeSection
-        title="Slack Notifications"
-        description="Whether the bot posts a completion notice in your thread when a long-running turn finishes."
-      >
-        <SchemaSettingsForm
-          domain="user_preferences"
-          mode="user"
-          title="Notifications"
-          only={["slack_notifications_enabled"]}
-        />
-      </UserScopeSection>
-
       <ScopeDivider label="Organization Scope" />
       <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
         Organization · managed by administrators

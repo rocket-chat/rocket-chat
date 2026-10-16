@@ -181,32 +181,3 @@ async def test_the_platform_hands_the_assistant_the_organizations_saved_slack_se
     policy = await _callbacks().resolve_policy(org)
 
     assert (policy.dm_policy, policy.web_base_url) == ("none", "https://wired.example")
-
-
-@pytest.mark.setting("user_preferences.slack_notifications_enabled")
-async def test_a_member_who_opted_out_gets_no_completion_notice() -> None:
-    from api.services.settings import save_user_config
-
-    async def notified(org: str, user: str) -> bool:
-        stack = Stack(ScriptedModel())
-        stack.assistant._notifications_enabled_fn = _callbacks().notifications_enabled
-        stack.assistant._notify_turn_completion = AsyncMock()  # type: ignore[method-assign]
-        stack.assistant.settings = stack.assistant.settings.model_copy(
-            update={"slack_proactive_notify_after_seconds": 0}
-        )
-        await stack.assistant._maybe_notify(
-            SimpleNamespace(text="finished"),
-            "C1",
-            "1.0",
-            turn_started=0.0,
-            org_id=org,
-            member_id=user,
-        )
-        return stack.assistant._notify_turn_completion.await_count == 1  # type: ignore[attr-defined]
-
-    assert await notified("wire_notify", "chatty") is True
-
-    await save_user_config(
-        None, "wire_notify", "quiet", "user_preferences", {"slack_notifications_enabled": False}
-    )
-    assert await notified("wire_notify", "quiet") is False

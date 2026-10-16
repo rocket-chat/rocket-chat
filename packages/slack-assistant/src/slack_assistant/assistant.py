@@ -116,7 +116,6 @@ class SlackAssistant(
         guest_user_fn: Callable[[str, str, str | None], Awaitable[str]] | None = None,
         begin_pairing_fn: Callable[[str, str], Awaitable[str | None]] | None = None,
         resolve_slack_policy_fn: Callable[[str], Awaitable[SlackOrgPolicy]] | None = None,
-        notifications_enabled_fn: Callable[[str, str], Awaitable[bool]] | None = None,
         audit_fn: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
         read_file_bytes_fn: Callable[[str, str], Awaitable[bytes]] | None = None,
         answer_stored_question_fn: Callable[
@@ -168,8 +167,6 @@ class SlackAssistant(
         # Injected by the API layer: the org's outbound Slack policy (DM policy + channel
         # allowlist), resolved per turn and stored per session.
         self._resolve_slack_policy_fn = resolve_slack_policy_fn
-        # Injected by the API layer: whether a paired member wants completion notices.
-        self._notifications_enabled_fn = notifications_enabled_fn
         self._session_policy: dict[str, tuple[str | None, set[str]]] = {}
         # Injected by the API layer: durable audit for outbound Slack actions.
         self._audit_fn = audit_fn
@@ -177,6 +174,7 @@ class SlackAssistant(
         self._read_file_bytes_fn = read_file_bytes_fn
         self._answer_stored_question_fn = answer_stored_question_fn
         self._active_turns: set[str] = set()
+        self._stopped_by: dict[str, str] = {}
         self._rate_counters: dict[str, int] = {
             "rate_limit_user_denied": 0,
             "rate_limit_channel_denied": 0,
@@ -414,6 +412,10 @@ class SlackAssistant(
         async def handle_reject_action(ack: AsyncAck, body: dict[str, Any], say: AsyncSay) -> None:
             await ack()
             await self._resolve_approval(body, say, approved=False)
+
+        @self.app.event("agent_session_stopped")
+        async def handle_agent_session_stopped(event: dict[str, Any], body: dict[str, Any]) -> None:
+            await self._stop_agent_session(event, body)
 
         @self.app.action(SHARE_ACTION_ID)
         async def handle_share(ack: AsyncAck, body: dict[str, Any]) -> None:
@@ -717,7 +719,6 @@ class SlackAssistant(
     ) -> None:
         """Run the turn, its steps streamed into its reply, then post the result."""
         session_id = view.session_id
-        turn_started = self._clock()
         await self._remember_requester(session_id, admitted.session_org_id, view.requester_slack_id)
         if admitted.org_policy.live_progress and self._slack_api_ready and not view.private:
             view.stream = TurnStream(
@@ -744,6 +745,12 @@ class SlackAssistant(
         finally:
             self._active_turns.discard(session_id)
             await self._safely_update_status(view.status_fn, "")
+            # The legacy status call does not end an agent session; left "processing", Slack
+            # keeps its working indicator (and a dead stop button) under the thread.
+            if not view.private:
+                await self._set_session_status(view.channel_id, view.thread_ts, "active")
+        if await self._report_stop(view):
+            return
         if error:
             self._failures.record_failure(admitted.team_scope, self._clock())
             notice = f"⚠️ I encountered an error while processing your request: {error}"
@@ -763,14 +770,30 @@ class SlackAssistant(
             )
             return
         await self._post_result(view, admitted.org_policy)
-        await self._maybe_notify(
-            view.outcome,
-            view.channel_id,
-            view.thread_ts,
-            turn_started,
-            admitted.session_org_id,
-            admitted.rocket_user_id,
-        )
+
+    async def _thread_permalink(self, channel_id: str, thread_ts: str) -> str:
+        """The thread's link in Slack, for "Open in Slack" in the web app."""
+        if not self._slack_api_ready:
+            return ""
+        try:
+            response = await self.app.client.chat_getPermalink(
+                channel=channel_id, message_ts=thread_ts
+            )
+        except Exception as err:
+            logger.debug("No permalink for %s/%s: %s", channel_id, thread_ts, err)
+            return ""
+        return str(response.get("permalink") or "")
+
+    async def _report_stop(self, view: TurnView) -> bool:
+        """End a turn its requester stopped from Slack: say so, and leave "processing"."""
+        stopped_by = self._stopped_by.pop(view.session_id, None)
+        if stopped_by is None:
+            return False
+        notice = f":stop_button: Stopped by <@{stopped_by}>."
+        if view.stream is None or not await view.stream.finish(notice, [], failed=True):
+            await view.say_fn(text=notice, thread_ts=view.thread_ts)
+        await self._set_session_status(view.channel_id, view.thread_ts, "active")
+        return True
 
     async def _remember_requester(
         self, session_id: str, org_id: str, slack_user_id: str | None
@@ -869,9 +892,11 @@ class SlackAssistant(
                         session_id, admitted.session_org_id, _with_route(route)
                     )
                 return
-            await self.session_store.create_session(
-                _new_session_record(session_id, admitted, channel_id, thread_ts, slack_user_id)
-            )
+            record = _new_session_record(session_id, admitted, channel_id, thread_ts, slack_user_id)
+            permalink = await self._thread_permalink(channel_id, thread_ts)
+            if permalink:
+                record.metadata["slack_permalink"] = permalink
+            await self.session_store.create_session(record)
             if route:
                 await self.session_store.mutate_session(
                     session_id, admitted.session_org_id, _with_route(route)

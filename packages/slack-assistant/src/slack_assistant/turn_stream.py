@@ -66,6 +66,17 @@ class TurnView:
     private: bool = False
 
 
+def readable_tool(name: str) -> str:
+    """A tool's name as a step: ``mcp__signoz__signoz_search_logs`` -> "Signoz search logs
+    (signoz)". MCP tool names repeat their server; the server stays visible, shortly."""
+    server = ""
+    if name.startswith("mcp__") and "__" in name[5:]:
+        server, name = name[5:].split("__", 1)
+    words = name.replace("_", " ").replace("-", " ").strip() or "tool"
+    label = words[0].upper() + words[1:]
+    return f"{label} ({server})" if server else label
+
+
 class SlackTurnStreamMixin(SlackAssistantState):
     """Running a shared turn and rendering its live events into Slack."""
 
@@ -94,7 +105,7 @@ class SlackTurnStreamMixin(SlackAssistantState):
             return "Searching the web..."
         if tool_name == "web_fetch":
             return "Fetching web documentation..."
-        return f"Running tool `{tool_name}`..."
+        return f"{readable_tool(tool_name)}..."
 
     async def _safely_update_status(
         self,
@@ -133,45 +144,6 @@ class SlackTurnStreamMixin(SlackAssistantState):
                 await res
         except Exception as err:
             logger.warning("Slack setStatus call skipped or unsupported in context: %s", err)
-
-    async def _notifications_enabled(self, org_id: str, user_id: str) -> bool:
-        if self._notifications_enabled_fn is None:
-            return True
-        try:
-            return await self._notifications_enabled_fn(org_id, user_id)
-        except Exception as err:
-            logger.debug("Notification preference lookup failed: %s", err)
-            return True
-
-    async def _notify_turn_completion(
-        self,
-        *,
-        channel_id: str,
-        thread_ts: str,
-        summary: str,
-        succeeded: bool,
-        elapsed_seconds: float,
-    ) -> None:
-        """Proactively post a completion notice into the originating thread.
-
-        Long turns are the ones a user is most likely to walk away from; an explicit
-        completion reply means they learn the outcome from the thread even after closing
-        the Slack client. Failure to post must never mask the turn's own result, so the
-        error is logged rather than raised.
-        """
-        headline = "✅ *Turn complete.*" if succeeded else "⚠️ *Turn finished with errors.*"
-        first_line = (summary or "").strip().splitlines()[0][:200] if summary.strip() else ""
-        body = f"{headline} _(took {int(elapsed_seconds)}s)_"
-        if first_line:
-            body += f"\n>{first_line}"
-        client = getattr(self.app, "client", None)
-        poster = getattr(client, "chat_postMessage", None)
-        if not callable(poster):
-            return
-        try:
-            await poster(channel=channel_id, thread_ts=thread_ts, text=body)
-        except Exception as err:
-            logger.debug("Proactive Slack completion notice skipped: %s", err)
 
     async def _run_shared_turn(
         self, view: TurnView, *, prompt: str, overlay: TurnOverlay, author_user_id: str
@@ -246,12 +218,9 @@ class SlackTurnStreamMixin(SlackAssistantState):
         label = self._determine_spinner_message(name, arguments)
         await self._safely_update_status(view.status_fn, label)
         if view.stream is not None:
-            await view.stream.tool_started(str(payload.get("id") or name), name, arguments, label)
+            await view.stream.tool_started(name, arguments, label)
 
     async def _render_tool_completed(self, payload: dict[str, Any], view: TurnView) -> None:
-        if view.stream is not None:
-            call_id = str(payload.get("id") or payload.get("name", ""))
-            await view.stream.tool_completed(call_id, ok=payload.get("status") != "error")
         result = payload.get("result")
         if isinstance(result, str):
             for path in screenshot_paths(result):
@@ -458,29 +427,6 @@ class SlackTurnStreamMixin(SlackAssistantState):
                 content=data,
                 title="Screenshot",
             )
-
-    async def _maybe_notify(
-        self,
-        outcome: TurnOutcome,
-        channel_id: str,
-        thread_ts: str,
-        turn_started: float,
-        org_id: str,
-        member_id: str,
-    ) -> None:
-        """Proactive completion notice for long turns, unless opted out."""
-        elapsed = self._clock() - turn_started
-        if elapsed < self.settings.slack_proactive_notify_after_seconds:
-            return
-        if not await self._notifications_enabled(org_id, member_id):
-            return
-        await self._notify_turn_completion(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            summary=outcome.text,
-            succeeded=True,
-            elapsed_seconds=elapsed,
-        )
 
 
 def _with_footer(text: str, footer: dict[str, Any] | None) -> list[dict[str, Any]]:

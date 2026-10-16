@@ -151,7 +151,6 @@ backend:
     failureCooldownSeconds: 300 # Cooldown once the failure breaker trips.
     userTurnsPerMinute: 12 # Token-bucket capacity per (team,user).
     channelTurnsPerMinute: 30 # Token-bucket capacity per (team,channel).
-    proactiveNotifyAfterSeconds: 120 # Post a completion notice after long turns.
     fileDownloadTimeoutSeconds: 30 # Download deadline for hosted Slack files.
     # Outbound capability policy (org-configurable). dmPolicy: none | paired | all.
     dmPolicy: "paired" # Who the agent may DM; default paired (linked Rocket users only).

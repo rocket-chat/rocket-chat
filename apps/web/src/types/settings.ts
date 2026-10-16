@@ -18,7 +18,6 @@ export interface UserPreferencesSettings {
   git_branch_prefix: string;
   git_personal_pat: string;
   slack_user_handle: string;
-  slack_notifications_enabled: boolean;
   preferred_model: string;
   theme_mode: "dark" | "light" | "system";
   notification_sound: boolean;

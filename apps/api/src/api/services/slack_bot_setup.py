@@ -46,6 +46,8 @@ _BASE_SCOPES = (
     "users:read.email",
 )
 _BASE_EVENTS = (
+    # Subscribing is what makes Slack offer a stop button while the bot works.
+    "agent_session_stopped",
     "app_home_opened",
     "app_mention",
     "assistant_thread_context_changed",

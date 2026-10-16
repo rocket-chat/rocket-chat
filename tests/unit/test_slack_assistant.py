@@ -159,6 +159,11 @@ def test_determine_spinner_message() -> None:
     )
     assert "math.py" in assistant._determine_spinner_message("file_edit", {"path": "math.py"})
     assert "web" in assistant._determine_spinner_message("web_search", {})
+    step = assistant._determine_spinner_message("mcp__signoz-prod__signoz_search_logs", {})
+    assert step == "Signoz search logs (signoz-prod)...", "readable, not the raw tool name"
+    assert (
+        assistant._determine_spinner_message("github_pull_request", {}) == "Github pull request..."
+    )
 
 
 @pytest.mark.asyncio
