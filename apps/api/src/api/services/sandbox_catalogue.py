@@ -145,6 +145,25 @@ class SandboxCatalogue:
             return next((e for e in entries if e.image == image), None)
         return next((e for e in entries if e.is_default), entries[0])
 
+    async def chosen(
+        self,
+        org_id: str,
+        *,
+        session_sandbox_id: str | None,
+        session_image: str | None,
+        agent_sandbox_id: str,
+    ) -> SandboxEntry | None:
+        """The type chosen by name: the session's own, else its agent's.
+
+        The session's creator (or the Slack channel that names an image) wins; the agent's
+        type is the default when they chose nothing. A type deleted since is no choice.
+        """
+        if session_sandbox_id:
+            return await self.resolve(org_id, sandbox_id=session_sandbox_id)
+        if agent_sandbox_id and not session_image:
+            return await self.resolve(org_id, sandbox_id=agent_sandbox_id)
+        return None
+
     async def image_is_offered(self, org_id: str, image: str, legacy_patterns: list[str]) -> bool:
         """Whether ``image`` may be used: in the catalogue, or matching a legacy allowed pattern."""
         if any(e.image == image for e in await self.entries(org_id)):

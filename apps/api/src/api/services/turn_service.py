@@ -163,6 +163,7 @@ class TurnService:
             routing_reason=reason,
             policy=policy,
             sandbox_image=getattr(agent, "sandbox_image", "") or "",
+            sandbox_id=getattr(agent, "sandbox_id", "") or "",
             cpu_limit=str(getattr(agent, "cpu_limit", "") or ""),
             memory_limit=str(getattr(agent, "memory_limit", "") or ""),
             knowledge_base_ids=tuple(getattr(agent, "knowledge_base_ids", None) or ()),

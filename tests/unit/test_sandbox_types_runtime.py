@@ -8,6 +8,8 @@ from typing import Any
 
 import pytest
 from api.main import app
+from api.models import AgentPersonaModel
+from api.services.personas import PersonaError, save_persona
 from api.services.sandbox_catalogue import CatalogueError, SandboxCatalogue
 from api.services.settings import save_org_config
 from api.services.workspace_release import (
@@ -156,3 +158,68 @@ def test_only_administrators_list_the_operators_profiles() -> None:
 
     assert admin.json() == [{"name": "gpu", "description": "GPU pool"}]
     assert member.status_code == 403
+
+
+async def _agent_on(org: str, sandbox_id: str) -> str:
+    persona = AgentPersonaModel(
+        id=f"persona-{org}",
+        name="Backend",
+        role_title="Backend",
+        system_prompt="You build backends.",
+        model="m/model",
+        whitelisted_tools=["bash_exec"],
+        sandbox_id=sandbox_id,
+    )
+    return (await save_persona(None, org, "admin", True, persona)).id
+
+
+async def _sandbox_of(org: str, agent_id: str, **metadata: Any) -> WorkspaceSpec:
+    driver = FakeSandboxDriver()
+    await run_turn(
+        org,
+        metadata={"agent_id": agent_id, **metadata},
+        script=[("bash_exec", {"command": "nproc"})],
+        driver=driver,
+    )
+    return driver._specs[f"session_{org}"]
+
+
+async def test_an_agents_sandbox_type_is_used_when_the_session_names_none() -> None:
+    org = "org_agent_type"
+    catalogue = SandboxCatalogue(None)
+    await catalogue.create(org, name="Default", image="img/base:1", is_default=True)
+    fast = await catalogue.create(org, name="Fast", image="img/base:1", profile="gpu")
+
+    spec = await _sandbox_of(org, await _agent_on(org, fast.id))
+
+    # Same image as the default: the type comes from the agent, not from matching the image.
+    assert (spec.container_image, spec.profile) == ("img/base:1", "gpu")
+
+
+async def test_a_sandbox_picked_for_the_session_wins_over_the_agents() -> None:
+    org = "org_agent_type_picked"
+    catalogue = SandboxCatalogue(None)
+    plain = await catalogue.create(org, name="Plain", image="img/plain:1", is_default=True)
+    fast = await catalogue.create(org, name="Fast", image="img/fast:1", profile="gpu")
+
+    spec = await _sandbox_of(org, await _agent_on(org, fast.id), sandbox_id=plain.id)
+
+    assert (spec.container_image, spec.profile) == ("img/plain:1", "")
+
+
+async def test_an_agent_cannot_name_a_type_outside_the_catalogue() -> None:
+    with pytest.raises(PersonaError, match="not in the organization's catalogue"):
+        await _agent_on("org_agent_type_bad", "sbx_missing")
+
+
+async def test_an_agent_whose_type_was_deleted_uses_the_default() -> None:
+    org = "org_agent_type_gone"
+    catalogue = SandboxCatalogue(None)
+    await catalogue.create(org, name="Default", image="img/base:1", is_default=True)
+    gone = await catalogue.create(org, name="Gone", image="img/gone:1", profile="gpu")
+    agent_id = await _agent_on(org, gone.id)
+    await catalogue.delete(org, gone.id)
+
+    spec = await _sandbox_of(org, agent_id)
+
+    assert (spec.container_image, spec.profile) == ("img/base:1", "")

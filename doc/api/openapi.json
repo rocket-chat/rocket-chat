@@ -117,6 +117,12 @@
             "title": "Role Title",
             "type": "string"
           },
+          "sandbox_id": {
+            "default": "",
+            "description": "Sandbox type the agent's sessions start in when their creator picks none; empty uses the organization's default",
+            "title": "Sandbox Id",
+            "type": "string"
+          },
           "sandbox_image": {
             "default": "",
             "description": "Sandbox image; empty inherits the organization default",

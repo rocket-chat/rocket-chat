@@ -15,6 +15,7 @@ Each entry has a **name**, an **image**, a **description**, optional **capabilit
 
 * The first time your organization is used, the catalogue is created with one entry: the deployment's default image (`ROCKET_DEFAULT_SANDBOX_IMAGE`; the development image with git, GitHub CLI, Python with `uv`, Node and build tools), plus any images an older install had allowed.
 * Members choose a sandbox when they start a session (a picker appears once there are two or more); a session keeps the one it started with. Starting a session with an image that is not in the catalogue is refused.
+* An agent can name the sandbox its sessions start in (**Settings → Agents → Sandbox**), for example a high-CPU type for a backend agent. It is used when the person starting the session leaves the picker on its first option, which then reads, for example, **Agent's: High CPU**; a sandbox picked there wins. An agent whose type was removed uses the default.
 * You cannot remove the default or the last entry; make another entry the default first.
 * Changes are recorded in the audit log.
 
