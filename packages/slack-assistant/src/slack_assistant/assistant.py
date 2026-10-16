@@ -12,7 +12,6 @@ from agent_core.tools.registry import ToolRegistry
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp, AsyncAssistant
 from slack_bolt.context.ack.async_ack import AsyncAck
-from slack_bolt.context.respond.async_respond import AsyncRespond
 from slack_bolt.context.say.async_say import AsyncSay
 from slack_bolt.context.set_status.async_set_status import AsyncSetStatus
 from slack_bolt.context.set_suggested_prompts.async_set_suggested_prompts import (
@@ -292,41 +291,6 @@ class SlackAssistant(
                     },
                 ],
                 thread_ts=thread_ts,
-            )
-
-        @self.app.command("/rocket-pair")
-        async def handle_rocket_pair_command(
-            ack: AsyncAck,
-            body: dict[str, Any],
-            respond: AsyncRespond,
-        ) -> None:
-            """Start linking a Slack user to a Rocket account.
-
-            Linking is confirmed from the member's *authenticated* Rocket session with a
-            one-time code, so nobody can claim an account by typing its e-mail address.
-            The reply is ephemeral: the code is a secret.
-            """
-            await ack()
-            slack_user_id = str(body.get("user_id", ""))
-            team_id = str(body.get("team_id", "")) or self.team_id or ""
-            code = (
-                await self._begin_pairing_fn(slack_user_id, team_id)
-                if self._begin_pairing_fn is not None
-                else None
-            )
-            if code is None:
-                await respond(
-                    text="Account linking is not enabled for this workspace.",
-                    response_type="ephemeral",
-                )
-                return
-            await respond(
-                text=(
-                    "🔗 *Link your Rocket Chat account*\n"
-                    f"Open *Settings → Slack & Chat Ops* in Rocket Chat while signed in and enter "
-                    f"the code `{code}` (valid for 10 minutes, single use)."
-                ),
-                response_type="ephemeral",
             )
 
     def _register_message_events(self) -> None:

@@ -64,7 +64,7 @@ function SlackLinkPanel() {
   return (
     <div className="space-y-3" data-testid="slack-link-panel">
       <p className="text-xs text-muted-foreground">
-        In Slack run <code>/rocket-pair</code>, then enter the one-time code it shows you (valid 10 minutes).
+        In Slack run the bot&apos;s command with <code>pair</code> (for example <code>/rocky pair</code>), then enter the one-time code it shows you (valid 10 minutes).
       </p>
       <div className="flex gap-2 max-w-md">
         <input

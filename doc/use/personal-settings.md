@@ -31,7 +31,7 @@ If your organization allows it you can add **your own provider key** (OpenRouter
 
 ## Slack
 
-* **Link your Slack account** with `/rocket-pair` in Slack and the code it gives you (see [Slack](/use/slack)).
+* **Link your Slack account** with the bot's `pair` command in Slack (for example `/rocky pair`) and the code it gives you (see [Slack](/use/slack)).
 * **Notifications.** Receive a Slack message when a long-running request finishes.
 
 ## Your own tools

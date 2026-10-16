@@ -1776,7 +1776,7 @@ Finish linking: the signed-in member claims the Slack user that issued the code.
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| code | string | yes | Code from /rocket-pair |
+| code | string | yes | Code from the bot's `pair` command |
 
 **Responses:** `200`
 
