@@ -463,13 +463,15 @@ def _code_index_stats(app_state: object | None) -> dict[str, int | float]:
 
 
 def _quota_counters(app_state: object | None) -> dict[str, int]:
-    assistant = getattr(app_state, "slack_assistant", None)
-    gate = getattr(assistant, "quota_gate", None)
-    counters = getattr(gate, "counters", None)
-    if not callable(counters):
-        return {}
-    result = counters()
-    return result if isinstance(result, dict) else {}
+    """The Slack quota counters, summed over every running bot."""
+    manager = getattr(app_state, "slack_bot_manager", None)
+    totals: dict[str, int] = {}
+    for assistant in manager.all() if manager is not None else []:
+        counters = getattr(getattr(assistant, "quota_gate", None), "counters", None)
+        result = counters() if callable(counters) else {}
+        for key, value in (result if isinstance(result, dict) else {}).items():
+            totals[key] = totals.get(key, 0) + int(value)
+    return totals
 
 
 def _ledger_entries(app_state: object | None) -> list[dict[str, object]]:

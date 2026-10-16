@@ -9,9 +9,11 @@ If your administrator has [connected Slack](/administer/slack), you can use the 
 
 ## What you see
 
-**One live message per request.** Rocket posts a single message in the thread and updates it as it works: what it is doing right now, the last few steps, a summary ("Edited 2 files · Ran 3 commands"), a **Stop** button and an **Open in Rocket Chat** link. When it finishes, the message is removed and the answer ends with one line: **Open in Rocket Chat** and what the turn did ("Done in 41s · Edited 2 files · Ran 3 commands"). If the turn is stopped or fails, the message stays and says why. Only the person who asked can press Stop.
+**Response modes: Thread vs Private session.** Your administrator can configure bots and routes to respond in one of two modes:
+- **Thread mode (public):** Rocket posts a single live progress message in the thread and updates it as it works: what it is doing right now, the last few steps, a summary ("Edited 2 files · Ran 3 commands"), a **Stop** button and an **Open in Rocket Chat** link. When it finishes, the message is removed and the answer ends with one line: **Open in Rocket Chat** and what the turn did ("Done in 41s · Edited 2 files · Ran 3 commands"). If the turn is stopped or fails, the message stays and says why. Only the person who asked can press Stop.
+- **Private mode:** When invoked, the bot marks your message with an acknowledgement reaction (default :white_check_mark:) and sends an ephemeral message in the thread visible *only to you*. It includes an **Open session** button linking to your private cockpit session. The work happens privately; when finished, an ephemeral summary is posted to you in the thread alongside a **Share in thread** button that allows you to post the final answer into the public thread when you choose. Follow-up messages you type in the thread continue your private session.
 
-**Questions and approvals are buttons in the thread.** When the agent needs a decision, or wants to run something your organization requires [approval](/administer/security#b-per-org-approval-policy) for, it posts buttons. Only the person who started the request can answer. This keeps working after a restart: a question that was waiting when the server restarted is picked up again from the stored question, and the work continues in the same thread.
+**Questions and approvals are buttons in the thread.** When the agent needs a decision, or wants to run something your organization requires [approval](/administer/security#b-per-org-approval-policy) for, it posts buttons. In thread mode they are posted to the thread; in private mode they are posted as ephemeral buttons visible only to you. Only the person who started the request can answer. This keeps working after a restart: a question that was waiting when the server restarted is picked up again from the stored question, and the work continues in the same thread.
 
 **Long output is attached, not split.** An answer longer than a few thousand characters is summarised in the thread and attached in full as `answer.md`. A large change is listed in the thread and attached as `changes.diff`. Screenshots the agent takes are uploaded as images.
 
@@ -34,10 +36,12 @@ Reading never needs approval, even in *Plan* mode. A private channel or another 
 
 ## Ways to start
 
+Your organization may connect multiple bots (e.g. `@RocketDev`, `@RocketOps`, `@RocketTriage`), each mapped to a distinct agent persona or message router. Mentioning a bot routes your request directly to it.
+
 | You do | What happens |
 | :--- | :--- |
-| `@Rocket <task>` in a channel | Answers in that message's thread. Follow-ups in the thread continue the same conversation. |
-| Message Rocket directly | A private conversation under your own Rocket Chat account (once linked). |
+| `@<bot> <task>` in a channel | Answers in that message's thread (or privately, if configured). Follow-ups in the thread continue the same conversation. |
+| Message the bot directly | A private conversation under your own Rocket Chat account (once linked). |
 | `/rocket new <task>` | Posts "you asked Rocket: …" and works in a new thread. |
 | `/rocket status` | Lists your recent Slack threads and which are running (only you see it). |
 | `/rocket stop` | Stops what you have running in this channel. |

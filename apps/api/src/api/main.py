@@ -15,7 +15,7 @@ from slack_assistant.config import SlackAssistantSettings
 
 from api.bootstrap.background import BackgroundServices
 from api.bootstrap.core import CoreServices, assemble_core
-from api.bootstrap.slack import SlackRuntime, start_slack
+from api.bootstrap.slack import SlackBotManager, start_slack
 from api.db.session import current_tenant_org_id
 from api.logging_config import bind_log_context, setup_logging
 from api.middleware.auth import AuthMiddleware
@@ -50,6 +50,7 @@ from api.routers.settings_api import router as settings_api_router
 from api.routers.sharing import router as sharing_router
 from api.routers.skills import router as skills_router
 from api.routers.slack_admin import router as slack_admin_router
+from api.routers.slack_bots import router as slack_bots_router
 from api.routers.slack_status import router as slack_status_router
 from api.routers.templates import router as templates_router
 from api.routers.terminal import router as terminal_router
@@ -91,7 +92,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 async def _shut_down(
-    app: FastAPI, core: CoreServices, background: BackgroundServices, slack: SlackRuntime | None
+    app: FastAPI,
+    core: CoreServices,
+    background: BackgroundServices,
+    slack: SlackBotManager | None,
 ) -> None:
     """Drain, then stop background work and release shared resources, dependents last."""
     # Enter draining before cancelling background work so /v1/ready reports `draining` for
@@ -273,6 +277,7 @@ for _router in (
 app.include_router(terminal_router)
 app.include_router(turns_router)
 app.include_router(slack_admin_router)
+app.include_router(slack_bots_router)
 app.include_router(workspace_router)
 app.include_router(webhooks_router, prefix="/v1")
 app.include_router(webhooks_router, prefix="/api/v1")

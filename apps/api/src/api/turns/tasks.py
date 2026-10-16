@@ -191,10 +191,13 @@ async def launch_mission(app: FastAPI, mission: Mission) -> str:
 
 
 def _report_mission_to_slack(app: FastAPI, mission: Mission, session_id: str) -> None:
-    """When a run ends, tell the channel its owner chose (a missing Slack app is not an error)."""
-    assistant = getattr(app.state, "slack_assistant", None)
-    if assistant is None or not mission.slack_channel:
+    """When a run ends, tell the channel its owner chose, through one of the organization's
+    bots (an organization without a bot is not an error)."""
+    manager = getattr(app.state, "slack_bot_manager", None)
+    bots = manager.for_org(mission.org_id) if manager is not None else []
+    if not bots or not mission.slack_channel:
         return
+    assistant = bots[0]
 
     async def report() -> None:
         token = current_tenant_org_id.set(mission.org_id)

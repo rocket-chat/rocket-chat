@@ -131,27 +131,30 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 
 ### Slack Assistant (Socket Mode)
 
+> [!NOTE]
+> **Slack bots are configured in the cockpit.** Under **Settings → Slack**, administrators add one or more bots, each a Slack app with its own tokens (stored encrypted), agent or router, and response mode. `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are **ignored** since 0.3.1 (start-up logs a warning when they are set); `SLACK_TEAM_ID`, `SLACK_DEFAULT_ORG_ID`, `SLACK_DM_POLICY`, `SLACK_OUTBOUND_CHANNELS`, `SLACK_ALLOWED_TOOLS` and `SLACK_WEB_BASE_URL` are deprecated in favour of the workspace binding and the organization's `slack` settings. The other variables below remain the operator's limits for every bot.
+
 | Environment Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `SLACK_BOT_TOKEN` | string | `""` | Bot user OAuth token (`xoxb-...`) with scopes to reply in threads and send messages. See the [Slack setup guide](/administer/slack) for the full scope list. |
-| `SLACK_APP_TOKEN` | string | `""` | App-level token (`xapp-...`) with `connections:write` scope for WebSocket Socket Mode. |
+| `SLACK_BOT_TOKEN` | string | `""` | *(Ignored)* Each bot's token is entered in **Settings → Slack**. |
+| `SLACK_APP_TOKEN` | string | `""` | *(Ignored)* Each bot's app-level token is entered in **Settings → Slack**. |
 | `SLACK_THREAD_CONTEXT_LIMIT` | int | `20` | Number of recent messages from the current Slack thread auto-injected into the agent system prompt. |
 | `SLACK_THREAD_CONTEXT_MAX_CHARS` | int | `6000` | Character budget for the injected Slack thread transcript (freshest messages kept). |
 | `SLACK_CHANNEL_HISTORY_LIMIT` | int | `50` | Maximum messages returned by the on-demand `slack_read_channel_history` tool. |
-| `SLACK_TEAM_ID` | string | `""` | Fallback Slack workspace id used to scope quotas and rate limits when an event does not carry one. |
-| `SLACK_ALLOWED_TOOLS` | string | `*` | Comma-separated tool allowlist for the unauthenticated Slack path; `*` allows every tool except `SLACK_BLOCKED_TOOLS`. Enforced server-side in `ToolRegistry.call_tool`. |
-| `SLACK_BLOCKED_TOOLS` | string | `git_revert,git_open_pr,git_push` | Destructive tools always denied on the Slack path. |
+| `SLACK_TEAM_ID` | string | `""` | *(Deprecated)* Workspace id. Discovered automatically via `auth.test` on bot connection. |
+| `SLACK_ALLOWED_TOOLS` | string | `*` | *(Deprecated)* Tool allowlist; use the organization's `slack.allowed_tools` setting or a bot's **Policy**. |
+| `SLACK_BLOCKED_TOOLS` | string | `git_revert,git_open_pr,git_push` | Platform-wide deny list: destructive tools always denied across all Slack bots. |
 | `SLACK_MAX_ATTACHMENTS_PER_TURN` | int | `5` | Slack files ingested per turn; the rest are skipped and reported back to the caller. |
 | `SLACK_MAX_CONSECUTIVE_FAILURES` | int | `3` | Consecutive failed turns before the abuse breaker pauses the workspace (`0` disables). |
 | `SLACK_FAILURE_COOLDOWN_SECONDS` | int | `300` | Cooldown after the failure breaker trips. |
-| `SLACK_USER_TURNS_PER_MINUTE` | int | `12` | Token-bucket capacity per `(team, user)`. |
-| `SLACK_CHANNEL_TURNS_PER_MINUTE` | int | `30` | Token-bucket capacity per `(team, channel)`. |
+| `SLACK_USER_TURNS_PER_MINUTE` | int | `12` | Token-bucket capacity per `(team, user)`. Platform-level ceiling. |
+| `SLACK_CHANNEL_TURNS_PER_MINUTE` | int | `30` | Token-bucket capacity per `(team, channel)`. Platform-level ceiling. |
 | `SLACK_PROACTIVE_NOTIFY_AFTER_SECONDS` | int | `120` | Post a completion notice into the originating thread after a turn runs this long. |
 | `SLACK_FILE_DOWNLOAD_TIMEOUT_SECONDS` | float | `30` | Download timeout for Slack-hosted files. |
-| `SLACK_DM_POLICY` | enum | `paired` | Who the agent may DM: `none` (disabled), `paired` (only Slack users linked to a Rocket account), `all` (any workspace member). Org-configurable (back-office dropdown). |
+| `SLACK_DM_POLICY` | enum | `paired` | *(Deprecated)* Who the agent may DM. Configured per bot under **Policy**; inherits organization policy by default. |
 | `SLACK_HEALTH_CHECK_SECONDS` | float | `30` | How often the Socket Mode watchdog checks the connection; two failed checks in a row reconnect it (`0` disables it). |
 | `ROCKET_PUBLIC_URL` | url | *(empty; the Helm chart sets it)* | Public address of the web app. Every Slack thread links to its session there (an organization can override it with `slack.web_base_url`). |
-| `SLACK_OUTBOUND_CHANNELS` | csv | *(empty)* | Allowlist of channel ids the agent may post to / react in. Empty means no channel restriction (the DM policy still governs direct messages). |
+| `SLACK_OUTBOUND_CHANNELS` | csv | *(empty)* | *(Deprecated)* Allowlist of channel ids. Configured per bot under **Policy**. |
 
 ### Git Engine & GitHub App
 

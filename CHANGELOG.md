@@ -10,16 +10,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `slack-assistant`, `api`, `web`: **Several Slack bots per organization, with response modes and message routing.** Each bot is its own Slack app (`@handle`), added in **Settings → Slack** with its tokens (stored encrypted, shown as fingerprints), and answers with its own agent or a router. The cockpit generates the Slack app manifest and checks the tokens with `auth.test`; the first bot binds its workspace to the organization.
+  - **Response modes:** `thread` answers in the thread as before; `private` marks the request with a reaction and works in a session only the requester sees, sending them an ephemeral link and summary with a **Share in thread** button (optionally also a direct message). A channel can override the mode.
+  - **Routing:** a router classifies each new request to a route (description, examples, agent, response mode) or dismisses it before any session exists; it falls back below a minimum confidence, keeps a thread on its route, and logs every decision (**Activity** tab, **Try it** box). Classifications are billed to the organization like any model call.
+  - Bots can also listen to chosen channels without a mention, and can decline direct messages.
+  - Migration `029_slack_bots`: tables `slack_bots` and `slack_route_decisions` with forced row-level security.
 - `agent-core`, `api`, `web`: **Tools can be loaded on demand.** Each allowed tool is always loaded, loaded on demand or not allowed. A tool loaded on demand is listed by name, grouped by server, in the cacheable part of the prompt; the agent loads it with the new `load_tools` tool (or by calling it) and it stays loaded for the session. The organization chooses the default (`general.tool_loading`: `auto`, `all` or `on_demand`, and `general.tool_loading_threshold`); `auto` loads the MCP servers' tools on demand once an agent has more than the threshold (60). An agent can choose its own mode and pin tools or patterns as always loaded. For an agent with three MCP servers this cuts each step from about 200 tool definitions to the platform's own plus the pinned ones.
-- `orchestrator`:
-- `sandboxes`:
-- `api`:
-- `web`:
-- `settings`:
-- `git`:
-- `helm`:
 
 ### Changed
+- `slack-assistant`, `api`: `SLACK_TEAM_ID`, `SLACK_DEFAULT_ORG_ID`, `SLACK_DM_POLICY`, `SLACK_OUTBOUND_CHANNELS`, `SLACK_ALLOWED_TOOLS` and `SLACK_WEB_BASE_URL` are deprecated in favour of the workspace binding and the organization's `slack` settings.
+- `api`, `helm`: **`SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are ignored** (start-up warns while they are set), and the Helm values `backend.slack.botToken`, `appToken` and `existingSecret*` are gone. Add the Slack app as a bot in **Settings → Slack**; its threads start new sessions.
 
 ### Fixed
 - `web`: **MCP tools picked one by one in the agent editor now reach the agent.** The editor saved them as `mcp:<server id>:<tool>` while the agent's tools are named `mcp__<server>__<tool>`, so an agent restricted to selected MCP tools received none of them. Re-select them once to save them under the right name.

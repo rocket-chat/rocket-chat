@@ -97,27 +97,32 @@ settings:
 
 ---
 
-## 2. Give Rocket Chat the tokens
+## 2. Configure bots in Rocket Chat (Settings → Slack)
 
-```bash
-SLACK_BOT_TOKEN="xoxb-…"
-SLACK_APP_TOKEN="xapp-…"
-ROCKET_PUBLIC_URL="https://rocket.example.com"   # optional: puts an "Open in Rocket Chat" link on every thread
-```
+Bots are configured in the cockpit under **Settings → Slack**:
 
-On Kubernetes put the tokens in the secret the Helm chart reads (see [Kubernetes quickstart](/install/kubernetes)). Restart the API; the log confirms the connection:
+1. Click **New bot**.
+2. Enter a display name, paste the **Bot User OAuth Token** (`xoxb-…`) and **App-Level Token** (`xapp-…`). Tokens enter write-only and are sealed with `CredentialCipher` in the database.
+3. Click **Test connection** (`auth.test`) to verify the credentials and discover the bot handle and workspace.
+4. Download or copy the generated **Slack app manifest** from the Connection tab if you want Rocket Chat to compute scopes and events automatically based on your triggers.
 
-```text
-Slack authentication confirmed for team 'Acme' (T0123) as @rocket
-```
+> **Upgrading from 0.3.0:** the `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` deployment variables are ignored (start-up logs a warning while they are set). Add the same Slack app as a bot here: paste its two tokens, and its existing threads start new sessions under the bot. The first bot binds its Slack workspace to your organization; a workspace bound to another organization is refused.
 
-**Settings → Slack** shows whether the socket is connected and lets you test it. With several API replicas, exactly one holds the Socket Mode connection (elected through the database); the others take over if it fails.
+### Multiple bots in one workspace
 
-Invite the bot to a channel (`/invite @Rocket`) and ask for something:
+An organization can run several bots in the same Slack workspace (e.g. `@RocketDev`, `@RocketSecurity`). Each bot is an independent Slack app with its own tokens and connection. Two bots mentioned in the same thread maintain separate sessions and contexts.
 
-```text
-@Rocket why is the build failing on main?
-```
+### Response modes per bot
+
+* **Thread mode:** The bot responds publicly in the Slack thread, posting its live progress message and answers where everyone in the channel can see them.
+* **Private session mode:** The bot marks the request with a reaction (default `white_check_mark`) and posts an ephemeral reply visible only to the requester containing an **Open session** link. The turn runs privately in Rocket Chat. On completion, an ephemeral summary is sent with a **Share in thread** button that allows the requester to post the final answer publicly.
+
+### Brain: One Agent or Router
+
+* **One Agent:** All messages to this bot run with the selected agent persona.
+* **Router:** An AI classifier evaluates each incoming request against configured routes (each with its own description, examples, target agent persona, and response mode). Out-of-scope messages can be dismissed without creating a session. Follow-ups in a thread remain sticky to the chosen route. Classification decisions are logged under the **Activity** tab and kept 30 days.
+  * **Classifier model:** the router's own model, else its classifier agent's model, else the organization's default; it must be allowed by the organization's model policy. Any model that returns structured output works; a small, fast one is enough. Classifications are billed to the organization like any model call and count against its spending caps.
+  * **OpenRouter System One models** (`typesafe/…`, `inception/mercury-decide`) are called through OpenRouter's decision endpoint and return a probability per route; if that call fails the router falls back to structured output with the same model.
 
 ---
 

@@ -77,7 +77,7 @@ spec:
             {{- end }}
             {{- end }}
           {{- $hasEnv := false }}
-          {{- if or .Values.backend.database.existingSecret (and .Values.auth.local .Values.auth.local.enabled .Values.auth.local.existingSecret) .Values.backend.encryption.existingSecret (and .Values.auth .Values.auth.enabled) .Values.auth.existingSecret .Values.backend.slack.existingSecret .Values.github.existingSecret .Values.models.openrouter.existingSecret .Values.models.anthropic.existingSecret .Values.models.openai.existingSecret .Values.models.deepseek.existingSecret .Values.models.gemini.existingSecret .Values.backend.extraEnv .Values.mcpRunner.enabled }}
+          {{- if or .Values.backend.database.existingSecret (and .Values.auth.local .Values.auth.local.enabled .Values.auth.local.existingSecret) .Values.backend.encryption.existingSecret (and .Values.auth .Values.auth.enabled) .Values.auth.existingSecret .Values.github.existingSecret .Values.models.openrouter.existingSecret .Values.models.anthropic.existingSecret .Values.models.openai.existingSecret .Values.models.deepseek.existingSecret .Values.models.gemini.existingSecret .Values.backend.extraEnv .Values.mcpRunner.enabled }}
           {{- $hasEnv = true }}
           {{- end }}
           {{- if $hasEnv }}
@@ -152,18 +152,6 @@ spec:
                   name: {{ .Values.auth.google.existingSecret }}
                   key: {{ .Values.auth.google.existingSecretClientSecretKey | default "GOOGLE_CLIENT_SECRET" }}
             {{- end }}
-            {{- end }}
-            {{- if .Values.backend.slack.existingSecret }}
-            - name: SLACK_BOT_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.backend.slack.existingSecret }}
-                  key: {{ .Values.backend.slack.existingSecretBotTokenKey | default "SLACK_BOT_TOKEN" }}
-            - name: SLACK_APP_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.backend.slack.existingSecret }}
-                  key: {{ .Values.backend.slack.existingSecretAppTokenKey | default "SLACK_APP_TOKEN" }}
             {{- end }}
             {{- if .Values.models.openrouter.existingSecret }}
             - name: OPENROUTER_API_KEY

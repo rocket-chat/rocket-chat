@@ -103,6 +103,7 @@ class SlackEntrypointsMixin(SlackGatesMixin):
         prompt: str,
         user_id: str,
         team_id: str | None,
+        message_ts: str | None = None,
     ) -> None:
         """Run a request that did not arrive as a thread message, replying in ``thread_ts``."""
         client = self.app.client
@@ -119,6 +120,7 @@ class SlackEntrypointsMixin(SlackGatesMixin):
             user_id=user_id,
             channel_type=channel_type_of(channel_id),
             team_id=team_id,
+            message_ts=message_ts or thread_ts,
         )
 
     async def _my_sessions(self, body: dict[str, Any]) -> list[SessionRecord]:
@@ -197,6 +199,7 @@ class SlackEntrypointsMixin(SlackGatesMixin):
             prompt=prompt,
             user_id=str((shortcut.get("user") or {}).get("id", "")),
             team_id=str((shortcut.get("team") or {}).get("id", "")) or None,
+            message_ts=str(message.get("ts") or "") or None,
         )
 
     # -- scheduled missions ------------------------------------------------------------------

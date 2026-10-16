@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from api.auth.access import _get_request_identity, _require_admin
 from api.services.audit import AuditService
+from api.services.slack_bots import SlackBotStore
 from api.services.slack_link import (
     PairingCodes,
     adopt_guest_sessions,
@@ -31,9 +32,12 @@ class WorkspaceBinding(BaseModel):
     bound_to_this_org: bool
 
 
-def _connected_team(request: Request) -> str | None:
-    assistant = getattr(request.app.state, "slack_assistant", None)
-    return getattr(assistant, "team_id", None) if assistant is not None else None
+async def _connected_team(request: Request, org_id: str) -> str | None:
+    """The workspace the organization's bots belong to (``auth.test`` on save)."""
+    store = getattr(request.app.state, "slack_bot_store", None) or SlackBotStore(
+        getattr(request.app.state, "db_manager", None)
+    )
+    return next((b.team_id for b in await store.list(org_id) if b.team_id), None)
 
 
 @router.post("/slack/pair")
@@ -89,7 +93,7 @@ async def complete_slack_pairing(body: PairRequest, request: Request) -> dict[st
 @router.get("/admin/slack/workspace", response_model=WorkspaceBinding)
 async def get_workspace_binding(request: Request) -> WorkspaceBinding:
     org_id, _, _ = _require_admin(request)
-    team_id = _connected_team(request)
+    team_id = await _connected_team(request, org_id)
     bound = await workspace_org(getattr(request.app.state, "db_manager", None), team_id or "")
     return WorkspaceBinding(
         connected_team_id=team_id, bound_org_id=bound, bound_to_this_org=bound == org_id
@@ -100,7 +104,7 @@ async def get_workspace_binding(request: Request) -> WorkspaceBinding:
 async def bind_connected_workspace(request: Request) -> WorkspaceBinding:
     """Bind the currently connected Slack workspace to the administrator's organization."""
     org_id, admin_id, _ = _require_admin(request)
-    team_id = _connected_team(request)
+    team_id = await _connected_team(request, org_id)
     if not team_id:
         raise HTTPException(status_code=409, detail="No Slack workspace is connected")
     db_mgr = getattr(request.app.state, "db_manager", None)
@@ -114,7 +118,7 @@ async def bind_connected_workspace(request: Request) -> WorkspaceBinding:
 @router.delete("/admin/slack/workspace", response_model=WorkspaceBinding)
 async def unbind_connected_workspace(request: Request) -> WorkspaceBinding:
     org_id, _, _ = _require_admin(request)
-    team_id = _connected_team(request) or ""
+    team_id = await _connected_team(request, org_id) or ""
     await unbind_workspace(getattr(request.app.state, "db_manager", None), team_id, org_id)
     bound = await workspace_org(getattr(request.app.state, "db_manager", None), team_id)
     return WorkspaceBinding(

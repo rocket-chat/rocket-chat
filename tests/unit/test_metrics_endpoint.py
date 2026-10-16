@@ -77,11 +77,18 @@ class _FakeGateway:
         ]
 
 
+class _FakeBotManager:
+    """Two running bots: the endpoint reports their counters summed."""
+
+    def all(self) -> list[_FakeSlackAssistant]:
+        return [_FakeSlackAssistant(), _FakeSlackAssistant()]
+
+
 def _build_metrics_app() -> FastAPI:
     app = FastAPI()
     app.add_api_route("/metrics", metrics_module.metrics_endpoint, methods=["GET"])
     app.state.code_index_cache = _FakeCodeIndexCache()
-    app.state.slack_assistant = _FakeSlackAssistant()
+    app.state.slack_bot_manager = _FakeBotManager()
     app.state.llm_gateway = _FakeGateway()
     gate, locks = build_backpressure(limit=5)
     app.state.global_concurrency_gate = gate
@@ -108,7 +115,7 @@ def test_metrics_reflects_code_index_and_quota_state() -> None:
     assert "rocket_code_index_bytes 3072.0" in body
     assert "rocket_code_index_hits_total 11.0" in body
     assert "rocket_code_index_refusals_total 1.0" in body
-    assert 'rocket_quota_rejections_total{scope="slack"} 7.0' in body
+    assert 'rocket_quota_rejections_total{scope="slack"} 14.0' in body
 
 
 def test_metrics_computes_prompt_cache_hit_ratio_from_ledger() -> None:

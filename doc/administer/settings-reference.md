@@ -97,7 +97,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | `live_progress` | Organization | bool | `True` | While a turn runs, show a progress message with its recent steps and a Stop button (removed when the turn finishes; kept when it is stopped or fails). |
 | `long_output_to_file` | Organization | bool | `True` | Attach long answers and large diffs as Slack files instead of splitting them into many messages. |
 | `long_output_chars` | Organization | min 500, max 20000 | `3500` | Answers longer than this many characters are summarised in the thread and attached in full as a file. |
-| `channel_profiles` | Organization | dict | `{}` | Per-channel behaviour, keyed by channel id: \{agent_persona, instructions, allowed_tools, sandbox_image\}. A channel with a profile uses its persona and house rules; allowed_tools narrows the organization's tool scope for that channel. |
+| `channel_profiles` | Organization | dict | `{}` | Per-channel behaviour, keyed by channel id: \{agent_persona, instructions, allowed_tools, sandbox_image, response_mode\}. A channel with a profile uses its persona and house rules; allowed_tools narrows the organization's tool scope for that channel; response_mode ('thread' or 'private') overrides the bot's. |
 | `allowed_tools` | Organization | list | `['*']` | Tools the Slack path may use ('*' = every tool except SLACK_BLOCKED_TOOLS). |
 
 ## Governance & data controls (`governance`)

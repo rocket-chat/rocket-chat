@@ -718,6 +718,82 @@ class SlackWorkspaceModel(Base):
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
+class SlackBotModel(Base):
+    """One Slack bot of an organization: its own Slack app, agent or router, and policy.
+
+    Tokens are sealed with ``CredentialCipher`` and never leave the API. Protected by RLS; the
+    bot manager lists every organization's enabled bots on the schema-owner connection.
+    """
+
+    __tablename__ = "slack_bots"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    bot_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    app_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    bot_token_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    app_token_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Discovered with auth.test when the tokens are saved.
+    team_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    team_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    bot_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    app_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    handle: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    agent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    response_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="thread")
+    respond_in_dms: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    listen_channels: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
+    private_reaction: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="white_check_mark"
+    )
+    private_dm_result: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # The router (classifier agent, routes, dismiss, fallback); NULL answers with ``agent_id``.
+    router: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    # Overrides of the organization's ``slack`` settings, key by key.
+    policy: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict
+    )
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class SlackRouteDecisionModel(Base):
+    """What a bot's router decided for one message, for the decision log. Protected by RLS."""
+
+    __tablename__ = "slack_route_decisions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    bot_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("slack_bots.id", ondelete="CASCADE"), nullable=False
+    )
+    channel_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    thread_ts: Mapped[str] = mapped_column(String(64), nullable=False)
+    slack_user_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # What the classifier answered, and the route that applied after threshold and fallback.
+    route: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    applied: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    model: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    latency_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    __table_args__ = (Index("ix_slack_route_decisions_bot_time", "bot_id", "created_at"),)
+
+
 class ScheduledMissionModel(Base):
     """A prompt the platform runs on a cron schedule as a normal session.
 

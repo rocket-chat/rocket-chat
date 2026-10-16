@@ -133,9 +133,8 @@ backend:
     existingSecret: ""
     existingSecretKey: "ENCRYPTION_MASTER_KEY"
   slack:
-    # Slack Bolt operates 100% via outbound Socket Mode; NO public ingress required.
-    botToken: ""
-    appToken: ""
+    # Slack bots and their tokens are configured in the cockpit (Settings -> Slack); these values
+    # are the operator's limits for every bot. Slack Bolt uses outbound Socket Mode only.
     # Bounded Slack thread context auto-injected into the agent system prompt.
     threadContextLimit: 20
     threadContextMaxChars: 6000
@@ -157,10 +156,6 @@ backend:
     # Outbound capability policy (org-configurable). dmPolicy: none | paired | all.
     dmPolicy: "paired" # Who the agent may DM; default paired (linked Rocket users only).
     outboundChannels: "" # CSV allowlist of channel ids the agent may post/react in; empty = all.
-    # External Secret reference for Slack tokens
-    existingSecret: ""
-    existingSecretBotTokenKey: "SLACK_BOT_TOKEN"
-    existingSecretAppTokenKey: "SLACK_APP_TOKEN"
   # Additional secret names to mount via envFrom
   extraSecretRefs: []
   # Additional custom environment variables

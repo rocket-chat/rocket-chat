@@ -8,14 +8,24 @@ from fastapi import (
     Request,
 )
 
+from api.auth.access import _get_request_identity
+
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Sessions & Telemetry"])
+
+
+def _org_assistant(request: Request) -> Any:
+    """The first running bot of the caller's organization (never another organization's)."""
+    org_id, _, _ = _get_request_identity(request)
+    manager = getattr(request.app.state, "slack_bot_manager", None)
+    bots = manager.for_org(org_id) if manager is not None else []
+    return bots[0] if bots else None
 
 
 @router.get("/slack/status")
 async def get_slack_status(request: Request) -> dict[str, Any]:
     """Return real connection state of embedded Slack Socket Mode Assistant."""
-    assistant = getattr(request.app.state, "slack_assistant", None)
+    assistant = _org_assistant(request)
     if not assistant:
         return {
             "is_configured": False,
@@ -27,7 +37,7 @@ async def get_slack_status(request: Request) -> dict[str, Any]:
             "channels_linked": 0,
             "channels": [],
             "quota_counters": {},
-            "status_message": "Slack tokens not configured in environment",
+            "status_message": "No Slack bot is configured for this organization",
         }
 
     has_tokens = bool(assistant.settings.slack_bot_token and assistant.settings.slack_app_token)
@@ -76,19 +86,19 @@ async def get_slack_status(request: Request) -> dict[str, Any]:
 @router.post("/slack/test")
 async def test_slack_socket_connection(request: Request) -> dict[str, Any]:
     """Test real Slack API authentication and Socket Mode readiness."""
-    assistant = getattr(request.app.state, "slack_assistant", None)
+    assistant = _org_assistant(request)
     if not assistant:
         return {
             "ok": False,
             "success": False,
-            "message": "Slack Assistant not initialized. Set SLACK_BOT_TOKEN and SLACK_APP_TOKEN.",
+            "message": "No Slack bot is running for this organization. Add one in Settings > Slack.",
         }
 
     if not assistant.settings.slack_bot_token or not assistant.settings.slack_app_token:
         return {
             "ok": False,
             "success": False,
-            "message": "Missing Slack bot or app-level token in environment.",
+            "message": "The Slack bot has no tokens.",
         }
 
     try:
