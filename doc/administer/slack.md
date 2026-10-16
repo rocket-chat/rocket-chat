@@ -33,9 +33,6 @@ features:
       description: Start, check or stop work with Rocket
       usage_hint: "new <task> | status | stop | pair | help"
       should_escape: false
-    - command: /rocket-pair
-      description: Link your Slack account to Rocket Chat
-      should_escape: false
 oauth_config:
   scopes:
     bot:
@@ -85,7 +82,7 @@ settings:
 | `app_mentions:read`, `message.*` events, `*:history` | Answer when mentioned, in direct messages, and read the thread it was asked in (full context, not just the triggering message). |
 | `chat:write` | Post answers (streamed with their steps) and approval buttons. |
 | `assistant:write` | Show the "working on…" status and suggested prompts in Slack's assistant panel. |
-| `commands` | `/rocket` and `/rocket-pair`. |
+| `commands` | The bot's slash command (`new`, `status`, `stop`, `pair`). |
 | `files:read` / `files:write` | Read files you attach (logs, screenshots); attach long answers, large diffs and screenshots. |
 | `users:read`, `users:read.email` | Know **who** is speaking; link Slack accounts to Rocket Chat accounts; let the agent look people up (name, title, timezone, status; never their e-mail). |
 | `usergroups:read` | Let the agent list user groups (`@backend`, `@oncall`), their members, and mention them. |

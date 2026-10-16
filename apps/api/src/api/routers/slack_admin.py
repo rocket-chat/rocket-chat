@@ -23,7 +23,9 @@ router = APIRouter(prefix="/v1", tags=["Slack"])
 
 
 class PairRequest(BaseModel):
-    code: str = Field(..., min_length=4, max_length=32, description="Code from /rocket-pair")
+    code: str = Field(
+        ..., min_length=4, max_length=32, description="Code from the bot's `pair` command"
+    )
 
 
 class WorkspaceBinding(BaseModel):

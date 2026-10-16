@@ -2942,7 +2942,7 @@
       "PairRequest": {
         "properties": {
           "code": {
-            "description": "Code from /rocket-pair",
+            "description": "Code from the bot's `pair` command",
             "maxLength": 32,
             "minLength": 4,
             "title": "Code",
