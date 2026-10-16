@@ -123,3 +123,15 @@ async def test_a_skill_starts_the_sandbox_only_when_it_runs_code(
 
     started = f"session_{org}" in driver._specs
     assert started is starts_sandbox, "instructions are read back, only code needs a sandbox"
+
+
+async def test_listing_processes_does_not_start_a_sandbox() -> None:
+    from sandbox_driver.fake_driver import FakeSandboxDriver
+
+    from tests.turn_harness import run_turn
+
+    driver = FakeSandboxDriver()
+    outcome = await run_turn("org_processes", script=[("process_list", {})], driver=driver)
+
+    assert "session_org_processes" not in driver._specs
+    assert "No background processes." in outcome.text_of_events()
