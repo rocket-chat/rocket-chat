@@ -39,7 +39,13 @@ from agent_core.tool_loading import catalogue, deferred_names
 from agent_core.tool_slot import human_wait
 from agent_core.tools.registry import ToolRegistry
 from agent_core.transcript import RecordingList, repair_tool_pairs
-from agent_core.truncation import split_truncated, truncation_notice
+from agent_core.truncation import (
+    MAX_EMPTY_RETRIES,
+    empty_reply_give_up,
+    empty_reply_notice,
+    split_truncated,
+    truncation_notice,
+)
 from specifications.interfaces.agent import (
     APPROVAL_GRANTED_PREFIX,
     DEFAULT_MAX_TURNS,
@@ -188,6 +194,7 @@ class _TurnRun:
     pending_attachments: list[AttachmentRef]
     checklist_reminded: bool = False
     leak_retries: int = 0
+    empty_retries: int = 0
     # The provider refused a request as larger than its window once; the next refusal is final.
     compacted_for_overflow: bool = False
     # Engine instructions for the model (see notes.py): rendered at the end of requests, never
@@ -1152,6 +1159,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 return False
         if not tool_calls and contains_leaked_calls(assistant_text):
             return await self._handle_leaked_calls(run, assistant_text)
+        if not tool_calls and not (assistant_text or "").strip():
+            return await self._handle_empty_reply(run, reply.finish_reason)
+        run.empty_retries = 0
         if not tool_calls:
             run.conversation.append(
                 ChatMessage(
@@ -1233,6 +1243,35 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 event_type="thought",
                 session_id=run.session_id,
                 payload={"delta": LEAK_GIVE_UP, "is_reasoning": False},
+            )
+        )
+        run.conversation.append(ChatMessage(role="assistant", content=answer))
+        self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
+        await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
+        return True
+
+    async def _handle_empty_reply(self, run: _TurnRun, finish_reason: str | None) -> bool:
+        """No text and no tool call: tell the model and continue, or explain and stop.
+
+        Returns True once the turn is over. The empty reply is not kept in the conversation.
+        """
+        if run.empty_retries < MAX_EMPTY_RETRIES:
+            run.empty_retries += 1
+            logger.warning(
+                "Model %s returned an empty reply in %s (finish_reason=%s, retry %d)",
+                run.react_model,
+                run.session_id,
+                finish_reason,
+                run.empty_retries,
+            )
+            run.next_notes.append(empty_reply_notice(finish_reason))
+            return False
+        answer = empty_reply_give_up(finish_reason)
+        await run.event_queue.put(
+            AgentEvent(
+                event_type="thought",
+                session_id=run.session_id,
+                payload={"delta": answer, "is_reasoning": False},
             )
         )
         run.conversation.append(ChatMessage(role="assistant", content=answer))
