@@ -27,6 +27,7 @@ from api.services.settings import (
     effective_settings,
 )
 from api.services.title import TITLE_SOURCE_AUTO, TITLE_SOURCE_USER
+from api.turns.context import TurnSelection
 from api.turns.tasks import _spawn_background_turn
 from specifications.interfaces.agent import (
     PERMISSION_MODES,
@@ -177,6 +178,7 @@ async def create_session(req: CreateSessionRequest, request: Request) -> Session
             db_mgr=db_mgr,
             concurrency_gate=getattr(request.app.state, "global_concurrency_gate", None),
             session_locks=getattr(request.app.state, "session_write_locks", None),
+            selection=TurnSelection(agent_id=req.agent_id, raw=req.mode == "direct"),
         )
 
     return _to_response(record)

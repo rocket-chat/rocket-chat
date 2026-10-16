@@ -25,6 +25,7 @@ from api.services.metrics import (
     record_quota_rejection,
 )
 from api.services.session_support import _new_message_id
+from api.turns.context import TurnSelection
 from api.turns.gates import _forget_pending_decisions
 from api.turns.shared import _api_rate_limiter
 from api.turns.tasks import _spawn_background_turn
@@ -111,6 +112,11 @@ async def start_session_turn(
         attachment_ids=req.attachment_ids,
         concurrency_gate=getattr(request.app.state, "global_concurrency_gate", None),
         session_locks=getattr(request.app.state, "session_write_locks", None),
+        selection=(
+            TurnSelection(agent_id=req.agent_id, raw=req.mode == "direct")
+            if req.mode is not None or req.agent_id
+            else None
+        ),
     )
     return {"status": "started", "session_id": session_id, "message_id": message_id}
 

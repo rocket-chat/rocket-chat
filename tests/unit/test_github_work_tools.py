@@ -337,3 +337,38 @@ async def test_without_a_write_credential_the_reason_is_given(github: FakeGitHub
         current_execution_ctx.reset(token)
 
     assert "No GitHub credential can make changes" in out and github.calls == []
+
+
+async def test_a_pull_request_is_viewed_with_the_pull_request_permission_alone(
+    registry: ToolRegistry, github: FakeGitHub
+) -> None:
+    """An App token granted pull requests but not issues still views a pull request."""
+
+    def route(method: str, path: str, params: dict[str, str], body: Any) -> httpx.Response:
+        if "/issues/" in path:
+            return httpx.Response(403, json={"message": "Resource not accessible by integration"})
+        if path == "/repos/acme/app/pulls/7":
+            pull = {
+                "number": 7,
+                "state": "open",
+                "title": "Expected errors",
+                "head": {"ref": "feat/x"},
+                "base": {"ref": "main"},
+                "user": {"login": "octocat"},
+                "body": "Treats 4xx as expected.",
+                "changed_files": 3,
+                "additions": 40,
+                "deletions": 2,
+            }
+            return httpx.Response(200, json=pull)
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    github.route = route  # type: ignore[method-assign]
+
+    viewed = await registry.call_tool(
+        "github_pull_request", {"repository": "acme/app", "action": "view", "number": 7}
+    )
+
+    assert viewed.startswith("#7 [open] Expected errors (feat/x -> main; by octocat)")
+    assert "3 files, +40 -2" in viewed and "Treats 4xx as expected." in viewed
+    assert "Comments not shown" in viewed and "Error" not in viewed

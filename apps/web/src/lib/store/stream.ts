@@ -18,6 +18,8 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
   activeDiffIndex: 0,
   terminalLogs: "\x1b[38;5;208m[SYSTEM]\x1b[0m Session workspace attached.\r\n",
   tokenRate: 0,
+  turnBinding: null,
+  setTurnBinding: (turnBinding) => set({ turnBinding }),
   setConnected: (connected) => set({ connected }),
   setStatusMessage: (msg) => set({ statusMessage: msg }),
   setIsExecuting: (exec) => set({ isExecuting: exec }),

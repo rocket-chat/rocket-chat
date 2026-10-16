@@ -97,6 +97,10 @@ export interface SessionData {
     tool_calls?: ToolCallData[];
     /** Who wrote a user message (shared sessions). */
     author_user_id?: string | null;
+    /** On a user message: the agent (empty for a raw model) and model its turn ran with. */
+    agent_id?: string | null;
+    agent_name?: string | null;
+    model?: string | null;
   }>;
   collaborators?: string[];
   checklist?: ChecklistTask[];
@@ -168,6 +172,12 @@ export interface SubagentExecutionData {
   duration_ms?: number;
 }
 
+/** Who answered a turn: the agent's name (empty for a raw model) and the model. */
+export interface TurnBinding {
+  agentName: string;
+  model: string;
+}
+
 export interface FlightLogEntry {
   id: string;
   role: "USER" | "AGENT" | "PLANNER" | "CODER" | "TESTER" | "SYSTEM" | "SUBAGENT";
@@ -180,6 +190,8 @@ export interface FlightLogEntry {
    */
   messageId?: string;
   authorUserId?: string | null;
+  /** On an answer restored from history: the agent and model of its turn. */
+  answeredBy?: TurnBinding | null;
   attachments?: AttachmentInfo[];
   reasoning?: string;
   isReasoningActive?: boolean;

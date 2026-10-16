@@ -114,11 +114,8 @@ async def _pull(
             await _write(registry, slug), slug, number, action, fields
         )
     read = await registry._github_access()
-    if action == "view":
-        from agent_core.tools import github_tools
-
-        return await github_tools.issues(read, slug, number)
     readers = {
+        "view": lambda: github_prs.view(read, slug, number),
         "files": lambda: github_prs.files(read, slug, number),
         "diff": lambda: github_prs.diff(read, slug, number, page),
         "checks": lambda: github_prs.checks(read, slug, number),

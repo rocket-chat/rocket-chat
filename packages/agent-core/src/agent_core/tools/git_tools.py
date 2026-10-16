@@ -120,7 +120,15 @@ def publish_spec_for_policy(
         default_branch=policy.default_branch,
         force_with_lease=force_with_lease,
         signing_key=policy.signing_key if signing == SigningMode.GPG_KEY else None,
+        co_authors=_credited(policy) if signing == SigningMode.GITHUB_APP and not as_member else (),
     )
+
+
+def _credited(policy: GitPolicy) -> tuple[CoAuthor, ...]:
+    """The member, credited on commits the App authors under the ``co_authored`` policy."""
+    if policy.authorship == "co_authored" and policy.user_name and policy.user_email:
+        return (CoAuthor(name=policy.user_name, email=policy.user_email),)
+    return ()
 
 
 async def git_commit(
@@ -321,6 +329,14 @@ def describe_publication(result: PublishResult) -> str:
     else:
         lines = [f"Pushed {result.repository}@{result.branch}. Head: {result.head_sha[:12]}."]
     lines.extend(result.notices)
+    if result.rewritten:
+        # The agent must not keep using hashes that no longer exist (in a message, a revert,
+        # a later rebase): it is told which commit became which.
+        lines.append(
+            f"The commits were re-created on publication, so their hashes changed; your local "
+            f"branch {result.branch} now points at the published history:"
+        )
+        lines.extend(f"  {old[:12]} -> {new[:12]}" for old, new in result.rewritten)
     return "\n".join(lines)
 
 

@@ -152,8 +152,9 @@ class HostRepository:
     async def blob(self, sha: str) -> bytes:
         return await self._git("cat-file", "blob", sha)
 
-    async def resign(self, commits: list[str], key: SigningKey) -> str:
-        """Re-create ``commits`` (oldest first) signed with ``key``; returns the new tip.
+    async def resign(self, commits: list[str], key: SigningKey) -> dict[str, str]:
+        """Re-create ``commits`` (oldest first) signed with ``key``; returns each commit's
+        replacement (the last one is the new tip).
 
         Tree, parents (mapped onto the re-created ones), author, committer, dates and message are
         kept, so only the signature and the hashes change.
@@ -187,9 +188,8 @@ class HostRepository:
                     },
                 )
                 mapped[sha] = created.decode().strip()
-        tip = mapped[commits[-1]]
-        await self._git("update-ref", PUBLISH_REF, tip)
-        return tip
+        await self._git("update-ref", PUBLISH_REF, mapped[commits[-1]])
+        return mapped
 
     async def _identity(self, sha: str) -> _CommitIdentity:
         fields = await self.text("log", "-1", f"--format={_IDENTITY_FORMAT}", "--date=raw", sha)

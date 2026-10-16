@@ -900,6 +900,16 @@
             "title": "Metadata",
             "type": "object"
           },
+          "mode": {
+            "default": "agent",
+            "description": "'direct' runs the first turn without an agent, on `model` with every tool",
+            "enum": [
+              "agent",
+              "direct"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
           "model": {
             "anyOf": [
               {
@@ -5198,6 +5208,18 @@
       "UserTurnRequest": {
         "description": "Payload to trigger an autonomous agent ReAct turn.",
         "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent for this turn; empty keeps the session's",
+            "title": "Agent Id"
+          },
           "attachment_ids": {
             "description": "Attachment ids to attach to this turn only (never re-sent on later turns)",
             "items": {
@@ -5205,6 +5227,22 @@
             },
             "title": "Attachment Ids",
             "type": "array"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "agent",
+                  "direct"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "'direct' runs this turn without an agent, on `model` with every tool; empty keeps the session's mode",
+            "title": "Mode"
           },
           "model": {
             "anyOf": [
@@ -10449,6 +10487,60 @@
           }
         },
         "summary": "Update User Domain Settings",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/settings/{domain}/{key}": {
+      "delete": {
+        "description": "Remove one personal override: the setting follows the organization's value again,\nincluding its later changes.",
+        "operationId": "reset_user_setting_v1_settings__domain___key__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "title": "Key",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Reset User Setting V1 Settings  Domain   Key  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reset User Setting",
         "tags": [
           "Sessions & Telemetry"
         ]

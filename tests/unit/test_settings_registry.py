@@ -108,7 +108,7 @@ def test_system_defaults_are_independent_copies() -> None:
         ("github", {"app_token_permissions": "contents"}, "org", "object"),
         ("user_preferences", {"suggest_next_questions": "maybe"}, "user", "true or false"),
         ("user_preferences", {"nonsense": 1}, "user", "unknown setting"),
-        ("github", {"commit_authorship_policy": "bot_only"}, "user", "administrator"),
+        ("github", {"bot_author_name": "Someone else"}, "user", "administrator"),
         ("nope", {"a": 1}, "org", "unknown settings domain"),
     ],
 )

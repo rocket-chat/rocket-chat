@@ -22,6 +22,7 @@ Open **Settings** (the gear in the top bar). The *Personal* group at the top of 
 * **Personal access token.** An alternative to linking: paste a classic or fine-grained token; the page tests what it can do.
 * **Committer identity.** The name and e-mail on commits the agent makes for you.
 * **Branch prefix.** New branches the agent creates start with it (for example `alex/rocket-`).
+* **Your git policy.** Commit authorship, who opens pull requests and how commits are signed. Each follows your organization's choice (**Org Default**) until you change it; the reset button next to a field you changed makes it follow the organization again. A field your administrator locked cannot be changed.
 
 The page shows which credential the sandbox will actually use (yours, or the app's read-only token), so a failed push is never a mystery.
 

@@ -16,7 +16,7 @@ test.describe("Agent Cockpit E2E Verification", () => {
 
   test("allows selecting model or agent from dynamic dropdown", async ({ page }) => {
     // Mode selector button
-    const modeSelector = page.getByTitle("Select Active Language Model or Agent");
+    const modeSelector = page.getByTestId("agent-model-picker");
     await expect(modeSelector).toBeVisible();
     await expect(modeSelector).toBeEnabled({ timeout: 10000 });
 

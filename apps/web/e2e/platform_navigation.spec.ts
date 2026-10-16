@@ -7,26 +7,18 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     await page.goto("/");
   });
 
-  test("renders collapsible session sidebar with agent selector and sessions list", async ({ page }) => {
+  test("the sidebar lists sessions and the composer chooses the agent", async ({ page }) => {
     const sidebar = page.getByTestId("session-sidebar");
     await expect(sidebar).toBeVisible();
-
-    // Verify Brand Logo in sidebar
     await expect(sidebar.getByText("Rocket Chat")).toBeVisible();
+    // One place chooses the agent: the composer, for the next message.
+    await expect(page.getByTestId("assigned-agent-button")).toHaveCount(0);
 
-    // Verify Active Agent Selector displays assigned agent
-    await expect(page.getByText("SPECIALIZED AGENT")).toBeVisible();
-    const agentDropdownBtn = page.getByTestId("assigned-agent-button");
-    await expect(agentDropdownBtn).toBeVisible();
-
-    // Open agent selector dropdown and choose an agent
-    await agentDropdownBtn.click();
-    await expect(page.getByText("Security & Penetration Auditor").first()).toBeVisible();
-
+    const picker = page.getByTestId("agent-model-picker");
+    await picker.click();
     await page.getByRole("button", { name: /Security & Penetration Auditor/i }).first().click();
 
-    // Verify active agent changed
-    await expect(agentDropdownBtn).toContainText("Security & Penetration Auditor");
+    await expect(picker).toContainText("Security & Penetration Auditor");
   });
 
   test("creates new mission session in sidebar list", async ({ page }) => {
@@ -166,10 +158,9 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     // Verify new persona appears in available catalog list
     await expect(page.getByText("Autonomous Chaos Engineer").first()).toBeVisible();
 
-    // Return to Cockpit and verify the agent is available in assigned agent picker
+    // Return to Cockpit and verify the agent is available in the composer's picker
     await page.goto("/");
-    const agentDropdownBtn = page.getByTestId("assigned-agent-button");
-    await agentDropdownBtn.click();
+    await page.getByTestId("agent-model-picker").click();
     await expect(page.getByText("Autonomous Chaos Engineer").first()).toBeVisible();
   });
 

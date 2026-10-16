@@ -66,6 +66,10 @@ interface EventPayload {
   message_id?: string;
   content?: string;
   author_user_id?: string | null;
+  /** On a turn's "running" status: the agent (empty for a raw model) and model it runs with. */
+  agent_id?: string;
+  agent_name?: string;
+  model?: string;
   [field: string]: unknown;
 }
 
@@ -346,6 +350,9 @@ export class MissionWebSocket {
 
         if (rawStatus === "running") {
           store.setIsExecuting(true);
+          if (typeof payload.model === "string") {
+            store.setTurnBinding({ agentName: payload.agent_name || "", model: payload.model });
+          }
         } else if (
           rawStatus === "completed" ||
           rawStatus === "error" ||
@@ -607,6 +614,12 @@ export class MissionWebSocket {
     const store = useMissionStore.getState();
     store.setIsExecuting(true);
     const ids = attachmentIds && attachmentIds.length > 0 ? attachmentIds : undefined;
+    // The turn names its own agent (or a raw model): the selection it was sent with answers,
+    // even if the session's stored selection is updated a moment later.
+    const choice =
+      store.inferenceMode === "direct"
+        ? { mode: "direct" as const }
+        : { mode: "agent" as const, agent_id: store.activeAgent?.id };
 
     // If WebSocket is currently connecting, await briefly for handshake before falling back
     if (this.ws && this.ws.readyState === WebSocket.CONNECTING) {
@@ -628,7 +641,14 @@ export class MissionWebSocket {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
         this.ws.send(
-          JSON.stringify({ type: "turn", content, model, message_id: messageId, attachment_ids: ids })
+          JSON.stringify({
+            type: "turn",
+            content,
+            model,
+            message_id: messageId,
+            attachment_ids: ids,
+            ...choice,
+          })
         );
         return;
       } catch (err) {
@@ -645,7 +665,13 @@ export class MissionWebSocket {
       const res = await fetch(`/v1/sessions/${this.sessionId}/turns`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ prompt: content, model, message_id: messageId, attachment_ids: ids }),
+        body: JSON.stringify({
+          prompt: content,
+          model,
+          message_id: messageId,
+          attachment_ids: ids,
+          ...choice,
+        }),
       });
       if (!res.ok) {
         const errorText = await res.text();

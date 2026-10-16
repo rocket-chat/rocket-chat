@@ -63,6 +63,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       reasoningStream: "",
       isReasoningActive: false,
       isExecuting: false,
+      turnBinding: sessionChanged ? null : get().turnBinding,
       activeDecision: sessionChanged ? null : get().activeDecision,
       activeApproval: sessionChanged ? null : get().activeApproval,
       // A reconnect re-hydrates the same session, so a discontinuity recorded for it
@@ -201,6 +202,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         body: JSON.stringify({
           initial_prompt: cleanPrompt,
           agent_id: targetAgentId,
+          mode: get().inferenceMode,
           model: model || active.model || get().selectedModel,
           message_id: promptMessageId,
           ...(get().permissionMode ? { permission_mode: get().permissionMode } : {}),

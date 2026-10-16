@@ -88,6 +88,10 @@ class CreateSessionRequest(BaseModel):
     tenant_user_id: str = Field(default="dev_user", description="User ID")
     agent_id: str | None = Field(default=None, description="Active custom agent persona ID")
     model: str | None = Field(default=None, description="Optional model override")
+    mode: Literal["agent", "direct"] = Field(
+        default="agent",
+        description="'direct' runs the first turn without an agent, on `model` with every tool",
+    )
     initial_prompt: str | None = Field(
         default=None, description="Initial prompt to ignite the first turn on creation"
     )
@@ -175,6 +179,14 @@ class UserTurnRequest(BaseModel):
 
     prompt: str = Field(..., min_length=1, description="Instruction or steer message for the agent")
     model: str | None = Field(default=None, description="Override LLM model name")
+    agent_id: str | None = Field(
+        default=None, description="The agent for this turn; empty keeps the session's"
+    )
+    mode: Literal["agent", "direct"] | None = Field(
+        default=None,
+        description="'direct' runs this turn without an agent, on `model` with every tool; "
+        "empty keeps the session's mode",
+    )
     attachment_ids: list[str] = Field(
         default_factory=list,
         description="Attachment ids to attach to this turn only (never re-sent on later turns)",

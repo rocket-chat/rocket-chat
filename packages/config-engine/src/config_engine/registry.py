@@ -427,7 +427,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "commit_authorship_policy",
             "enum",
             "co_authored",
-            "org",
+            "both",
             "apps/api/src/api/services/turn_service.py",
             "co_authored = bot commits with the member as Co-authored-by, user_only = commits "
             "as the member, bot_only = commits as the bot.",
@@ -437,7 +437,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "pr_creation_policy",
             "enum",
             "as_user",
-            "org",
+            "both",
             "apps/api/src/api/services/turn_service.py",
             "Open pull requests with the member's token (as_user) or the GitHub App (as_bot).",
             choices=("as_user", "as_bot"),
@@ -446,7 +446,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "commit_signing_mode",
             "enum",
             "github_app",
-            "org",
+            "both",
             "apps/api/src/api/services/turn_service.py",
             "github_app: commits are created through GitHub's API so GitHub signs them (verified, "
             "made by the GitHub App); gpg_key: members who imported a GPG key and chose to "

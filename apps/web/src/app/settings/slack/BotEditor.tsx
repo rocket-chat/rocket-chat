@@ -16,6 +16,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Field, Input, Select, Textarea } from "../../../components/ui/Field";
+import { ModelPicker } from "../../../components/ui/ModelPicker";
 import { InheritanceBadge } from "../../../components/settings/InheritanceBadge";
 import { SlackBot, SlackRoute, RouteDecisionItem } from "./types";
 
@@ -605,17 +606,17 @@ export function BotEditor({ bot, agentOptions, onClose, onSaved }: BotEditorProp
                 </Field>
 
                 <Field
-                  label="Classifier Model Override"
-                  hint="System One models run at zero output token cost with calibrated probabilities."
+                  label="Classifier model"
+                  hint="Empty uses the classifier agent's model. OpenRouter System One models return a probability per route."
                 >
                   {(props) => (
                     <div className="space-y-1.5">
-                      <Input
+                      <ModelPicker
                         {...props}
-                        placeholder="openrouter/typesafe/jev-latest (or inherit)"
+                        data-testid="classifier-model"
                         value={classifierModel}
-                        onChange={(e) => setClassifierModel(e.target.value)}
-                        className="text-xs font-mono h-8"
+                        onChange={setClassifierModel}
+                        inheritLabel="Classifier agent's model"
                       />
                       <div className="flex flex-wrap gap-1.5 pt-0.5">
                         <button
@@ -632,15 +633,6 @@ export function BotEditor({ bot, agentOptions, onClose, onSaved }: BotEditorProp
                         >
                           Mercury Decide
                         </button>
-                        {classifierModel && (
-                          <button
-                            type="button"
-                            onClick={() => setClassifierModel("")}
-                            className="text-[10px] px-1.5 py-0.5 rounded text-muted-foreground hover:text-foreground"
-                          >
-                            Clear
-                          </button>
-                        )}
                       </div>
                     </div>
                   )}

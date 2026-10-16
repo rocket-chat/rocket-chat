@@ -239,6 +239,16 @@ function GitHubSettingsContent() {
             only={["git_author_name", "git_author_email", "git_branch_prefix"]}
           />
 
+          {/* The organization's git policy, which a member may make their own unless it is locked */}
+          <SchemaSettingsForm
+            domain="github"
+            mode="user"
+            idScope="mine"
+            title="Your git policy"
+            description="Commit authorship, who opens pull requests and how commits are signed. Each follows your organization until you change it; reset a field to follow the organization again."
+            only={["commit_authorship_policy", "pr_creation_policy", "commit_signing_mode"]}
+          />
+
           <GitSigningPanel />
 
           {/* Personal Access Token (PAT) Fallback */}

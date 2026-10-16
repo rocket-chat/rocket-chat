@@ -27,6 +27,9 @@ const MODE_NOTES: Record<string, string> = {
   none: "Your organization does not sign commits.",
 };
 
+const ENABLE_KEYS =
+  "Members can import their own GPG key once an administrator sets the commit signing mode to “gpg_key” in Organization GitHub App Policies, below.";
+
 function formatFingerprint(fingerprint: string): string {
   return fingerprint.replace(/(.{4})/g, "$1 ").trim();
 }
@@ -121,7 +124,7 @@ export const GitSigningPanel: React.FC = () => {
 
       {!usesKeys && (
         <p data-testid="git-signing-mode-note" className="text-xs text-muted-foreground">
-          {MODE_NOTES[status.mode] ?? "Commit signing is managed by your organization."}
+          {MODE_NOTES[status.mode] ?? "Commit signing is managed by your organization."} {ENABLE_KEYS}
         </p>
       )}
 
