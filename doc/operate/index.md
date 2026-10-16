@@ -1,6 +1,6 @@
 ---
 title: Operate
-description: Run Rocket Chat in production: deploy, upgrade, monitor, back up, recover.
+description: "Run Rocket Chat in production: deploy, upgrade, monitor, back up, recover."
 ---
 
 # Operate

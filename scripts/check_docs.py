@@ -4,7 +4,8 @@
 * every page is in the navigation and every navigation entry exists;
 * no page links into ``dev/`` (developer documentation is not part of the site);
 * none of the retired concepts or old paths survive in a page;
-* the defaults the site states match the code.
+* the defaults the site states match the code;
+* every page's front matter is valid YAML (the site refuses to deploy otherwise).
 
 Run it with ``uv run python scripts/check_docs.py``; ``tests/unit/test_docs_site.py`` runs it in CI.
 """
@@ -15,6 +16,8 @@ import json
 import re
 import sys
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 DOC = ROOT / "doc"
@@ -118,12 +121,28 @@ def check_defaults() -> list[str]:
     return problems
 
 
+def check_front_matter() -> list[str]:
+    problems = []
+    for page in sorted(DOC.rglob("*.md")):
+        text = page.read_text(encoding="utf-8")
+        if not text.startswith("---\n"):
+            continue
+        header = text[4:].split("\n---", 1)[0]
+        try:
+            yaml.safe_load(header)
+        except yaml.YAMLError as err:
+            line = str(err).splitlines()[0]
+            problems.append(f"{page.relative_to(DOC)}: front matter is not valid YAML ({line})")
+    return problems
+
+
 def main() -> int:
     problems = [
         *check_navigation(),
         *check_no_links_into_dev(),
         *check_retired_phrases(),
         *check_defaults(),
+        *check_front_matter(),
     ]
     for problem in problems:
         print(f"docs: {problem}")

@@ -1,6 +1,6 @@
 ---
 title: Slack
-description: Work with Rocket Chat from Slack: mentions, direct messages, slash commands and streamed replies.
+description: "Work with Rocket Chat from Slack: mentions, direct messages, slash commands and streamed replies."
 ---
 
 # Slack
