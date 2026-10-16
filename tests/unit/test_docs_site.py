@@ -28,6 +28,10 @@ def test_no_page_describes_retired_features_or_old_paths() -> None:
     assert _checks().check_retired_phrases() == []
 
 
+def test_every_page_has_front_matter_the_site_can_parse() -> None:
+    assert _checks().check_front_matter() == []
+
+
 def test_the_defaults_the_site_states_match_the_code() -> None:
     assert _checks().check_defaults() == []
 
