@@ -23,6 +23,7 @@ from api.services.slack_bots import (
     SlackIdentity,
     SlackTokens,
     runtime_bot,
+    slash_command_of,
 )
 from api.services.slack_link import bind_workspace
 from api.services.slack_routing import list_route_decisions, try_classify
@@ -47,6 +48,8 @@ class SlackBotResponse(BaseModel):
     bot_user_id: str | None = None
     app_id: str | None = None
     handle: str | None = None
+    slash_command: str | None = Field(None, description="The command the bot chose, if any")
+    command: str = Field("/rocket", description="The slash command the bot answers")
     agent_id: str | None = None
     response_mode: str = "thread"
     respond_in_dms: bool = True
@@ -65,6 +68,7 @@ class SlackBotCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     bot_token: str = Field(..., description="Slack bot token starting with xoxb-")
     app_token: str = Field(..., description="Slack app-level token starting with xapp-")
+    slash_command: str | None = Field(None, description="Empty: named after the bot's handle")
     agent_id: str | None = None
     response_mode: str = "thread"
     respond_in_dms: bool = True
@@ -82,6 +86,7 @@ class SlackBotUpdateRequest(BaseModel):
     name: str | None = None
     bot_token: str | None = None
     app_token: str | None = None
+    slash_command: str | None = None
     agent_id: str | None = None
     response_mode: str | None = None
     respond_in_dms: bool | None = None
@@ -159,6 +164,8 @@ def _as_response(record: SlackBotRecord) -> SlackBotResponse:
         bot_user_id=record.bot_user_id,
         app_id=record.app_id,
         handle=record.handle,
+        slash_command=record.slash_command,
+        command=slash_command_of(record),
         agent_id=record.agent_id,
         response_mode=record.response_mode,
         respond_in_dms=record.respond_in_dms,
@@ -218,6 +225,7 @@ async def create_bot(body: SlackBotCreateRequest, request: Request) -> SlackBotR
         bot_user_id=identity.bot_user_id,
         app_id=identity.app_id,
         handle=identity.handle,
+        slash_command=body.slash_command,
         agent_id=body.agent_id,
         response_mode=body.response_mode,
         respond_in_dms=body.respond_in_dms,
@@ -295,7 +303,8 @@ async def delete_bot(bot_id: str, request: Request) -> dict[str, bool]:
 
 @router.post("/bots/{bot_id}/test", response_model=BotTestResponse)
 async def test_bot_connection(bot_id: str, request: Request) -> BotTestResponse:
-    """Validate a bot's stored tokens against Slack auth.test."""
+    """Validate a bot's stored tokens with Slack, and refresh what Slack says about the bot
+    (its display name changes when the app's manifest does)."""
     org_id, _, _ = _require_admin(request)
     store = _get_store(request)
     tokens = await store.tokens(org_id, bot_id)
@@ -305,6 +314,8 @@ async def test_bot_connection(bot_id: str, request: Request) -> BotTestResponse:
         identity = await check_tokens(tokens)
     except SlackBotError as err:
         raise HTTPException(status_code=400, detail=str(err)) from err
+    await store.update(org_id, bot_id, {}, identity=identity)
+    await _apply_to_running_bots(request)
     return BotTestResponse(
         ok=True,
         team_id=identity.team_id,

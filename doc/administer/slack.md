@@ -103,7 +103,7 @@ Bots are configured in the cockpit under **Settings → Slack**, by administrato
 
 1. Click **New bot**.
 2. Enter a display name, paste the **Bot User OAuth Token** (`xoxb-…`) and **App-Level Token** (`xapp-…`). Tokens enter write-only and are sealed with `CredentialCipher` in the database.
-3. Click **Test connection** (`auth.test`) to verify the credentials and discover the bot handle and workspace.
+3. Click **Test connection** to verify the credentials and read the bot's name and workspace from Slack. Run it again after renaming the app in its manifest: the bot follows its new display name.
 4. Download or copy the generated **Slack app manifest** from the Connection tab if you want Rocket Chat to compute scopes and events automatically based on your triggers.
 
 > **Upgrading from 0.3.0:** the `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` deployment variables are ignored (start-up logs a warning while they are set). Add the same Slack app as a bot here: paste its two tokens, and its existing threads start new sessions under the bot. The first bot binds its Slack workspace to your organization; a workspace bound to another organization is refused.
@@ -194,4 +194,4 @@ A scheduled mission (**Missions**) can name a **Slack channel**. When a run fini
 | No steps in the reply, only a spinner | `chat:write` is missing, **live progress** is switched off, or the turn used no tool. |
 | Long answers arrive as many messages | `files:write` is missing. |
 | "Only the person who asked can answer" | Buttons are answered by the requester only; ask them, or repeat the request yourself. |
-| The slash command does nothing | Each bot has its own command, named after its handle (`/triage`); copy the bot's generated manifest into its Slack app and reinstall it. Slack gives a command two apps share to the most recently installed one. |
+| The slash command does nothing | Each bot has its own command, named after its Slack display name (`/triage`) unless you choose one under **Connection → Slash command**; copy the bot's generated manifest into its Slack app and reinstall it. Slack gives a command two apps share to the most recently installed one. |
