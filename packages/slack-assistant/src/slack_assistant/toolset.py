@@ -1,6 +1,8 @@
 """The Slack toolset: thread/channel reads, discovery and policy-gated outbound actions."""
 
+import functools
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from agent_core.context import current_execution_ctx
@@ -14,9 +16,48 @@ from specifications.interfaces.llm import ToolDefinition
 
 logger = logging.getLogger(__name__)
 
+# The live assistant of each bot, by its session key. The Slack tools are registered once on
+# the process-wide tool registry, so a call must run on the assistant of the bot whose session
+# is executing (its Slack client, policy and conversations), never on whichever registered
+# first: bots restart when edited, and an organization can run several.
+_LIVE_BOTS: dict[str, "SlackToolsetMixin"] = {}
+NOT_CONNECTED = "Slack is not connected for this session (its bot is not running)."
+
 
 class SlackToolsetMixin(SlackDirectoryMixin):
     """The Slack toolset: thread/channel reads, discovery and policy-gated outbound actions."""
+
+    def _go_live(self) -> None:
+        if self.bot is not None:
+            _LIVE_BOTS[self.bot.session_key] = self
+
+    def _go_offline(self) -> None:
+        if self.bot is not None and _LIVE_BOTS.get(self.bot.session_key) is self:
+            del _LIVE_BOTS[self.bot.session_key]
+
+    def _session_owner(self) -> "SlackToolsetMixin | None":
+        """The assistant whose bot owns the executing session; an assistant without a bot (a
+        single embedded one, or tests) owns every session."""
+        ctx = current_execution_ctx.get()
+        session_id = ctx.session_id if ctx is not None else ""
+        for key, assistant in _LIVE_BOTS.items():
+            if session_id.startswith(f"slack_{key}_"):
+                return assistant
+        return self if self.bot is None else None
+
+    def _dispatching(self, handler: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[str]]:
+        """``handler`` run on the session's own assistant (same signature, for the schema)."""
+        name = handler.__name__
+
+        @functools.wraps(handler)
+        async def call(*args: Any, **kwargs: Any) -> str:
+            owner = self._session_owner()
+            if owner is None:
+                return NOT_CONNECTED
+            result: str = await getattr(owner, name)(*args, **kwargs)
+            return result
+
+        return call
 
     def _register_slack_context_tools(self) -> None:
         """Register on-demand Slack thread/channel history tools on the shared registry.
@@ -57,7 +98,7 @@ class SlackToolsetMixin(SlackDirectoryMixin):
                     },
                 },
             ),
-            self._tool_read_thread,
+            self._dispatching(self._tool_read_thread),
             toolset="slack",
         )
         self.tool_registry.register_dynamic_tool(
@@ -85,7 +126,7 @@ class SlackToolsetMixin(SlackDirectoryMixin):
                     },
                 },
             ),
-            self._tool_read_channel_history,
+            self._dispatching(self._tool_read_channel_history),
             toolset="slack",
         )
 
@@ -95,7 +136,7 @@ class SlackToolsetMixin(SlackDirectoryMixin):
         for name, description, schema, handler in self._slack_tool_specs():
             self.tool_registry.register_dynamic_tool(
                 ToolDefinition(name=name, description=description, parameters_json_schema=schema),
-                handler,
+                self._dispatching(handler),
                 toolset="slack",
             )
 

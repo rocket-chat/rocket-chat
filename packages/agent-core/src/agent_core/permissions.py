@@ -45,6 +45,7 @@ READ_TOOLS: frozenset[str] = frozenset(
         "git_log",
         "kb_search",
         "search_tools",
+        "load_tools",
         # Fetching code to read it: it adds files to the sandbox but changes no repository.
         "clone_repository",
         "set_active_repository",
@@ -178,6 +179,13 @@ def approval_needed(mode: str, name: str, arguments: dict[str, Any]) -> Approval
     return ApprovalNeed(action_type=name, description=_summarise(name, arguments), risk_level=risk)
 
 
-def changes_workspace(name: str, arguments: dict[str, Any]) -> bool:
-    """Whether the call may modify the workspace, the repository or the outside world."""
-    return _classify(name, arguments)[0] != "read"
+def touches_workspace(name: str, arguments: dict[str, Any]) -> bool:
+    """Whether the call may change the sandbox's files or repositories: what a turn checkpoint
+    protects. Publishing to Slack or GitHub and external (MCP) tools act elsewhere, so they
+    must not start a sandbox only to snapshot it."""
+    if name.startswith("mcp__"):
+        return False
+    kind = _classify(name, arguments)[0]
+    if kind == "publish":
+        return name.startswith("git_")
+    return kind in ("edit", "command")

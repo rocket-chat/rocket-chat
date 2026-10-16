@@ -7,7 +7,7 @@ test("administrator views slack bots, opens editor and configures routing", asyn
   await page.goto("/settings/slack");
 
   await expect(page.getByRole("heading", { name: /Slack & chat ops/i })).toBeVisible();
-  await expect(page.getByText("Configured Slack Bots")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Slack bots" })).toBeVisible();
 
   await page.getByTestId("new-bot-button").click();
   await expect(page.getByTestId("slack-bot-editor")).toBeVisible();
@@ -36,4 +36,27 @@ test("administrator views slack bots, opens editor and configures routing", asyn
   // Close editor
   await page.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByTestId("slack-bot-editor")).toHaveCount(0);
+});
+
+test("a member sees that Slack bots are managed by administrators", async ({ page }) => {
+  await page.route("**/api/auth/me", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "m",
+        user_id: "member_user",
+        email: "m@example.com",
+        name: "Member",
+        org_id: "default_org",
+        roles: ["developer"],
+      }),
+    }),
+  );
+  await page.goto("/settings/slack");
+
+  await expect(page.getByTestId("slack-bots-admin-only")).toBeVisible();
+  await expect(page.getByTestId("new-bot-button")).toHaveCount(0);
+  await expect(page.getByTestId("slack-workspace-binding")).toHaveCount(0);
+  await expect(page.getByTestId("slack-link-panel")).toBeVisible();
 });

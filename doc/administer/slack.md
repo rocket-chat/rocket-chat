@@ -99,7 +99,7 @@ settings:
 
 ## 2. Configure bots in Rocket Chat (Settings → Slack)
 
-Bots are configured in the cockpit under **Settings → Slack**:
+Bots are configured in the cockpit under **Settings → Slack**, by administrators (members see the page's personal settings only):
 
 1. Click **New bot**.
 2. Enter a display name, paste the **Bot User OAuth Token** (`xoxb-…`) and **App-Level Token** (`xapp-…`). Tokens enter write-only and are sealed with `CredentialCipher` in the database.
