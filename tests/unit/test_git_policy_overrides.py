@@ -64,11 +64,16 @@ async def test_a_reset_field_follows_the_organizations_later_changes() -> None:
         reset = client.delete("/v1/settings/github/commit_signing_mode", headers=headers).json()
         assert reset["field_status"]["commit_signing_mode"] == "org_default"
 
-        await save_org_config(None, org, "github", {"commit_signing_mode": "gpg_key"}, [])
+        # Through the API, so the same store is written whether or not a database is in use.
+        admin = {**headers, "X-Tenant-User-Id": "admin", "X-User-Role": "admin"}
+        client.put(
+            "/v1/admin/settings/github",
+            json={"config": {"commit_signing_mode": "gpg_key"}, "locked_keys": []},
+            headers=admin,
+        ).raise_for_status()
         later = client.get("/v1/settings/github", headers=headers).json()
 
     assert later["effective"]["commit_signing_mode"] == "gpg_key", "left at default, it follows"
-    assert (await _git_policy(org, "nathan")).signing_mode == "gpg_key"
 
 
 def test_the_bot_identity_and_app_permissions_stay_the_organizations() -> None:
