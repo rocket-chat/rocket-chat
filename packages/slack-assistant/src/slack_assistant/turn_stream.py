@@ -62,6 +62,8 @@ class TurnView:
     progress: ProgressMessage | None = None
     link_url: str | None = None
     screenshots: list[str] = field(default_factory=list)
+    # Private response mode: every message goes to the requester alone (ephemeral).
+    private: bool = False
 
 
 class SlackTurnStreamMixin(SlackAssistantState):

@@ -27,6 +27,8 @@ class ChannelProfile:
     instructions: str = ""
     allowed_tools: tuple[str, ...] = ()
     sandbox_image: str = ""
+    # "thread" or "private"; empty keeps the bot's (or its route's) mode.
+    response_mode: str = ""
 
     @classmethod
     def from_mapping(cls, raw: Any) -> ChannelProfile | None:
@@ -37,6 +39,7 @@ class ChannelProfile:
             instructions=str(raw.get("instructions") or "")[:2000],
             allowed_tools=tuple(_as_list(raw.get("allowed_tools"))),
             sandbox_image=str(raw.get("sandbox_image") or ""),
+            response_mode=str(raw.get("response_mode") or ""),
         )
 
 

@@ -1609,6 +1609,144 @@ The conversation behind a public link: no sign-in, read-only, never cached.
 
 ## Slack
 
+### `GET /v1/admin/slack/bots`
+
+List all configured Slack bots for the caller's organization.
+
+**Responses:** `200`
+
+### `POST /v1/admin/slack/bots`
+
+Register a new Slack bot with its encrypted tokens and identity.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | yes |  |
+| bot_token | string | yes | Slack bot token starting with xoxb- |
+| app_token | string | yes | Slack app-level token starting with xapp- |
+| agent_id | string | no |  |
+| response_mode | string | no |  |
+| respond_in_dms | boolean | no |  |
+| listen_channels | list of string | no |  |
+| private_reaction | string | no |  |
+| private_dm_result | boolean | no |  |
+| router | object | no |  |
+| policy | object | no |  |
+| enabled | boolean | no |  |
+
+**Responses:** `201`
+
+### `GET /v1/admin/slack/bots/{bot_id}`
+
+Get details of a single Slack bot (tokens omitted).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| bot_id | path | yes | string |
+
+**Responses:** `200`
+
+### `PUT /v1/admin/slack/bots/{bot_id}`
+
+Update a Slack bot's configuration or rotate its tokens.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| bot_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | no |  |
+| bot_token | string | no |  |
+| app_token | string | no |  |
+| agent_id | string | no |  |
+| response_mode | string | no |  |
+| respond_in_dms | boolean | no |  |
+| listen_channels | list of string | no |  |
+| private_reaction | string | no |  |
+| private_dm_result | boolean | no |  |
+| router | object | no |  |
+| policy | object | no |  |
+| enabled | boolean | no |  |
+
+**Responses:** `200`
+
+### `DELETE /v1/admin/slack/bots/{bot_id}`
+
+Remove a Slack bot and stop its background connection.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| bot_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/admin/slack/bots/{bot_id}/decisions`
+
+List recent routing decisions recorded for this bot.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| bot_id | path | yes | string |
+| limit | query | no | integer |
+
+**Responses:** `200`
+
+### `GET /v1/admin/slack/bots/{bot_id}/manifest`
+
+Generate the Slack app manifest JSON for this bot based on its configuration.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| bot_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/admin/slack/bots/{bot_id}/router/try`
+
+Classify a sample message with the bot's router without storing a decision.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| bot_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| text | string | yes |  |
+| thread_excerpt | string | no |  |
+
+**Responses:** `200`
+
+### `POST /v1/admin/slack/bots/{bot_id}/test`
+
+Validate a bot's stored tokens against Slack auth.test.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| bot_id | path | yes | string |
+
+**Responses:** `200`
+
 ### `GET /v1/admin/slack/workspace`
 
 Get Workspace Binding

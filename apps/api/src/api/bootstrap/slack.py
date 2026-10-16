@@ -1,7 +1,13 @@
 """Embedded Slack Socket Mode assistant: dependency wiring and its background listener."""
 
+from __future__ import annotations
+
 import asyncio
+import hashlib
+import json
 import logging
+import os
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import Any
 
@@ -9,22 +15,31 @@ from agent_core.context import current_execution_ctx
 from fastapi import FastAPI
 from sandbox_driver.blobs import read_bytes
 from slack_assistant.assistant import SlackAssistant
+from slack_assistant.bot import ClassifyRequest, RouteDecision, SlackBot
 from slack_assistant.config import SlackAssistantSettings
 from slack_assistant.policy import SlackOrgPolicy
+from slack_assistant.state import ClassifyFn
 
 from api.bootstrap.core import CoreServices
-from api.db.session import current_tenant_org_id
+from api.db.session import DatabaseSessionManager, current_tenant_org_id
 from api.services.audit import AuditService
 from api.services.cluster import LeaderElection
 from api.services.decision_answer import decision_answer_prompt
 from api.services.quota import SlackWorkspaceQuotaService
 from api.services.settings import effective_settings
+from api.services.slack_bots import (
+    SlackBotRecord,
+    SlackBotStore,
+    SlackTokens,
+    runtime_bot,
+)
 from api.services.slack_link import (
     PairingCodes,
     ensure_slack_guest,
     find_member,
     workspace_org,
 )
+from api.services.slack_routing import classify_slack_message
 from api.services.usage import month_start
 from api.turns.gates import take_stored_question
 from api.turns.tasks import run_guarded_turn
@@ -36,10 +51,12 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class SlackRuntime:
-    """The assistant and the task that keeps its socket open."""
+    """One bot's assistant, the task that keeps its socket open, and the configuration it
+    was started with (a change restarts it)."""
 
     assistant: SlackAssistant
     task: asyncio.Task[None]
+    fingerprint: str = ""
 
     async def stop(self) -> None:
         if not self.task.done():
@@ -52,24 +69,154 @@ class SlackRuntime:
         await self.assistant.stop_socket_mode()
 
 
+RESYNC_SECONDS = 30.0
+# Deprecated: bots are configured in the cockpit. Listed in the start-up warning when set.
+_DEPRECATED_ENV = (
+    "SLACK_BOT_TOKEN",
+    "SLACK_APP_TOKEN",
+    "SLACK_TEAM_ID",
+    "SLACK_DEFAULT_ORG_ID",
+    "SLACK_DM_POLICY",
+    "SLACK_OUTBOUND_CHANNELS",
+    "SLACK_ALLOWED_TOOLS",
+    "SLACK_WEB_BASE_URL",
+)
+
+
+class SlackBotManager:
+    """Runs one assistant per enabled bot of every organization.
+
+    Every replica runs the same set (each learns its bot's identity), and per-bot leader
+    election keeps one socket per bot across replicas. A change made in the cockpit restarts
+    the bot at once on the replica that saved it, and within ``RESYNC_SECONDS`` elsewhere.
+    """
+
+    def __init__(
+        self,
+        app: FastAPI,
+        core: CoreServices,
+        bot_store: SlackBotStore,
+        owner_db: DatabaseSessionManager | None = None,
+        settings: SlackAssistantSettings | None = None,
+    ) -> None:
+        self._app = app
+        self._core = core
+        self._bot_store = bot_store
+        self._owner_db = owner_db
+        self._settings = settings or SlackAssistantSettings()
+        self._callbacks = _SlackCallbacks(core)
+        self._runtimes: dict[str, SlackRuntime] = {}
+        self._lock = asyncio.Lock()
+        self._resync: asyncio.Task[None] | None = None
+        app.state.slack_pairing_codes = self._callbacks.pairing_codes
+
+    def all(self) -> list[SlackAssistant]:
+        return [r.assistant for r in self._runtimes.values()]
+
+    def for_org(self, org_id: str) -> list[SlackAssistant]:
+        return [a for a in self.all() if a.bot is not None and a.bot.org_id == org_id]
+
+    def start(self) -> None:
+        _warn_about_deprecated_env()
+        self._resync = asyncio.create_task(self._resync_forever())
+
+    async def sync(self) -> None:
+        """Start new bots, restart changed ones and stop removed or disabled ones."""
+        async with self._lock:
+            ready = await self._bot_store.enabled_bots(self._owner_db)
+            wanted = {record.id: (record, tokens) for record, tokens in ready}
+            for bot_id in list(self._runtimes):
+                runtime = self._runtimes[bot_id]
+                found = wanted.get(bot_id)
+                if found is None or runtime.fingerprint != _fingerprint(*found):
+                    await self._stop_locked(bot_id)
+            for bot_id, (record, tokens) in wanted.items():
+                if bot_id not in self._runtimes:
+                    self._start_locked(record, tokens)
+
+    async def stop(self) -> None:
+        if self._resync is not None:
+            self._resync.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._resync
+        async with self._lock:
+            for bot_id in list(self._runtimes):
+                await self._stop_locked(bot_id)
+        if self._owner_db is not None:
+            await self._owner_db.close()
+
+    async def _resync_forever(self) -> None:
+        while True:
+            try:
+                await self.sync()
+            except Exception as err:
+                logger.warning("Slack bot synchronisation failed: %s", err)
+            await asyncio.sleep(RESYNC_SECONDS)
+
+    def _start_locked(self, record: SlackBotRecord, tokens: SlackTokens) -> None:
+        assistant = _build_assistant(
+            self._app,
+            self._core,
+            self._settings,
+            bot=runtime_bot(record, tokens),
+            classify_fn=self._callbacks.classify,
+            callbacks=self._callbacks,
+        )
+        task = asyncio.create_task(
+            _listen(assistant, self._core.cluster_dsn, lock_key=f"slack:{record.id}")
+        )
+        self._runtimes[record.id] = SlackRuntime(assistant, task, _fingerprint(record, tokens))
+        logger.info("Started Slack bot %s (@%s)", record.id, record.handle or record.name)
+
+    async def _stop_locked(self, bot_id: str) -> None:
+        runtime = self._runtimes.pop(bot_id, None)
+        if runtime is not None:
+            await runtime.stop()
+
+
+def _fingerprint(record: SlackBotRecord, tokens: SlackTokens) -> str:
+    """What a running bot depends on: any change restarts it (tokens only as a hash)."""
+    state = json.dumps(vars(record), sort_keys=True, default=str) + tokens.bot_token
+    return hashlib.sha256((state + tokens.app_token).encode()).hexdigest()
+
+
+def _warn_about_deprecated_env() -> None:
+    present = [name for name in _DEPRECATED_ENV if os.getenv(name)]
+    if present:
+        logger.warning(
+            "Deprecated Slack environment variables are set and ignored: %s. Configure Slack "
+            "bots in Settings > Slack instead.",
+            ", ".join(present),
+        )
+
+
 def start_slack(
     app: FastAPI, core: CoreServices, settings: SlackAssistantSettings
-) -> SlackRuntime | None:
-    """Start the assistant when both Slack tokens are configured."""
-    if not (settings.slack_bot_token and settings.slack_app_token):
-        logger.info("Slack tokens not configured; skipping embedded Socket Mode background task.")
-        return None
-    logger.info("Initializing embedded Slack Socket Mode Assistant...")
-    assistant = _build_assistant(app, core, settings)
-    app.state.slack_assistant = assistant
-    return SlackRuntime(assistant, asyncio.create_task(_listen(assistant, core.cluster_dsn)))
+) -> SlackBotManager:
+    """Run the organizations' Slack bots. Listing every organization's bots crosses tenants,
+    so it reads on the schema-owner connection like the other cross-tenant jobs."""
+    bot_store = SlackBotStore(core.db_manager)
+    owner_db = (
+        DatabaseSessionManager(os.getenv("ADMIN_DATABASE_URL") or core.database_url or "")
+        if core.db_manager is not None
+        else None
+    )
+    manager = SlackBotManager(app, core, bot_store, owner_db, settings)
+    app.state.slack_bot_store = bot_store
+    app.state.slack_bot_manager = manager
+    manager.start()
+    return manager
 
 
 def _build_assistant(
-    app: FastAPI, core: CoreServices, settings: SlackAssistantSettings
+    app: FastAPI,
+    core: CoreServices,
+    settings: SlackAssistantSettings | None = None,
+    bot: SlackBot | None = None,
+    classify_fn: ClassifyFn | None = None,
+    callbacks: _SlackCallbacks | None = None,
 ) -> SlackAssistant:
-    callbacks = _SlackCallbacks(core)
-    app.state.slack_pairing_codes = callbacks.pairing_codes
+    callbacks = callbacks or _SlackCallbacks(core)
     return SlackAssistant(
         orchestrator=core.orchestrator,
         settings=settings,
@@ -95,17 +242,21 @@ def _build_assistant(
         audit_fn=callbacks.audit,
         read_file_bytes_fn=callbacks.read_sandbox_file,
         answer_stored_question_fn=callbacks.answer_stored_question,
+        bot=bot,
+        classify_fn=classify_fn,
     )
 
 
-async def _listen(assistant: SlackAssistant, cluster_dsn: str | None) -> None:
+async def _listen(
+    assistant: SlackAssistant, cluster_dsn: str | None, lock_key: str = "slack-socket-mode"
+) -> None:
     try:
         if cluster_dsn:
-            # Every replica learns the workspace identity; only the leader holds the
-            # socket, otherwise each Slack event would be answered once per replica.
+            # Every replica learns the bot's identity; only the leader holds its socket,
+            # otherwise each Slack event would be answered once per replica.
             await assistant.authenticate()
-            logger.info("Slack Socket Mode runs on the elected leader replica only.")
-            await LeaderElection(cluster_dsn, "slack-socket-mode").run(
+            logger.info("Slack Socket Mode runs on the elected leader only (lock %s).", lock_key)
+            await LeaderElection(cluster_dsn, lock_key).run(
                 assistant.start_socket_mode, assistant.stop_socket_mode
             )
         else:
@@ -129,6 +280,15 @@ class _SlackCallbacks:
     def bind_tenant(org_id: str) -> None:
         """Scope this task's database access to the Slack workspace's organization."""
         current_tenant_org_id.set(org_id)
+
+    async def classify(self, request: ClassifyRequest) -> RouteDecision | None:
+        """Route a message with the bot's classifier (billed to the bot's organization)."""
+        return await classify_slack_message(
+            self._core.orchestrator.gateway,
+            request,
+            self._core.db_manager,
+            default_model=self._core.orchestrator.default_model,
+        )
 
     async def resolve_user(
         self, slack_user_id: str, email: str | None, org_id: str

@@ -44,13 +44,15 @@ def test_slack_status_exposes_quota_counters() -> None:
     fake.team_name = None
     fake.team_id = None
 
-    original = getattr(app.state, "slack_assistant", None)
-    app.state.slack_assistant = fake
+    manager = MagicMock()
+    manager.for_org = MagicMock(return_value=[fake])
+    original = getattr(app.state, "slack_bot_manager", None)
+    app.state.slack_bot_manager = manager
     try:
         client = TestClient(app)
         data = client.get("/v1/slack/status").json()
     finally:
-        app.state.slack_assistant = original
+        app.state.slack_bot_manager = original
 
     assert data["quota_counters"] == {"quota_denied": 3, "turns_admitted": 7}
     assert data["is_configured"] is True

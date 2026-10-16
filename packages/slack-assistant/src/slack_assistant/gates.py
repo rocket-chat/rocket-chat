@@ -19,9 +19,21 @@ class SlackGatesMixin(SlackAssistantState):
         actions = body.get("actions", [])
         value = str(actions[0].get("value", "")) if actions else ""
         channel_id = str(body.get("channel", {}).get("id", ""))
-        thread_ts = str(body.get("container", {}).get("thread_ts", ""))
-        session_id = self.get_session_id(channel_id, thread_ts) if thread_ts else ""
-        return session_id, value, thread_ts, str(body.get("user", {}).get("id", ""))
+        container = body.get("container", {})
+        thread_ts = str(container.get("thread_ts", ""))
+        clicker = str(body.get("user", {}).get("id", ""))
+        # A private request's gates are ephemeral and only its requester sees them, so the
+        # clicker names the private session.
+        private_for = clicker if container.get("is_ephemeral") else None
+        known = self._gate_owners.get(value)
+        session_id = (
+            known[0]
+            if known is not None
+            else self.get_session_id(channel_id, thread_ts, private_for=private_for)
+            if thread_ts
+            else ""
+        )
+        return session_id, value, thread_ts, clicker
 
     async def _durable_requester(self, session_id: str) -> str | None:
         """Who started the session's latest turn, from the stored session (any replica, any time)."""

@@ -612,8 +612,9 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "org",
             "packages/slack-assistant/src/slack_assistant/policy.py",
             "Per-channel behaviour, keyed by channel id: {agent_persona, instructions, "
-            "allowed_tools, sandbox_image}. A channel with a profile uses its persona and house "
-            "rules; allowed_tools narrows the organization's tool scope for that channel.",
+            "allowed_tools, sandbox_image, response_mode}. A channel with a profile uses its "
+            "persona and house rules; allowed_tools narrows the organization's tool scope for "
+            "that channel; response_mode ('thread' or 'private') overrides the bot's.",
         ),
         _spec(
             "allowed_tools",

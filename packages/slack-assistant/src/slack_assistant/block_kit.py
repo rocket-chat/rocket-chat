@@ -453,3 +453,38 @@ def build_home_view(
     if link is not None:
         blocks.append(link)
     return {"type": "home", "blocks": blocks}
+
+
+SHARE_ACTION_ID = "share_private_answer"
+
+
+def build_private_blocks(
+    text: str, *, link_url: str | None, share_value: str | None = None
+) -> list[dict[str, Any]]:
+    """A private (ephemeral) reply: its text, an **Open session** button and, once there is an
+    answer, a **Share in thread** button that posts it publicly."""
+    blocks: list[dict[str, Any]] = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": text[:2900]}}
+    ]
+    buttons: list[dict[str, Any]] = []
+    if link_url:
+        buttons.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Open session"},
+                "url": link_url,
+                "action_id": "open_private_session",
+            }
+        )
+    if share_value:
+        buttons.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Share in thread"},
+                "value": share_value,
+                "action_id": SHARE_ACTION_ID,
+            }
+        )
+    if buttons:
+        blocks.append({"type": "actions", "elements": buttons})
+    return blocks

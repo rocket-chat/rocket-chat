@@ -257,13 +257,14 @@ class SlackAdmissionMixin(SlackAssistantState):
 
     async def _load_org_policy(self, org_id: str) -> SlackOrgPolicy:
         """The organization's Slack policy; permissive defaults when unavailable."""
-        if self._resolve_slack_policy_fn is None:
-            return SlackOrgPolicy()
-        try:
-            return await self._resolve_slack_policy_fn(org_id)
-        except Exception as err:
-            logger.warning("Slack policy resolution failed for %s: %s", org_id, err)
-            return SlackOrgPolicy()
+        policy = SlackOrgPolicy()
+        if self._resolve_slack_policy_fn is not None:
+            try:
+                policy = await self._resolve_slack_policy_fn(org_id)
+            except Exception as err:
+                logger.warning("Slack policy resolution failed for %s: %s", org_id, err)
+        bot = getattr(self, "bot", None)
+        return bot.apply_to(policy) if bot is not None else policy
 
     def quota_counters(self) -> dict[str, int]:
         """Rate-limit and quota counters for ``GET /v1/slack/status``."""

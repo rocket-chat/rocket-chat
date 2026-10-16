@@ -217,8 +217,6 @@ options configurable via `.env` or system environment variables are:
 | `OPENROUTER_API_KEY` | `""` | OpenRouter gateway authentication key |
 | `ANTHROPIC_API_KEY` | `""` | Direct Anthropic Claude API key |
 | `OPENAI_API_KEY` | `""` | Direct OpenAI API key |
-| `SLACK_BOT_TOKEN` | `""` | Slack Bot User OAuth Token (`xoxb-...`) |
-| `SLACK_APP_TOKEN` | `""` | Slack App-Level Token for Socket Mode (`xapp-...`) |
 
 ---
 
@@ -244,7 +242,7 @@ Open [http://localhost:3000](http://localhost:3000) in your browser:
 
 ### 2. Slack Assistant (Socket Mode)
 
-If configured with `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`:
+Once a bot is added in **Settings → Slack** (its Slack app's two tokens; see `doc/administer/slack.md`):
 
 1. Invite `@RocketChat` to any channel:
    ```text

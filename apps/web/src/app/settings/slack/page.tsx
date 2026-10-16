@@ -1,13 +1,29 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, AlertCircle, MessageSquare, RefreshCw, Radio } from "lucide-react";
+import {
+  CheckCircle2,
+  AlertCircle,
+  MessageSquare,
+  RefreshCw,
+  Radio,
+  Plus,
+  Bot,
+  Layers,
+  Edit2,
+  Trash2,
+  Lock,
+  Globe,
+  Info,
+} from "lucide-react";
 import { SchemaSettingsForm } from "../../../components/settings/SchemaSettingsForm";
 import {
   UserScopeSection,
   ScopeDivider,
   OrgScopeSection,
 } from "../../../components/settings/ScopedSettingsSection";
+import { BotEditor } from "./BotEditor";
+import { SlackBot } from "./types";
 
 interface SlackStatusData {
   socket_mode_active: boolean;
@@ -16,6 +32,7 @@ interface SlackStatusData {
   channels: string[];
   team_id?: string | null;
   bot_user_id?: string | null;
+  is_configured?: boolean;
 }
 
 interface WorkspaceBinding {
@@ -146,6 +163,12 @@ export default function SlackSettingsPage() {
   });
   const [agentPersonas, setAgentPersonas] = useState<{ value: string; label: string }[]>([]);
 
+  // Multi-bot state
+  const [bots, setBots] = useState<SlackBot[]>([]);
+  const [loadingBots, setLoadingBots] = useState(false);
+  const [editingBot, setEditingBot] = useState<SlackBot | null>(null);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
+
   const fetchStatus = useCallback(async () => {
     try {
       const res = await fetch("/v1/slack/status");
@@ -155,15 +178,30 @@ export default function SlackSettingsPage() {
     }
   }, []);
 
+  const fetchBots = useCallback(async () => {
+    setLoadingBots(true);
+    try {
+      const res = await fetch("/v1/admin/slack/bots");
+      if (res.ok) {
+        setBots(await res.json());
+      }
+    } catch (err) {
+      console.warn("Failed to load Slack bots:", err);
+    } finally {
+      setLoadingBots(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchStatus();
+    fetchBots();
     fetch("/v1/agents")
       .then((res) => (res.ok ? res.json() : []))
       .then((agents: { id: string; name: string }[]) =>
         setAgentPersonas(agents.map((a) => ({ value: a.id, label: a.name }))),
       )
       .catch(() => {});
-  }, [fetchStatus]);
+  }, [fetchStatus, fetchBots]);
 
   const handleTestSocketMode = async () => {
     setTestingSocket(true);
@@ -185,6 +223,56 @@ export default function SlackSettingsPage() {
     }
   };
 
+  const handleToggleBotEnabled = async (botId: string, currentEnabled: boolean) => {
+    try {
+      const res = await fetch(`/v1/admin/slack/bots/${botId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !currentEnabled }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setBots(bots.map((b) => (b.id === botId ? updated : b)));
+      }
+    } catch (err) {
+      console.warn("Failed to toggle bot enabled:", err);
+    }
+  };
+
+  const handleDeleteBot = async (botId: string, botName: string) => {
+    if (!confirm(`Are you sure you want to delete Slack bot "${botName}"?`)) return;
+    try {
+      const res = await fetch(`/v1/admin/slack/bots/${botId}`, { method: "DELETE" });
+      if (res.ok) {
+        setBots(bots.filter((b) => b.id !== botId));
+      }
+    } catch (err) {
+      console.warn("Failed to delete bot:", err);
+    }
+  };
+
+  const handleNewBot = () => {
+    setEditingBot(null);
+    setIsEditorOpen(true);
+  };
+
+  const handleEditBot = (bot: SlackBot) => {
+    setEditingBot(bot);
+    setIsEditorOpen(true);
+  };
+
+  const handleBotSaved = (saved: SlackBot) => {
+    setIsEditorOpen(false);
+    setEditingBot(null);
+    const existing = bots.find((b) => b.id === saved.id);
+    if (existing) {
+      setBots(bots.map((b) => (b.id === saved.id ? saved : b)));
+    } else {
+      setBots([...bots, saved]);
+    }
+    fetchStatus();
+  };
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
@@ -194,10 +282,27 @@ export default function SlackSettingsPage() {
             Slack &amp; chat ops
           </h1>
           <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 mt-1">
-            Slack notifications, the organization bot policy, and the live Socket Mode connection.
+            Configure multiple Slack bots, response modes, message routing, and workspace policies.
           </p>
         </div>
       </div>
+
+      {/* Deprecation notice banner for env tokens */}
+      {slackStatus.is_configured && (
+        <div
+          data-testid="slack-env-deprecation-banner"
+          className="flex items-start gap-3 p-3.5 rounded-lg bg-amber-950/40 border border-amber-800/50 text-amber-300 text-xs"
+        >
+          <Info className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <span className="font-semibold">Imported from the environment</span>
+            <p className="text-amber-300/80">
+              Remove <code>SLACK_BOT_TOKEN</code> and <code>SLACK_APP_TOKEN</code> from your deployment. Bots are now
+              configured and encrypted per bot in the cockpit below.
+            </p>
+          </div>
+        </div>
+      )}
 
       {errorBanner && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
@@ -212,6 +317,7 @@ export default function SlackSettingsPage() {
         </div>
       )}
 
+      {/* Member Linking */}
       <UserScopeSection
         title="Link your Slack account"
         description="Pair your Slack user with this Rocket Chat account so direct messages run as you."
@@ -219,6 +325,7 @@ export default function SlackSettingsPage() {
         <SlackLinkPanel />
       </UserScopeSection>
 
+      {/* User Notifications */}
       <UserScopeSection
         title="Slack Notifications"
         description="Whether the bot posts a completion notice in your thread when a long-running turn finishes."
@@ -233,11 +340,133 @@ export default function SlackSettingsPage() {
 
       <ScopeDivider label="Organization Scope" />
 
+      {/* Organization Slack Bots */}
       <OrgScopeSection
-        title="Organization Slack Bot & Socket Integration"
-        description="Workspace policy: where the bot answers, which agent and tools it uses, and who it may message."
+        title="Configured Slack Bots"
+        description="Each bot connects its own Slack app (@handle) with dedicated agents, response modes, and policy overrides."
       >
         <div className="space-y-4">
+          <div className="flex items-center justify-between pb-2">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-foreground">
+                {bots.length} {bots.length === 1 ? "bot" : "bots"} configured
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleNewBot}
+              data-testid="new-bot-button"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand/90 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>New bot</span>
+            </button>
+          </div>
+
+          {/* Bots Cards List */}
+          {loadingBots ? (
+            <div className="p-8 text-center text-xs text-muted-foreground">Loading bots...</div>
+          ) : bots.length === 0 ? (
+            <div className="p-8 text-center border border-dashed border-border rounded-xl space-y-2 bg-surface-card/40">
+              <Bot className="w-8 h-8 text-muted-foreground mx-auto" />
+              <p className="text-xs font-medium text-foreground">No Slack bots configured yet</p>
+              <p className="text-[11px] text-muted-foreground max-w-sm mx-auto">
+                Add a bot to connect a Slack app handle, choose its agent or router, and pick whether it responds publicly or
+                privately.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-testid="slack-bots-list">
+              {bots.map((b) => (
+                <div
+                  key={b.id}
+                  data-testid={`slack-bot-card-${b.id}`}
+                  className="p-4 rounded-xl border border-border bg-surface-card flex flex-col justify-between space-y-4 hover:border-neutral-400/60 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm text-foreground">{b.name}</span>
+                        {b.handle && (
+                          <span className="text-xs text-brand font-medium">@{b.handle}</span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-muted-foreground">
+                        {b.team_name ? `Workspace: ${b.team_name}` : "Slack App connection"}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={b.enabled}
+                      aria-label={`Toggle ${b.name}`}
+                      onClick={() => handleToggleBotEnabled(b.id, b.enabled)}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                        b.enabled ? "bg-brand" : "bg-neutral-600 dark:bg-neutral-700"
+                      }`}
+                    >
+                      <span
+                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                          b.enabled ? "translate-x-4" : "translate-x-0"
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                    {/* Brain Badge */}
+                    {b.router ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium">
+                        <Layers className="w-3 h-3" />
+                        <span>Router ({b.router.routes?.length || 0} routes)</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-medium">
+                        <Bot className="w-3 h-3" />
+                        <span>One Agent</span>
+                      </span>
+                    )}
+
+                    {/* Response Mode Badge */}
+                    {b.response_mode === "private" ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
+                        <Lock className="w-2.5 h-2.5" />
+                        <span>Private session</span>
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                        <Globe className="w-2.5 h-2.5" />
+                        <span>Thread public</span>
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60">
+                    <button
+                      type="button"
+                      onClick={() => handleEditBot(b)}
+                      data-testid={`edit-bot-${b.id}`}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border text-xs text-foreground hover:bg-surface-elevated transition-colors"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                      <span>Edit</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteBot(b.id, b.name)}
+                      className="p-1.5 text-muted-foreground hover:text-rose-400 rounded-lg hover:bg-surface-elevated transition-colors"
+                      title="Delete bot"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Live Socket Status */}
           <div className="flex items-center justify-between p-3 rounded-lg border border-border bg-surface-card">
             <div className="flex items-center gap-2.5">
               <Radio
@@ -268,11 +497,21 @@ export default function SlackSettingsPage() {
           <SchemaSettingsForm
             domain="slack"
             mode="org"
-            title="Slack bot policy"
+            title="Default organization policy"
             selectOptions={{ default_agent_persona: agentPersonas }}
           />
         </div>
       </OrgScopeSection>
+
+      {/* Bot Editor Modal */}
+      {isEditorOpen && (
+        <BotEditor
+          bot={editingBot}
+          agentOptions={agentPersonas}
+          onClose={() => setIsEditorOpen(false)}
+          onSaved={handleBotSaved}
+        />
+      )}
     </div>
   );
 }

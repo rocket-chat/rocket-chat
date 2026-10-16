@@ -7,7 +7,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from slack_assistant.assistant import SlackAssistant, clean_mention_text
+from slack_assistant.assistant import clean_mention_text
 from slack_assistant.block_kit import (
     build_approval_blocks,
     build_diff_blocks,
@@ -15,6 +15,7 @@ from slack_assistant.block_kit import (
     markdown_to_slack_mrkdwn,
 )
 from slack_assistant.config import SlackAssistantSettings
+from slack_assistant.state import SlackAssistantState
 from slack_harness import make_slack
 
 from specifications.interfaces.agent import (
@@ -84,7 +85,7 @@ def test_clean_mention_text() -> None:
 
 
 def test_get_session_id() -> None:
-    session_id = SlackAssistant.get_session_id("C081234", "1700000000.123456")
+    session_id = SlackAssistantState().get_session_id("C081234", "1700000000.123456")
     assert session_id == "slack_C081234_1700000000_123456"
     assert "." not in session_id
 

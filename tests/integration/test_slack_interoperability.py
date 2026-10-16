@@ -12,8 +12,8 @@ from agent_core.orchestrator import AsyncReActOrchestrator
 from agent_core.tools.registry import ToolRegistry
 from llm_gateway.gateway import LiteLLMGateway
 from sandbox_driver.docker_driver import DockerSandboxDriver
-from slack_assistant.assistant import SlackAssistant
 from slack_assistant.config import SlackAssistantSettings
+from slack_assistant.state import SlackAssistantState
 from slack_harness import make_slack
 
 from specifications.interfaces.sandbox import ResourceLimits, WorkspaceSpec
@@ -30,7 +30,7 @@ async def test_slack_interoperability_math_bug_fix(
     """
     channel_id = "C_DEV"
     raw_ts = f"1700000000.{uuid.uuid4().hex[:6]}"
-    session_id = SlackAssistant.get_session_id(channel_id, raw_ts)
+    session_id = SlackAssistantState().get_session_id(channel_id, raw_ts)
 
     driver = DockerSandboxDriver(default_image="python:3.12-slim")
     spec = WorkspaceSpec(
