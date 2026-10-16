@@ -111,6 +111,7 @@ persona carries the stored id, which can differ from the proposed one.
 | customized | boolean | no | A built-in agent whose organization edit is in effect (it can be reset) |
 | icon | string | no | Avatar/icon key |
 | sandbox_image | string | no | Sandbox image; empty inherits the organization default |
+| sandbox_id | string | no | Sandbox type the agent's sessions start in when their creator picks none; empty uses the organization's default |
 | cpu_limit | string | no | CPU cores; empty inherits the org setting |
 | memory_limit | string | no | Memory limit; empty inherits the org setting |
 | temperature | number | no | Sampling temperature override |

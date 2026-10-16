@@ -62,6 +62,8 @@ Pin a tool (the pin on an allowed tool) or list patterns under **Always loaded**
 
 An agent's prompt says who it is and how it should work. The platform adds the facts about where it works, whatever the prompt says: the sandbox starts blank and how to find and clone a repository; the workspace (the active repository, a fresh shell per command, clamped output); how to edit and verify; and the git and GitHub rules. Those rules cover no credentials in the sandbox, never committing to the default branch, publishing with `git_push` or `git_open_pr`, how the organization's signing mode applies, and the `github_*` tools. The platform also adds your organization's skills and the active repository's own `AGENTS.md` (or similar). The built-in agents use whatever model you or your organization choose, from any provider.
 
+Each agent can set a **Sandbox**: the sandbox type its sessions start in when you pick none in the composer (a sandbox you pick still wins); empty uses the organization's default.
+
 Each agent can set **Max steps per turn**, from 1 up to the organization's limit (Settings > Models & routing); leave it empty to use the organization's. Lower it for a quick helper, or raise it, within the limit, for a long investigation.
 
 ## Memory

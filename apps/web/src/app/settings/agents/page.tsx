@@ -103,6 +103,7 @@ export default function AgentsSettingsPage() {
   );
   const [previewMarkdown, setPreviewMarkdown] = useState(false);
   const [orgMaxTurns, setOrgMaxTurns] = useState<number | null>(null);
+  const [sandboxTypes, setSandboxTypes] = useState<{ id: string; name: string; is_default: boolean }[]>([]);
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -113,13 +114,19 @@ export default function AgentsSettingsPage() {
   // Fetch contextual tool registries
   const loadRegistries = useCallback(async () => {
     try {
-      const [mcpRes, skillsRes, kbRes, toolsRes, limitsRes] = await Promise.all([
+      const [mcpRes, skillsRes, kbRes, toolsRes, limitsRes, sandboxesRes] = await Promise.all([
         fetch("/v1/mcp/servers"),
         fetch("/v1/skills"),
         fetch("/v1/knowledge/bases"),
         fetch("/v1/tools"),
         fetch("/v1/agents/limits"),
+        fetch("/v1/sandboxes"),
       ]);
+
+      if (sandboxesRes.ok) {
+        const body = await sandboxesRes.json();
+        if (Array.isArray(body?.sandboxes)) setSandboxTypes(body.sandboxes);
+      }
 
       if (limitsRes.ok) {
         const limits = await limitsRes.json();
@@ -577,6 +584,33 @@ export default function AgentsSettingsPage() {
                 onChange={(model) => setFormData({ ...formData, model })}
                 inheritLabel="Organization default"
               />
+            )}
+          </Field>
+
+          {/* The sandbox type this agent's sessions start in, unless their creator picks one */}
+          <Field
+            label="Sandbox"
+            hint="Where this agent's new sessions run when the person starting them picks no sandbox. A sandbox picked in the composer still wins."
+          >
+            {(control) => (
+              <Select {...control}
+                data-testid="agent-sandbox"
+                disabled={!canEditCurrentAgent}
+                value={formData.sandbox_id || ""}
+                onChange={(e) => setFormData({ ...formData, sandbox_id: e.target.value })}
+                className="max-w-xs"
+              >
+                <option value="">Organization default</option>
+                {sandboxTypes.map((box) => (
+                  <option key={box.id} value={box.id}>
+                    {box.name}
+                    {box.is_default ? " (organization default)" : ""}
+                  </option>
+                ))}
+                {formData.sandbox_id && !sandboxTypes.some((box) => box.id === formData.sandbox_id) && (
+                  <option value={formData.sandbox_id}>Removed sandbox type (uses the default)</option>
+                )}
+              </Select>
             )}
           </Field>
 

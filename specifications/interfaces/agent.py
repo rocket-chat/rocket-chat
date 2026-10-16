@@ -408,6 +408,9 @@ class AgentBinding:
     policy: TurnPolicy = field(default_factory=TurnPolicy)
     # Agent persona sandbox overrides; empty means "inherit the organization setting".
     sandbox_image: str = ""
+    # The sandbox type (catalogue entry) the agent's sessions start in when the session's
+    # creator chose none; empty means the organization's default.
+    sandbox_id: str = ""
     cpu_limit: str = ""
     memory_limit: str = ""
     # Knowledge collections the persona may search; empty means every collection the caller can see.

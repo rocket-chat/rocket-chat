@@ -142,10 +142,11 @@ async def provision_session_sandbox(
     )
     sandbox_cfg = await effective_settings(db_mgr, t_org, "sandboxes")
     catalogue = SandboxCatalogue(db_mgr)
-    chosen = (
-        await catalogue.resolve(t_org, sandbox_id=_session_metadata(s_rec).get("sandbox_id"))
-        if _session_metadata(s_rec).get("sandbox_id")
-        else None
+    chosen = await catalogue.chosen(
+        t_org,
+        session_sandbox_id=_session_metadata(s_rec).get("sandbox_id"),
+        session_image=s_rec.container_image if s_rec else None,
+        agent_sandbox_id=binding.sandbox_id,
     )
     image = (
         (chosen.image if chosen else None)

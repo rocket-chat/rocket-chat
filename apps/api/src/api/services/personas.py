@@ -20,6 +20,7 @@ from sqlalchemy.exc import IntegrityError
 
 from api.db.models import AgentPersonaEntityModel
 from api.models import AgentPersonaModel, ToolLoadingMode
+from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.turn_limits import organization_max_turns
 
 # The default agent's prompt, also used when a session's agent has none. Model-agnostic: the
@@ -141,6 +142,7 @@ def _from_entity(entity: AgentPersonaEntityModel) -> AgentPersonaModel:
         knowledge_base_ids=entity.knowledge_base_ids or [],
         icon=entity.icon,
         sandbox_image=entity.sandbox_image,
+        sandbox_id=entity.sandbox_id or "",
         cpu_limit=entity.cpu_limit,
         memory_limit=entity.memory_limit,
         temperature=entity.temperature,
@@ -165,6 +167,7 @@ _COPIED_FIELDS = (
     "knowledge_base_ids",
     "icon",
     "sandbox_image",
+    "sandbox_id",
     "cpu_limit",
     "memory_limit",
     "temperature",
@@ -356,6 +359,18 @@ async def _validate_step_limit(db_mgr: Any, org_id: str, persona: AgentPersonaMo
         )
 
 
+async def _validate_sandbox_type(db_mgr: Any, org_id: str, persona: AgentPersonaModel) -> None:
+    if not persona.sandbox_id:
+        return
+    if await SandboxCatalogue(db_mgr).resolve(org_id, sandbox_id=persona.sandbox_id) is None:
+        raise PersonaError(422, "That sandbox type is not in the organization's catalogue.")
+
+
+async def _validate(db_mgr: Any, org_id: str, persona: AgentPersonaModel) -> None:
+    await _validate_step_limit(db_mgr, org_id, persona)
+    await _validate_sandbox_type(db_mgr, org_id, persona)
+
+
 async def save_persona(
     db_mgr: Any, org_id: str, user_id: str, is_admin: bool, persona: AgentPersonaModel
 ) -> AgentPersonaModel:
@@ -366,13 +381,13 @@ async def save_persona(
     with (and thereby probe) another tenant's persona.
     """
     if persona.id in RESERVED_IDS:
-        await _validate_step_limit(db_mgr, org_id, persona)
+        await _validate(db_mgr, org_id, persona)
         return await _save_builtin_override(db_mgr, org_id, is_admin, persona)
     if persona.scope == "org" and not is_admin:
         raise PersonaError(
             403, "Only Organization Administrators can configure organization-wide agent personas."
         )
-    await _validate_step_limit(db_mgr, org_id, persona)
+    await _validate(db_mgr, org_id, persona)
     persona.user_id = user_id if persona.scope == "user" else None
     persona.built_in = False
     now = int(time.time())

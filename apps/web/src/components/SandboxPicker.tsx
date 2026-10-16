@@ -14,11 +14,16 @@ interface Sandbox {
 
 /**
  * Chooses the sandbox a NEW session starts in. Shown only when the organization offers more
- * than one; a session keeps the sandbox it started with.
+ * than one; a session keeps the sandbox it started with. Leaving it on the first option uses
+ * the agent's sandbox type, else the organization's default.
  */
 export const SandboxPicker: React.FC<{ disabled?: boolean }> = ({ disabled }) => {
   const selected = useMissionStore((s) => s.selectedSandboxId);
   const select = useMissionStore((s) => s.setSelectedSandboxId);
+  // A direct-model turn runs no agent, so only an agent's own sandbox type replaces the default.
+  const agentSandboxId = useMissionStore((s) =>
+    s.inferenceMode === "agent" ? s.activeAgent?.sandbox_id || "" : ""
+  );
   const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
 
   useEffect(() => {
@@ -35,12 +40,15 @@ export const SandboxPicker: React.FC<{ disabled?: boolean }> = ({ disabled }) =>
   }, []);
 
   if (sandboxes.length < 2) return null;
+  const agentSandbox = sandboxes.find((s) => s.id === agentSandboxId);
   const current = sandboxes.find((s) => s.id === selected);
   const hint = current
     ? [current.description, current.capabilities.length ? `Can: ${current.capabilities.join(", ")}` : ""]
         .filter(Boolean)
         .join(" - ")
-    : "The organization's default sandbox.";
+    : agentSandbox
+      ? `The agent's sandbox: ${agentSandbox.name}.`
+      : "The organization's default sandbox.";
 
   return (
     <label
@@ -57,7 +65,7 @@ export const SandboxPicker: React.FC<{ disabled?: boolean }> = ({ disabled }) =>
         onChange={(e) => select(e.target.value)}
         className="bg-transparent text-xs text-foreground focus:outline-none cursor-pointer max-w-[9rem]"
       >
-        <option value="">Default</option>
+        <option value="">{agentSandbox ? `Agent's: ${agentSandbox.name}` : "Default"}</option>
         {sandboxes.map((box) => (
           <option key={box.id} value={box.id}>
             {box.name}
