@@ -76,6 +76,9 @@ class PublishSpec:
     default_branch: str = "main"
     force_with_lease: bool = False
     signing_key: SigningKey | None = field(default=None, repr=False)
+    # Credited on every commit GitHub re-creates (``GITHUB_APP``), whatever made it: the
+    # ``git_commit`` tool or a plain ``git commit`` in the shell.
+    co_authors: tuple[CoAuthor, ...] = ()
 
 
 @dataclass
@@ -87,6 +90,10 @@ class PublishResult:
     commits: int = 0
     # Things the member should know about what was published, e.g. a lost executable bit.
     notices: list[str] = field(default_factory=list)
+    # (local, published) hashes of commits re-created on publication (signed by GitHub or with
+    # the member's key, or credited to them); the sandbox's branch then points at the published
+    # ones. Empty when the commits were pushed as they are.
+    rewritten: list[tuple[str, str]] = field(default_factory=list)
 
 
 @dataclass

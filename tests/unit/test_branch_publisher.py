@@ -12,14 +12,16 @@ import json
 import pathlib
 import subprocess
 from collections.abc import Iterator
+from dataclasses import replace
 
 import httpx
 import pytest
+from agent_core.tools.git_tools import describe_publication
 from api.services.git_signing import gpg_available, inspect_private_key
 from git_engine import publish as publish_module
 from git_engine.publish import BranchPublisher, PublishError, repository_of
 
-from specifications.interfaces.git import PublishSpec, SigningKey, SigningMode
+from specifications.interfaces.git import CoAuthor, PublishSpec, SigningKey, SigningMode
 from tests.support.gpg_keys import make_key
 from tests.support.local_git_driver import LocalGitDriver
 
@@ -171,9 +173,28 @@ async def test_new_commits_are_replayed_through_the_api_and_the_branch_follows(r
     )
     assert (rig.work / "scratch.txt").read_text() == "uncommitted\n", "uncommitted work survives"
     assert result.head_sha == git(rig.work, "rev-parse", "HEAD")
+    published = git(rig.bare, "rev-list", "--reverse", "-2", "refs/heads/feat/rocket-x").split()
+    assert [new for _, new in result.rewritten] == published, "each commit's replacement"
+    assert all(old != new for old, new in result.rewritten)
+    told = describe_publication(result)
+    assert "hashes changed" in told and f"-> {published[-1][:12]}" in told
     assert rig.minted == [(REPOSITORY, 7)] and set(rig.github.tokens) == {
         "Bearer ghs_app_installation"
     }
+
+
+async def test_the_member_is_credited_on_every_commit_the_app_re_creates(rig: Rig) -> None:
+    # A commit made in the shell with plain `git commit` never went through git_commit.
+    git(rig.work, "checkout", "-q", "-b", "feat/credit")
+    rig.commit("c.txt", "c\n", "chore: empty commit to trigger CI")
+    rig.commit("d.txt", "d\n", "Add d\n\nCo-authored-by: Nathan <nathan@x.test>")
+    member = CoAuthor(name="Nathan", email="nathan@x.test")
+
+    await rig.publisher().publish("s1", replace(API, co_authors=(member,)))
+
+    messages = git(rig.bare, "log", "--format=%B%x00", "refs/heads/feat/credit", "-2").split("\0")
+    credited = [m.count("Co-authored-by: Nathan <nathan@x.test>") for m in messages if m.strip()]
+    assert credited == [1, 1], "added where missing, never twice"
 
 
 async def test_a_member_token_makes_the_commits_the_members(rig: Rig) -> None:
@@ -316,6 +337,7 @@ async def test_gpg_mode_signs_the_published_commits_with_the_members_key_on_the_
     assert git(rig.work, "rev-parse", "HEAD") == result.head_sha == remote[0]
     assert (rig.work / "dirty.txt").read_text() == "uncommitted\n"
     assert any("Signed with your GPG key" in note for note in result.notices)
+    assert result.rewritten and result.rewritten[-1][1] == result.head_sha, "re-signed hashes"
     assert public, "the key pair is real"
 
 
@@ -479,3 +501,22 @@ async def test_an_empty_repository_receives_the_whole_branch_or_a_clear_refusal(
     )
 
     assert result.commits == 1 and git(empty, "log", "--format=%s", "main") == "First commit"
+
+
+def test_the_co_authored_policy_credits_the_member_on_app_commits_only() -> None:
+    from agent_core.tools.git_tools import publish_spec_for_policy
+
+    from specifications.interfaces.agent import GitPolicy
+
+    member = GitPolicy(
+        authorship="co_authored",
+        signing_mode="github_app",
+        user_name="Nathan",
+        user_email="nathan@x.test",
+    )
+
+    assert publish_spec_for_policy(member).co_authors == (CoAuthor("Nathan", "nathan@x.test"),)
+    assert publish_spec_for_policy(replace(member, authorship="bot_only")).co_authors == ()
+    assert publish_spec_for_policy(replace(member, authorship="user_only")).co_authors == (), (
+        "the member's own commits need no credit"
+    )

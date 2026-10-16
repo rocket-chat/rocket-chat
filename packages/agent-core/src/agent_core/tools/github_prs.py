@@ -55,6 +55,38 @@ def _pr_line(pull: dict[str, Any]) -> str:
     )
 
 
+VIEW_BODY_CHARS = 4000
+VIEW_COMMENT_CHARS = 600
+
+
+async def view(access: GithubAccess, slug: str, number: int) -> str:
+    """One pull request: what it changes, its description and its latest comments.
+
+    Read from the pull request endpoint (the *Pull requests* permission), not the issue one: a
+    GitHub App token is often granted pull requests but not issues. The comments live on the
+    issue endpoint, so without that permission the view says so instead of failing.
+    """
+    pull = await request(access, "GET", f"/repos/{slug}/pulls/{number}")
+    lines = [
+        _pr_line(pull),
+        f"{pull.get('changed_files', '?')} files, +{pull.get('additions', '?')} "
+        f"-{pull.get('deletions', '?')}; mergeable: {pull.get('mergeable_state', '?')}",
+        clamp_output((pull.get("body") or "(no description)").strip(), VIEW_BODY_CHARS),
+    ]
+    try:
+        comments = await request(
+            access, "GET", f"/repos/{slug}/issues/{number}/comments", params={"per_page": 30}
+        )
+    except GithubError:
+        lines.append("(Comments not shown: this credential may not read issues.)")
+        return "\n".join(lines)
+    for comment in (comments or [])[-5:]:
+        who = (comment.get("user") or {}).get("login", "?")
+        body = clamp_output((comment.get("body") or "").strip(), VIEW_COMMENT_CHARS)
+        lines.append(f"--- {who}: {body}")
+    return "\n".join(lines)
+
+
 async def list_pulls(access: GithubAccess, slug: str, state: str) -> str:
     pulls = await request(
         access, "GET", f"/repos/{slug}/pulls", params={"state": state, "per_page": 20}

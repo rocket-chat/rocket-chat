@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, Lock, Save, RotateCcw } from "lucide-react";
 import { useSession } from "../AuthProvider";
+import { InheritanceBadge, type InheritanceStatus } from "./InheritanceBadge";
 
 type Kind = "bool" | "int" | "float" | "str" | "enum" | "list" | "dict";
 type Scope = "org" | "user" | "both";
@@ -36,6 +37,19 @@ interface SchemaSettingsFormProps {
   only?: string[];
   /** Render a text field as a select over these options (e.g. agent personas). */
   selectOptions?: Record<string, { value: string; label: string }[]>;
+  /** Distinguishes two forms of one domain on a page (ids must be unique): "mine" for the
+   * member's copy of settings an administrator also edits there. */
+  idScope?: string;
+  /** Render these keys with a dedicated control (e.g. the model picker). */
+  controls?: Record<string, (field: CustomControl) => React.ReactNode>;
+}
+
+/** What a dedicated control receives for its field. */
+export interface CustomControl {
+  id: string;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
 }
 
 type FieldValues = Record<string, unknown>;
@@ -90,7 +104,10 @@ export function SchemaSettingsForm({
   exclude = [],
   only,
   selectOptions,
+  controls,
+  idScope,
 }: SchemaSettingsFormProps) {
+  const key = idScope ? `${idScope}-${domain}` : domain;
   const { data: session } = useSession();
   const roles = (session?.user as unknown as { roles?: string[] })?.roles || [];
   const isAdmin = !session || roles.includes("admin") || roles.includes("owner");
@@ -101,6 +118,8 @@ export function SchemaSettingsForm({
   const [initial, setInitial] = useState<FieldValues>({});
   const [lockedKeys, setLockedKeys] = useState<string[]>([]);
   const [orgLocked, setOrgLocked] = useState<string[]>([]);
+  // Member mode: whether each key follows the organization or is the member's own.
+  const [fieldStatus, setFieldStatus] = useState<Record<string, InheritanceStatus>>({});
   const [issues, setIssues] = useState<FieldIssue[]>([]);
   const [banner, setBanner] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -136,6 +155,7 @@ export function SchemaSettingsForm({
         const data = await res.json();
         source = data.effective;
         setOrgLocked(data.locked_keys ?? []);
+        setFieldStatus(data.field_status ?? {});
       }
       const editable: FieldValues = {};
       for (const [key, raw] of Object.entries(source)) {
@@ -212,6 +232,14 @@ export function SchemaSettingsForm({
     }
   };
 
+  const resetField = async (key: string) => {
+    const res = await fetch(`/v1/settings/${domain}/${encodeURIComponent(key)}`, { method: "DELETE" });
+    if (res.ok) {
+      setBanner({ kind: "ok", text: `${humanize(key)} follows the organization again.` });
+      await load();
+    }
+  };
+
   const reset = async () => {
     const res = await fetch(`/v1/settings/${domain}`, { method: "DELETE" });
     if (res.ok) {
@@ -227,7 +255,11 @@ export function SchemaSettingsForm({
     const disabled = !canEdit || locked || !loaded;
     const value = values[field.key];
     const set = (next: unknown) => setValues((prev) => ({ ...prev, [field.key]: next }));
-    const testId = `settings-field-${domain}-${field.key}`;
+    const testId = `settings-field-${key}-${field.key}`;
+    const custom = controls?.[field.key];
+    if (custom) {
+      return custom({ id: testId, value: String(value ?? ""), disabled, onChange: set });
+    }
     switch (field.kind) {
       case "bool":
         return (
@@ -326,7 +358,7 @@ export function SchemaSettingsForm({
   };
 
   return (
-    <section className="space-y-4" data-testid={`settings-form-${domain}`}>
+    <section className="space-y-4" data-testid={`settings-form-${key}`}>
       <div className="pb-2 border-b border-surface-border">
         <h2 className="text-base font-display font-semibold text-foreground">{title}</h2>
         {description && <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">{description}</p>}
@@ -365,17 +397,25 @@ export function SchemaSettingsForm({
               } ${field.kind === "list" || field.kind === "dict" ? "md:col-span-2" : ""}`}
             >
               <div className="flex items-center justify-between gap-2">
-                <label htmlFor={`settings-field-${domain}-${field.key}`} className="text-xs font-medium text-foreground">{humanize(field.key)}</label>
+                <label htmlFor={`settings-field-${key}-${field.key}`} className="text-xs font-medium text-foreground">{humanize(field.key)}</label>
                 {memberLocked && (
                   <span className="inline-flex items-center gap-1 text-[10px] text-brand bg-brand/10 px-1.5 py-0.5 rounded-lg border border-brand/20">
                     <Lock className="w-3 h-3" /> LOCKED BY ORG
+                  </span>
+                )}
+                {mode === "user" && !memberLocked && field.scope === "both" && fieldStatus[field.key] && (
+                  <span data-testid={`settings-inheritance-${key}-${field.key}`}>
+                    <InheritanceBadge
+                      status={fieldStatus[field.key]}
+                      onReset={() => resetField(field.key)}
+                    />
                   </span>
                 )}
                 {mode === "org" && field.scope === "both" && canEdit && (
                   <label className="inline-flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
                     <input
                       type="checkbox"
-                      data-testid={`settings-lock-${domain}-${field.key}`}
+                      data-testid={`settings-lock-${key}-${field.key}`}
                       checked={lockedKeys.includes(field.key)}
                       onChange={(e) =>
                         setLockedKeys((prev) =>
@@ -399,7 +439,7 @@ export function SchemaSettingsForm({
         <div className="flex items-center gap-3">
           <button
             type="button"
-            data-testid={`settings-save-${domain}`}
+            data-testid={`settings-save-${key}`}
             onClick={save}
             disabled={saving}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-xs font-semibold hover:opacity-90 disabled:opacity-60"

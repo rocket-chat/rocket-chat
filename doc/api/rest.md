@@ -1114,6 +1114,7 @@ Create a new agent session with optional sandbox provisioning.
 | tenant_user_id | string | no | User ID |
 | agent_id | string | no | Active custom agent persona ID |
 | model | string | no | Optional model override |
+| mode | `agent` / `direct` | no | 'direct' runs the first turn without an agent, on `model` with every tool |
 | initial_prompt | string | no | Initial prompt to ignite the first turn on creation |
 | sandbox_id | string | no | A sandbox from the organization's catalogue (GET /v1/sandboxes); empty uses the catalogue's default |
 | container_image | string | no | An image from the catalogue; prefer sandbox_id |
@@ -1258,6 +1259,8 @@ Dispatch user prompt to the ReAct engine in the background.
 | :--- | :--- | :--- | :--- |
 | prompt | string | yes | Instruction or steer message for the agent |
 | model | string | no | Override LLM model name |
+| agent_id | string | no | The agent for this turn; empty keeps the session's |
+| mode | `agent` / `direct` | no | 'direct' runs this turn without an agent, on `model` with every tool; empty keeps the session's mode |
 | attachment_ids | list of string | no | Attachment ids to attach to this turn only (never re-sent on later turns) |
 
 **Responses:** `200`
@@ -1334,6 +1337,20 @@ Reset member overrides for a domain back to organization defaults.
 | Name | In | Required | Type |
 | :--- | :--- | :--- | :--- |
 | domain | path | yes | string |
+
+**Responses:** `200`
+
+### `DELETE /v1/settings/{domain}/{key}`
+
+Remove one personal override: the setting follows the organization's value again,
+including its later changes.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| domain | path | yes | string |
+| key | path | yes | string |
 
 **Responses:** `200`
 

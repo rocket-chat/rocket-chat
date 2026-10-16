@@ -74,12 +74,11 @@ export const OrgScopeSection: React.FC<OrgScopeSectionProps> = ({
         title={title}
         description={description}
         badge={
-          isAdmin ? undefined : (
-            <Badge>
-              <Lock className="h-2.5 w-2.5" aria-hidden="true" />
-              Read-only
-            </Badge>
-          )
+          // Shown to administrators too: a change here applies to every member.
+          <Badge>
+            <Lock className="h-2.5 w-2.5" aria-hidden="true" />
+            {isAdmin ? "Admin only · whole organization" : "Read-only"}
+          </Badge>
         }
         action={isAdmin ? action : undefined}
       />

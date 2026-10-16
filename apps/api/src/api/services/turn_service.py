@@ -179,7 +179,9 @@ class TurnService:
     ) -> TurnPolicy:
         """Generation parameters and git rules from the registry-backed org/member settings."""
         models = await effective_settings(db_mgr, org_id, "models")
-        github = await effective_settings(db_mgr, org_id, "github")
+        # Authorship, pull request identity and signing are the organization's default, which a
+        # member may override unless the organization locks them.
+        github = await effective_settings(db_mgr, org_id, "github", user_id)
         governance = await effective_settings(db_mgr, org_id, "governance")
         resolved_prefs = await resolve_settings(db_mgr, org_id, "user_preferences", user_id)
         prefs = resolved_prefs.effective

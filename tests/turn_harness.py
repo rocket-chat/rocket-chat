@@ -18,6 +18,7 @@ from api.db.session import current_tenant_org_id
 from api.events import AsyncIOEventBus
 from api.services.transcript import InMemoryTranscriptStore
 from api.store import InMemorySessionStore
+from api.turns.context import TurnSelection
 from api.turns.runner import execute_turn_background
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
@@ -94,6 +95,8 @@ async def run_turn(
     git_engine: Any = None,
     leaks: list[str] | None = None,
     store: InMemorySessionStore | None = None,
+    selection: TurnSelection | None = None,
+    model_choice: str | None = None,
 ) -> TurnOutcome:
     """Run a web-cockpit style turn for ``org`` and return what happened."""
     session_id = f"session_{org}"
@@ -106,15 +109,17 @@ async def run_turn(
     orchestrator = AsyncReActOrchestrator(
         gateway=model, registry=registry, transcript_store=InMemoryTranscriptStore()
     )
-    await store.create_session(
-        SessionRecord(
-            session_id=session_id,
-            tenant_org_id=org,
-            tenant_user_id=user,
-            title="harness",
-            metadata=metadata or {},
+    # A second turn on the same store continues the session instead of starting it over.
+    if await store.get_session(session_id) is None:
+        await store.create_session(
+            SessionRecord(
+                session_id=session_id,
+                tenant_org_id=org,
+                tenant_user_id=user,
+                title="harness",
+                metadata=metadata or {},
+            )
         )
-    )
     token = current_tenant_org_id.set(org)
     try:
         await execute_turn_background(
@@ -126,6 +131,8 @@ async def run_turn(
             registry=registry,
             store=store,
             git_engine=git_engine,
+            selection=selection,
+            model=model_choice,
         )
     finally:
         current_tenant_org_id.reset(token)

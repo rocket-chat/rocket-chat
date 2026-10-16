@@ -137,21 +137,21 @@ Rocket Chat implements a two-tier hybrid GitHub engine designed for enterprise c
 
 ## 9. User Configuration & Cascading Settings (`/settings/github`)
 
-Each developer can configure their personal git workflow preferences, which automatically inherit from organization-wide defaults set by administrators:
+Three parts of the git policy are the organization's default, and each member may make them their own in **Settings → Git & version control → Your git policy**. A field left at the default follows the organization, including its later changes; a member's own value wins until they reset that field. An administrator who **locks** a field in the organization form keeps it the same for everyone.
 
-1. **Commit Authorship Policy** (`commit_authorship_policy`):
-   - `co_authored` (*Default*): the bot commits and the member is credited with a `Co-authored-by` trailer.
+1. **Commit authorship** (`commit_authorship_policy`):
+   - `co_authored` (*default*): the GitHub App commits and the member is credited with a `Co-authored-by` trailer. The trailer is added when the branch is published, so it is there whatever made the commit (the `git_commit` tool or a plain `git commit` in the shell).
    - `user_only`: committed as the member.
    - `bot_only`: committed as the bot.
-
-2. **Commit Signing** (`commit_signing_mode`):
-   - `github_app` (*Default*): commits are created through GitHub's API when published, so GitHub signs them (**Verified**, made by the GitHub App).
-   - `gpg_key`: a member who imported a GPG key (**Settings → Git & version control → Commit signing**) and turned on **Commit as me** commits as themselves, signed with that key; everyone else gets the `github_app` behaviour, so commits are verified either way.
+2. **Pull requests** (`pr_creation_policy`): `as_user` opens them with the member's linked account when there is one, `as_bot` with the GitHub App.
+3. **Commit signing** (`commit_signing_mode`):
+   - `github_app` (*default*): commits are re-created through GitHub's API when published, so GitHub signs them (**Verified**, made by the GitHub App).
+   - `gpg_key`: a member who imported a GPG key (**Settings → Git & version control → Commit signing**) and turned on **Commit as me** commits as themselves, signed with that key; without both, the `github_app` behaviour applies.
    - `none`: standard unsigned commits, pushed as they are.
 
-3. **Pull Request Routing**:
-   - Customizable default target branches (e.g. `main`, `develop`).
-   - Automated reviewer assignments upon PR creation.
+The bot's identity, the default branch and the GitHub App token's permissions and repositories stay the organization's.
+
+The read tools need the App's **Pull requests** and **Contents** read permissions; with **Issues** read too, a pull request's view also shows its conversation.
 
 ---
 

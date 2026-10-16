@@ -25,7 +25,7 @@ router = APIRouter(prefix="/v1", tags=["Sessions & Telemetry"])
 
 async def _status(request: Request, org_id: str, user_id: str) -> GitSigningStatus:
     db_mgr = getattr(request.app.state, "db_manager", None)
-    github = await effective_settings(db_mgr, org_id, "github")
+    github = await effective_settings(db_mgr, org_id, "github", user_id)
     prefs = await effective_settings(db_mgr, org_id, "user_preferences", user_id)
     stored = await stored_signing_metadata(db_mgr, org_id, user_id)
     available = gpg_available()

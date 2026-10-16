@@ -1,4 +1,4 @@
-import type {
+import type { TurnBinding,
   AgentPersonaConfig,
   FlightLogEntry,
   SessionData,
@@ -71,9 +71,12 @@ export function convertHistoryToFlightLogs(
   sessionId: string
 ): FlightLogEntry[] {
   const logs: FlightLogEntry[] = [];
+  // Each answer belongs to the turn of the user message before it, which records who answered.
+  let answeredBy: TurnBinding | null = null;
   history.forEach((m, idx) => {
     const roleUpper = m.role.toUpperCase();
     if (roleUpper === "USER") {
+      answeredBy = m.model ? { agentName: m.agent_name || "", model: m.model } : null;
       logs.push({
         id: `msg-${sessionId}-${idx}-user`,
         role: "USER",
@@ -118,6 +121,7 @@ export function convertHistoryToFlightLogs(
           content: m.content,
           timestamp: "",
           isPersisted: true,
+          answeredBy,
         });
       }
     }

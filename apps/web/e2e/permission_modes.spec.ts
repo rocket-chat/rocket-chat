@@ -30,10 +30,10 @@ test.describe("Permission modes", () => {
     await page.getByTestId("ignite-button").click();
     await expect(page.getByTestId("approval-card")).toBeVisible({ timeout: 15000 });
 
-    await page.getByTitle("Select Active Language Model or Agent").click();
+    await page.getByTestId("agent-model-picker").click();
     await expect(page.getByText("Applies to your next message")).toBeVisible();
     await page.getByRole("button", { name: /Security & Penetration Auditor/i }).last().click();
-    await expect(page.getByTitle("Select Active Language Model or Agent")).toContainText(/Security/);
+    await expect(page.getByTestId("agent-model-picker")).toContainText(/Security/);
   });
 
   test("a denied command never runs and the agent is told", async ({ page }) => {

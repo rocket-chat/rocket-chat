@@ -31,7 +31,8 @@ from sandbox_driver.workspace import RepositoryNotFoundError, resolve_repository
 
 from git_engine.config import github_web_url
 from git_engine.host_repo import HostGitError, HostRepository
-from specifications.interfaces.git import PublishResult, PublishSpec, SigningMode
+from git_engine.trailers import format_commit_message
+from specifications.interfaces.git import CoAuthor, PublishResult, PublishSpec, SigningMode
 from specifications.interfaces.sandbox import ExecResult, SandboxDriverProtocol
 
 API_TIMEOUT_SECONDS = 30.0
@@ -195,6 +196,7 @@ class BranchPublisher:
             await self._refuse_merges(sandbox, plan.base)
         token, notice = await self._write_token(repository, spec)
         notices = [notice] if notice else []
+        rewritten: list[tuple[str, str]] = []
         bundle = await sandbox.bundle(plan.base)
         try:
             async with HostRepository(f"{self._git_base_url}/{repository}.git", token) as host:
@@ -202,9 +204,11 @@ class BranchPublisher:
                     await host.fetch_base(plan.base)
                 tip = await host.import_bundle(bundle)
                 if spec.signing_mode == SigningMode.GITHUB_APP:
-                    head = await self._replay(host, repository, branch, plan, token, notices)
+                    head = await self._replay(
+                        host, repository, branch, plan, token, notices, spec.co_authors, rewritten
+                    )
                 else:
-                    head = await self._push(host, branch, plan, spec, tip, notices)
+                    head = await self._push(host, branch, plan, spec, tip, notices, rewritten)
         except HostGitError as err:
             raise PublishError(str(err)) from err
         if head != plan.commits[-1]:
@@ -214,7 +218,13 @@ class BranchPublisher:
         if plan.created:
             notices.append(f"Created the branch {branch} on GitHub.")
         return PublishResult(
-            repository, branch, head, via, commits=len(plan.commits), notices=notices
+            repository,
+            branch,
+            head,
+            via,
+            commits=len(plan.commits),
+            notices=notices,
+            rewritten=rewritten,
         )
 
     async def _repository_dir(self, session_id: str, spec: PublishSpec) -> str:
@@ -312,12 +322,13 @@ class BranchPublisher:
         spec: PublishSpec,
         tip: str,
         notices: list[str],
+        rewritten: list[tuple[str, str]],
     ) -> str:
         if spec.signing_mode == SigningMode.GPG_KEY and spec.signing_key is not None:
-            tip = await host.resign(plan.commits, spec.signing_key)
-            notices.append(
-                "Signed with your GPG key on publication (the local commit hashes changed)."
-            )
+            mapped = await host.resign(plan.commits, spec.signing_key)
+            rewritten.extend((sha, mapped[sha]) for sha in plan.commits)
+            tip = mapped[plan.commits[-1]]
+            notices.append("Signed with your GPG key on publication.")
         await host.push(branch, lease=plan.lease)
         return tip
 
@@ -329,6 +340,8 @@ class BranchPublisher:
         plan: _Plan,
         token: str,
         notices: list[str],
+        co_authors: tuple[CoAuthor, ...] = (),
+        rewritten: list[tuple[str, str]] | None = None,
     ) -> str:
         if plan.created:
             await self._rest(
@@ -339,7 +352,11 @@ class BranchPublisher:
             )
         head = plan.base
         for sha in plan.commits:
-            head = await self._create_commit(host, repository, branch, sha, head, token, notices)
+            head = await self._create_commit(
+                host, repository, branch, sha, head, token, notices, co_authors
+            )
+            if rewritten is not None:
+                rewritten.append((sha, head))
         return head
 
     async def _create_commit(
@@ -351,6 +368,7 @@ class BranchPublisher:
         expected_head: str,
         token: str,
         notices: list[str],
+        co_authors: tuple[CoAuthor, ...] = (),
     ) -> str:
         additions: list[dict[str, str]] = []
         deletions: list[dict[str, str]] = []
@@ -369,7 +387,9 @@ class BranchPublisher:
                     "Split it into smaller commits."
                 )
             additions.append({"path": change.path, "contents": encoded})
-        message = await host.text("log", "-1", "--format=%B", sha)
+        message = format_commit_message(
+            await host.text("log", "-1", "--format=%B", sha), list(co_authors)
+        )
         headline, _, body = message.partition("\n")
         return await self._graphql(
             token,

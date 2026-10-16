@@ -21,6 +21,7 @@ from api.services.missions import Mission
 from api.services.repository_hint import with_repository_hint
 from api.services.title import TITLE_SOURCE_USER
 from api.services.turn_resume import RESUME_NOTICE
+from api.turns.context import TurnSelection
 from api.turns.runner import execute_turn_background
 from api.turns.shared import _background_tasks
 from specifications.interfaces.agent import (
@@ -59,6 +60,7 @@ async def run_guarded_turn(
     session_locks: SessionWriteLocks | None = None,
     overlay: TurnOverlay | None = None,
     resume_attempt: int = 0,
+    selection: TurnSelection | None = None,
 ) -> None:
     """Run one turn under process-wide backpressure and a per-session single-writer lock.
 
@@ -85,6 +87,7 @@ async def run_guarded_turn(
             attachment_ids=attachment_ids,
             overlay=overlay,
             resume_attempt=resume_attempt,
+            selection=selection,
         )
 
     if concurrency_gate is not None and session_locks is not None:
@@ -113,6 +116,7 @@ def _spawn_background_turn(
     concurrency_gate: GlobalConcurrencyGate | None = None,
     session_locks: SessionWriteLocks | None = None,
     resume_attempt: int = 0,
+    selection: TurnSelection | None = None,
 ) -> asyncio.Task[None]:
     task = asyncio.create_task(
         run_guarded_turn(
@@ -133,6 +137,7 @@ def _spawn_background_turn(
             concurrency_gate=concurrency_gate,
             session_locks=session_locks,
             resume_attempt=resume_attempt,
+            selection=selection,
         )
     )
     _background_tasks.add(task)

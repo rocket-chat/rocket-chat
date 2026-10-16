@@ -25,6 +25,7 @@ from api.services.metrics import (
 )
 from api.services.pending_gates import pending_gates
 from api.services.session_support import apply_sharing
+from api.turns.context import TurnSelection
 from api.turns.gates import _forget_pending_decisions, take_stored_question
 from api.turns.tasks import _spawn_background_turn
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
@@ -293,6 +294,7 @@ class SessionSocket:
         self._start_turn(
             prompt,
             model=data.get("model"),
+            selection=_selection_of(data),
             # The submitter's identity and optimistic message id, so a collaborator's
             # instruction is attributed to them and deduped against their local entry.
             message_id=data.get("message_id"),
@@ -436,3 +438,11 @@ def _event_frame(event: SessionEvent) -> dict[str, Any]:
         # Clients track this to resume after a reconnect.
         "seq": event.seq,
     }
+
+
+def _selection_of(data: dict[str, Any]) -> TurnSelection | None:
+    """The composer's choice sent with the turn (an agent, or a raw model), if any."""
+    mode, agent_id = data.get("mode"), data.get("agent_id")
+    if mode is None and not agent_id:
+        return None
+    return TurnSelection(agent_id=str(agent_id) if agent_id else None, raw=mode == "direct")

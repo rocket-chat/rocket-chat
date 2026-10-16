@@ -3,6 +3,29 @@
 import React from "react";
 import { SchemaSettingsForm } from "../../../../components/settings/SchemaSettingsForm";
 import { ProviderKeysPanel } from "../../../../components/settings/ProviderKeysPanel";
+import type { CustomControl } from "../../../../components/settings/SchemaSettingsForm";
+import { ModelPicker } from "../../../../components/ui/ModelPicker";
+
+function modelControl(inheritLabel: string) {
+  return function ModelControl({ id, value, disabled, onChange }: CustomControl) {
+    return (
+      <ModelPicker
+        id={id}
+        data-testid={id}
+        value={value}
+        disabled={disabled}
+        onChange={onChange}
+        inheritLabel={inheritLabel}
+      />
+    );
+  };
+}
+
+const MODEL_CONTROLS = { default_model: modelControl("Platform default") };
+const ROUTING_CONTROLS = {
+  fast_model: modelControl("Not set"),
+  economy_model: modelControl("Not set"),
+};
 
 export default function Page() {
   return (
@@ -31,12 +54,14 @@ export default function Page() {
             mode="org"
             title="Model policy"
             description="Allow and deny lists apply to every model choice, including fail-over."
+            controls={MODEL_CONTROLS}
           />
           <SchemaSettingsForm
             domain="routing"
             mode="org"
             title="Cost routing"
             description="Send auxiliary work (titles, suggestions, summaries) to a cheaper model."
+            controls={ROUTING_CONTROLS}
           />
           <SchemaSettingsForm
             domain="budgets"
