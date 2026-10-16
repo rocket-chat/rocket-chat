@@ -7,6 +7,7 @@ from pydantic import Field
 
 from agent_core.context import current_execution_ctx
 from agent_core.tools import processes as process_tools
+from specifications.interfaces.sandbox import SandboxStatus
 
 if TYPE_CHECKING:
     from agent_core.tools.registry import ToolRegistry
@@ -64,7 +65,9 @@ def register(registry: "ToolRegistry") -> None:
         if not target:
             return "Error: Sandbox not initialized for process_list"
         driver, session_id = target
-        await registry._ensure_sandbox(session_id)
+        # A sandbox that is not running has no processes: no need to start one to say so.
+        if await driver.get_status(session_id) != SandboxStatus.RUNNING:
+            return "No background processes."
         found = await process_tools.list_processes(driver, session_id)
         await registry._processes_changed(session_id)
         return "\n".join(p.summary() for p in found) or "No background processes."
