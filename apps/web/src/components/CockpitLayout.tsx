@@ -25,6 +25,10 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
   const router = useRouter();
   const wsRef = useRef<MissionWebSocket | null>(null);
   const session = useMissionStore((s) => s.session);
+  // The URL names a conversation the store has not opened yet: text typed now would be saved
+  // under whatever was open before and lost when this one arrives.
+  const opening =
+    !!sessionId && sessionId !== "draft" && sessionId !== "new" && session?.session_id !== sessionId;
   const sessions = useMissionStore((s) => s.sessions);
   const setSession = useMissionStore((s) => s.setSession);
   const isRightPanelOpen = useMissionStore((s) => s.isRightPanelOpen);
@@ -192,7 +196,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                   onApprove={handleApprove}
                   onReject={handleReject}
                 />
-              <IgnitionConsole onIgnite={handleIgnite} onCancel={handleCancel} />
+              <IgnitionConsole onIgnite={handleIgnite} onCancel={handleCancel} loading={opening} />
 
               {/* Mobile Full-Screen Inspector Sheet */}
               {isRightPanelOpen && (
@@ -239,7 +243,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                   onApprove={handleApprove}
                   onReject={handleReject}
                 />
-                <IgnitionConsole onIgnite={handleIgnite} onCancel={handleCancel} />
+                <IgnitionConsole onIgnite={handleIgnite} onCancel={handleCancel} loading={opening} />
               </Panel>
 
               {/* Draggable Divider Handle */}
