@@ -1,4 +1,4 @@
-"""Ways into the assistant beyond mentions: ``/rocket``, a message shortcut and the App Home."""
+"""Ways into the assistant beyond mentions: its slash command, a message shortcut, the App Home."""
 
 from __future__ import annotations
 
@@ -15,20 +15,25 @@ from slack_assistant.block_kit import (
     markdown_to_slack_mrkdwn,
     open_in_rocket_context,
 )
+from slack_assistant.bot import DEFAULT_COMMAND
 from slack_assistant.gates import SlackGatesMixin
 from specifications.interfaces.session import SessionRecord, SessionSource
 
 logger = logging.getLogger(__name__)
 
-HELP_TEXT = (
-    "*Rocket Chat in Slack*\n"
-    "• `/rocket new <task>`: start a new thread working on a task\n"
-    "• `/rocket status`: your recent and running threads\n"
-    "• `/rocket stop`: stop what you have running in this channel\n"
-    "• `/rocket pair`: link your Slack account to Rocket Chat\n"
-    "• Mention me, or message me directly, to talk in a thread. *Ask Rocket* in a message's "
-    "⋮ menu works on that message."
-)
+
+def help_text(command: str) -> str:
+    return (
+        "*Rocket Chat in Slack*\n"
+        f"• `{command} new <task>`: start a new thread working on a task\n"
+        f"• `{command} status`: your recent and running threads\n"
+        f"• `{command} stop`: stop what you have running in this channel\n"
+        f"• `{command} pair`: link your Slack account to Rocket Chat\n"
+        "• Mention me, or message me directly, to talk in a thread. *Ask Rocket* in a message's "
+        "⋮ menu works on that message."
+    )
+
+
 SHORTCUT_CALLBACK_ID = "ask_rocket"
 MAX_STATUS_ROWS = 8
 
@@ -43,11 +48,20 @@ def channel_type_of(channel_id: str) -> str:
 
 
 class SlackEntrypointsMixin(SlackGatesMixin):
+    @property
+    def command(self) -> str:
+        """This bot's slash command (``/rocket`` for apps set up before bots had their own)."""
+        return self.bot.command if self.bot is not None else DEFAULT_COMMAND
+
     def _register_entrypoints(self) -> None:
-        @self.app.command("/rocket")
         async def handle_rocket(ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond) -> None:
             await ack()
             await self._rocket_command(body, respond)
+
+        # Slack only delivers the commands this app declares, so answering the legacy
+        # ``/rocket`` too keeps apps installed from an older manifest working.
+        for command in dict.fromkeys((self.command, DEFAULT_COMMAND)):
+            self.app.command(command)(handle_rocket)
 
         @self.app.shortcut(SHORTCUT_CALLBACK_ID)
         async def handle_ask_rocket(ack: AsyncAck, shortcut: dict[str, Any]) -> None:
@@ -59,7 +73,7 @@ class SlackEntrypointsMixin(SlackGatesMixin):
             if event.get("tab", "home") == "home":
                 await self.publish_home(str(event.get("user", "")), event.get("team"))
 
-    # -- /rocket ---------------------------------------------------------------------------
+    # -- slash command -----------------------------------------------------------------------
 
     async def _rocket_command(self, body: dict[str, Any], respond: AsyncRespond) -> None:
         verb, _, rest = str(body.get("text", "")).strip().partition(" ")
@@ -73,12 +87,13 @@ class SlackEntrypointsMixin(SlackGatesMixin):
         elif verb == "pair":
             await respond(text=await self._pair_text(body), response_type="ephemeral")
         else:
-            await respond(text=HELP_TEXT, response_type="ephemeral")
+            await respond(text=help_text(self.command), response_type="ephemeral")
 
     async def _command_new(self, body: dict[str, Any], task: str, respond: AsyncRespond) -> None:
         if not task:
             await respond(
-                text="Tell me what to work on: `/rocket new <task>`.", response_type="ephemeral"
+                text=f"Tell me what to work on: `{self.command} new <task>`.",
+                response_type="ephemeral",
             )
             return
         channel_id = str(body.get("channel_id", ""))
@@ -142,7 +157,7 @@ class SlackEntrypointsMixin(SlackGatesMixin):
     async def _status_text(self, body: dict[str, Any]) -> str:
         sessions = await self._my_sessions(body)
         if not sessions:
-            return "You have no Slack threads with Rocket yet. Try `/rocket new <task>`."
+            return f"You have no Slack threads with Rocket yet. Try `{self.command} new <task>`."
         base = self.settings.slack_web_base_url.rstrip("/")
         lines = []
         for record in sessions:
@@ -271,7 +286,9 @@ class SlackEntrypointsMixin(SlackGatesMixin):
         try:
             await self.app.client.views_publish(
                 user_id=user_id,
-                view=build_home_view(linked_as=linked_as, sessions=rows, web_url=base or None),
+                view=build_home_view(
+                    linked_as=linked_as, sessions=rows, web_url=base or None, command=self.command
+                ),
             )
         except Exception as err:
             logger.warning("Could not publish the App Home for %s: %s", user_id, err)

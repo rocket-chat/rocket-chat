@@ -1,6 +1,6 @@
 # Connect Slack
 
-Rocket Chat works inside Slack: mention it in a channel, message it directly, or start work with `/rocket`. This page connects it and sets the policy; what people see and do is described in [Slack for users](/use/slack).
+Rocket Chat works inside Slack: mention a bot in a channel, message it directly, or start work with its slash command. This page connects it and sets the policy; what people see and do is described in [Slack for users](/use/slack).
 
 The connection is **Socket Mode**: Rocket Chat opens an outbound WebSocket to Slack. You need no public URL, no inbound firewall rule and no request signing secret.
 
@@ -29,7 +29,7 @@ features:
       callback_id: ask_rocket
       description: Work on this message with Rocket
   slash_commands:
-    - command: /rocket
+    - command: /rocket # the generated manifest names it after the bot's handle, e.g. /triage
       description: Start, check or stop work with Rocket
       usage_hint: "new <task> | status | stop | pair | help"
       should_escape: false
@@ -83,7 +83,7 @@ settings:
 | Permission | Why Rocket needs it |
 | :--- | :--- |
 | `app_mentions:read`, `message.*` events, `*:history` | Answer when mentioned, in direct messages, and read the thread it was asked in (full context, not just the triggering message). |
-| `chat:write` | Post answers, the live progress message and approval buttons. |
+| `chat:write` | Post answers (streamed with their steps) and approval buttons. |
 | `assistant:write` | Show the "working on…" status and suggested prompts in Slack's assistant panel. |
 | `commands` | `/rocket` and `/rocket-pair`. |
 | `files:read` / `files:write` | Read files you attach (logs, screenshots); attach long answers, large diffs and screenshots. |
@@ -114,7 +114,7 @@ An organization can run several bots in the same Slack workspace (e.g. `@RocketD
 
 ### Response modes per bot
 
-* **Thread mode:** The bot responds publicly in the Slack thread, posting its live progress message and answers where everyone in the channel can see them.
+* **Thread mode:** The bot responds publicly in the Slack thread, streaming each step into its reply, then the answer, where everyone in the channel can see them.
 * **Private session mode:** The bot marks the request with a reaction (default `white_check_mark`) and posts an ephemeral reply visible only to the requester containing an **Open session** link. The turn runs privately in Rocket Chat. On completion, an ephemeral summary is sent with a **Share in thread** button that allows the requester to post the final answer publicly.
 
 ### Brain: One Agent or Router
@@ -137,7 +137,7 @@ An organization can run several bots in the same Slack workspace (e.g. `@RocketD
 | `allowed_tools` | Which tools the Slack path may use. `*` means every tool, including the tools of the MCP servers the agent can reach, except the deployment's blocked list (`SLACK_BLOCKED_TOOLS`). A list names the tools exactly, so MCP tools must be listed by name (`mcp__<server>__<tool>`). |
 | `auto_link_by_verified_email` | Link Slack users to members by their verified e-mail. |
 | `web_base_url` | The public address of Rocket Chat, for "Open in Rocket Chat" links (falls back to `ROCKET_PUBLIC_URL`). |
-| `live_progress` | The progress message with recent steps and a Stop button while a turn runs. It is removed when the turn finishes and kept, saying why, when it is stopped or fails. Switched off, only Slack's own status line shows progress. |
+| `live_progress` | Stream each tool call into the reply as a step (Slack's collapsible "thinking steps"), then write the answer into the same message. Switched off, only Slack's status line shows progress and the answer is posted when the turn ends. Stop a turn with the bot's slash command (`/<command> stop`). |
 | `long_output_to_file`, `long_output_chars` | Attach long answers and large diffs as files, and the length that counts as long. |
 | `channel_profiles` | Per-channel behaviour (below). |
 
@@ -191,7 +191,7 @@ A scheduled mission (**Missions**) can name a **Slack channel**. When a run fini
 | :--- | :--- |
 | No reply at all | The bot is not in the channel (`/invite @Rocket`), or `message.channels` / `message.groups` events are missing. Check **Settings → Slack → Test socket**. |
 | Replies only to the mention, ignores thread context | `channels:history` / `groups:history` scopes are missing. |
-| No progress message, only a spinner | `chat:write` is missing, or **live progress** is switched off. |
+| No steps in the reply, only a spinner | `chat:write` is missing, **live progress** is switched off, or the turn used no tool. |
 | Long answers arrive as many messages | `files:write` is missing. |
 | "Only the person who asked can answer" | Buttons are answered by the requester only; ask them, or repeat the request yourself. |
-| `/rocket` does nothing | Reinstall the app from the manifest so the commands exist, then check Socket Mode is on. |
+| The slash command does nothing | Each bot has its own command, named after its handle (`/triage`); copy the bot's generated manifest into its Slack app and reinstall it. Slack gives a command two apps share to the most recently installed one. |

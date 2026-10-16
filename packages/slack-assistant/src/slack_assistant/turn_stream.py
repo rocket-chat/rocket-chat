@@ -23,8 +23,8 @@ from slack_assistant.block_kit import (
     open_in_rocket_context,
 )
 from slack_assistant.policy import SlackOrgPolicy
-from slack_assistant.progress import ProgressMessage
 from slack_assistant.state import SlackAssistantState
+from slack_assistant.stream import ANSWER_CHARS, TurnStream
 from specifications.interfaces.agent import (
     FileDiff,
     InteractiveQuestion,
@@ -59,7 +59,7 @@ class TurnView:
     say_fn: Callable[..., Any]
     status_fn: Callable[..., Any] | None
     outcome: TurnOutcome
-    progress: ProgressMessage | None = None
+    stream: TurnStream | None = None
     link_url: str | None = None
     screenshots: list[str] = field(default_factory=list)
     # Private response mode: every message goes to the requester alone (ephemeral).
@@ -245,10 +245,13 @@ class SlackTurnStreamMixin(SlackAssistantState):
         arguments = arguments if isinstance(arguments, dict) else {}
         label = self._determine_spinner_message(name, arguments)
         await self._safely_update_status(view.status_fn, label)
-        if view.progress is not None:
-            await view.progress.tool_started(name, arguments, label)
+        if view.stream is not None:
+            await view.stream.tool_started(str(payload.get("id") or name), name, arguments, label)
 
     async def _render_tool_completed(self, payload: dict[str, Any], view: TurnView) -> None:
+        if view.stream is not None:
+            call_id = str(payload.get("id") or payload.get("name", ""))
+            await view.stream.tool_completed(call_id, ok=payload.get("status") != "error")
         result = payload.get("result")
         if isinstance(result, str):
             for path in screenshot_paths(result):
@@ -261,8 +264,6 @@ class SlackTurnStreamMixin(SlackAssistantState):
             view.outcome.error = view.outcome.error or str(message or "The turn failed")
         elif message and payload.get("status") != "completed":
             await self._safely_update_status(view.status_fn, str(message))
-            if view.progress is not None:
-                await view.progress.note(str(message))
 
     async def _render_token(self, payload: dict[str, Any], view: TurnView) -> None:
         view.outcome.chunks.append(str(payload.get("delta", "")))
@@ -328,8 +329,12 @@ class SlackTurnStreamMixin(SlackAssistantState):
         outcome = view.outcome
         final_text = outcome.text or ("" if outcome.diffs else "I've processed your request.")
         use_files = org_policy.long_output_to_file and self._slack_api_ready
-        detail = view.progress.outcome_line() if view.progress is not None else None
+        detail = view.stream.outcome_line() if view.stream is not None else None
         link = open_in_rocket_context(view.link_url, detail)
+        stream = view.stream
+        if stream is not None and stream.started:
+            if await self._finish_stream(view, stream, final_text, link, use_files, org_policy):
+                return
 
         if outcome.diffs:
             await self._post_changes(view, final_text, use_files and diff_is_large(outcome.diffs))
@@ -346,6 +351,58 @@ class SlackTurnStreamMixin(SlackAssistantState):
             await self._upload_screenshots(view)
         if link is not None:
             await view.say_fn(blocks=[link], text="Open in Rocket Chat", thread_ts=view.thread_ts)
+
+    async def _finish_stream(
+        self,
+        view: TurnView,
+        stream: TurnStream,
+        text: str,
+        link: dict[str, Any] | None,
+        use_files: bool,
+        org_policy: SlackOrgPolicy,
+    ) -> bool:
+        """Write the answer into the turn's streamed reply; then what does not fit a message
+        (the full long answer, the diffs, screenshots) follows in the thread."""
+        too_long = len(text) > (org_policy.long_output_chars if use_files else ANSWER_CHARS)
+        shown = head_of(text, min(org_policy.long_output_chars, 1500)) if too_long else text
+        if not await stream.finish(shown, [link] if link else []):
+            return False
+        if too_long:
+            await self._post_overflow(view, text, use_files)
+        if view.outcome.diffs:
+            await self._post_diffs(view, use_files and diff_is_large(view.outcome.diffs))
+        if use_files:
+            await self._upload_screenshots(view)
+        return True
+
+    async def _post_overflow(self, view: TurnView, text: str, as_file: bool) -> None:
+        if as_file:
+            await upload_file(
+                self.app.client,
+                channel_id=view.channel_id,
+                thread_ts=view.thread_ts,
+                filename="answer.md",
+                content=text,
+                title="Full answer",
+                comment="The full answer, as it is too long for a message.",
+            )
+            return
+        for chunk in chunk_slack_message(markdown_to_slack_mrkdwn(text)):
+            await view.say_fn(text=chunk, thread_ts=view.thread_ts)
+
+    async def _post_diffs(self, view: TurnView, as_file: bool) -> None:
+        diffs = view.outcome.diffs
+        if as_file:
+            await upload_file(
+                self.app.client,
+                channel_id=view.channel_id,
+                thread_ts=view.thread_ts,
+                filename="changes.diff",
+                content=combined_diff(diffs),
+                title=f"Changes in {len(diffs)} file(s)",
+            )
+            return
+        await view.say_fn(blocks=build_diff_blocks(diffs), text="Changes", thread_ts=view.thread_ts)
 
     async def _post_changes(self, view: TurnView, summary: str, as_file: bool) -> None:
         diffs = view.outcome.diffs

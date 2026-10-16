@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from slack_assistant.bot import command_for
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
@@ -96,7 +97,7 @@ def manifest(record: SlackBotRecord, web_url: str = "") -> dict[str, Any]:
             "bot_user": {"display_name": handle, "always_online": True},
             "slash_commands": [
                 {
-                    "command": "/rocket",
+                    "command": command_for(record.handle or record.name),
                     "description": "Start, list or stop work",
                     "usage_hint": "new <task> | status | stop | pair",
                     "should_escape": False,

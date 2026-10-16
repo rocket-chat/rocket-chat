@@ -1,4 +1,4 @@
-"""The Slack thread experience end to end: live progress, Stop, links, files, durable gates."""
+"""The Slack thread experience end to end: the streamed reply, stopping, links, files, gates."""
 
 from __future__ import annotations
 
@@ -29,24 +29,54 @@ def _live(stack: Stack, **policy: Any) -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_a_finished_turn_removes_its_live_message_and_signs_the_answer() -> None:
+async def test_a_turn_streams_its_steps_and_writes_the_answer_into_the_same_reply() -> None:
     stack = Stack(
         ScriptedModel(script=[("think", {"thought": "plan"})], final_text="All done here.")
     )
     client = _live(stack)
+    client.chat_startStream.return_value = {"ts": "9.9"}
 
     await stack.send()
 
-    first = client.chat_postMessage.call_args_list[0].kwargs
-    assert first["thread_ts"] == THREAD[1]
-    assert "stop_turn" in str(first["blocks"])
-    assert f"https://rocket.example/chat/{SESSION_ID}" in str(first["blocks"])
-    client.chat_delete.assert_awaited_once_with(channel=THREAD[0], ts="9.9")
-    answer = stack.say.call_args_list[-1].kwargs
-    assert "All done here." in answer["text"]
-    footer = json.dumps(answer["blocks"][-1])
+    start = client.chat_startStream.call_args.kwargs
+    assert start["thread_ts"] == THREAD[1] and start["task_display_mode"] == "timeline"
+    assert (start["recipient_user_id"], start["recipient_team_id"]) == ("U1", "T1")
+    assert start["chunks"][0]["type"] == "task_update"
+    assert start["chunks"][0]["status"] == "in_progress"
+    done = client.chat_appendStream.call_args.kwargs["chunks"][0]
+    assert done["id"] == start["chunks"][0]["id"] and done["status"] == "complete"
+    stop = client.chat_stopStream.call_args.kwargs
+    assert stop["ts"] == "9.9" and stop["markdown_text"] == "All done here."
+    footer = json.dumps(stop["blocks"])
     assert f"https://rocket.example/chat/{SESSION_ID}" in footer and "Done in" in footer
-    assert "Done" not in json.dumps([c.kwargs for c in client.chat_update.call_args_list])
+    assert "stop_turn" not in footer, "no Stop button: the slash command stops a turn"
+    stack.say.assert_not_awaited()
+    client.chat_postMessage.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_turn_without_tools_answers_with_a_plain_reply() -> None:
+    stack = Stack(ScriptedModel(final_text="Hello there."))
+    client = _live(stack)
+
+    await stack.send()
+
+    client.chat_startStream.assert_not_awaited()
+    assert "Hello there." in stack.say.call_args.kwargs["text"]
+
+
+@pytest.mark.asyncio
+async def test_a_workspace_without_streaming_still_gets_the_answer() -> None:
+    stack = Stack(
+        ScriptedModel(script=[("think", {"thought": "plan"})], final_text="All done here.")
+    )
+    client = _live(stack)
+    client.chat_startStream.side_effect = RuntimeError("not_allowed_token_type")
+
+    await stack.send()
+
+    assert "All done here." in stack.say.call_args.kwargs["text"]
+    client.chat_stopStream.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -100,19 +130,17 @@ async def test_only_the_requester_can_stop_a_turn() -> None:
     task = stack.send(user="U1")
     await asyncio.wait_for(model.started.wait(), 5)
 
-    reply = AsyncMock()
-    stop = {**_gate_body(SESSION_ID, "U_STRANGER"), "container": {"thread_ts": THREAD[1]}}
-    await stack.assistant._stop_turn(stop, reply)
-    assert "only the person who asked" in reply.call_args.kwargs["text"]
-    stack.assistant.orchestrator.cancel_turn.assert_not_called()
+    try:
+        stranger = await stack.assistant._stop_text({"channel_id": THREAD[0], "user_id": "U2"})
+        assert stranger == "You have nothing running in this channel."
+        stack.assistant.orchestrator.cancel_turn.assert_not_called()
 
-    stop_by_owner = {**_gate_body(SESSION_ID, "U1"), "container": {"thread_ts": THREAD[1]}}
-    await stack.assistant._stop_turn(stop_by_owner, reply)
-    stack.assistant.orchestrator.cancel_turn.assert_awaited_once_with(SESSION_ID)
-
-    assert model.gate is not None
-    model.gate.set()
-    await asyncio.wait_for(task, 5)
+        await stack.assistant._stop_text({"channel_id": THREAD[0], "user_id": "U1"})
+        stack.assistant.orchestrator.cancel_turn.assert_awaited_once_with(SESSION_ID)
+    finally:
+        assert model.gate is not None
+        model.gate.set()
+        await asyncio.wait_for(task, 5)
 
 
 @pytest.mark.asyncio
@@ -232,9 +260,9 @@ async def test_browser_tools_follow_the_sandbox_the_session_uses(
 
 
 @pytest.mark.asyncio
-async def test_a_failed_turn_keeps_its_live_message_saying_why() -> None:
+async def test_a_failed_turn_says_why_in_the_thread() -> None:
     stack = Stack(ScriptedModel(final_text="never"))
-    client = _live(stack)
+    _live(stack)
 
     async def broken(*_: Any, **__: Any) -> None:
         raise RuntimeError("model refused")
@@ -242,16 +270,4 @@ async def test_a_failed_turn_keeps_its_live_message_saying_why() -> None:
     stack.assistant._run_shared_turn = broken  # type: ignore[method-assign]
     await stack.send()
 
-    client.chat_delete.assert_not_called()
-    assert "model refused" in str(client.chat_update.call_args.kwargs["blocks"])
-
-
-@pytest.mark.asyncio
-async def test_a_workspace_that_refuses_the_delete_keeps_a_done_message() -> None:
-    stack = Stack(ScriptedModel(final_text="All done here."))
-    client = _live(stack)
-    client.chat_delete.side_effect = RuntimeError("cant_delete_message")
-
-    await stack.send()
-
-    assert "Done" in str(client.chat_update.call_args.kwargs["blocks"])
+    assert "model refused" in stack.say.call_args.kwargs["text"]
