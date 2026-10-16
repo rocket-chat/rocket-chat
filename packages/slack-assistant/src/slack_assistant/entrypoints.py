@@ -182,6 +182,9 @@ class SlackEntrypointsMixin(SlackGatesMixin):
         return f":stop_button: Stopped {stopped} running thread{'s' if stopped != 1 else ''}."
 
     async def _pair_text(self, body: dict[str, Any]) -> str:
+        """Start linking the caller to a Rocket account. The link is confirmed with this
+        one-time code from the member's signed-in session, so typing someone's e-mail address
+        claims nothing; the reply is ephemeral, as the code is a secret."""
         if self._begin_pairing_fn is None:
             return "Account linking is not enabled for this workspace."
         code = await self._begin_pairing_fn(

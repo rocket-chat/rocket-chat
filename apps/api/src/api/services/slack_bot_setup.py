@@ -118,13 +118,8 @@ def manifest(record: SlackBotRecord, web_url: str = "") -> dict[str, Any]:
             "slash_commands": [
                 {
                     "command": slash_command_of(record),
-                    "description": "Start, list or stop work",
+                    "description": "Start, list or stop work, or link your account",
                     "usage_hint": "new <task> | status | stop | pair",
-                    "should_escape": False,
-                },
-                {
-                    "command": "/rocket-pair",
-                    "description": "Link your Rocket Chat account",
                     "should_escape": False,
                 },
             ],

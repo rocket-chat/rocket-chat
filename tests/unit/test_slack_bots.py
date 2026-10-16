@@ -577,7 +577,8 @@ def test_a_bot_can_choose_its_slash_command() -> None:
     assert chosen.slash_command == "/ask-rocky"
     assert slash_command_of(chosen) == "/ask-rocky"
     assert runtime_bot(chosen, SlackTokens("x", "y")).command == "/ask-rocky"
-    assert manifest(chosen)["features"]["slash_commands"][0]["command"] == "/ask-rocky"
+    commands = manifest(chosen)["features"]["slash_commands"]
+    assert [c["command"] for c in commands] == ["/ask-rocky"], "one command, pairing included"
     for bad in ("rocky", "/", "/has space", "/" + "x" * 40):
         with pytest.raises(SlackBotError):
             validate(replace(record, slash_command=bad))

@@ -54,7 +54,7 @@ Your organization may connect multiple bots (e.g. `@RocketDev`, `@RocketOps`, `@
 
 Without a link, your direct messages belong to a **guest** member made for your Slack account (it cannot sign in, has no credentials of its own, and an administrator can see its sessions), and a channel conversation belongs to the workspace's guest (no one's personal credentials are ever used in a shared thread). Linking connects you to your own Rocket Chat account for direct messages: your GitHub access, your model keys, your budget. When you link, the sessions your guest started become yours.
 
-1. In Slack run `/rocket-pair` (or `/<command> pair`). Rocket replies privately with an 8-character code, valid for 10 minutes and usable once.
+1. In Slack run the bot's command with `pair` (for example `/rocky pair`). Rocket replies privately with an 8-character code, valid for 10 minutes and usable once.
 2. In Rocket Chat, signed in, open **Settings → Slack** (see [your settings](/use/personal-settings#slack)) and enter the code.
 
 Administrators can also turn on **auto link by verified e-mail** (see [Administrator settings](/administer/slack#3-administrator-settings-settings-slack)), which matches the Slack profile e-mail against members of the workspace's own organization.

@@ -3,7 +3,7 @@
 * **Workspace binding** maps a Slack workspace (team) to the organization that owns it, so
   Slack events are processed under the right tenant and policy instead of ``default_org``.
 * **Account pairing** links a Slack user to a Rocket member. The Slack side only ever
-  *starts* the flow (``/rocket-pair`` issues a one-time code); the link is completed by the
+  *starts* the flow (a bot's ``pair`` command issues a one-time code); the link is completed by the
   member from their authenticated Rocket session, so typing someone's e-mail address in
   Slack can never claim their account.
 * **Guests** own what Slack users who are not linked start: one read-only member per Slack

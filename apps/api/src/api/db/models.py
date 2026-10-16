@@ -1062,7 +1062,7 @@ class SessionEventCounterModel(Base):
 
 
 class SlackPairingCodeModel(Base):
-    """A one-time code a Slack user got from ``/rocket-pair``.
+    """A one-time code a Slack user got from a bot's ``pair`` command.
 
     Stored in PostgreSQL so the member can finish pairing on any API replica. Only a hash of
     the code is kept, and like ``slack_workspaces`` the table has no row-level security: the
