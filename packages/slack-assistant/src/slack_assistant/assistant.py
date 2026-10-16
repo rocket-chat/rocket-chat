@@ -231,6 +231,7 @@ class SlackAssistant(
         self._register_handlers()
         self._register_entrypoints()
         self._register_slack_context_tools()
+        self._go_live()
 
     # -- Slack toolset: discovery + outbound ------------------------------------------
 
@@ -944,6 +945,9 @@ class SlackAssistant(
             "the Slack UI shows it as the live progress loader. "
             "Each user message is prefixed '[Speaker: <name> (<@id>)]'; attribute statements "
             "to the right person. "
+            "Your final answer is delivered to the person by the platform: just write it. Never "
+            "use `slack_send_message` or `slack_send_dm` to reply in this conversation; use them "
+            "only to reach another channel or person when asked. "
         )
         if is_dm:
             stable += "This is a private 1:1 conversation. "
@@ -1092,6 +1096,7 @@ class SlackAssistant(
 
     async def stop_socket_mode(self) -> None:
         """Cleanly close Socket Mode connection."""
+        self._go_offline()
         watchdog, self._watchdog = self._watchdog, None
         if watchdog is not None:
             watchdog.cancel()

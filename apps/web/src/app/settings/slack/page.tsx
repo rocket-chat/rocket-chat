@@ -14,7 +14,6 @@ import {
   Trash2,
   Lock,
   Globe,
-  Info,
 } from "lucide-react";
 import { SchemaSettingsForm } from "../../../components/settings/SchemaSettingsForm";
 import {
@@ -22,6 +21,7 @@ import {
   ScopeDivider,
   OrgScopeSection,
 } from "../../../components/settings/ScopedSettingsSection";
+import { useSession } from "../../../components/AuthProvider";
 import { BotEditor } from "./BotEditor";
 import { SlackBot } from "./types";
 
@@ -152,6 +152,10 @@ function WorkspaceBindingPanel() {
 }
 
 export default function SlackSettingsPage() {
+  const { data: session } = useSession();
+  const roles = (session?.user as unknown as { roles?: string[] })?.roles || [];
+  // Bots are the organization's Slack apps: only administrators see or manage them.
+  const isAdmin = !session || roles.includes("admin") || roles.includes("owner");
   const [testingSocket, setTestingSocket] = useState(false);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
@@ -179,6 +183,7 @@ export default function SlackSettingsPage() {
   }, []);
 
   const fetchBots = useCallback(async () => {
+    if (!isAdmin) return;
     setLoadingBots(true);
     try {
       const res = await fetch("/v1/admin/slack/bots");
@@ -190,7 +195,7 @@ export default function SlackSettingsPage() {
     } finally {
       setLoadingBots(false);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     fetchStatus();
@@ -287,23 +292,6 @@ export default function SlackSettingsPage() {
         </div>
       </div>
 
-      {/* Deprecation notice banner for env tokens */}
-      {slackStatus.is_configured && (
-        <div
-          data-testid="slack-env-deprecation-banner"
-          className="flex items-start gap-3 p-3.5 rounded-lg bg-amber-950/40 border border-amber-800/50 text-amber-300 text-xs"
-        >
-          <Info className="w-4 h-4 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <span className="font-semibold">Imported from the environment</span>
-            <p className="text-amber-300/80">
-              Remove <code>SLACK_BOT_TOKEN</code> and <code>SLACK_APP_TOKEN</code> from your deployment. Bots are now
-              configured and encrypted per bot in the cockpit below.
-            </p>
-          </div>
-        </div>
-      )}
-
       {errorBanner && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
@@ -339,131 +327,141 @@ export default function SlackSettingsPage() {
       </UserScopeSection>
 
       <ScopeDivider label="Organization Scope" />
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Organization · managed by administrators
+      </p>
 
-      {/* Organization Slack Bots */}
       <OrgScopeSection
-        title="Configured Slack Bots"
-        description="Each bot connects its own Slack app (@handle) with dedicated agents, response modes, and policy overrides."
+        title="Slack bots"
+        description="The organization's Slack apps: each bot (@handle) answers with its own agent or router, response mode and policy, for everyone in the workspace."
       >
         <div className="space-y-4">
-          <div className="flex items-center justify-between pb-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-foreground">
-                {bots.length} {bots.length === 1 ? "bot" : "bots"} configured
-              </span>
+          {isAdmin ? (
+            <>
+            <div className="flex items-center justify-between pb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-foreground">
+                  {bots.length} {bots.length === 1 ? "bot" : "bots"} configured
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleNewBot}
+                data-testid="new-bot-button"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand/90 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>New bot</span>
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={handleNewBot}
-              data-testid="new-bot-button"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand text-white text-xs font-semibold hover:bg-brand/90 transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>New bot</span>
-            </button>
-          </div>
 
-          {/* Bots Cards List */}
-          {loadingBots ? (
-            <div className="p-8 text-center text-xs text-muted-foreground">Loading bots...</div>
-          ) : bots.length === 0 ? (
-            <div className="p-8 text-center border border-dashed border-border rounded-xl space-y-2 bg-surface-card/40">
-              <Bot className="w-8 h-8 text-muted-foreground mx-auto" />
-              <p className="text-xs font-medium text-foreground">No Slack bots configured yet</p>
-              <p className="text-[11px] text-muted-foreground max-w-sm mx-auto">
-                Add a bot to connect a Slack app handle, choose its agent or router, and pick whether it responds publicly or
-                privately.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-testid="slack-bots-list">
-              {bots.map((b) => (
-                <div
-                  key={b.id}
-                  data-testid={`slack-bot-card-${b.id}`}
-                  className="p-4 rounded-xl border border-border bg-surface-card flex flex-col justify-between space-y-4 hover:border-neutral-400/60 transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-sm text-foreground">{b.name}</span>
-                        {b.handle && (
-                          <span className="text-xs text-brand font-medium">@{b.handle}</span>
-                        )}
+            {/* Bots Cards List */}
+            {loadingBots ? (
+              <div className="p-8 text-center text-xs text-muted-foreground">Loading bots...</div>
+            ) : bots.length === 0 ? (
+              <div className="p-8 text-center border border-dashed border-border rounded-xl space-y-2 bg-surface-card/40">
+                <Bot className="w-8 h-8 text-muted-foreground mx-auto" />
+                <p className="text-xs font-medium text-foreground">No Slack bots configured yet</p>
+                <p className="text-[11px] text-muted-foreground max-w-sm mx-auto">
+                  Add a bot to connect a Slack app handle, choose its agent or router, and pick whether it responds publicly or
+                  privately.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4" data-testid="slack-bots-list">
+                {bots.map((b) => (
+                  <div
+                    key={b.id}
+                    data-testid={`slack-bot-card-${b.id}`}
+                    className="p-4 rounded-xl border border-border bg-surface-card flex flex-col justify-between space-y-4 hover:border-neutral-400/60 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-sm text-foreground">{b.name}</span>
+                          {b.handle && (
+                            <span className="text-xs text-brand font-medium">@{b.handle}</span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {b.team_name ? `Workspace: ${b.team_name}` : "Slack App connection"}
+                        </p>
                       </div>
-                      <p className="text-[11px] text-muted-foreground">
-                        {b.team_name ? `Workspace: ${b.team_name}` : "Slack App connection"}
-                      </p>
+
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={b.enabled}
+                        aria-label={`Toggle ${b.name}`}
+                        onClick={() => handleToggleBotEnabled(b.id, b.enabled)}
+                        className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                          b.enabled ? "bg-brand" : "bg-neutral-600 dark:bg-neutral-700"
+                        }`}
+                      >
+                        <span
+                          className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                            b.enabled ? "translate-x-4" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
                     </div>
 
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={b.enabled}
-                      aria-label={`Toggle ${b.name}`}
-                      onClick={() => handleToggleBotEnabled(b.id, b.enabled)}
-                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        b.enabled ? "bg-brand" : "bg-neutral-600 dark:bg-neutral-700"
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                          b.enabled ? "translate-x-4" : "translate-x-0"
-                        }`}
-                      />
-                    </button>
-                  </div>
+                    <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                      {/* Brain Badge */}
+                      {b.router ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium">
+                          <Layers className="w-3 h-3" />
+                          <span>Router ({b.router.routes?.length || 0} routes)</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-medium">
+                          <Bot className="w-3 h-3" />
+                          <span>One Agent</span>
+                        </span>
+                      )}
 
-                  <div className="flex flex-wrap items-center gap-2 text-[10px]">
-                    {/* Brain Badge */}
-                    {b.router ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium">
-                        <Layers className="w-3 h-3" />
-                        <span>Router ({b.router.routes?.length || 0} routes)</span>
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-medium">
-                        <Bot className="w-3 h-3" />
-                        <span>One Agent</span>
-                      </span>
-                    )}
+                      {/* Response Mode Badge */}
+                      {b.response_mode === "private" ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
+                          <Lock className="w-2.5 h-2.5" />
+                          <span>Private session</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                          <Globe className="w-2.5 h-2.5" />
+                          <span>Thread public</span>
+                        </span>
+                      )}
+                    </div>
 
-                    {/* Response Mode Badge */}
-                    {b.response_mode === "private" ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
-                        <Lock className="w-2.5 h-2.5" />
-                        <span>Private session</span>
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
-                        <Globe className="w-2.5 h-2.5" />
-                        <span>Thread public</span>
-                      </span>
-                    )}
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60">
+                      <button
+                        type="button"
+                        onClick={() => handleEditBot(b)}
+                        data-testid={`edit-bot-${b.id}`}
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border text-xs text-foreground hover:bg-surface-elevated transition-colors"
+                      >
+                        <Edit2 className="w-3 h-3" />
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteBot(b.id, b.name)}
+                        className="p-1.5 text-muted-foreground hover:text-rose-400 rounded-lg hover:bg-surface-elevated transition-colors"
+                        title="Delete bot"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-border/60">
-                    <button
-                      type="button"
-                      onClick={() => handleEditBot(b)}
-                      data-testid={`edit-bot-${b.id}`}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border text-xs text-foreground hover:bg-surface-elevated transition-colors"
-                    >
-                      <Edit2 className="w-3 h-3" />
-                      <span>Edit</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteBot(b.id, b.name)}
-                      className="p-1.5 text-muted-foreground hover:text-rose-400 rounded-lg hover:bg-surface-elevated transition-colors"
-                      title="Delete bot"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
+            </>
+          ) : (
+            <p data-testid="slack-bots-admin-only" className="text-xs text-muted-foreground">
+              Slack bots are added and configured by your organization&apos;s administrators.
+            </p>
           )}
 
           {/* Live Socket Status */}
@@ -492,7 +490,7 @@ export default function SlackSettingsPage() {
             </button>
           </div>
 
-          <WorkspaceBindingPanel />
+          {isAdmin && <WorkspaceBindingPanel />}
 
           <SchemaSettingsForm
             domain="slack"

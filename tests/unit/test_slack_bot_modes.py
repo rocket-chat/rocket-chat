@@ -22,6 +22,7 @@ from slack_assistant.bot import (
     SlackRouter,
 )
 from slack_assistant.routing import PRIVATE_ANSWER_KEY, ROUTE_KEY
+from slack_assistant.toolset import NOT_CONNECTED
 from slack_harness import make_slack
 
 from specifications.interfaces.agent import AgentEvent, AgentOrchestratorProtocol
@@ -252,3 +253,40 @@ async def test_a_channel_can_make_a_bot_private() -> None:
     await _ask(assistant)
 
     assert assistant.pipeline.calls[0]["session_id"].endswith("_U1")  # type: ignore[attr-defined]
+
+
+async def test_slack_tools_run_on_the_bot_that_owns_the_session() -> None:
+    import asyncio
+
+    from agent_core.context import ExecutionContext, current_execution_ctx
+
+    tools: dict[str, Any] = {}
+    registry = MagicMock()
+    registry._dynamic_tools = tools
+    registry.register_dynamic_tool = MagicMock(
+        side_effect=lambda definition, handler, **_: tools.setdefault(definition.name, handler)
+    )
+    first = make_slack(_Answering(), tool_registry=registry, bot=_bot(id="aaaaaaaa1111"))
+    second = make_slack(_Answering(), tool_registry=registry, bot=_bot(id="bbbbbbbb2222"))
+    for assistant in (first, second):
+        assistant._slack_api_ready = True
+        assistant.app = MagicMock()
+        assistant.app.client.chat_postMessage = AsyncMock(return_value={"ts": "1.1"})
+    session_id = second.get_session_id("C9", "5.5")
+    second._session_meta[session_id] = ("C9", "5.5")
+
+    async def post(session: str) -> str:
+        ctx = ExecutionContext(session_id=session, event_queue=asyncio.Queue(), parent_model="m")
+        token = current_execution_ctx.set(ctx)
+        try:
+            return str(await tools["slack_send_message"](channel="C9", text="hi"))
+        finally:
+            current_execution_ctx.reset(token)
+
+    assert "posted" in await post(session_id), "allowed: it is the session's own conversation"
+    second.app.client.chat_postMessage.assert_awaited_once()
+    first.app.client.chat_postMessage.assert_not_awaited()
+
+    await second.stop_socket_mode()
+    assert await post(session_id) == NOT_CONNECTED, "a stopped bot's sessions get no other bot"
+    await first.stop_socket_mode()

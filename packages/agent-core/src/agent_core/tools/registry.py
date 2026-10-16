@@ -23,8 +23,8 @@ from agent_core.permissions import (
     ACTION_CLASSIFIED_TOOLS,
     SLACK_READ_TOOLS,
     approval_needed,
-    changes_workspace,
     is_read_call,
+    touches_workspace,
 )
 from agent_core.tools import git_tools, memory_tools
 from agent_core.tools.builtin import register_all
@@ -370,6 +370,14 @@ class ToolRegistry:
         ctx.active_repository = folder
         return True
 
+    def _touches_sandbox(self, name: str, arguments: dict[str, Any]) -> bool:
+        """Whether the call may change the sandbox. Dynamic toolsets (Slack) and external
+        (MCP) tools run on the platform or elsewhere, whatever their permission class."""
+        provider = self._external_provider()
+        if name in self._dynamic_tools or (provider is not None and provider.owns(name)):
+            return False
+        return touches_workspace(name, arguments)
+
     async def _checkpoint_before_first_change(self, name: str, arguments: dict[str, Any]) -> None:
         """Snapshot the workspace before a turn first changes it, so any turn can be rewound.
 
@@ -378,12 +386,9 @@ class ToolRegistry:
         """
         ctx = current_execution_ctx.get()
         target = self._sandbox_target(name)
-        if (
-            ctx is None
-            or ctx.checkpointed
-            or target is None
-            or not changes_workspace(name, arguments)
-        ):
+        if ctx is None or ctx.checkpointed or target is None:
+            return
+        if not self._touches_sandbox(name, arguments):
             return
         driver, session_id = target
         try:
