@@ -471,9 +471,7 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
 
         raise SandboxTimeoutError(f"Timed out waiting for Pod {pod_name} to enter Running state")
 
-    async def _await_start(
-        self, core_v1: client.CoreV1Api, pod_name: str, session_id: str
-    ) -> None:
+    async def _await_start(self, core_v1: client.CoreV1Api, pod_name: str, session_id: str) -> None:
         """Wait for the pod to run; a pod that cannot start is removed, a slow one is kept."""
         try:
             await self._wait_for_pod_running(

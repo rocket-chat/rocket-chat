@@ -17,7 +17,9 @@ from sandbox_driver.fake_driver import FakeSandboxDriver
 
 from specifications.interfaces.llm import LLMGatewayProtocol, ModelRequest, StreamChunk
 
-CHECKLIST = json.dumps({"tasks": [{"id": "1", "title": "Rebase onto beta", "status": "in_progress"}]})
+CHECKLIST = json.dumps(
+    {"tasks": [{"id": "1", "title": "Rebase onto beta", "status": "in_progress"}]}
+)
 
 
 class _Scripted(LLMGatewayProtocol):
