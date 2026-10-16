@@ -7,6 +7,7 @@ these values from the database (the package never reads its storage).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -15,6 +16,17 @@ from slack_assistant.policy import SlackOrgPolicy, _as_list, _profiles
 
 RESPONSE_MODES = ("thread", "private")
 DISMISS = "dismiss"
+DEFAULT_COMMAND = "/rocket"
+
+
+def command_for(handle: str) -> str:
+    """A bot's slash command, named after its handle (``@triage`` -> ``/triage``).
+
+    Slack does not namespace slash commands: when two apps of a workspace declare the same one,
+    only the most recently installed receives it. Each bot therefore has its own.
+    """
+    name = re.sub(r"[^a-z0-9_-]+", "-", handle.lower()).strip("-")[:31]
+    return f"/{name}" if name else DEFAULT_COMMAND
 
 
 @dataclass(frozen=True)
@@ -143,6 +155,7 @@ class SlackBot:
     private_dm_result: bool = False
     # Overrides of the organization's Slack policy (the ``slack`` settings), key by key.
     policy: Mapping[str, Any] = field(default_factory=dict)
+    command: str = DEFAULT_COMMAND
 
     @property
     def session_key(self) -> str:

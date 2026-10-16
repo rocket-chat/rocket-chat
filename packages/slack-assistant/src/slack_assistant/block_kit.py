@@ -345,9 +345,6 @@ def build_question_blocks(question: InteractiveQuestion) -> list[dict[str, Any]]
     return blocks
 
 
-STOP_ACTION_ID = "stop_turn"
-
-
 def open_in_rocket_context(
     link_url: str | None, detail: str | None = None
 ) -> dict[str, Any] | None:
@@ -360,53 +357,12 @@ def open_in_rocket_context(
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(parts)}]}
 
 
-def build_progress_blocks(
-    *,
-    headline: str,
-    steps: list[str],
-    stop_value: str | None = None,
-    link_url: str | None = None,
-) -> list[dict[str, Any]]:
-    """The one live message of a turn: what it is doing, its recent steps and a Stop button.
-
-    ``stop_value`` is ``None`` once the turn is over, which drops the button.
-    """
-    blocks: list[dict[str, Any]] = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": headline[:2900]}}
-    ]
-    if steps:
-        blocks.append(
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": "\n".join(steps)[:2900]}],
-            }
-        )
-    if stop_value is not None:
-        blocks.append(
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "action_id": STOP_ACTION_ID,
-                        "text": {"type": "plain_text", "text": "Stop"},
-                        "style": "danger",
-                        "value": stop_value,
-                    }
-                ],
-            }
-        )
-    link = open_in_rocket_context(link_url)
-    if link is not None:
-        blocks.append(link)
-    return blocks
-
-
 def build_home_view(
     *,
     linked_as: str | None,
     sessions: list[tuple[str, str, str | None]],
     web_url: str | None,
+    command: str = "/rocket",
 ) -> dict[str, Any]:
     """The App Home tab: who you are in Rocket Chat, your recent threads and how to start one.
 
@@ -419,7 +375,7 @@ def build_home_view(
         who = f":white_check_mark: Linked to *{linked_as}* in Rocket Chat."
     else:
         who = (
-            ":link: Your Slack account is not linked yet. Run `/rocket pair` and enter the "
+            f":link: Your Slack account is not linked yet. Run `{command} pair` and enter the "
             "code in Rocket Chat under *Settings → Slack*."
         )
     blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": who}})
@@ -442,8 +398,8 @@ def build_home_view(
                 "text": (
                     "*Ways to work with me*\n"
                     "• `@Rocket <task>` in any channel, or message me directly\n"
-                    "• `/rocket new <task>` starts a thread; `/rocket status` and `/rocket stop` "
-                    "manage your running work\n"
+                    f"• `{command} new <task>` starts a thread; `{command} status` and "
+                    f"`{command} stop` manage your running work\n"
                     "• *Ask Rocket* in a message's ⋮ menu to work on that message"
                 ),
             },

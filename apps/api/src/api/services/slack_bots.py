@@ -14,7 +14,7 @@ from dataclasses import dataclass, field, fields, replace
 from typing import Any
 
 from config_engine.crypto import CredentialCipher
-from slack_assistant.bot import RESPONSE_MODES, SlackBot, SlackRouter
+from slack_assistant.bot import RESPONSE_MODES, SlackBot, SlackRouter, command_for
 from sqlalchemy import delete, select
 
 from api.db.models import SlackBotModel
@@ -152,6 +152,7 @@ def runtime_bot(record: SlackBotRecord, tokens: SlackTokens) -> SlackBot:
         private_reaction=record.private_reaction,
         private_dm_result=record.private_dm_result,
         policy=dict(record.policy),
+        command=command_for(record.handle or record.name),
     )
 
 

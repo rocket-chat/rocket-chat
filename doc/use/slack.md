@@ -1,6 +1,6 @@
 ---
 title: Slack
-description: Work with Rocket Chat from Slack: mentions, direct messages, /rocket and the live progress message.
+description: Work with Rocket Chat from Slack: mentions, direct messages, slash commands and streamed replies.
 ---
 
 # Slack
@@ -10,7 +10,7 @@ If your administrator has [connected Slack](/administer/slack), you can use the 
 ## What you see
 
 **Response modes: Thread vs Private session.** Your administrator can configure bots and routes to respond in one of two modes:
-- **Thread mode (public):** Rocket posts a single live progress message in the thread and updates it as it works: what it is doing right now, the last few steps, a summary ("Edited 2 files · Ran 3 commands"), a **Stop** button and an **Open in Rocket Chat** link. When it finishes, the message is removed and the answer ends with one line: **Open in Rocket Chat** and what the turn did ("Done in 41s · Edited 2 files · Ran 3 commands"). If the turn is stopped or fails, the message stays and says why. Only the person who asked can press Stop.
+- **Thread mode (public):** while Slack's status line shows the bot is working, its reply in the thread lists each step as it happens (a collapsible list of tool calls), then the answer is written into the same message, ending with **Open in Rocket Chat** and what the turn did ("Done in 41s · Edited 2 files · Ran 3 commands"). A turn that only answers posts the answer directly. To stop a turn, use the bot's slash command: `/<command> stop`.
 - **Private mode:** When invoked, the bot marks your message with an acknowledgement reaction (default :white_check_mark:) and sends an ephemeral message in the thread visible *only to you*. It includes an **Open session** button linking to your private cockpit session. The work happens privately; when finished, an ephemeral summary is posted to you in the thread alongside a **Share in thread** button that allows you to post the final answer into the public thread when you choose. Follow-up messages you type in the thread continue your private session.
 
 **Questions and approvals are buttons in the thread.** When the agent needs a decision, or wants to run something your organization requires [approval](/administer/security#b-per-org-approval-policy) for, it posts buttons. In thread mode they are posted to the thread; in private mode they are posted as ephemeral buttons visible only to you. Only the person who started the request can answer. This keeps working after a restart: a question that was waiting when the server restarted is picked up again from the stored question, and the work continues in the same thread.
@@ -42,9 +42,9 @@ Your organization may connect multiple bots (e.g. `@RocketDev`, `@RocketOps`, `@
 | :--- | :--- |
 | `@<bot> <task>` in a channel | Answers in that message's thread (or privately, if configured). Follow-ups in the thread continue the same conversation. |
 | Message the bot directly | A private conversation under your own Rocket Chat account (once linked). |
-| `/rocket new <task>` | Posts "you asked Rocket: …" and works in a new thread. |
-| `/rocket status` | Lists your recent Slack threads and which are running (only you see it). |
-| `/rocket stop` | Stops what you have running in this channel. |
+| `/<command> new <task>` | Posts "you asked Rocket: …" and works in a new thread. Each bot has its own command, named after it (`/triage` for `@triage`); `help` lists them. |
+| `/<command> status` | Lists your recent Slack threads and which are running (only you see it). |
+| `/<command> stop` | Stops what you have running with that bot in this channel. |
 | **Ask Rocket** in a message's ⋮ menu | Works on that message, in its thread. |
 | Open the app's **Home** tab | Your link status, recent threads and these tips. |
 
@@ -54,7 +54,7 @@ Your organization may connect multiple bots (e.g. `@RocketDev`, `@RocketOps`, `@
 
 Without a link, your direct messages belong to a **guest** member made for your Slack account (it cannot sign in, has no credentials of its own, and an administrator can see its sessions), and a channel conversation belongs to the workspace's guest (no one's personal credentials are ever used in a shared thread). Linking connects you to your own Rocket Chat account for direct messages: your GitHub access, your model keys, your budget. When you link, the sessions your guest started become yours.
 
-1. In Slack run `/rocket pair`. Rocket replies privately with an 8-character code, valid for 10 minutes and usable once.
+1. In Slack run `/rocket-pair` (or `/<command> pair`). Rocket replies privately with an 8-character code, valid for 10 minutes and usable once.
 2. In Rocket Chat, signed in, open **Settings → Slack** (see [your settings](/use/personal-settings#slack)) and enter the code.
 
 Administrators can also turn on **auto link by verified e-mail** (see [Administrator settings](/administer/slack#3-administrator-settings-settings-slack)), which matches the Slack profile e-mail against members of the workspace's own organization.

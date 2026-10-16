@@ -135,11 +135,8 @@ async def test_a_mention_runs_a_turn_and_answers_in_its_thread(bolt: BoltStack) 
     assert posted, "nothing was posted"
     assert all(args.get("thread_ts") == "1700000000.000100" for args in posted)
     assert "Fixed it." in json.dumps(posted)
-    assert "stop_turn" in json.dumps(posted[0]), "the live message carries a Stop button"
-    methods = bolt.client.methods()
-    assert "chat.delete" in methods, "a finished turn removes its live message"
-    answered = max(i for i, m in enumerate(methods) if m == "chat.postMessage")
-    assert methods.index("chat.delete") > answered, "removed only after the answer is posted"
+    assert "stop_turn" not in json.dumps(posted), "no Stop button: the slash command stops"
+    assert "chat.startStream" not in bolt.client.methods(), "a turn without tools is not streamed"
 
 
 @pytest.mark.asyncio
@@ -223,7 +220,7 @@ async def test_opening_the_app_home_publishes_a_view(bolt: BoltStack) -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_stop_button_only_obeys_the_person_who_asked(bolt: BoltStack) -> None:
+async def test_the_stop_command_only_stops_the_callers_own_turn(bolt: BoltStack) -> None:
     model = bolt.stack.model
     model.gate = asyncio.Event()
     cancelled: list[str] = []
@@ -236,13 +233,14 @@ async def test_the_stop_button_only_obeys_the_person_who_asked(bolt: BoltStack) 
     await asyncio.wait_for(model.started.wait(), 5)
     await _wait_for(lambda: "slack_C1_1700000000_000100" in bolt.assistant._active_turns)
 
-    stranger = payload("block_action_stop")
-    stranger["user"] = {"id": "U_STRANGER", "team_id": "T1"}
-    await bolt.dispatch(stranger)
-    assert cancelled == []
+    try:
+        stranger = payload("command_rocket", text="stop", user_id="U2", trigger_id="T_STOP_1")
+        await bolt.dispatch(stranger)
+        assert cancelled == []
+        assert "nothing running" in bolt.responses[-1]["text"]
 
-    await bolt.dispatch(payload("block_action_stop", trigger_id="TRIGGER_STOP_2"))
-    assert cancelled == ["slack_C1_1700000000_000100"]
-
-    model.gate.set()
-    await asyncio.wait_for(turn, 10)
+        await bolt.dispatch(payload("command_rocket", text="stop", trigger_id="T_STOP_2"))
+        assert cancelled == ["slack_C1_1700000000_000100"]
+    finally:
+        model.gate.set()
+        await asyncio.wait_for(turn, 10)

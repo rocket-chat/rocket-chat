@@ -120,25 +120,25 @@ async def test_a_member_is_linked_by_verified_email_only_when_the_organization_e
 @pytest.mark.setting("slack.web_base_url")
 async def test_session_links_use_the_organizations_web_address() -> None:
     stack = Stack(ScriptedModel(), _policy(web_base_url="https://org.example/"))
-    client = _live(stack)
+    _live(stack)
 
     await stack.send()
 
-    assert f"https://org.example/chat/{SESSION_ID}" in str(
-        client.chat_postMessage.call_args_list[0]
-    )
+    assert f"https://org.example/chat/{SESSION_ID}" in str(stack.say.call_args.kwargs["blocks"])
 
 
 @pytest.mark.setting("slack.live_progress")
-async def test_the_live_progress_message_exists_only_when_enabled() -> None:
-    async def progress_posts(**settings: Any) -> int:
-        stack = Stack(ScriptedModel(final_text="Done."), _policy(**settings))
+async def test_the_steps_are_streamed_into_the_reply_only_when_enabled() -> None:
+    async def streams(**settings: Any) -> int:
+        model = ScriptedModel(script=[("think", {"thought": "plan"})], final_text="Done.")
+        stack = Stack(model, _policy(**settings))
         client = _live(stack)
+        client.chat_startStream.return_value = {"ts": "9.9"}
         await stack.send()
-        return sum("stop_turn" in str(call) for call in client.chat_postMessage.call_args_list)
+        return int(client.chat_startStream.await_count)
 
-    assert await progress_posts() == 1
-    assert await progress_posts(live_progress=False) == 0
+    assert await streams() == 1
+    assert await streams(live_progress=False) == 0
 
 
 LONG_ANSWER = "Section.\n\n" + ("Details about the investigation. " * 400)

@@ -20,6 +20,7 @@ from slack_assistant.bot import (
     SlackBot,
     SlackRoute,
     SlackRouter,
+    command_for,
 )
 from slack_assistant.routing import PRIVATE_ANSWER_KEY, ROUTE_KEY
 from slack_assistant.toolset import NOT_CONNECTED
@@ -290,3 +291,39 @@ async def test_slack_tools_run_on_the_bot_that_owns_the_session() -> None:
     await second.stop_socket_mode()
     assert await post(session_id) == NOT_CONNECTED, "a stopped bot's sessions get no other bot"
     await first.stop_socket_mode()
+
+
+def test_each_bot_has_its_own_slash_command() -> None:
+    assert command_for("Triage Bot") == "/triage-bot"
+    assert command_for("dify") == "/dify"
+    assert command_for("!!!") == "/rocket"
+    assert _slack(_bot(command="/dify")).command == "/dify"
+    assert make_slack(_Answering()).command == "/rocket", "an assistant without a bot"
+
+
+@pytest.mark.parametrize("command", ["/dify", "/rocket", "/other"])
+async def test_a_bot_answers_its_command_and_the_legacy_one(command: str) -> None:
+    from slack_bolt.async_app import AsyncApp
+    from slack_bolt.authorization import AuthorizeResult
+    from slack_bolt.request.async_request import AsyncBoltRequest
+
+    async def authorize(**_: Any) -> AuthorizeResult:
+        return AuthorizeResult(enterprise_id=None, team_id="T1", bot_token="xoxb-test")
+
+    app = AsyncApp(authorize=authorize, request_verification_enabled=False)
+    assistant = make_slack(_Answering(), bot=_bot(command="/dify"), app=app)
+    assistant._rocket_command = AsyncMock()  # type: ignore[method-assign]
+    body = {
+        "command": command,
+        "text": "status",
+        "user_id": "U1",
+        "channel_id": "C1",
+        "team_id": "T1",
+        "response_url": "https://hooks.slack.test/r",
+        "trigger_id": f"trigger-{command}",
+    }
+
+    response = await app.async_dispatch(AsyncBoltRequest(body=body, mode="socket_mode"))
+
+    handled = assistant._rocket_command.await_count == 1
+    assert handled is (command != "/other"), response.status
