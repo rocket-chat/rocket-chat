@@ -2,6 +2,7 @@
 
 import pytest
 from api.main import app
+from api.routers import session_crud
 from fastapi.testclient import TestClient
 
 
@@ -182,6 +183,30 @@ def test_session_reset_clean_slate(client: TestClient) -> None:
     assert s1["session_id"] not in after_ids
     assert s2["session_id"] not in after_ids
     assert new_session["session_id"] in after_ids
+
+
+def test_session_reset_deletes_only_the_callers_own_sessions(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An administrator's reset keeps other members' sessions and pages past one batch."""
+    monkeypatch.setattr(session_crud, "RESET_BATCH", 2)
+    admin = {"X-Tenant-Org-Id": "reset_org", "X-Tenant-User-Id": "admin", "X-User-Role": "admin"}
+    member = {"X-Tenant-Org-Id": "reset_org", "X-Tenant-User-Id": "member"}
+    own = [
+        client.post("/v1/sessions", json={}, headers=admin).json()["session_id"] for _ in range(5)
+    ]
+    theirs = client.post("/v1/sessions", json={"title": "Theirs"}, headers=member).json()
+    client.post(
+        f"/v1/sessions/{theirs['session_id']}/share", json={"is_shared": True}, headers=member
+    )
+
+    reset = client.post("/v1/sessions/reset", headers=admin).json()
+
+    assert reset["deleted_count"] == 5
+    everything = client.get("/v1/sessions?scope=organization", headers=admin).json()
+    remaining = {s["session_id"] for s in everything}
+    assert remaining == {theirs["session_id"], reset["new_session"]["session_id"]}
+    assert not remaining & set(own)
 
 
 def test_usage_telemetry_endpoints(client: TestClient) -> None:

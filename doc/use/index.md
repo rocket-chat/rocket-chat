@@ -59,7 +59,7 @@ The header has two more: the **Turn Inspector** (every turn's tools, files, appr
 
 The ghost text in the composer is the agent's guess at your next message: press **Tab** to accept it, **Enter** to send. Before a turn first changes your workspace the platform takes a **checkpoint**; the checkpoints panel lets you rewind the workspace to an earlier point after a confirmation.
 
-Sessions are private to you unless your administrator makes new sessions visible to the organization by default; everyone with access sees the same live conversation, and messages show who wrote them. Pin or archive sessions in the sidebar.
+Sessions are private to you unless your administrator makes new sessions visible to the organization by default; everyone with access sees the same live conversation, and messages show who wrote them. Pin or archive sessions in the sidebar; **CLEAR** deletes all of your own sessions (archived ones included) and keeps the ones others shared with you. Administrators see their own and shared sessions too, and the **ALL** toggle lists every session of the organization.
 
 ## Next
 

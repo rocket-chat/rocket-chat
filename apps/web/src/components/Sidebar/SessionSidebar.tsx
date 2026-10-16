@@ -8,6 +8,7 @@ import { SessionData } from "../../types/mission";
 import { RocketChatIcon } from "../RocketChatLogo";
 import { ThemeToggle } from "../Theme/ThemeToggle";
 import { IconButton } from "../ui/IconButton";
+import { useSession } from "../AuthProvider";
 import {
   Trash2,
   Settings,
@@ -24,6 +25,7 @@ import {
   CalendarClock,
   Brain,
   History,
+  Users,
 } from "lucide-react";
 
 interface SessionSidebarProps {
@@ -43,6 +45,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
     fetchSessions,
     loadMoreSessions,
     sessionsNextCursor,
+    sessionsScope,
     isLoadingSessions,
     setIsMemoryInspectorOpen,
     setIsTurnInspectorOpen,
@@ -50,6 +53,10 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
 
   const router = useRouter();
   const [showArchived, setShowArchived] = useState(false);
+  const { data: authSession } = useSession();
+  const roles = (authSession?.user as unknown as { roles?: string[] })?.roles || [];
+  const isAdmin = !authSession || roles.includes("admin") || roles.includes("owner");
+  const showingOrganization = sessionsScope === "organization";
 
   // Keyboard shortcut Cmd+K / Ctrl+K for new conversation
   useEffect(() => {
@@ -101,7 +108,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
     if (!ok) {
       // The server rejected the mutation (offline, permission, stale session): re-fetch
       // so the sidebar never shows a pin/archive state the backend did not accept.
-      await fetchSessions(showArchived);
+      await fetchSessions();
     }
   };
 
@@ -109,6 +116,23 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
     const next = !showArchived;
     setShowArchived(next);
     await fetchSessions(next);
+  };
+
+  const handleToggleOrganizationView = async () => {
+    await fetchSessions(showArchived, showingOrganization ? "mine" : "organization");
+  };
+
+  const handleClearOwnSessions = async () => {
+    const question =
+      "Delete all of your sessions, archived ones included, and their sandboxes? " +
+      "Sessions of other members and sessions shared with you are kept.";
+    if (!confirm(question)) return;
+    const fresh = await resetAllSessions();
+    if (fresh) {
+      router.push(`/chat/${fresh.session_id}`);
+    } else {
+      alert("Your sessions could not be cleared. Try again.");
+    }
   };
 
   // Pinned sessions float to the top of the list; the API already returns the rest in
@@ -182,7 +206,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
           {/* Sessions List */}
           <div>
             <div className="px-2 pb-1.5 flex items-center justify-between text-[11px] font-medium tracking-wider uppercase text-neutral-500 dark:text-neutral-400">
-              <span>Sessions ({sessions.length})</span>
+              <span>
+                {showingOrganization ? "Organization" : "Sessions"} ({sessions.length})
+              </span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -197,18 +223,31 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                   {showArchived ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />}
                   ARCHIVED
                 </button>
+                {isAdmin && (
+                  <button
+                    type="button"
+                    data-testid="toggle-org-sessions-btn"
+                    aria-pressed={showingOrganization}
+                    title={
+                      showingOrganization
+                        ? "Show only your sessions and those shared with you"
+                        : "Show every session in the organization"
+                    }
+                    onClick={handleToggleOrganizationView}
+                    className={`flex items-center gap-1 text-[9px] cursor-pointer hover:text-foreground ${
+                      showingOrganization ? "text-brand" : ""
+                    }`}
+                  >
+                    <Users className="w-3 h-3" />
+                    ALL
+                  </button>
+                )}
                 {sessions.length > 0 && (
                   <button
                     type="button"
                     data-testid="clear-all-sessions-btn"
-                    onClick={async () => {
-                      if (confirm("Clear all chat sessions?")) {
-                        const newS = await resetAllSessions();
-                        if (newS) {
-                          router.push(`/chat/${newS.session_id}`);
-                        }
-                      }
-                    }}
+                    title="Delete all of your own sessions"
+                    onClick={handleClearOwnSessions}
                     className="hover:text-rose-400 text-[9px] cursor-pointer"
                   >
                     CLEAR
@@ -246,6 +285,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                       data-session-id={s.session_id}
                       data-pinned={s.is_pinned ? "true" : "false"}
                       data-archived={s.is_archived ? "true" : "false"}
+                      title={showingOrganization ? `Owner: ${s.tenant_user_id}` : undefined}
                       onClick={() => {
                         if (typeof window !== "undefined" && window.innerWidth < 768) {
                           setIsLeftSidebarOpen(false);

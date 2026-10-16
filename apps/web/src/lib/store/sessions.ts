@@ -14,6 +14,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
   isLoadingSessions: false,
   sessionsNextCursor: null,
   sessionsIncludeArchived: false,
+  sessionsScope: "mine",
   setSession: (session) => {
     if (!session) {
       set({ session: null });
@@ -104,13 +105,12 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
     }
   },
   setSessions: (sessions) => set({ sessions }),
-  fetchSessions: async (includeArchived = false) => {
-    set({ isLoadingSessions: true, sessionsIncludeArchived: includeArchived });
+  fetchSessions: async (includeArchived = get().sessionsIncludeArchived, scope = get().sessionsScope) => {
+    set({ isLoadingSessions: true, sessionsIncludeArchived: includeArchived, sessionsScope: scope });
     try {
-      // Never pin the tenant org from the client: the backend scopes the list to the
-      // authenticated identity's organization. Hardcoding "default_org" here hid every
-      // session for a user whose org is anything else.
-      const params = new URLSearchParams({ limit: "50" });
+      // The backend always lists the authenticated identity's organization; the client
+      // only chooses between its own sessions and (administrators) the whole organization.
+      const params = new URLSearchParams({ limit: "50", scope });
       if (includeArchived) params.set("archived", "true");
       const res = await fetch(`/v1/sessions?${params.toString()}`, {
         signal: AbortSignal.timeout(8000),
@@ -134,11 +134,15 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
     }
   },
   loadMoreSessions: async () => {
-    const { sessionsNextCursor, sessionsIncludeArchived, isLoadingSessions } = get();
+    const { sessionsNextCursor, sessionsIncludeArchived, sessionsScope, isLoadingSessions } = get();
     if (!sessionsNextCursor || isLoadingSessions) return;
     set({ isLoadingSessions: true });
     try {
-      const params = new URLSearchParams({ limit: "50", cursor: sessionsNextCursor });
+      const params = new URLSearchParams({
+        limit: "50",
+        cursor: sessionsNextCursor,
+        scope: sessionsScope,
+      });
       if (sessionsIncludeArchived) params.set("archived", "true");
       const res = await fetch(`/v1/sessions?${params.toString()}`, {
         signal: AbortSignal.timeout(8000),
@@ -329,39 +333,19 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
     try {
       const res = await fetch("/v1/sessions/reset", {
         method: "POST",
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(30000),
       });
-      if (res.ok) {
-        const data = await res.json();
-        const newSession: SessionData = data.new_session;
-        set({
-          sessions: [newSession],
-          session: newSession,
-          flightLog: [],
-          checklist: [],
-          fileDiffs: [],
-        });
-        return newSession;
-      }
+      if (!res.ok) return null;
+      const data = await res.json();
+      const newSession: SessionData = data.new_session;
+      set({ session: newSession, flightLog: [], checklist: [], fileDiffs: [] });
+      // Only the caller's sessions were deleted; re-list so sessions shared with them (and,
+      // in the organization view, other members' sessions) stay in the sidebar.
+      await get().fetchSessions();
+      return newSession;
     } catch {
-      // Local fallback reset
-      const fallback: SessionData = {
-        session_id: `session_${Date.now().toString(36)}`,
-        title: "New Mission",
-        tenant_org_id: "default_org",
-        tenant_user_id: "default_user",
-        sandbox_status: "non_existent",
-      };
-      set({
-        sessions: [fallback],
-        session: fallback,
-        flightLog: [],
-        checklist: [],
-        fileDiffs: [],
-      });
-      return fallback;
+      return null;
     }
-    return null;
   },
   updateSessionTitle: (sessionId, newTitle) => {
     set((state) => {
