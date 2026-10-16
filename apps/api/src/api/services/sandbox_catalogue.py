@@ -17,6 +17,7 @@ import uuid
 from dataclasses import dataclass, field, fields
 from typing import Any, ClassVar
 
+from sandbox_driver.profiles import configured_profiles
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
@@ -35,7 +36,12 @@ CAPABILITIES: dict[str, str] = {
     ),
 }
 MAX_ENTRIES_PER_ORG = 50
+MAX_RELEASE_DAYS = 365
 _IMAGE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-/:@+]{0,254}$")
+# A Kubernetes quantity such as 4Gi or 512Mi (also what the Docker driver accepts).
+_QUANTITY = re.compile(r"^[0-9]+(\.[0-9]+)?(Ki|Mi|Gi|Ti|K|M|G|T)?$")
+# Fields an entry may leave empty to inherit (the organization's setting, or no profile).
+_INHERITING = frozenset({"release_after_days"})
 
 
 class CatalogueError(ValueError):
@@ -52,6 +58,15 @@ class SandboxEntry:
     capabilities: list[str] = field(default_factory=list)
     is_default: bool = False
     created_at: int = 0
+    # An operator-defined placement profile (node pool, tolerations, sizing); empty: none.
+    profile: str = ""
+    # Overrides of the organization's sandbox resources for this type (an agent's own still
+    # wins); empty inherits.
+    cpu_limit: str = ""
+    memory_limit: str = ""
+    disk_size: str = ""
+    # Days an idle session keeps its workspace volume; None inherits the organization's.
+    release_after_days: int | None = None
 
     @property
     def capability_set(self) -> frozenset[str]:
@@ -59,6 +74,9 @@ class SandboxEntry:
 
 
 _COLUMNS = [f.name for f in fields(SandboxEntry)]
+_RUNTIME_FIELDS = frozenset(
+    {"profile", "cpu_limit", "memory_limit", "disk_size", "release_after_days"}
+)
 
 
 def validate_entry(name: str, image: str, capabilities: list[str]) -> None:
@@ -69,6 +87,27 @@ def validate_entry(name: str, image: str, capabilities: list[str]) -> None:
     unknown = sorted(set(capabilities) - set(CAPABILITIES))
     if unknown:
         raise CatalogueError(f"Unknown capability: {', '.join(unknown)}.")
+
+
+def validate_runtime(entry: SandboxEntry) -> None:
+    """The profile exists in this deployment, and the overrides are valid quantities."""
+    if entry.profile and entry.profile not in configured_profiles():
+        raise CatalogueError(
+            f"Unknown sandbox profile '{entry.profile}': profiles are defined by the "
+            "deployment's operator (Helm sandbox.profiles)."
+        )
+    if entry.cpu_limit:
+        try:
+            if float(entry.cpu_limit) <= 0:
+                raise ValueError
+        except ValueError as err:
+            raise CatalogueError("CPU is a number of cores, such as 2 or 0.5.") from err
+    for label, value in (("Memory", entry.memory_limit), ("Disk", entry.disk_size)):
+        if value and not _QUANTITY.match(value):
+            raise CatalogueError(f"{label} must be a size such as 4Gi or 512Mi.")
+    days = entry.release_after_days
+    if days is not None and not 0 <= days <= MAX_RELEASE_DAYS:
+        raise CatalogueError(f"Release after 0 (never) to {MAX_RELEASE_DAYS} days.")
 
 
 class SandboxCatalogue:
@@ -121,6 +160,7 @@ class SandboxCatalogue:
         description: str = "",
         capabilities: list[str] | None = None,
         is_default: bool = False,
+        **runtime: Any,
     ) -> SandboxEntry:
         capabilities = sorted(set(capabilities or []))
         validate_entry(name, image, capabilities)
@@ -138,7 +178,9 @@ class SandboxCatalogue:
             capabilities=capabilities,
             is_default=False,
             created_at=int(time.time()),
+            **{k: v for k, v in runtime.items() if k in _RUNTIME_FIELDS},
         )
+        validate_runtime(entry)
         await self._insert(entry)
         if is_default:
             await self.make_default(org_id, entry.id)
@@ -153,11 +195,16 @@ class SandboxCatalogue:
         updated = SandboxEntry(
             **{
                 **vars(entry),
-                **{k: v for k, v in changes.items() if v is not None and k != "is_default"},
+                **{
+                    k: v
+                    for k, v in changes.items()
+                    if (v is not None or k in _INHERITING) and k != "is_default"
+                },
             }
         )
         updated.capabilities = sorted(set(updated.capabilities))
         validate_entry(updated.name, updated.image, updated.capabilities)
+        validate_runtime(updated)
         if any(
             e.id != entry_id and e.name.lower() == updated.name.strip().lower() for e in entries
         ):

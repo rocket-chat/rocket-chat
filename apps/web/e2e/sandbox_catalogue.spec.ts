@@ -81,3 +81,39 @@ test("the default sandbox's image can be edited from the settings page", async (
   });
   expect(restored.ok()).toBeTruthy();
 });
+
+test("an administrator sizes a sandbox type and sets how long idle workspaces are kept", async ({
+  page,
+  request,
+}) => {
+  const name = `Big box ${Date.now()}`;
+  // Profiles come from the operator's deployment; this one lists what the API would.
+  await page.route("**/v1/admin/sandboxes/profiles", (route) =>
+    route.fulfill({ json: [{ name: "gpu", description: "GPU pool" }] }),
+  );
+  await page.goto("/settings/org/sandboxes");
+
+  await page.getByTestId("sandbox-add").click();
+  await expect(page.getByTestId("sandbox-profile").locator("option")).toContainText([
+    "Default placement",
+    "gpu — GPU pool",
+  ]);
+  await page.getByTestId("sandbox-name").fill(name);
+  await page.getByTestId("sandbox-image").fill("registry.example.com/team/big-box:1");
+  await page.getByTestId("sandbox-cpu").fill("4");
+  await page.getByTestId("sandbox-memory").fill("16Gi");
+  await page.getByTestId("sandbox-release-days").fill("2");
+  await page.getByTestId("sandbox-save").click();
+
+  const row = page.getByTestId("sandbox-row").filter({ hasText: name });
+  try {
+    await expect(row).toContainText("4 CPU");
+    await expect(row).toContainText("16Gi");
+    await expect(row).toContainText("released after 2d");
+  } finally {
+    const listed = await (await request.get("http://localhost:8000/v1/sandboxes")).json();
+    for (const box of listed.sandboxes) {
+      if (box.name === name) await request.delete(`http://localhost:8000/v1/admin/sandboxes/${box.id}`);
+    }
+  }
+});

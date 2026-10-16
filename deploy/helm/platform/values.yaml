@@ -412,6 +412,20 @@ sandbox:
     cleanupSeconds: 0
   # RuntimeClass for sandbox pods (e.g. "gvisor", "kata-qemu"); empty uses the node default.
   runtimeClassName: ""
+  # Placement profiles: node pools and sizing that organization administrators may choose per
+  # sandbox type (Settings > Sandboxes). Only operators define them, since a toleration lets
+  # pods onto nodes a shared cluster reserves. Fields as in a pod spec; all optional:
+  #   gpu:
+  #     description: "GPU pool for ML work"
+  #     nodeSelector: {pool: gpu}
+  #     tolerations: [{key: nvidia.com/gpu, operator: Exists, effect: NoSchedule}]
+  #     runtimeClassName: ""
+  #     priorityClassName: ""
+  #     labels: {}
+  #     annotations: {}
+  #     storageClassName: ""
+  #     resources: {requests: {cpu: "2", memory: 8Gi}, limits: {cpu: "8", memory: 32Gi}}
+  profiles: {}
   quota:
     enabled: true
     pods: "50"

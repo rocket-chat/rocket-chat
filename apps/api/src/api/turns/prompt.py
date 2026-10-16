@@ -22,6 +22,7 @@ from api.services.project_instructions import load_project_instructions
 from api.services.session_support import active_repository_of
 from api.services.settings import effective_settings
 from api.services.skills_lookup import list_visible_skills
+from api.services.workspace_release import RELEASED_AT, released_notice
 from api.turns.context import TurnContext
 from specifications.interfaces.agent import GitPolicy, SystemPrompt
 from specifications.interfaces.sandbox import SandboxStatus
@@ -234,16 +235,33 @@ async def build_system_prompt(
     )
     processes_note = await _processes_note(ctx)
     github_note = await _github_activity_note(ctx)
+    released_note = await _released_workspace_note(ctx)
     return SystemPrompt(
         stable=base
         + "\n"
         + "\n".join(env_details)
         + (f"\n{overlay.stable_suffix}" if overlay and overlay.stable_suffix else ""),
         dynamic=routing_notice
+        + (f"\n{released_note}" if released_note else "")
         + (f"\n{processes_note}" if processes_note else "")
         + (f"\n{github_note}" if github_note else "")
         + (f"\n{overlay.dynamic}" if overlay and overlay.dynamic else ""),
     )
+
+
+async def _released_workspace_note(ctx: TurnContext) -> str:
+    """Tell the agent once that the session's workspace was released while it was idle."""
+    metadata = ctx.session.metadata if isinstance(ctx.session.metadata, dict) else {}
+    note = released_notice(metadata)
+    if not note:
+        return ""
+
+    def delivered(record: SessionRecord) -> None:
+        known = record.metadata if isinstance(record.metadata, dict) else {}
+        record.metadata = {k: v for k, v in known.items() if k not in (RELEASED_AT,)}
+
+    await ctx.req.store.mutate_session(ctx.session.session_id, ctx.session.tenant_org_id, delivered)
+    return note
 
 
 PROJECT_INSTRUCTIONS_KEY = "project_instructions"

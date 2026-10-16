@@ -27,6 +27,11 @@ from api.services.turn_trace import (
     beat_turn_leases,
     recover_interrupted_turns,
 )
+from api.services.workspace_release import (
+    delay_resolver,
+    idle_candidates,
+    release_idle_workspaces,
+)
 from api.turns.tasks import launch_mission, resume_claimed_turn
 
 logger = logging.getLogger(__name__)
@@ -35,6 +40,7 @@ SANDBOX_REAPER_SECONDS = 30
 RETENTION_SWEEP_SECONDS = 3600
 MCP_REFRESH_SECONDS = 900
 MISSION_POLL_SECONDS = 30
+WORKSPACE_RELEASE_SECONDS = 3600
 
 
 async def _run_periodically(
@@ -92,6 +98,7 @@ class BackgroundServices:
         self._start_turn_recovery(admin_manager)
         self._start_missions(admin_manager)
         self._start_mcp_refresh(admin_manager)
+        self._start_workspace_release(admin_manager)
 
     async def stop(self) -> None:
         for task in reversed(self._tasks):
@@ -196,6 +203,21 @@ class BackgroundServices:
                 await _poll()
 
         self._spawn(_scheduler())
+
+    def _start_workspace_release(self, admin_manager: DatabaseSessionManager) -> None:
+        """Delete the workspace volume of sessions idle past their delay (days, so hourly).
+        Every replica may sweep: releasing is idempotent and skips a running sandbox."""
+        core = self._core
+
+        async def _release() -> None:
+            await release_idle_workspaces(
+                await idle_candidates(admin_manager),
+                core.sandbox_driver,
+                core.session_store,
+                delay_resolver(core.db_manager),
+            )
+
+        self._spawn(_run_periodically("Workspace release", WORKSPACE_RELEASE_SECONDS, _release))
 
     def _start_mcp_refresh(self, admin_manager: DatabaseSessionManager) -> None:
         # Runs on the schema-owner connection: it must see every tenant's servers, which the
