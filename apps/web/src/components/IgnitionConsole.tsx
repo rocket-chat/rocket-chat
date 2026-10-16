@@ -20,6 +20,8 @@ interface IgnitionConsoleProps {
   ) => void;
   onCancel?: () => void;
   initialPrompt?: string;
+  /** The conversation is still opening: typing waits until its draft is known. */
+  loading?: boolean;
 }
 
 const getAgentIcon = (iconName?: string) => {
@@ -40,6 +42,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
   onIgnite,
   onCancel,
   initialPrompt = "",
+  loading = false,
 }) => {
   const [prompt, setPrompt] = useState<string>(initialPrompt);
 
@@ -380,12 +383,16 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
           <textarea
             ref={textareaRef}
             data-testid="instruction-input"
+            readOnly={loading}
+            aria-busy={loading}
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={
-              isExecuting
+              loading
+                ? "Opening the conversation…"
+                : isExecuting
                 ? "Agent is running... Type your next instruction to queue it (Enter to queue)"
                 : suggestedFollowup
                 ? ""
