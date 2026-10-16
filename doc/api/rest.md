@@ -909,12 +909,14 @@ List Sandboxes
 
 List one keyset page of sessions, newest ``(updated_at, session_id)`` first.
 
+The list is always the authenticated identity's organization. Administrators see their
+own sessions like everyone else unless they ask for the whole organization.
+
 **Parameters**
 
 | Name | In | Required | Type |
 | :--- | :--- | :--- | :--- |
-| tenant_org_id | query | no | string |
-| tenant_user_id | query | no | string |
+| scope | query | no | `mine` / `organization` |
 | limit | query | no | integer |
 | cursor | query | no | string |
 | archived | query | no | boolean |
@@ -1149,7 +1151,10 @@ Purge sessions, destroy orphan sandbox workspaces, and perform database maintena
 
 ### `POST /v1/sessions/reset`
 
-Delete all active sessions for the current user and seat them in a fresh blank session.
+Delete every session the caller owns and seat them in a fresh blank session.
+
+Only the caller's own sessions go, administrators included: sessions shared with them
+and other members' sessions are kept.
 
 **Responses:** `200`
 

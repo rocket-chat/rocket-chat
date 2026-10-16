@@ -27,6 +27,8 @@ export interface IncomingUserMessage {
   authorUserId?: string | null;
 }
 
+export type SessionsScope = "mine" | "organization";
+
 export interface SessionsSlice {
   session: SessionData | null;
   sessions: SessionData[];
@@ -34,9 +36,12 @@ export interface SessionsSlice {
   /** Keyset cursor for the next sidebar page; null when fully loaded. */
   sessionsNextCursor: string | null;
   sessionsIncludeArchived: boolean;
+  /** "mine": own and shared sessions; "organization": every session (administrators). */
+  sessionsScope: SessionsScope;
   setSession: (session: SessionData | null) => void;
   setSessions: (sessions: SessionData[]) => void;
-  fetchSessions: (includeArchived?: boolean) => Promise<void>;
+  /** Re-lists page one; arguments left out keep the current archived view and scope. */
+  fetchSessions: (includeArchived?: boolean, scope?: SessionsScope) => Promise<void>;
   loadMoreSessions: () => Promise<void>;
   initDraftSession: () => SessionData;
   createSessionWithPrompt: (
@@ -46,6 +51,7 @@ export interface SessionsSlice {
   ) => Promise<SessionData | null>;
   createSession: (title?: string, agentId?: string) => Promise<SessionData | null>;
   deleteSession: (sessionId: string) => Promise<boolean>;
+  /** Deletes every session the caller owns; null when the API refused. */
   resetAllSessions: () => Promise<SessionData | null>;
   updateSessionTitle: (sessionId: string, newTitle: string) => void;
   /** Pins or archives one session; returns false when the API rejects it. */

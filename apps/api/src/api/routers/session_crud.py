@@ -47,6 +47,8 @@ from specifications.interfaces.session import (
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Sessions & Telemetry"])
 
+RESET_BATCH = 200
+
 
 async def _choose_sandbox(
     request: Request, org_id: str, req: CreateSessionRequest, metadata: dict[str, Any]
@@ -312,7 +314,6 @@ async def share_session(
 async def delete_session(session_id: str, request: Request) -> dict[str, Any]:
     """Delete a session record and tear down any associated sandbox workspace."""
     store: SessionStoreProtocol = request.app.state.session_store
-    driver: SandboxDriverProtocol | None = getattr(request.app.state, "sandbox_driver", None)
 
     req_org, req_user, roles = _get_request_identity(request)
     if hasattr(store, "get_session"):
@@ -331,6 +332,15 @@ async def delete_session(session_id: str, request: Request) -> dict[str, Any]:
             detail="Forbidden: Only session owner or admin can delete session",
         )
 
+    deleted = await _purge_session(request, record)
+    return {"deleted": deleted, "session_id": session_id}
+
+
+async def _purge_session(request: Request, record: SessionRecord) -> bool:
+    """Delete one session with its sandbox workspace, transcript and cached derivatives."""
+    store: SessionStoreProtocol = request.app.state.session_store
+    driver: SandboxDriverProtocol | None = getattr(request.app.state, "sandbox_driver", None)
+    session_id = record.session_id
     if driver:
         try:
             await driver.destroy_workspace(session_id)
@@ -352,14 +362,7 @@ async def delete_session(session_id: str, request: Request) -> dict[str, Any]:
     if transcripts is not None:
         await transcripts.delete(session_id, record.tenant_org_id)
 
-    if hasattr(store, "delete_session"):
-        try:
-            deleted = await store.delete_session(session_id, tenant_org_id=req_org)
-        except TypeError:
-            deleted = await store.delete_session(session_id)
-    else:
-        deleted = await store.delete_session(session_id)
-    return {"deleted": deleted, "session_id": session_id}
+    return await store.delete_session(session_id, tenant_org_id=record.tenant_org_id)
 
 
 @router.post("/sessions/cleanup")
@@ -386,24 +389,29 @@ async def cleanup_database_and_sessions(request: Request) -> dict[str, Any]:
 
 @router.post("/sessions/reset", response_model=ResetSessionsResponse)
 async def reset_all_sessions(request: Request) -> ResetSessionsResponse:
-    """Delete all active sessions for the current user and seat them in a fresh blank session."""
-    store: SessionStoreProtocol = request.app.state.session_store
-    driver: SandboxDriverProtocol | None = getattr(request.app.state, "sandbox_driver", None)
+    """Delete every session the caller owns and seat them in a fresh blank session.
 
+    Only the caller's own sessions go, administrators included: sessions shared with them
+    and other members' sessions are kept.
+    """
+    store: SessionStoreProtocol = request.app.state.session_store
     org_id, user_id, _ = _get_request_identity(request)
 
-    sessions = await store.list_sessions(tenant_org_id=org_id, limit=200)
     deleted_count = 0
-    for s in sessions:
-        if s.tenant_user_id != user_id:
-            continue
-        if driver:
-            try:
-                await driver.destroy_workspace(s.session_id)
-            except Exception:
-                pass
-        await store.delete_session(s.session_id)
-        deleted_count += 1
+    attempted: set[str] = set()
+    while True:
+        # Re-list after each batch so an owner with more sessions than one page loses them all;
+        # `attempted` stops the loop on a session the store refused to delete.
+        owned = await store.list_sessions(
+            tenant_org_id=org_id, tenant_user_id=user_id, limit=RESET_BATCH
+        )
+        batch = [record for record in owned if record.session_id not in attempted]
+        if not batch:
+            break
+        for record in batch:
+            attempted.add(record.session_id)
+            if await _purge_session(request, record):
+                deleted_count += 1
 
     new_session_id = f"session_{uuid.uuid4().hex[:10]}"
     new_record = SessionRecord(

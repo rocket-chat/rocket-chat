@@ -12,7 +12,7 @@ without a reload.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
@@ -91,22 +91,27 @@ async def _publish_session_updated(request: Request, record: Any) -> None:
 async def list_sessions(
     request: Request,
     response: Response,
-    tenant_org_id: str | None = Query(None),
-    tenant_user_id: str | None = Query(None),
+    scope: Literal["mine", "organization"] = Query(
+        "mine",
+        description=(
+            "`mine`: the caller's sessions and those shared with them. "
+            "`organization`: every session of the organization (administrators only)."
+        ),
+    ),
     limit: int = Query(50, ge=1, le=MAX_PAGE_SIZE),
     cursor: str | None = Query(None, description="Opaque keyset cursor from X-Next-Cursor"),
     archived: bool = Query(False, description="Include archived sessions"),
     q: str | None = Query(None, description="Case-insensitive title search"),
 ) -> list[SessionListItem]:
-    """List one keyset page of sessions, newest ``(updated_at, session_id)`` first."""
+    """List one keyset page of sessions, newest ``(updated_at, session_id)`` first.
+
+    The list is always the authenticated identity's organization. Administrators see their
+    own sessions like everyone else unless they ask for the whole organization.
+    """
     store: SessionStoreProtocol = request.app.state.session_store
     req_org, req_user, roles = _get_request_identity(request)
-    is_admin = "admin" in roles
-    # A non-admin can never retarget the list to another org: the client-supplied
-    # `tenant_org_id` is ignored and the authenticated identity's org is used. RLS also
-    # scopes rows, but the explicit predicate must not silently blank the sidebar when a
-    # stale client sends a wrong org.
-    effective_org = (tenant_org_id or req_org) if is_admin else req_org
+    if scope == "organization" and not any(role in ("admin", "owner") for role in roles):
+        raise HTTPException(status_code=403, detail="Only administrators list every session")
 
     parsed_cursor: SessionCursor | None = None
     if cursor:
@@ -118,9 +123,8 @@ async def list_sessions(
             raise HTTPException(status_code=400, detail=str(err)) from err
 
     page = await store.list_sessions_page(
-        tenant_org_id=effective_org,
-        tenant_user_id=tenant_user_id if is_admin else None,
-        visible_to_user_id=None if is_admin else req_user,
+        tenant_org_id=req_org,
+        visible_to_user_id=None if scope == "organization" else req_user,
         include_archived=archived,
         query=q,
         limit=limit,
