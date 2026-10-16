@@ -21,7 +21,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
-- `web`: the header's Rocket logo rendered small inside a boxed border, and the hover highlight filled that box solid orange instead of just outlining it. The icon now sits unboxed at full size, with a thin orange ring that hugs its own squircle shape from the outside on hover.
 
 ### Security
 
@@ -44,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api`, `helm`: **`SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are ignored** (start-up warns while they are set), and the Helm values `backend.slack.botToken`, `appToken` and `existingSecret*` are gone. Add the Slack app as a bot in **Settings → Slack**; its threads start new sessions.
 
 ### Fixed
+- `web`: the header's Rocket logo rendered small inside a boxed border, and the hover highlight filled that box solid orange instead of just outlining it. The icon now sits unboxed at full size, with a thin orange ring that hugs its own squircle shape from the outside on hover.
 - `git`, `agent-core`: **`git_push` tells the agent which commit became which** when publication re-creates the commits (GitHub-signed, re-signed with the member's key, or credited to the member): the sandbox's branch already moved onto the published history, but the agent only saw the new head and could keep using hashes that no longer exist.
 - `agent-core`: **Viewing a pull request works with the GitHub App's usual permissions.** `github_pull_request view` read the issue endpoints, which need the *Issues* permission many App installations do not grant, so it failed where `github_api` on `/pulls/{n}` worked. It now reads the pull request endpoint and adds the conversation only when the credential may read issues.
 - `git`, `agent-core`: **Commits published by the GitHub App credit the member under the `co_authored` policy, however they were made.** The `Co-authored-by` trailer was added only by the `git_commit` tool, so a plain `git commit` in the shell was published without it. It is now added when GitHub re-creates the commits, where missing.
