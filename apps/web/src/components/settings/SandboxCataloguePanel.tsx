@@ -14,6 +14,16 @@ interface Sandbox {
   description: string;
   capabilities: string[];
   is_default: boolean;
+  profile: string;
+  cpu_limit: string;
+  memory_limit: string;
+  disk_size: string;
+  release_after_days: number | null;
+}
+
+interface Profile {
+  name: string;
+  description: string;
 }
 
 interface Catalogue {
@@ -29,26 +39,60 @@ interface FormValues {
   image: string;
   description: string;
   browser: boolean;
+  profile: string;
+  cpu: string;
+  memory: string;
+  disk: string;
+  /** Empty inherits the organization's delay. */
+  releaseDays: string;
 }
 
-const EMPTY_FORM: FormValues = { name: "", image: "", description: "", browser: false };
+const EMPTY_FORM: FormValues = {
+  name: "",
+  image: "",
+  description: "",
+  browser: false,
+  profile: "",
+  cpu: "",
+  memory: "",
+  disk: "",
+  releaseDays: "",
+};
+
+const formOf = (box: Sandbox): FormValues => ({
+  name: box.name,
+  image: box.image,
+  description: box.description,
+  browser: box.capabilities.includes("browser"),
+  profile: box.profile || "",
+  cpu: box.cpu_limit || "",
+  memory: box.memory_limit || "",
+  disk: box.disk_size || "",
+  releaseDays: box.release_after_days === null || box.release_after_days === undefined ? "" : String(box.release_after_days),
+});
 
 const toPayload = (values: FormValues) => ({
   name: values.name,
   image: values.image,
   description: values.description,
   capabilities: values.browser ? ["browser"] : [],
+  profile: values.profile,
+  cpu_limit: values.cpu.trim(),
+  memory_limit: values.memory.trim(),
+  disk_size: values.disk.trim(),
+  release_after_days: values.releaseDays.trim() === "" ? null : Number(values.releaseDays),
 });
 
 interface SandboxFormProps {
   initial: FormValues;
   browserHelp: string;
+  profiles: Profile[];
   onSubmit: (values: FormValues) => Promise<void>;
   onCancel: () => void;
 }
 
 /** The fields of one sandbox entry; used to add a new entry and to edit an existing one. */
-const SandboxForm: React.FC<SandboxFormProps> = ({ initial, browserHelp, onSubmit, onCancel }) => {
+const SandboxForm: React.FC<SandboxFormProps> = ({ initial, browserHelp, profiles, onSubmit, onCancel }) => {
   const [form, setForm] = useState(initial);
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -110,6 +154,69 @@ const SandboxForm: React.FC<SandboxFormProps> = ({ initial, browserHelp, onSubmi
           <span className="block text-neutral-500 dark:text-neutral-400">{browserHelp}</span>
         </span>
       </label>
+      <fieldset className="md:col-span-2 grid gap-3 md:grid-cols-2 rounded-lg border border-surface-border p-3">
+        <legend className="px-1 text-xs font-medium text-foreground">Runtime</legend>
+        <Field
+          label="Placement profile"
+          hint={
+            profiles.length
+              ? "Node pool and sizing defined by your platform operator."
+              : "None defined: your platform operator adds them (Helm sandbox.profiles)."
+          }
+        >
+          {(control) => (
+            <select
+              {...control}
+              data-testid="sandbox-profile"
+              className={inputClass}
+              value={form.profile}
+              onChange={(e) => setForm({ ...form, profile: e.target.value })}
+            >
+              <option value="">Default placement</option>
+              {profiles.map((p) => (
+                <option key={p.name} value={p.name}>
+                  {p.description ? `${p.name} — ${p.description}` : p.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Field label="Release the workspace after (days)" hint="Idle days before the volume is deleted; 0 keeps it. Empty: organization default.">
+          {(control) => (
+            <input
+              {...control}
+              type="number"
+              min={0}
+              max={365}
+              data-testid="sandbox-release-days"
+              className={inputClass}
+              placeholder="Organization default"
+              value={form.releaseDays}
+              onChange={(e) => setForm({ ...form, releaseDays: e.target.value })}
+            />
+          )}
+        </Field>
+        {(
+          [
+            ["cpu", "CPU cores", "e.g. 4"],
+            ["memory", "Memory", "e.g. 8Gi"],
+            ["disk", "Workspace disk", "e.g. 50Gi"],
+          ] as const
+        ).map(([key, label, example]) => (
+          <Field key={key} label={label} hint={`${example}. Empty: organization default; an agent's own wins.`}>
+            {(control) => (
+              <input
+                {...control}
+                data-testid={`sandbox-${key}`}
+                className={inputClass}
+                placeholder="Organization default"
+                value={form[key]}
+                onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+              />
+            )}
+          </Field>
+        ))}
+      </fieldset>
       <div className="md:col-span-2 flex justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={onCancel}>
           Cancel
@@ -130,6 +237,14 @@ export const SandboxCataloguePanel: React.FC = () => {
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | "new" | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+
+  useEffect(() => {
+    fetch("/v1/admin/sandboxes/profiles")
+      .then((res) => (res.ok ? res.json() : []))
+      .then(setProfiles)
+      .catch(() => setProfiles([]));
+  }, []);
 
   const load = useCallback(async () => {
     const res = await fetch("/v1/sandboxes");
@@ -186,6 +301,7 @@ export const SandboxCataloguePanel: React.FC = () => {
           <SandboxForm
             initial={EMPTY_FORM}
             browserHelp={browserHelp}
+            profiles={profiles}
             onCancel={() => setEditing(null)}
             onSubmit={async (values) => {
               if (await send("/v1/admin/sandboxes", "POST", toPayload(values))) setEditing(null);
@@ -199,13 +315,9 @@ export const SandboxCataloguePanel: React.FC = () => {
           <Card key={box.id} className="p-4" data-testid="sandbox-row">
             {editing === box.id ? (
               <SandboxForm
-                initial={{
-                  name: box.name,
-                  image: box.image,
-                  description: box.description,
-                  browser: box.capabilities.includes("browser"),
-                }}
+                initial={formOf(box)}
                 browserHelp={browserHelp}
+                profiles={profiles}
                 onCancel={() => setEditing(null)}
                 onSubmit={async (values) => {
                   if (await send(`/v1/admin/sandboxes/${box.id}`, "PATCH", toPayload(values))) {
@@ -224,6 +336,17 @@ export const SandboxCataloguePanel: React.FC = () => {
                       {c}
                     </Badge>
                   ))}
+                  {box.profile && <Badge tone="info">profile: {box.profile}</Badge>}
+                  {[box.cpu_limit && `${box.cpu_limit} CPU`, box.memory_limit, box.disk_size && `${box.disk_size} disk`]
+                    .filter(Boolean)
+                    .map((text) => (
+                      <Badge key={String(text)}>{text}</Badge>
+                    ))}
+                  {box.release_after_days !== null && box.release_after_days !== undefined && (
+                    <Badge>
+                      {box.release_after_days === 0 ? "workspace kept" : `released after ${box.release_after_days}d`}
+                    </Badge>
+                  )}
                 </div>
                 <code className="block truncate text-[11px] text-neutral-500">{box.image}</code>
                 {box.description && (

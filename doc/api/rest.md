@@ -844,6 +844,17 @@ Create Sandbox
 | description | string | no |  |
 | capabilities | list of string | no |  |
 | is_default | boolean | no |  |
+| profile | string | no |  |
+| cpu_limit | string | no |  |
+| memory_limit | string | no |  |
+| disk_size | string | no |  |
+| release_after_days | integer | no |  |
+
+**Responses:** `200`
+
+### `GET /v1/admin/sandboxes/profiles`
+
+The placement profiles this deployment's operator defined, to choose per sandbox type.
 
 **Responses:** `200`
 
@@ -866,6 +877,11 @@ Update Sandbox
 | description | string | no |  |
 | capabilities | list of string | no |  |
 | is_default | boolean | no |  |
+| profile | string | no |  |
+| cpu_limit | string | no |  |
+| memory_limit | string | no |  |
+| disk_size | string | no |  |
+| release_after_days | integer | no |  |
 
 **Responses:** `200`
 

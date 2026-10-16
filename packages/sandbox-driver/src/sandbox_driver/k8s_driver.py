@@ -33,6 +33,7 @@ from sandbox_driver.exceptions import (
     SandboxTimeoutError,
 )
 from sandbox_driver.patcher import apply_unified_diff
+from sandbox_driver.profiles import PROFILES_ENV, PlacementProfile, configured_profiles
 from sandbox_driver.pty import SHELL_LAUNCHER, K8sPty
 from sandbox_driver.session_env import SessionEnvMixin
 from sandbox_driver.tracing import traced_exec
@@ -248,6 +249,7 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
 
         # e.g. gvisor / kata-qemu for kernel-level isolation of untrusted agent code.
         self.runtime_class_name: str | None = os.getenv("K8S_SANDBOX_RUNTIME_CLASS") or None
+        self.profiles: dict[str, PlacementProfile] = configured_profiles()
 
         self._specs: dict[str, WorkspaceSpec] = {}
         self._node_affinity_cache: dict[str, str] = {}
@@ -404,6 +406,7 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                 raise SandboxError(f"Error checking PVC {pvc_name}: {err}") from err
 
         storage_size = spec.resources.disk_size or "20Gi"
+        profile = self._profile_of(spec)
         pvc_manifest = client.V1PersistentVolumeClaim(
             metadata=client.V1ObjectMeta(
                 name=pvc_name,
@@ -413,7 +416,8 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
             spec=client.V1PersistentVolumeClaimSpec(
                 access_modes=["ReadWriteOnce"],
                 resources=client.V1VolumeResourceRequirements(requests={"storage": storage_size}),
-                storage_class_name=self.storage_class_name,
+                storage_class_name=(profile.storage_class_name if profile else None)
+                or self.storage_class_name,
             ),
         )
 
@@ -563,15 +567,8 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
     ) -> client.V1Pod:
         """The pod manifest for a session's sandbox."""
         pvc_name = self._pvc_name(spec.session_id)
-        limits: dict[str, str] = {}
-        requests: dict[str, str] = {}
-        limits["cpu"] = os.getenv(
-            "SANDBOX_CPU_LIMIT",
-            str(spec.resources.cpu_cores) if spec.resources.cpu_cores else "500m",
-        )
-        requests["cpu"] = os.getenv("SANDBOX_CPU_REQUEST", "50m")
-        limits["memory"] = os.getenv("SANDBOX_MEMORY_LIMIT", spec.resources.memory_limit or "512Mi")
-        requests["memory"] = os.getenv("SANDBOX_MEMORY_REQUEST", "128Mi")
+        profile = self._profile_of(spec)
+        limits, requests = _sizing(spec, profile)
 
         env_vars = [client.V1EnvVar(name=k, value=str(v)) for k, v in spec.env_vars.items()]
 
@@ -587,17 +584,25 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         annotations = {
             CLUSTER_AUTOSCALER_SAFE_TO_EVICT: "true",
             KARPENTER_DO_NOT_DISRUPT: "false",
+            **(profile.annotations if profile else {}),
         }
+        # The platform's own labels win: they are how it finds and isolates its pods.
+        labels = {**(profile.labels if profile else {}), **self._build_labels(spec)}
 
         return client.V1Pod(
             metadata=client.V1ObjectMeta(
                 name=pod_name,
                 namespace=self.namespace,
-                labels=self._build_labels(spec),
+                labels=labels,
                 annotations=annotations,
             ),
             spec=client.V1PodSpec(
                 affinity=affinity,
+                node_selector=dict(profile.node_selector)
+                if profile and profile.node_selector
+                else None,
+                tolerations=_tolerations(profile),
+                priority_class_name=profile.priority_class_name if profile else None,
                 restart_policy="Never",
                 termination_grace_period_seconds=self.grace_period_seconds,
                 automount_service_account_token=False,
@@ -606,7 +611,8 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                 # pause container is PID 1 and reaps them (Docker sandboxes use `init` for this).
                 share_process_namespace=True,
                 image_pull_secrets=image_pull_refs,
-                runtime_class_name=self.runtime_class_name,
+                runtime_class_name=(profile.runtime_class_name if profile else None)
+                or self.runtime_class_name,
                 security_context=self._pod_security_context(spec),
                 containers=[
                     client.V1Container(
@@ -641,6 +647,17 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                 ],
             ),
         )
+
+    def _profile_of(self, spec: WorkspaceSpec) -> PlacementProfile | None:
+        if not spec.profile:
+            return None
+        profile = self.profiles.get(spec.profile)
+        if profile is None:
+            raise SandboxError(
+                f"Sandbox profile '{spec.profile}' is not defined by this deployment "
+                f"({PROFILES_ENV}); an administrator must choose another one for this sandbox."
+            )
+        return profile
 
     async def _delete_pod_quietly(self, core_v1: client.CoreV1Api, pod_name: str) -> None:
         try:
@@ -1245,3 +1262,40 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         paused = await self.pause_inactive_sandboxes()
         cleaned = await self.cleanup_inactive_sandboxes(is_live=is_live)
         return paused, cleaned
+
+
+def _sizing(
+    spec: WorkspaceSpec, profile: PlacementProfile | None
+) -> tuple[dict[str, str], dict[str, str]]:
+    """(limits, requests) of the sandbox container: the profile's sizing, else the session's
+    resources and the deployment's defaults."""
+    limits = {
+        "cpu": os.getenv(
+            "SANDBOX_CPU_LIMIT",
+            str(spec.resources.cpu_cores) if spec.resources.cpu_cores else "500m",
+        ),
+        "memory": os.getenv("SANDBOX_MEMORY_LIMIT", spec.resources.memory_limit or "512Mi"),
+    }
+    requests = {
+        "cpu": os.getenv("SANDBOX_CPU_REQUEST", "50m"),
+        "memory": os.getenv("SANDBOX_MEMORY_REQUEST", "128Mi"),
+    }
+    if profile is not None:
+        limits.update(profile.limits)
+        requests.update(profile.requests)
+    return limits, requests
+
+
+def _tolerations(profile: PlacementProfile | None) -> list[client.V1Toleration] | None:
+    if profile is None or not profile.tolerations:
+        return None
+    return [
+        client.V1Toleration(
+            key=t.get("key"),
+            operator=t.get("operator"),
+            value=t.get("value"),
+            effect=t.get("effect"),
+            toleration_seconds=t.get("tolerationSeconds"),
+        )
+        for t in profile.tolerations
+    ]

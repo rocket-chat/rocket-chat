@@ -328,6 +328,18 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
     ),
     "sandboxes": (
         _spec(
+            "workspace_release_days",
+            "int",
+            7,
+            "org",
+            "apps/api/src/api/services/workspace_release.py",
+            "Days an idle session keeps its workspace volume (the repositories it cloned) after "
+            "its sandbox stopped; then the volume is deleted and the next turn starts blank. "
+            "0 keeps it as long as the session exists. A sandbox type can set its own.",
+            minimum=0,
+            maximum=365,
+        ),
+        _spec(
             "default_image",
             "str",
             DEFAULT_SANDBOX_IMAGE,

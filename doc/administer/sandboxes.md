@@ -20,6 +20,16 @@ Each entry has a **name**, an **image**, a **description**, optional **capabilit
 
 Build your own image from the development image to add toolchains and warm caches (`FROM` the default, add what your repositories need), push it to a registry the cluster can pull from, and add it here. Installed dependencies persist in a session's workspace across restarts, so a custom image mostly saves the first install.
 
+## Runtime of a sandbox type
+
+Each entry can also set, under **Runtime**:
+
+* **Placement profile**: a node pool and its sizing (node selector, tolerations, runtime class, priority class, storage class, CPU and memory requests and limits) that your platform operator defined in the deployment (Helm `sandbox.profiles`). Administrators choose one; only operators define them, because in a cluster several organizations share, a toleration could put sandboxes on nodes reserved for something else. A profile's CPU and memory replace the sizing below.
+* **CPU cores, memory and workspace disk**: this type's sizing instead of the organization's (an agent's own sizing still wins).
+* **Release the workspace after (days)**: this type's own delay (see *Sleeping and cleanup*); empty uses the organization's.
+
+The settings menu marks these pages **ADMIN**: what you change applies to every member.
+
 ## Capabilities
 
 | Capability | What it enables | What the image must contain |
@@ -48,4 +58,6 @@ The governance settings can restrict what a sandbox reaches: an allowlist of hos
 
 ## Sleeping and cleanup
 
-A sandbox with no activity for the idle period is stopped and its workspace volume is kept (the operator sets the period with `SANDBOX_INACTIVITY_PAUSE_SECONDS`: 30 minutes on Docker, 10 minutes on Kubernetes by default). Workspaces are removed with their session. Running processes end when a sandbox sleeps.
+A sandbox with no activity for the idle period is stopped and its workspace volume is kept (the operator sets the period with `SANDBOX_INACTIVITY_PAUSE_SECONDS`: 30 minutes on Docker, 10 minutes on Kubernetes by default), so the next turn finds the repositories it cloned. Running processes end when a sandbox sleeps.
+
+A kept volume still costs storage. After **`workspace_release_days`** (Settings → Sandboxes, 7 days by default, 0 = keep it as long as the session exists) without activity in the session, the volume is deleted too; a sandbox type can set its own delay. The session stays: its next turn starts with a blank sandbox, and the agent is told the workspace was released, so it clones again (work that was not pushed is gone). Workspaces are also removed with their session.
