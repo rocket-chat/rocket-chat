@@ -51,6 +51,7 @@ class TurnStream:
         self.ts: str | None = None
         self._broken = False
         self._steps = 0
+        self._current = ""
         self._edited: set[str] = set()
         self._commands = 0
         self._reads = 0
@@ -63,7 +64,8 @@ class TurnStream:
     async def tool_started(self, name: str, arguments: dict[str, Any], label: str) -> None:
         self._count(name, arguments)
         self._steps += 1
-        await self._task(_card(label, "in_progress", f"Step {self._steps}"))
+        self._current = label
+        await self._task(_card(label, "in_progress"))
 
     async def finish(
         self, answer: str, blocks: list[dict[str, Any]], *, failed: bool = False
@@ -72,9 +74,13 @@ class TurnStream:
         stream cannot take it (the caller then posts the answer itself)."""
         if not self.started:
             return False
-        summary = self.outcome_line() if not failed else "Stopped"
+        # A stopped turn's card keeps the step it stopped on; the answer says who stopped it.
+        if failed:
+            card = _card(self._current or "Stopped", "error")
+        else:
+            card = _card(f"{self.outcome_line()} · {_plural(self._steps, 'step')}", "complete")
         chunks = [
-            _card(summary, "error" if failed else "complete", _plural(self._steps, "step")),
+            card,
             {"type": "markdown_text", "text": answer[:ANSWER_CHARS] or "Done."},
         ]
         try:
@@ -142,12 +148,7 @@ class TurnStream:
         return " · ".join(parts)
 
 
-def _card(title: str, status: str, details: str) -> dict[str, Any]:
-    """The turn's one step card; the same id updates it in place."""
-    return {
-        "type": "task_update",
-        "id": STEP_CARD,
-        "title": title[:TASK_CHARS],
-        "status": status,
-        "details": details[:TASK_CHARS],
-    }
+def _card(title: str, status: str) -> dict[str, Any]:
+    """The turn's one step card; the same id updates its title and status in place. No
+    ``details``: Slack appends each update's details instead of replacing them."""
+    return {"type": "task_update", "id": STEP_CARD, "title": title[:TASK_CHARS], "status": status}
