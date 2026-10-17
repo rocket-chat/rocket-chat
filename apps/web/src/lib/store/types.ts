@@ -125,6 +125,7 @@ export interface StreamSlice {
   updateLastAgentLog: (delta: string) => void;
   appendReasoning: (delta: string) => void;
   clearReasoning: () => void;
+  discardPartialTokens: () => void;
   setIsReasoningActive: (active: boolean) => void;
   setActiveDecision: (decision: DecisionQuestion | null) => void;
   setActiveApproval: (approval: ApprovalRequestInfo | null) => void;

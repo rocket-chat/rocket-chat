@@ -257,6 +257,9 @@ export class MissionWebSocket {
     if (frame.session && (!active || active.session_id === this.sessionId)) {
       store.setSession(frame.session);
     }
+    if (frame.running_turn && frame.running_turn.status === "running") {
+      store.setIsExecuting(true);
+    }
     this.applySyncPlan(planSync(frame, this.resumeRequestedSeq !== null));
     // A turn paused on a person before this tab connected: show the card it is waiting on.
     if (frame.pending_approval) {
@@ -274,6 +277,29 @@ export class MissionWebSocket {
    */
   private applySyncPlan(plan: SyncPlan): void {
     if (plan.rewindCursorTo !== null) rewindCursor(this.sessionId, plan.rewindCursorTo);
+    if (plan.runningTurn && Array.isArray(plan.runningTurn.steps)) {
+      const store = useMissionStore.getState();
+      const existingToolIds = new Set(
+        store.flightLog.map((l) => l.toolCall?.id).filter(Boolean)
+      );
+      for (const step of plan.runningTurn.steps) {
+        if (step.id && existingToolIds.has(step.id)) continue;
+        store.appendFlightLog({
+          id: step.id ? `tool-${step.id}` : `tool-${Date.now()}-${Math.random()}`,
+          role: "CODER",
+          content: `Executing tool: ${step.name}`,
+          timestamp: "",
+          toolCall: {
+            id: step.id,
+            name: step.name,
+            arguments: step.arguments,
+            status: step.status === "error" ? "error" : "success",
+            result: typeof step.result === "string" ? step.result : JSON.stringify(step.result, null, 2),
+            duration_ms: step.duration_ms,
+          },
+        });
+      }
+    }
     for (const event of selectUnseenEvents(plan.events, readCursor(this.sessionId))) {
       this.applyEvent(event.event_type, event.payload || {}, event.session_id || this.sessionId);
       if (typeof event.seq === "number") advanceCursor(this.sessionId, event.seq);
@@ -348,11 +374,17 @@ export class MissionWebSocket {
         const message = payload.message || payload.error || rawStatus || "";
         store.setStatusMessage(message);
 
+        if (payload.discard_partial || rawStatus === "retrying") {
+          store.discardPartialTokens();
+        }
+
         if (rawStatus === "running") {
           store.setIsExecuting(true);
           if (typeof payload.model === "string") {
             store.setTurnBinding({ agentName: payload.agent_name || "", model: payload.model });
           }
+        } else if (rawStatus === "retrying") {
+          store.setIsExecuting(true);
         } else if (
           rawStatus === "completed" ||
           rawStatus === "error" ||
@@ -567,6 +599,68 @@ export class MissionWebSocket {
       case "plan_updated":
         store.setChecklist(Array.isArray(payload.tasks) ? payload.tasks : []);
         break;
+
+      case "context_compacted": {
+        const boundary = payload.boundary_seq ?? 0;
+        const tokensBefore = payload.tokens_before ?? 0;
+        const tokensAfter = payload.tokens_after ?? 0;
+        const summary = typeof payload.summary === "string" ? payload.summary : "Working context compacted";
+        store.appendFlightLog({
+          id: `compacted-${Date.now()}`,
+          role: "SYSTEM",
+          content: `Context Compacted: Compressed from ${Number(tokensBefore).toLocaleString()} to ${Number(tokensAfter).toLocaleString()} tokens at step ${boundary}.\n\n${summary}`,
+          timestamp: new Date().toLocaleTimeString(),
+        });
+        break;
+      }
+
+      case "continuation_scheduled": {
+        const turnIdx = payload.continuation_index ?? 1;
+        const maxTurns = payload.max_continuations ?? 10;
+        const reason = payload.reason || "Turn step limit reached with unfinished tasks";
+        store.appendFlightLog({
+          id: `continuation-${Date.now()}`,
+          role: "SYSTEM",
+          content: `Goal Continuation (${turnIdx}/${maxTurns}): ${reason}`,
+          timestamp: new Date().toLocaleTimeString(),
+        });
+        break;
+      }
+
+      case "goal_updated": {
+        const status = payload.status || "active";
+        const tokens = typeof payload.consumed_tokens === "number" ? payload.consumed_tokens : 0;
+        const cost = typeof payload.consumed_cost_usd === "number" ? payload.consumed_cost_usd : 0;
+        store.appendFlightLog({
+          id: `goal-${Date.now()}`,
+          role: "SYSTEM",
+          content: `Goal ${status}: Consumed ${tokens.toLocaleString()} tokens ($${cost.toFixed(4)})`,
+          timestamp: new Date().toLocaleTimeString(),
+        });
+        break;
+      }
+
+      case "wait_started": {
+        const reason = payload.reason || payload.condition || "Waiting for external event";
+        store.appendFlightLog({
+          id: `wait-${Date.now()}`,
+          role: "SYSTEM",
+          content: `Waiting for condition: ${reason}`,
+          timestamp: new Date().toLocaleTimeString(),
+        });
+        break;
+      }
+
+      case "wait_completed": {
+        const summary = payload.summary || "External condition satisfied";
+        store.appendFlightLog({
+          id: `wait-done-${Date.now()}`,
+          role: "SYSTEM",
+          content: `Wait completed: ${summary}`,
+          timestamp: new Date().toLocaleTimeString(),
+        });
+        break;
+      }
 
       case "followup_suggestion": {
         const suggestion = typeof payload.suggestion === "string" ? payload.suggestion.trim() : null;

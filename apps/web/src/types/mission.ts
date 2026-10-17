@@ -15,8 +15,50 @@ export type EventType =
   | "sandbox_state"
   | "post_failure_synthesis"
   | "github_event"
+  | "context_compacted"
+  | "continuation_scheduled"
+  | "goal_updated"
+  | "wait_started"
+  | "wait_completed"
   | "error"
   | "user_message";
+
+export interface ContextCompactedPayload {
+  boundary_seq: number;
+  tokens_before: number;
+  tokens_after: number;
+  summary: string;
+}
+
+export interface ContinuationScheduledPayload {
+  continuation_index: number;
+  max_continuations: number;
+  reason: string;
+  goal_id: string;
+}
+
+export interface GoalUpdatedPayload {
+  goal_id: string;
+  status: string;
+  consumed_tokens: number;
+  consumed_cost_usd: number;
+  max_cost_usd?: number;
+  max_total_tokens?: number;
+  description?: string;
+}
+
+export interface WaitStartedPayload {
+  reason?: string;
+  condition?: string;
+  identifier?: string;
+  delay?: number;
+}
+
+export interface WaitCompletedPayload {
+  identifier?: string;
+  condition?: string;
+  summary?: string;
+}
 
 /** A telemetry envelope as published on the session socket (see the WebSocket reference). */
 export interface TelemetryFrame {
@@ -25,6 +67,23 @@ export interface TelemetryFrame {
   payload?: Record<string, unknown>;
   timestamp_ms?: number;
   seq?: number;
+}
+
+export interface RunningTurnData {
+  turn_index: number;
+  started_at: number;
+  model?: string;
+  status?: string;
+  steps: Array<{
+    id?: string;
+    name: string;
+    arguments?: Record<string, unknown>;
+    result?: unknown;
+    status: string;
+    duration_ms?: number;
+    redacted?: number;
+    seq?: number;
+  }>;
 }
 
 export interface SyncFrame {
@@ -40,6 +99,8 @@ export interface SyncFrame {
   /** A human gate the turn is paused on, recovered for a tab that connected late or reloaded. */
   pending_approval?: Record<string, unknown> | null;
   pending_decision?: Record<string, unknown> | null;
+  /** Running turn state and completed steps when a turn is actively in flight. */
+  running_turn?: RunningTurnData | null;
 }
 
 export interface ReplayFrame {
@@ -165,11 +226,15 @@ export interface SubagentExecutionData {
   subagentId: string;
   role: string;
   task: string;
-  status: "running" | "completed" | "error";
+  status: "running" | "completed" | "error" | string;
   turn?: number;
   thought?: string;
   summary?: string;
   duration_ms?: number;
+  tokens?: number;
+  cost?: number;
+  changed_files?: string[];
+  artefacts?: string[];
 }
 
 /** Who answered a turn: the agent's name (empty for a raw model) and the model. */

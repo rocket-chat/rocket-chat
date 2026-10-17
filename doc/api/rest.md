@@ -1819,6 +1819,33 @@ Finish linking: the signed-in member claims the Slack user that issued the code.
 
 **Responses:** `200`
 
+## Subagents
+
+### `GET /v1/sessions/{session_id}/subagents`
+
+List delegated subagent executions for a session
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/subagents/{subagent_id}`
+
+Get detailed transcript and messages for a delegated subagent
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| subagent_id | path | yes | string |
+
+**Responses:** `200`
+
 ## Templates
 
 ### `GET /v1/templates`

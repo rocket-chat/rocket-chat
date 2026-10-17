@@ -61,10 +61,26 @@ const TurnRow: React.FC<{ turn: TurnTrace; retryPrompt: string | null; onRetry: 
   onRetry,
 }) => {
   const [isReasoningOpen, setIsReasoningOpen] = useState(false);
+  const [isCallsOpen, setIsCallsOpen] = useState(false);
   const statusClass = STATUS_STYLES[turn.status] || "border-surface-border bg-surface-card text-neutral-400";
   const toolCount = turn.tool_calls.length;
   const approvalCount = turn.approvals.length;
   const canRetry = turn.status === "interrupted";
+
+  const tokenRecord = ((turn.tokens ?? {}) as Record<string, unknown>);
+  const usage = ((tokenRecord.usage ?? tokenRecord) as Record<string, unknown>);
+  const promptTokens = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : (typeof tokenRecord.prompt_tokens === "number" ? tokenRecord.prompt_tokens : undefined);
+  const completionTokens = typeof usage.completion_tokens === "number" ? usage.completion_tokens : (typeof tokenRecord.completion_tokens === "number" ? tokenRecord.completion_tokens : undefined);
+  const cacheReadTokens = typeof usage.cache_read_tokens === "number" ? usage.cache_read_tokens : (typeof tokenRecord.cache_read_tokens === "number" ? tokenRecord.cache_read_tokens : undefined);
+  const rawCost = typeof usage.cost_usd === "number" ? usage.cost_usd : (typeof tokenRecord.cost_usd === "number" ? tokenRecord.cost_usd : undefined);
+  const costUsd = typeof rawCost === "number" ? (rawCost > 100 ? rawCost / 1_000_000 : rawCost) : null;
+  const cacheRatio =
+    typeof usage.cache_hit_ratio === "number"
+      ? Math.round(usage.cache_hit_ratio * 100)
+      : promptTokens && cacheReadTokens
+      ? Math.round((cacheReadTokens / promptTokens) * 100)
+      : null;
+  const calls = Array.isArray(tokenRecord.calls) ? (tokenRecord.calls as Array<Record<string, unknown>>) : [];
 
   return (
     <li
@@ -111,8 +127,22 @@ const TurnRow: React.FC<{ turn: TurnTrace; retryPrompt: string | null; onRetry: 
             {approvalCount} {approvalCount === 1 ? "approval" : "approvals"}
           </span>
         )}
-        {typeof turn.tokens?.total_tokens === "number" && (
-          <span>{turn.tokens.total_tokens} tok</span>
+        {typeof promptTokens === "number" && (
+          <span className="inline-flex items-center gap-1" title="Prompt tokens (cached / total)">
+            <span>{promptTokens} in</span>
+            {typeof cacheRatio === "number" && cacheRatio > 0 && (
+              <span className="px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px]">
+                {cacheRatio}% cached
+              </span>
+            )}
+          </span>
+        )}
+        {typeof completionTokens === "number" && <span>{completionTokens} out</span>}
+        {typeof costUsd === "number" && costUsd > 0 && (
+          <span className="text-emerald-400 font-medium">${costUsd.toFixed(4)}</span>
+        )}
+        {typeof turn.tokens?.total_tokens === "number" && typeof promptTokens !== "number" && (
+          <span>{turn.tokens.total_tokens as number} tok</span>
         )}
       </div>
 
@@ -127,6 +157,46 @@ const TurnRow: React.FC<{ turn: TurnTrace; retryPrompt: string | null; onRetry: 
             </li>
           ))}
         </ul>
+      )}
+
+      {calls.length > 0 && (
+        <div className="pt-0.5">
+          <button
+            type="button"
+            data-testid="turn-calls-toggle"
+            aria-expanded={isCallsOpen}
+            onClick={() => setIsCallsOpen((open) => !open)}
+            className="inline-flex items-center gap-1 text-[10px] font-mono text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer"
+          >
+            {isCallsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+            <span>Model calls ({calls.length})</span>
+          </button>
+          {isCallsOpen && (
+            <div className="mt-1.5 space-y-1.5 pl-3 border-l-2 border-surface-border/80">
+              {calls.map((call, idx) => (
+                <div
+                  key={idx}
+                  className="p-2 rounded-lg bg-surface-elevated/70 border border-surface-border text-[10px] font-mono space-y-1"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-neutral-300 truncate">
+                      {String(call.model || "default")}
+                    </span>
+                    <span className="text-neutral-500 uppercase">{String(call.finish_reason || "stop")}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-neutral-400">
+                    <span>Prompt: {Number(call.prompt_tokens ?? 0)}</span>
+                    <span>Cached: {Number(call.cache_read_tokens ?? 0)}</span>
+                    <span>Output: {Number(call.completion_tokens ?? 0)}</span>
+                    {typeof call.cost_usd === "number" && call.cost_usd > 0 && (
+                      <span className="text-emerald-400">${call.cost_usd.toFixed(4)}</span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {turn.attachments && turn.attachments.length > 0 && (

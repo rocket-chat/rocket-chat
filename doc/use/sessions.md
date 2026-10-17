@@ -29,6 +29,28 @@ Choose **Share** in the session header (owner or administrator):
 
 Sharing changes are recorded in the audit log.
 
+## Multi-repository workspaces
+
+A session can house multiple cloned repositories under `/workspace`. The platform tracks and coordinates cross-repository operations:
+
+* **Workspace manifest (`workspace_status`)**: Scans all cloned repositories, detects inter-package dependencies across `package.json`, `go.mod`, `Cargo.toml`, and `pyproject.toml`, computes topological dependency order, and updates `/workspace/.rocket/workspace.json`.
+* **Cross-repo status (`git_status_all`)**: Inspects branches and dirty worktrees across all workspace repositories at once.
+* **Batch read/verify commands (`repo_foreach`)**: Executes verification commands (tests, linting, git logs) across all or filtered subsets of repositories, clamping outputs and aggregating exit statuses.
+
+## Durable waits and long-running sessions
+
+Complex engineering missions can span many hours and multiple turns:
+
+* **Durable waits (`wait_for`)**: The agent can pause execution without consuming tokens or CPU while waiting for external conditions: `ci_status(pr)`, `review(pr)`, `process_exit(pid)`, or timed delays. The session transitions to a waiting state, registers wake hooks with webhooks or timers, and automatically resumes when the condition is met.
+* **Automatic goal continuation**: When a long task hits its turn step ceiling but still has pending items in its checklist or `.rocket/PLAN.md`, Rocket Chat automatically schedules continuation turns up to safety budget limits (tokens, wall time, cost), resuming execution with fresh context and working memory.
+* **Compaction checkpoints**: Long sessions automatically compact earlier conversation history into structured summaries, persisting durable checkpoints to the database. If a session or pod restarts, execution resumes seamlessly from the latest compaction boundary.
+
+## Parallel subagents and worktrees
+
+The agent can delegate sub-tasks to specialist delegates (`security_auditor`, `qa_verifier`, `researcher`) or spawn parallel delegates with `delegate_subagents_parallel`.
+
+Write-capable subagents execute inside isolated git worktrees (`.rocket/worktrees/<id>`) on their own branches, preventing concurrent edits from colliding in the working copy. Once finished, their reports, changed files, artefacts, and token costs are surfaced to the main cockpit flight log.
+
 ## Following a pull request
 
 Ask the agent to wait for CI or a review ("open the PR and tell me when CI is done") and it follows the pull request: CI results, reviews, comments and the merge arrive in the session on their own, and a trusted event wakes the agent to react. A pull request the agent opens is followed automatically. See [Sessions that follow a pull request](/administer/github#sessions-that-follow-a-pull-request) for what an administrator must enable.

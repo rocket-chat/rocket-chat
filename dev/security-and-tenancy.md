@@ -40,7 +40,7 @@ Application-level `WHERE org_id = …` is not trusted. Isolation is enforced by 
 * **At rest:** `CredentialCipher` (`config-engine/crypto.py`) seals secrets with AES-256-GCM. The key is `SHA-256(ENCRYPTION_MASTER_KEY)`, each value gets a fresh random 96-bit nonce, and the stored form is base64(`nonce ‖ ciphertext+tag`); tampering raises `CredentialDecryptionError`. `ENCRYPTION_PREVIOUS_KEYS` lets old values be read during a rotation; new values always use the primary key (`scripts/rotate_master_key.py` re-seals the database). The development key is refused in production.
 * **What is encrypted:** model-provider keys (BYOK), MCP server credentials and per-member OAuth tokens, linked GitHub credentials, members' GPG signing keys (`git_signing`, with a passphrase), and stored webhook/integration secrets.
 * **Write-only:** the API and logs show a fingerprint, never a secret. The model never sees a token: GitHub tools use credentials resolved server-side, and the sandbox holds none (see the git gateway below).
-* **Redaction:** tool output is scrubbed by the organization's redaction policy before it is stored in a trace or history, and outbound Slack messages pass the same pipeline.
+* **Redaction:** tool output is scrubbed by the organization's redaction policy directly inside `ToolDispatcher` *before* it is appended to conversation history (`session_messages`), emitted as an event, or passed to subsequent model prompts. Only the redaction marker and count survive; raw secret values never enter the database, events, traces, or model context. Outbound Slack messages pass the same pipeline.
 
 ## 5. The sandbox boundary
 

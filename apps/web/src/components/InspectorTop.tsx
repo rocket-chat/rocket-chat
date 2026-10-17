@@ -4,9 +4,10 @@ import React, { useState } from "react";
 import { MonacoDiffViewer } from "./MonacoDiffViewer";
 import { PreviewPanel } from "./PreviewPanel";
 import { ProcessesPanel } from "./ProcessesPanel";
+import { SubagentsPanel } from "./SubagentsPanel";
 import { WorkspaceBrowser } from "./WorkspaceBrowser";
 
-type Tab = "changes" | "files" | "processes" | "preview";
+type Tab = "changes" | "files" | "processes" | "subagents" | "preview";
 
 /** The inspector's upper half: the agent's proposed changes, or the live workspace. */
 export const InspectorTop: React.FC<{
@@ -35,6 +36,9 @@ export const InspectorTop: React.FC<{
         <button role="tab" aria-selected={tab === "processes"} data-testid="tab-processes" type="button" className={tabClass("processes")} onClick={() => setTab("processes")}>
           Processes
         </button>
+        <button role="tab" aria-selected={tab === "subagents"} data-testid="tab-subagents" type="button" className={tabClass("subagents")} onClick={() => setTab("subagents")}>
+          Subagents
+        </button>
         <button role="tab" aria-selected={tab === "preview"} data-testid="tab-preview" type="button" className={tabClass("preview")} onClick={() => setTab("preview")}>
           Preview
         </button>
@@ -43,6 +47,7 @@ export const InspectorTop: React.FC<{
         {tab === "changes" && <MonacoDiffViewer onApprove={onApprove} onReject={onReject} />}
         {tab === "files" && <WorkspaceBrowser />}
         {tab === "processes" && <ProcessesPanel onOpenPreview={openPreview} />}
+        {tab === "subagents" && <SubagentsPanel />}
         {tab === "preview" && <PreviewPanel request={previewRequest} />}
       </div>
     </div>
