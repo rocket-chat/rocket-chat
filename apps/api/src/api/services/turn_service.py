@@ -213,6 +213,10 @@ class TurnService:
     ) -> AgentBinding:
         """Resolve how the turn should run: persona, model, turn limit, tool scope."""
         agent = await self._resolve_agent(db_mgr, org_id, user_id, agent_id)
+        if agent is not None and getattr(agent, "enabled", True) is False:
+            raise ValueError(
+                f"Agent persona '{agent.name}' ({agent.id}) has been disabled for this organization."
+            )
         router, model, reason = await self._resolve_routing(
             db_mgr=db_mgr,
             org_id=org_id,

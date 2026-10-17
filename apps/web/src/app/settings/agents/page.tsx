@@ -31,6 +31,7 @@ import {
   Code2,
   Database,
   Trash2,
+  RotateCcw,
 } from "lucide-react";
 import { useSession } from "../../../components/AuthProvider";
 import {
@@ -345,6 +346,42 @@ export default function AgentsSettingsPage() {
 
   const handleDeleteAgent = async (agent: AgentPersonaConfig, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (agent.built_in) {
+      if (agent.enabled === false) {
+        if (!confirm(`Re-enable built-in agent '${agent.name}' and reset to factory defaults?`)) return;
+        try {
+          const res = await fetch(`/v1/agents/${agent.id}`, { method: "DELETE" });
+          if (res.ok) {
+            const listRes = await fetch("/v1/agents");
+            if (listRes.ok) {
+              const updated = await listRes.json();
+              setAvailableAgents(updated);
+              const reenabled = updated.find((a: AgentPersonaConfig) => a.id === agent.id);
+              if (reenabled && selectedAgentId === agent.id) setFormData(reenabled);
+            }
+          }
+        } catch {
+          setSaveError("Failed to reset agent persona");
+        }
+        return;
+      }
+
+      if (!confirm(`Disable built-in agent '${agent.name}'? It will be deactivated and hidden from cockpit missions.`)) return;
+      try {
+        const res = await fetch(`/v1/agents/${agent.id}?disable=true`, { method: "DELETE" });
+        if (res.ok) {
+          const updated = availableAgents.map((a) => (a.id === agent.id ? { ...a, enabled: false } : a));
+          setAvailableAgents(updated);
+          if (selectedAgentId === agent.id) {
+            setFormData((prev) => ({ ...prev, enabled: false }));
+          }
+        }
+      } catch {
+        setSaveError("Failed to disable agent persona");
+      }
+      return;
+    }
+
     if (!confirm(`Are you sure you want to delete agent '${agent.name}'?`)) return;
     try {
       const res = await fetch(`/v1/agents/${agent.id}`, { method: "DELETE" });
@@ -363,6 +400,7 @@ export default function AgentsSettingsPage() {
   const renderAgentListItem = (agent: AgentPersonaConfig, canManage: boolean) => {
     const isSelected = agent.id === selectedAgentId;
     const isActiveInCockpit = activeAgent.id === agent.id;
+    const isEnabled = agent.enabled !== false;
 
     return (
       <div
@@ -371,6 +409,8 @@ export default function AgentsSettingsPage() {
         className={`p-3 rounded-lg border transition-all cursor-pointer ${
           isSelected
             ? "border-cyan bg-cyan/10 shadow-sm shadow-cyan/10"
+            : !isEnabled
+            ? "border-border/40 bg-surface-card/40 opacity-70 hover:opacity-100 hover:border-border"
             : "border-border/80 bg-surface-card hover:bg-surface hover:border-border"
         }`}
       >
@@ -380,10 +420,24 @@ export default function AgentsSettingsPage() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between">
-              <span className="font-semibold text-xs text-foreground truncate">
+              <span className={`font-semibold text-xs truncate ${!isEnabled ? "line-through text-muted-foreground" : "text-foreground"}`}>
                 {agent.name}
               </span>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5 shrink-0">
+                {agent.built_in && (
+                  <span className="text-[9px] text-neutral-400 bg-neutral-800 px-1.5 py-0.2 rounded border border-neutral-700">
+                    Built-in
+                  </span>
+                )}
+                {isEnabled ? (
+                  <span className="text-[9px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/30">
+                    Active
+                  </span>
+                ) : (
+                  <span className="text-[9px] text-neutral-400 bg-neutral-800/80 px-1.5 py-0.2 rounded border border-neutral-700">
+                    Off
+                  </span>
+                )}
                 {isActiveInCockpit && (
                   <span className="text-[9px] text-cyan bg-cyan/20 px-1.5 py-0.2 rounded-lg border border-cyan/30">
                     ACTIVE
@@ -394,9 +448,13 @@ export default function AgentsSettingsPage() {
                     type="button"
                     onClick={(e) => handleDeleteAgent(agent, e)}
                     className="p-1 rounded-lg hover:bg-rose-950/40 text-neutral-500 hover:text-rose-400"
-                    title="Delete agent"
+                    title={agent.built_in ? (isEnabled ? "Disable agent" : "Reset / Re-enable agent") : "Delete agent"}
                   >
-                    <Trash2 className="w-3 h-3" />
+                    {agent.built_in && !isEnabled ? (
+                      <RotateCcw className="w-3 h-3 text-amber-400" />
+                    ) : (
+                      <Trash2 className="w-3 h-3" />
+                    )}
                   </button>
                 )}
               </div>
@@ -493,15 +551,29 @@ export default function AgentsSettingsPage() {
             </div>
 
             <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 cursor-pointer text-xs font-medium text-foreground px-2 py-1 rounded-lg border border-border bg-surface">
+                <input
+                  type="checkbox"
+                  checked={formData.enabled !== false}
+                  disabled={!canEditCurrentAgent}
+                  onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
+                  className="w-3.5 h-3.5 rounded border-border bg-void text-cyan focus:ring-cyan/40"
+                />
+                <span className={formData.enabled !== false ? "text-emerald-400 font-semibold text-[11px]" : "text-neutral-400 text-[11px]"}>
+                  {formData.enabled !== false ? "Enabled" : "Disabled"}
+                </span>
+              </label>
+
               <button
                 type="button"
                 onClick={() => selectAgent(formData)}
-                className="px-3 py-1.5 rounded-lg border border-border hover:border-cyan/50 bg-surface text-xs text-muted-foreground hover:text-cyan transition-colors"
-                title="Activate this agent in the Cockpit"
+                disabled={formData.enabled === false}
+                className="px-3 py-1.5 rounded-lg border border-border hover:border-cyan/50 bg-surface text-xs text-muted-foreground hover:text-cyan transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                title={formData.enabled === false ? "Enable this agent to activate in cockpit" : "Activate this agent in the Cockpit"}
               >
                 Set Active
               </button>
-              {editsBuiltInInPlace && formData.customized && (
+              {editsBuiltInInPlace && (formData.customized || formData.enabled === false) && (
                 <button
                   type="button"
                   onClick={handleResetBuiltIn}

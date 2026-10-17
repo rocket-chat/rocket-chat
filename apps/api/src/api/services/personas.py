@@ -200,6 +200,9 @@ def _from_entity(entity: AgentPersonaEntityModel) -> AgentPersonaModel:
         max_turns=entity.max_turns,
         tool_loading=_tool_loading_mode(entity.tool_loading),
         active_tools=entity.active_tools or [],
+        enabled=getattr(entity, "enabled", True)
+        if getattr(entity, "enabled", True) is not None
+        else True,
         scope=entity.scope,
         user_id=entity.user_id,
     )
@@ -225,6 +228,7 @@ _COPIED_FIELDS = (
     "max_turns",
     "tool_loading",
     "active_tools",
+    "enabled",
     "scope",
 )
 
@@ -497,9 +501,21 @@ async def save_persona(
 
 
 async def delete_persona(
-    db_mgr: Any, org_id: str, user_id: str, is_admin: bool, persona_id: str
+    db_mgr: Any,
+    org_id: str,
+    user_id: str,
+    is_admin: bool,
+    persona_id: str,
+    disable: bool = False,
 ) -> None:
     if persona_id in RESERVED_IDS:
+        if disable:
+            # Disable the built-in agent for this organization: store an override with enabled=False.
+            default = next((p for p in DEFAULT_AGENT_PERSONAS if p.id == persona_id), None)
+            if default is not None:
+                disabled_persona = default.model_copy(update={"enabled": False})
+                await _save_builtin_override(db_mgr, org_id, is_admin, disabled_persona)
+                return
         # Deleting a built-in means undoing the organization's edit: the shipped one returns.
         await _reset_builtin_override(db_mgr, org_id, is_admin, persona_id)
         return

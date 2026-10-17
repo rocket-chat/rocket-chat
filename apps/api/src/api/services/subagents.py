@@ -116,12 +116,19 @@ async def list_subagent_configs(db_mgr: Any, org_id: str) -> list[SubagentConfig
     return result
 
 
-async def delete_subagent_config(db_mgr: Any, org_id: str, subagent_id: str) -> tuple[bool, bool]:
-    """Delete this organization's override or custom subagent role.
+async def delete_subagent_config(
+    db_mgr: Any, org_id: str, subagent_id: str, disable: bool = False
+) -> tuple[bool, bool]:
+    """Delete this organization's override or custom subagent role, or disable a built-in role.
 
     Returns (deleted, is_reset_to_default).
     """
     is_builtin = subagent_id in DEFAULT_SUBAGENT_CONFIGS
+    if is_builtin and disable:
+        base = DEFAULT_SUBAGENT_CONFIGS[subagent_id]
+        disabled_model = _to_model(replace(base, enabled=False))
+        await save_subagent_config(db_mgr, org_id, disabled_model)
+        return True, False
     if db_mgr is None:
         if org_id in _memory and subagent_id in _memory[org_id]:
             del _memory[org_id][subagent_id]

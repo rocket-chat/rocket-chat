@@ -118,9 +118,14 @@ export const createAgentsSlice: StateCreator<MissionStore, [], [], AgentsSlice> 
           const session = get().session;
           const wanted =
             session?.agent_id || (session?.metadata?.agent_id as string | undefined) || get().activeAgent.id;
-          const matching = data.find((a: AgentPersonaConfig) => a.id === wanted);
+          const matching = data.find((a: AgentPersonaConfig) => a.id === wanted && a.enabled !== false);
           if (matching) {
             set({ activeAgent: matching });
+          } else {
+            const firstActive = data.find((a: AgentPersonaConfig) => a.enabled !== false);
+            if (firstActive) {
+              set({ activeAgent: firstActive });
+            }
           }
         }
       }

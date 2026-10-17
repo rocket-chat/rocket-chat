@@ -50,6 +50,12 @@
             "title": "Description",
             "type": "string"
           },
+          "enabled": {
+            "default": true,
+            "description": "Whether this agent persona is enabled and selectable in the cockpit/sessions",
+            "title": "Enabled",
+            "type": "boolean"
+          },
           "icon": {
             "default": "bot",
             "description": "Avatar/icon key",
@@ -7692,7 +7698,7 @@
     },
     "/v1/agents/{persona_id}": {
       "delete": {
-        "description": "Delete a custom agent persona.",
+        "description": "Delete a custom agent persona, or reset/disable a built-in persona.",
         "operationId": "delete_agent_v1_agents__persona_id__delete",
         "parameters": [
           {
@@ -7702,6 +7708,16 @@
             "schema": {
               "title": "Persona Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "disable",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Disable",
+              "type": "boolean"
             }
           }
         ],
@@ -11403,7 +11419,7 @@
     },
     "/v1/subagents/{subagent_id}": {
       "delete": {
-        "description": "Delete a custom subagent role or reset an overridden built-in role back to default.",
+        "description": "Delete a custom subagent role or reset/disable an overridden built-in role.",
         "operationId": "delete_subagent_v1_subagents__subagent_id__delete",
         "parameters": [
           {
@@ -11413,6 +11429,16 @@
             "schema": {
               "title": "Subagent Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "disable",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Disable",
+              "type": "boolean"
             }
           }
         ],

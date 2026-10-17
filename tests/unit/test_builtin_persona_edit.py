@@ -88,3 +88,71 @@ async def test_turns_resolve_the_edited_built_in_agent(client: TestClient) -> No
     assert resolved is not None and resolved.system_prompt == "Use the edit."
     other_org = await get_persona(None, "someone_else", "u", "persona-general")
     assert other_org is not None and other_org.system_prompt != "Use the edit."
+
+
+def test_an_administrator_can_disable_a_builtin_agent_and_keep_it_disabled(
+    client: TestClient,
+) -> None:
+    # Disable via POST
+    res = client.post("/v1/agents", json=_edit(enabled=False), headers=ADMIN)
+    assert res.status_code == 200
+    seen = _general(client)
+    assert seen["enabled"] is False and seen["customized"] is True
+
+    # Reset restores factory defaults
+    client.delete("/v1/agents/persona-general", headers=ADMIN)
+    assert _general(client)["enabled"] is True
+
+    # Disable via DELETE ?disable=true
+    res2 = client.delete("/v1/agents/persona-general?disable=true", headers=ADMIN)
+    assert res2.status_code == 200
+    seen2 = _general(client)
+    assert seen2["enabled"] is False and seen2["customized"] is True
+
+    # Reset again restores factory defaults
+    client.delete("/v1/agents/persona-general", headers=ADMIN)
+    restored = _general(client)
+    assert restored["enabled"] is True and restored["customized"] is False
+
+
+def test_an_administrator_can_disable_a_builtin_subagent(
+    client: TestClient,
+) -> None:
+    # Disable via DELETE ?disable=true
+    res = client.delete("/v1/subagents/researcher?disable=true", headers=ADMIN)
+    assert res.status_code == 200
+    subagents = {s["id"]: s for s in client.get("/v1/subagents", headers=ADMIN).json()}
+    assert subagents["researcher"]["enabled"] is False
+
+    # Other org is unaffected
+    other_subagents = {
+        s["id"]: s
+        for s in client.get(
+            "/v1/subagents",
+            headers={
+                "X-Tenant-Org-Id": "other_org",
+                "X-Tenant-User-Id": "u",
+                "X-User-Role": "admin",
+            },
+        ).json()
+    }
+    assert other_subagents["researcher"]["enabled"] is True
+
+    # Reset restores it
+    res_reset = client.delete("/v1/subagents/researcher", headers=ADMIN)
+    assert res_reset.status_code == 200
+    restored = {s["id"]: s for s in client.get("/v1/subagents", headers=ADMIN).json()}
+    assert restored["researcher"]["enabled"] is True
+
+
+async def test_a_disabled_agent_persona_is_rejected_on_turn_planning(client: TestClient) -> None:
+    from api.turns.shared import _turn_service
+
+    client.post("/v1/agents", json=_edit(enabled=False), headers=ADMIN)
+    with pytest.raises(ValueError, match="has been disabled"):
+        await _turn_service.plan_turn(
+            db_mgr=None,
+            org_id=ORG,
+            user_id="member_user",
+            agent_id="persona-general",
+        )

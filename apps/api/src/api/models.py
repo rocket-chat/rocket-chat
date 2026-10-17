@@ -33,6 +33,10 @@ class AgentPersonaModel(BaseModel):
         default=False,
         description="A built-in agent whose organization edit is in effect (it can be reset)",
     )
+    enabled: bool = Field(
+        default=True,
+        description="Whether this agent persona is enabled and selectable in the cockpit/sessions",
+    )
     icon: str = Field(default="bot", description="Avatar/icon key")
     sandbox_image: str = Field(
         default="", description="Sandbox image; empty inherits the organization default"

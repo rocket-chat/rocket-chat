@@ -21,6 +21,7 @@ class _Agent:
     whitelisted_tools: ClassVar[list[str]] = ["file_read"]
     model = "agent-model"
     max_turns = 7
+    enabled = True
 
 
 async def _resolve_agent(db: Any, org: str, user: str, agent_id: str | None) -> _Agent:

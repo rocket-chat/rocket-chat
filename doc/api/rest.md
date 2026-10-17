@@ -109,6 +109,7 @@ persona carries the stored id, which can differ from the proposed one.
 | user_id | string | no | Owner user ID for personal agents |
 | built_in | boolean | no | Shipped with the platform; an administrator can edit it for the organization |
 | customized | boolean | no | A built-in agent whose organization edit is in effect (it can be reset) |
+| enabled | boolean | no | Whether this agent persona is enabled and selectable in the cockpit/sessions |
 | icon | string | no | Avatar/icon key |
 | sandbox_image | string | no | Sandbox image; empty inherits the organization default |
 | sandbox_id | string | no | Sandbox type the agent's sessions start in when their creator picks none; empty uses the organization's default |
@@ -131,13 +132,14 @@ The ceilings an agent's own settings must stay under (today: steps per turn).
 
 ### `DELETE /v1/agents/{persona_id}`
 
-Delete a custom agent persona.
+Delete a custom agent persona, or reset/disable a built-in persona.
 
 **Parameters**
 
 | Name | In | Required | Type |
 | :--- | :--- | :--- | :--- |
 | persona_id | path | yes | string |
+| disable | query | no | boolean |
 
 **Responses:** `200`
 
@@ -178,13 +180,14 @@ Override a subagent role for this organization (admin only; other orgs are unaff
 
 ### `DELETE /v1/subagents/{subagent_id}`
 
-Delete a custom subagent role or reset an overridden built-in role back to default.
+Delete a custom subagent role or reset/disable an overridden built-in role.
 
 **Parameters**
 
 | Name | In | Required | Type |
 | :--- | :--- | :--- | :--- |
 | subagent_id | path | yes | string |
+| disable | query | no | boolean |
 
 **Responses:** `200`
 
