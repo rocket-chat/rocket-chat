@@ -525,7 +525,7 @@ async def build_turn_callbacks(
     )
     art_store = get_artifact_store(db_mgr)
     _create_artifact, _update_artifact = _make_artifact_callbacks(
-        art_store, event_bus, session.session_id
+        art_store, event_bus, ctx.session_id
     )
 
     # (`bind_context_memory_callbacks` in main.py); it resolves the tenant from the turn's
