@@ -493,7 +493,9 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                         Specialized Agents
                       </div>
                       <div className="space-y-1">
-                        {availableAgents.map((agent: AgentPersonaConfig) => {
+                        {availableAgents
+                          .filter((agent: AgentPersonaConfig) => agent.enabled !== false)
+                          .map((agent: AgentPersonaConfig) => {
                           const isSelected = inferenceMode === "agent" && activeAgent?.id === agent.id;
                           return (
                             <button

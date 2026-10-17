@@ -496,6 +496,9 @@ class AgentPersonaEntityModel(Base):
     )
     # The built-in agent this row replaces for the organization (None for an ordinary agent).
     overrides_builtin: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
     created_at: Mapped[int] = mapped_column(
         BigInteger, default=lambda: int(time.time()), nullable=False
     )

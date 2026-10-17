@@ -422,6 +422,8 @@ export interface AgentPersonaConfig {
   built_in?: boolean;
   /** A built-in agent whose organization edit is in effect. */
   customized?: boolean;
+  /** Whether this agent persona is enabled for cockpit and missions. */
+  enabled?: boolean;
   icon?: string;
   sandbox_image?: string;
   /** Sandbox type its sessions start in when their creator picks none; empty: the default. */

@@ -6,6 +6,7 @@ from agent_core.subagents import DEFAULT_SUBAGENT_CONFIGS
 from fastapi import (
     APIRouter,
     HTTPException,
+    Query,
     Request,
 )
 
@@ -71,13 +72,20 @@ async def create_or_update_agent(persona: AgentPersonaModel, request: Request) -
 
 
 @router.delete("/agents/{persona_id}")
-async def delete_agent(persona_id: str, request: Request) -> dict[str, bool]:
-    """Delete a custom agent persona."""
+async def delete_agent(
+    persona_id: str, request: Request, disable: bool = Query(default=False)
+) -> dict[str, bool]:
+    """Delete a custom agent persona, or reset/disable a built-in persona."""
     org_id, user_id, roles = _get_request_identity(request)
     is_admin = "admin" in roles or "owner" in roles
     try:
         await delete_persona(
-            getattr(request.app.state, "db_manager", None), org_id, user_id, is_admin, persona_id
+            getattr(request.app.state, "db_manager", None),
+            org_id,
+            user_id,
+            is_admin,
+            persona_id,
+            disable=disable,
         )
     except PersonaError as err:
         raise HTTPException(status_code=err.status_code, detail=err.detail) from err
@@ -109,11 +117,13 @@ async def update_subagent_config(
 
 
 @router.delete("/subagents/{subagent_id}")
-async def delete_subagent(subagent_id: str, request: Request) -> dict[str, bool]:
-    """Delete a custom subagent role or reset an overridden built-in role back to default."""
+async def delete_subagent(
+    subagent_id: str, request: Request, disable: bool = Query(default=False)
+) -> dict[str, bool]:
+    """Delete a custom subagent role or reset/disable an overridden built-in role."""
     org_id, _, _ = _require_admin(request)
     deleted, reset = await delete_subagent_config(
-        getattr(request.app.state, "db_manager", None), org_id, subagent_id
+        getattr(request.app.state, "db_manager", None), org_id, subagent_id, disable=disable
     )
     if not deleted and subagent_id not in DEFAULT_SUBAGENT_CONFIGS:
         raise HTTPException(status_code=404, detail="Subagent not found")

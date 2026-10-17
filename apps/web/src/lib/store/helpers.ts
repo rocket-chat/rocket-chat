@@ -28,6 +28,7 @@ export const DEFAULT_AGENTS: AgentPersonaConfig[] = [
       "session_rename",
       "update_task_checklist",
     ],
+    enabled: true,
     icon: "bot",
   },
   {
@@ -41,6 +42,7 @@ export const DEFAULT_AGENTS: AgentPersonaConfig[] = [
     model: "openrouter/anthropic/claude-3.5-sonnet",
     whitelisted_tools: ["file_read", "web_search", "web_fetch"],
     built_in: true,
+    enabled: true,
     icon: "shield",
   },
 ];

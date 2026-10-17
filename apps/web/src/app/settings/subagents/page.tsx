@@ -210,14 +210,49 @@ export default function SubagentsSettingsPage() {
 
   const handleDeleteOrReset = async () => {
     const isBuiltin = formData.built_in;
-    const isCustomized = formData.customized;
-    if (isBuiltin && !isCustomized) return;
+    const isEnabled = formData.enabled;
 
-    const confirmMsg = isBuiltin
-      ? `Reset "${formData.name}" to platform default settings?`
-      : `Delete specialist "${formData.name}"? This action cannot be undone.`;
+    if (isBuiltin) {
+      if (isEnabled) {
+        if (!window.confirm(`Disable "${formData.name}"? It will not be available for lead agent delegation.`)) return;
+        setIsDeleting(true);
+        try {
+          const res = await fetch(`/v1/subagents/${formData.id}?disable=true`, { method: "DELETE" });
+          if (res.ok) {
+            const listRes = await fetch("/v1/subagents");
+            if (listRes.ok) {
+              const data: SubagentConfig[] = await listRes.json();
+              setSubagents(data);
+              const next = data.find((s) => s.id === formData.id) || data[0];
+              if (next) setFormData(next);
+            }
+          }
+        } finally {
+          setIsDeleting(false);
+        }
+        return;
+      }
 
-    if (!window.confirm(confirmMsg)) return;
+      if (!window.confirm(`Reset "${formData.name}" to platform default settings (re-enabling it)?`)) return;
+      setIsDeleting(true);
+      try {
+        const res = await fetch(`/v1/subagents/${formData.id}`, { method: "DELETE" });
+        if (res.ok) {
+          const listRes = await fetch("/v1/subagents");
+          if (listRes.ok) {
+            const data: SubagentConfig[] = await listRes.json();
+            setSubagents(data);
+            const next = data.find((s) => s.id === formData.id) || data[0];
+            if (next) setFormData(next);
+          }
+        }
+      } finally {
+        setIsDeleting(false);
+      }
+      return;
+    }
+
+    if (!window.confirm(`Delete specialist "${formData.name}"? This action cannot be undone.`)) return;
 
     setIsDeleting(true);
     try {
@@ -474,7 +509,7 @@ export default function SubagentsSettingsPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              {formData.built_in && formData.customized && (
+              {formData.built_in && (formData.customized || !formData.enabled) && (
                 <button
                   type="button"
                   onClick={handleDeleteOrReset}
@@ -484,6 +519,19 @@ export default function SubagentsSettingsPage() {
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>Reset Default</span>
+                </button>
+              )}
+
+              {formData.built_in && formData.enabled && (
+                <button
+                  type="button"
+                  onClick={handleDeleteOrReset}
+                  disabled={isDeleting}
+                  data-testid="disable-subagent-button"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-neutral-400 bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 transition"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Disable Specialist</span>
                 </button>
               )}
 
