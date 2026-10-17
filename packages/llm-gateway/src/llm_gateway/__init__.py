@@ -1,5 +1,6 @@
 """LLM Gateway Subsystem."""
 
+from llm_gateway.errors import is_retryable_provider_error
 from llm_gateway.gateway import LiteLLMGateway
 from llm_gateway.pricing import estimate_cost_usd
 from llm_gateway.reasoning import ReasoningStreamFilter
@@ -27,5 +28,6 @@ __all__ = [
     "ToolDefinition",
     "estimate_cost_usd",
     "generate_structured",
+    "is_retryable_provider_error",
     "stub_enabled",
 ]

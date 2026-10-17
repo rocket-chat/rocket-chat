@@ -9,6 +9,16 @@ sandbox, rotating a token takes effect on the next command, and a stopped sandbo
 
 from __future__ import annotations
 
+# Persistent language caches residing on the workspace volume (Item C4).
+DEFAULT_SANDBOX_CACHE_ENV: dict[str, str] = {
+    "GOMODCACHE": "/workspace/.rocket/cache/go/pkg/mod",
+    "GOCACHE": "/workspace/.rocket/cache/go/build",
+    "UV_CACHE_DIR": "/workspace/.rocket/cache/uv",
+    "PIP_CACHE_DIR": "/workspace/.rocket/cache/pip",
+    "PNPM_HOME": "/workspace/.rocket/cache/pnpm",
+    "CARGO_HOME": "/workspace/.rocket/cache/cargo",
+}
+
 
 class SessionEnvMixin:
     """Mixin for drivers: remember an env per session and merge it into every exec."""
@@ -29,4 +39,8 @@ class SessionEnvMixin:
 
     def merged_env(self, session_id: str, env: dict[str, str] | None) -> dict[str, str]:
         """Session env overlaid with the call's own env (the call wins)."""
-        return {**self._env_store().get(session_id, {}), **(env or {})}
+        return {
+            **DEFAULT_SANDBOX_CACHE_ENV,
+            **self._env_store().get(session_id, {}),
+            **(env or {}),
+        }

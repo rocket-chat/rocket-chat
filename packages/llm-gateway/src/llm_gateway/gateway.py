@@ -4,7 +4,7 @@ import base64
 import dataclasses
 import logging
 import os
-from collections.abc import AsyncIterator, Iterable, Iterator
+from collections.abc import AsyncIterator, Iterable, Iterator, Mapping
 from typing import Any
 
 import litellm
@@ -352,11 +352,18 @@ class LiteLLMGateway(LLMGatewayProtocol):
             "temperature": request.temperature,
             "stream": True,
         }
-        if request.thinking_budget_tokens is not None and reasoning_replay(model) == _BLOCKS:
-            # Anthropic-style extended thinking accepts only the default temperature.
-            kwargs.pop("temperature")
+        model_lower = (model or "").lower()
+        if (
+            "claude" in model_lower or "anthropic" in model_lower
+        ) and request.thinking_budget_tokens is not None:
+            # Anthropic extended thinking requires temperature to be omitted or default 1.0.
+            kwargs.pop("temperature", None)
         kwargs.update(self._generation_options(request))
-        kwargs.update(_usage_options(model))
+        usage_opts = _usage_options(model)
+        if "extra_body" in usage_opts:
+            kwargs.setdefault("extra_body", {}).update(usage_opts["extra_body"])
+        if "stream_options" in usage_opts:
+            kwargs["stream_options"] = usage_opts["stream_options"]
         formatted_tools = self._format_request_tools(request.tools, explicit_cache)
         if formatted_tools:
             kwargs["tools"] = formatted_tools
@@ -366,6 +373,11 @@ class LiteLLMGateway(LLMGatewayProtocol):
 
         self._apply_credentials(kwargs, request.credentials)
         kwargs.update(self._data_governance_kwargs(model, request))
+        scope = current_model_scope.get()
+        if scope is not None and scope.session_id:
+            kwargs["user"] = scope.session_id
+            if "openrouter" in model_lower or "openai" in model_lower:
+                kwargs["prompt_cache_key"] = scope.session_id
         return kwargs
 
     def _generation_options(self, request: ModelRequest) -> dict[str, Any]:
@@ -425,21 +437,34 @@ class LiteLLMGateway(LLMGatewayProtocol):
         return [StreamChunk(is_finished=True, finish_reason="error", error=f"{hint} ({error})")]
 
     @staticmethod
-    def _usage_from_chunk(chunk: Any) -> dict[str, int] | None:
+    def _get_val(obj: Any, key: str, default: Any = None) -> Any:
+        if isinstance(obj, Mapping):
+            return obj.get(key, default)
+        return getattr(obj, key, default)
+
+    @classmethod
+    def _usage_from_chunk(cls, chunk: Any) -> dict[str, int] | None:
         """Token counts (including prompt-cache reads and writes) the provider reported."""
-        usage = getattr(chunk, "usage", None)
+        usage = cls._get_val(chunk, "usage")
         if not usage:
             return None
+        prompt_tokens = cls._get_val(usage, "prompt_tokens", 0) or 0
+        completion_tokens = cls._get_val(usage, "completion_tokens", 0) or 0
+        total_tokens = cls._get_val(usage, "total_tokens", 0) or 0
         usage_dict = {
-            "prompt_tokens": getattr(usage, "prompt_tokens", 0),
-            "completion_tokens": getattr(usage, "completion_tokens", 0),
-            "total_tokens": getattr(usage, "total_tokens", 0),
+            "prompt_tokens": int(prompt_tokens),
+            "completion_tokens": int(completion_tokens),
+            "total_tokens": int(total_tokens),
         }
-        cache_read = getattr(usage, "cache_read_input_tokens", None)
-        cache_creation = getattr(usage, "cache_creation_input_tokens", None)
+        cache_read = cls._get_val(usage, "cache_read_input_tokens")
         if cache_read is None:
-            details = getattr(usage, "prompt_tokens_details", None)
-            cache_read = getattr(details, "cached_tokens", None) if details else None
+            cache_read = cls._get_val(usage, "cached_tokens")
+        details = cls._get_val(usage, "prompt_tokens_details")
+        if cache_read is None and details is not None:
+            cache_read = cls._get_val(details, "cached_tokens")
+        cache_creation = cls._get_val(usage, "cache_creation_input_tokens")
+        if cache_creation is None and details is not None:
+            cache_creation = cls._get_val(details, "cache_creation_input_tokens")
         if cache_read is not None:
             usage_dict["cache_read_tokens"] = int(cache_read)
         if cache_creation is not None:
@@ -623,10 +648,14 @@ class LiteLLMGateway(LLMGatewayProtocol):
         if usage:
             prompt = int(usage.get("prompt_tokens", 0))
             completion = int(usage.get("completion_tokens", 0))
+            cache_read = int(usage.get("cache_read_tokens", 0))
+            cache_creation = int(usage.get("cache_creation_tokens", 0))
         else:
             prompt, completion = estimated_usage(
                 request.model, request.messages, request.tools, produced
             )
+            cache_read = 0
+            cache_creation = 0
         try:
             await self.usage_sink.record(
                 UsageEvent(
@@ -636,9 +665,11 @@ class LiteLLMGateway(LLMGatewayProtocol):
                     model=request.model,
                     prompt_tokens=prompt,
                     completion_tokens=completion,
-                    cache_read_tokens=int((usage or {}).get("cache_read_tokens", 0)),
-                    cache_creation_tokens=int((usage or {}).get("cache_creation_tokens", 0)),
-                    cost_usd=self._cost_usd(request.model, prompt, completion),
+                    cache_read_tokens=cache_read,
+                    cache_creation_tokens=cache_creation,
+                    cost_usd=self._cost_usd(
+                        request.model, prompt, completion, cache_read, cache_creation
+                    ),
                     key_source=key_source,
                 )
             )
@@ -647,22 +678,51 @@ class LiteLLMGateway(LLMGatewayProtocol):
             logger.exception("Could not record model usage for %s", request.model)
 
     @staticmethod
-    def _cost_usd(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    def _cost_usd(
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
+    ) -> float:
         """The provider's published price from LiteLLM, else the conservative estimate."""
         try:
             prompt_cost, completion_cost = litellm.cost_per_token(
-                model=model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
+                model=model,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                cache_read_input_tokens=cache_read_tokens,
+                cache_creation_input_tokens=cache_creation_tokens,
             )
             total = float(prompt_cost) + float(completion_cost)
             if total > 0:
                 return round(total, 6)
         except Exception:
             pass
-        return estimate_cost_usd(model, prompt_tokens, completion_tokens)
+        return estimate_cost_usd(
+            model,
+            prompt_tokens,
+            completion_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+        )
 
-    def _estimate_cost_usd(self, model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    def _estimate_cost_usd(
+        self,
+        model: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
+    ) -> float:
         """Estimate token cost based on model family and token usage."""
-        return estimate_cost_usd(model, prompt_tokens, completion_tokens)
+        return estimate_cost_usd(
+            model,
+            prompt_tokens,
+            completion_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+        )
 
     def set_budget_cap(self, tenant_org_id: str, monthly_budget_usd: float) -> None:
         """Set monthly spending budget cap for an organization."""
@@ -746,7 +806,13 @@ class LiteLLMGateway(LLMGatewayProtocol):
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
     ) -> None:
-        cost = self._estimate_cost_usd(model, prompt_tokens, completion_tokens)
+        cost = self._estimate_cost_usd(
+            model,
+            prompt_tokens,
+            completion_tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+        )
         self._usage_ledger.append(
             {
                 "tenant_org_id": tenant_org_id,

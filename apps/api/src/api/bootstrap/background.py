@@ -24,8 +24,10 @@ from api.services.turn_resume import resume_interrupted_turns
 from api.services.turn_trace import (
     LEASE_HEARTBEAT_SECONDS,
     LEASE_TTL_SECONDS,
+    active_turn_sessions,
     beat_turn_leases,
     recover_interrupted_turns,
+    session_turn_activity,
 )
 from api.services.workspace_release import (
     delay_resolver,
@@ -85,20 +87,20 @@ class BackgroundServices:
         self._admin_manager: DatabaseSessionManager | None = None
 
     def start(self) -> None:
-        self._start_sandbox_reaper()
-        if self._core.db_manager is None:
-            return
-        # Governance retention, turn leases, missions and MCP refresh sweep
-        # every tenant, so they run on the schema-owner connection like migrations do.
-        admin_manager = DatabaseSessionManager(
-            os.getenv("ADMIN_DATABASE_URL") or self._core.database_url or ""
-        )
-        self._admin_manager = admin_manager
-        self._start_retention(admin_manager)
-        self._start_turn_recovery(admin_manager)
-        self._start_missions(admin_manager)
-        self._start_mcp_refresh(admin_manager)
-        self._start_workspace_release(admin_manager)
+        admin_manager: DatabaseSessionManager | None = None
+        if self._core.db_manager is not None:
+            # Governance retention, turn leases, missions, MCP refresh, and sandbox reaper
+            # sweep every tenant, so they run on the schema-owner connection like migrations do.
+            admin_manager = DatabaseSessionManager(
+                os.getenv("ADMIN_DATABASE_URL") or self._core.database_url or ""
+            )
+            self._admin_manager = admin_manager
+            self._start_retention(admin_manager)
+            self._start_turn_recovery(admin_manager)
+            self._start_missions(admin_manager)
+            self._start_mcp_refresh(admin_manager)
+            self._start_workspace_release(admin_manager)
+        self._start_sandbox_reaper(admin_manager)
 
     async def stop(self) -> None:
         for task in reversed(self._tasks):
@@ -111,7 +113,7 @@ class BackgroundServices:
     def _spawn(self, coroutine: Awaitable[None]) -> None:
         self._tasks.append(asyncio.ensure_future(coroutine))
 
-    def _start_sandbox_reaper(self) -> None:
+    def _start_sandbox_reaper(self, admin_manager: DatabaseSessionManager | None) -> None:
         driver = self._core.sandbox_driver
         if not hasattr(driver, "reconcile_inactivity"):
             return
@@ -120,11 +122,36 @@ class BackgroundServices:
             return await self._app.state.session_store.get_session(session_id) is not None
 
         async def _reap() -> None:
-            await driver.reconcile_inactivity(is_live=_session_is_live)
+            active_sessions = (
+                await active_turn_sessions(admin_manager) if admin_manager is not None else None
+            )
+            session_idleness = (
+                await session_turn_activity(admin_manager) if admin_manager is not None else None
+            )
+            await driver.reconcile_inactivity(
+                is_live=_session_is_live,
+                active_sessions=active_sessions,
+                session_idleness=session_idleness,
+            )
             if hasattr(driver, "reconcile_warm_pool"):
                 await driver.reconcile_warm_pool()
 
-        self._spawn(_run_periodically("Sandbox background reaper", SANDBOX_REAPER_SECONDS, _reap))
+        async def _nothing_to_release() -> None:
+            return None
+
+        async def _reap_loop() -> None:
+            await _run_periodically("Sandbox background reaper", SANDBOX_REAPER_SECONDS, _reap)
+
+        async def _reaper() -> None:
+            cluster_dsn = self._core.cluster_dsn
+            if cluster_bus_enabled() and cluster_dsn:
+                await LeaderElection(cluster_dsn, "sandbox-reaper").run(
+                    _reap_loop, _nothing_to_release
+                )
+            else:
+                await _reap_loop()
+
+        self._spawn(_reaper())
 
     def _start_retention(self, admin_manager: DatabaseSessionManager) -> None:
         sweeper = RetentionSweeper(

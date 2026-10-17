@@ -113,3 +113,42 @@ def configured_profiles() -> dict[str, PlacementProfile]:
     except ProfileError as err:
         logger.error("Sandbox placement profiles ignored: %s", err)
         return {}
+
+
+def parse_cpu(val: str | None) -> float:
+    if not val:
+        return 1.0
+    val = val.strip()
+    if val.endswith("m"):
+        return float(val[:-1]) / 1000.0
+    try:
+        return float(val)
+    except ValueError:
+        return 1.0
+
+
+def parse_memory_mb(val: str | None) -> float:
+    if not val:
+        return 2048.0
+    val = val.strip().lower()
+    if val.endswith("gi"):
+        return float(val[:-2]) * 1024.0
+    if val.endswith("g"):
+        return float(val[:-1]) * 1000.0
+    if val.endswith("mi"):
+        return float(val[:-2])
+    if val.endswith("m"):
+        return float(val[:-1])
+    try:
+        return float(val) / (1024.0 * 1024.0)
+    except ValueError:
+        return 2048.0
+
+
+def has_parallel_write_capacity(profile: PlacementProfile | None) -> bool:
+    """Parallel write subagents require >= 2 CPU and >= 4 GiB RAM to prevent compiler OOMs."""
+    if profile is None:
+        return False
+    cpu = parse_cpu(profile.limits.get("cpu") or profile.requests.get("cpu"))
+    mem = parse_memory_mb(profile.limits.get("memory") or profile.requests.get("memory"))
+    return cpu >= 2.0 and mem >= 4000.0

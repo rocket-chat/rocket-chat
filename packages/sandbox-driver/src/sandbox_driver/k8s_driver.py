@@ -3,13 +3,14 @@
 import asyncio
 import base64
 import contextlib
+import inspect
 import logging
 import os
 import re
 import shlex
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from kubernetes_asyncio import client, config
@@ -35,7 +36,7 @@ from sandbox_driver.exceptions import (
 from sandbox_driver.patcher import apply_unified_diff
 from sandbox_driver.profiles import PROFILES_ENV, PlacementProfile, configured_profiles
 from sandbox_driver.pty import SHELL_LAUNCHER, K8sPty
-from sandbox_driver.session_env import SessionEnvMixin
+from sandbox_driver.session_env import DEFAULT_SANDBOX_CACHE_ENV, SessionEnvMixin
 from sandbox_driver.tracing import traced_exec
 from sandbox_driver.utils import (
     CLIENT_DEADLINE_MARGIN_SECONDS,
@@ -260,6 +261,7 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         self._destroyed_sessions: set[str] = set()
         self._last_activity: dict[str, float] = {}
         self._held_until: dict[str, float] = {}
+        self._holds: dict[str, dict[str, float]] = {}
         self._init_lock = asyncio.Lock()
         # Eviction protection: how many commands are running per session, the state last
         # written to the pod, and a lock so two writes for one pod never cross.
@@ -268,16 +270,30 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         self._protection_locks: dict[str, asyncio.Lock] = {}
         self._protection_tasks: set[asyncio.Task[None]] = set()
 
-    def hold_awake(self, session_id: str, seconds: float) -> None:
+    def hold_awake(self, session_id: str, seconds: float, reason: str = "process") -> None:
         if seconds <= 0:
-            self._held_until.pop(session_id, None)
+            if session_id in self._holds:
+                self._holds[session_id].pop(reason, None)
+                if not self._holds[session_id]:
+                    self._holds.pop(session_id, None)
+                    self._held_until.pop(session_id, None)
+                else:
+                    self._held_until[session_id] = max(self._holds[session_id].values())
+            else:
+                self._held_until.pop(session_id, None)
         else:
-            self._held_until[session_id] = time.time() + seconds
-        # Background processes need the pod kept from eviction now, not at the next command.
+            now = time.time()
+            self._holds.setdefault(session_id, {})[reason] = now + seconds
+            self._held_until[session_id] = max(self._holds[session_id].values())
+        # Background processes and turn executions need the pod kept from eviction now.
         with contextlib.suppress(RuntimeError):  # no running loop: the next command syncs it
             task = asyncio.get_running_loop().create_task(self._sync_protection(session_id))
             self._protection_tasks.add(task)
             task.add_done_callback(self._protection_tasks.discard)
+
+    def is_held(self, session_id: str) -> bool:
+        """Return True if the sandbox is held awake by an active lease."""
+        return self._held_until.get(session_id, 0) > time.time()
 
     def record_activity(self, session_id: str) -> None:
         """Record interaction timestamp to calculate idle duration for pause and cleanup."""
@@ -592,7 +608,8 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         profile = self._profile_of(spec)
         limits, requests = _sizing(spec, profile)
 
-        env_vars = [client.V1EnvVar(name=k, value=str(v)) for k, v in spec.env_vars.items()]
+        combined_env = {**DEFAULT_SANDBOX_CACHE_ENV, **spec.env_vars}
+        env_vars = [client.V1EnvVar(name=k, value=str(v)) for k, v in combined_env.items()]
 
         # Respect custom container image from WorkspaceSpec or fall back to default
         target_image = spec.container_image or self.default_image
@@ -814,11 +831,16 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         """
         core_v1, _ = await self._ensure_clients()
         pod_name = self._pod_name(session_id)
+        held_until = self._held_until.get(session_id, 0)
+        active_execs = self._running_commands.get(session_id, 0)
         patch = {
             "metadata": {
                 "annotations": {
                     CLUSTER_AUTOSCALER_SAFE_TO_EVICT: "false" if protected else "true",
                     KARPENTER_DO_NOT_DISRUPT: "true" if protected else "false",
+                    "rocket.chat/hold-until": str(int(held_until)),
+                    "rocket.io/protected-until": str(int(held_until)),
+                    "rocket.chat/active-execs": str(active_execs),
                 }
             }
         }
@@ -835,7 +857,8 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
 
     async def _assert_pod_running(self, core_v1: Any, pod_name: str) -> None:
         try:
-            pod = await core_v1.read_namespaced_pod(name=pod_name, namespace=self.namespace)
+            res = core_v1.read_namespaced_pod(name=pod_name, namespace=self.namespace)
+            pod = await res if inspect.isawaitable(res) else res
             if not pod.status or pod.status.phase != "Running":
                 raise SandboxNotFoundError(f"Active sandbox pod {pod_name} is not running.")
         except ApiException as err:
@@ -860,11 +883,20 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         """
         deadline_command = wrap_with_deadline(command, timeout_seconds)
         merged = self.merged_env(session_id, env)
-        if not merged:
+        dynamic_env = {
+            k: v
+            for k, v in merged.items()
+            if (
+                k not in DEFAULT_SANDBOX_CACHE_ENV
+                or (env and k in env)
+                or (session_id in self._env_store() and k in self._env_store()[session_id])
+            )
+        }
+        if not dynamic_env:
             return ["/bin/sh", "-c", f"cd {shlex.quote(workdir)} && {deadline_command}"], None
         payload = "".join(
             base64.b64encode(f"{key}={value}".encode()).decode() + "\n"
-            for key, value in merged.items()
+            for key, value in dynamic_env.items()
             if _ENV_KEY.match(key)
         )
         script = f"{_ENV_PRELUDE} cd {shlex.quote(workdir)} && {{ {deadline_command}; }} </dev/null"
@@ -1040,7 +1072,7 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         sent there as for a command. A plain exec (which gets it on stdin) writes it to a
         private file instead; the terminal's shell reads and deletes it before it starts.
         """
-        if not self.merged_env(session_id, None):
+        if not self._env_store().get(session_id):
             return ""
         path = f"/tmp/.rocket-env-{uuid.uuid4().hex}"
         written = await self.exec_command(
@@ -1212,7 +1244,34 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
             if session_id and session_id not in self._last_activity:
                 self.record_activity(session_id)
 
-    async def pause_inactive_sandboxes(self, threshold_seconds: float | None = None) -> list[str]:
+    async def _pod_is_cluster_protected(self, session_id: str, now: float) -> bool:
+        """Check if annotations on Kubernetes indicate another replica is actively using the pod."""
+        try:
+            core_v1, _ = await self._ensure_clients()
+            res = core_v1.read_namespaced_pod(
+                name=self._pod_name(session_id), namespace=self.namespace
+            )
+            pod = await res if inspect.isawaitable(res) else res
+            raw_ann = getattr(getattr(pod, "metadata", None), "annotations", None)
+            ann = raw_ann if isinstance(raw_ann, dict) else {}
+            if ann.get(CLUSTER_AUTOSCALER_SAFE_TO_EVICT) == "false":
+                return True
+            if ann.get(KARPENTER_DO_NOT_DISRUPT) == "true":
+                return True
+            if float(ann.get("rocket.chat/hold-until", 0)) > now:
+                return True
+            if int(ann.get("rocket.chat/active-execs", 0)) > 0:
+                return True
+        except Exception:
+            pass
+        return False
+
+    async def pause_inactive_sandboxes(
+        self,
+        threshold_seconds: float | None = None,
+        active_sessions: set[str] | None = None,
+        session_idleness: Mapping[str, float] | None = None,
+    ) -> list[str]:
         """Hibernate running sandboxes that exceeded configured idle duration."""
         threshold = (
             threshold_seconds if threshold_seconds is not None else self.inactivity_pause_seconds
@@ -1220,7 +1279,15 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         now = time.time()
         paused: list[str] = []
 
-        for session_id, last_time in list(self._last_activity.items()):
+        activity = dict(self._last_activity)
+        if session_idleness:
+            for s_id, t_stamp in session_idleness.items():
+                if s_id not in activity or t_stamp > activity[s_id]:
+                    activity[s_id] = t_stamp
+
+        for session_id, last_time in list(activity.items()):
+            if active_sessions and session_id in active_sessions:
+                continue
             # A hold that ran out (its background processes ended) releases the pod.
             if self._protection_applied.get(session_id):
                 await self._sync_protection(session_id)
@@ -1229,6 +1296,8 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
             if now - last_time >= threshold:
                 status = await self.get_status(session_id)
                 if status == SandboxStatus.RUNNING:
+                    if await self._pod_is_cluster_protected(session_id, now):
+                        continue
                     logger.info(
                         "Pausing inactive sandbox %s (idle for %.1fs, threshold %.1fs)",
                         session_id,
@@ -1277,11 +1346,16 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         return cleaned
 
     async def reconcile_inactivity(
-        self, is_live: SessionLivenessCheck | None = None
+        self,
+        is_live: SessionLivenessCheck | None = None,
+        active_sessions: set[str] | None = None,
+        session_idleness: Mapping[str, float] | None = None,
     ) -> tuple[list[str], list[str]]:
         """One sweep: adopt sandboxes that outlived a restart, pause idle compute, purge orphans."""
         await self.adopt_existing_sandboxes()
-        paused = await self.pause_inactive_sandboxes()
+        paused = await self.pause_inactive_sandboxes(
+            active_sessions=active_sessions, session_idleness=session_idleness
+        )
         cleaned = await self.cleanup_inactive_sandboxes(is_live=is_live)
         return paused, cleaned
 

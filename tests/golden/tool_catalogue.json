@@ -233,6 +233,25 @@
     }
   },
   {
+    "description": "Delegate multiple specialized subagents to execute tasks concurrently or sequentially. Parallel write subagents require >= 2 CPU and >= 4 GiB RAM; if the sandbox profile is smaller, delegations run sequentially to prevent memory exhaustion.",
+    "name": "delegate_subagents_parallel",
+    "parameters": {
+      "properties": {
+        "delegations": {
+          "description": "List of subagent tasks: [{'role': '...', 'task': '...', 'context': '...'}, ...]",
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "delegations"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "description": "Enter read-only plan mode. Use for multi-step or risky work: investigate safely, then present a plan before changing anything.",
     "name": "enter_plan_mode",
     "parameters": {
@@ -590,6 +609,60 @@
       },
       "required": [
         "repository"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Inspect all repositories in the workspace, detect inter-repo dependencies, write/update /workspace/.rocket/workspace.json, and return a structured summary table.",
+    "name": "workspace_status",
+    "parameters": {
+      "properties": {
+        "refresh": {
+          "description": "Whether to force re-scanning every repository from disk.",
+          "type": "boolean"
+        },
+        "scan_dependencies": {
+          "description": "Whether to scan package manifests for inter-repository dependencies.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Return porcelain git status across all repositories in the workspace, highlighting branches and dirty worktrees.",
+    "name": "git_status_all",
+    "parameters": {
+      "properties": {
+        "only_dirty": {
+          "description": "If True, only show repositories with uncommitted changes or untracked files.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Execute a command across every repository in the workspace (or a subset), aggregating clamped output and status codes per repository.",
+    "name": "repo_foreach",
+    "parameters": {
+      "properties": {
+        "command": {
+          "description": "Shell command to run in each repository.",
+          "type": "string"
+        },
+        "fail_fast": {
+          "description": "Stop executing if any repository command returns non-zero.",
+          "type": "boolean"
+        },
+        "repos": {
+          "description": "Comma-separated repository names to target (default: all).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
       ],
       "type": "object"
     }
@@ -1095,6 +1168,53 @@
     }
   },
   {
+    "description": "Install or manage project dependencies through the workspace's declared package manager (uv, pnpm, npm or poetry). Lockfile-aware; returns a parsed failure cause when an install fails.",
+    "name": "package_manager",
+    "parameters": {
+      "properties": {
+        "action": {
+          "description": "Operation to perform (default: install).",
+          "enum": [
+            "install",
+            "add",
+            "remove"
+          ],
+          "type": "string"
+        },
+        "dev": {
+          "description": "Add as a development dependency (add only).",
+          "type": "boolean"
+        },
+        "manager": {
+          "description": "Explicit package manager override (auto-detected if omitted).",
+          "enum": [
+            "uv",
+            "pnpm",
+            "npm",
+            "poetry"
+          ],
+          "type": "string"
+        },
+        "packages": {
+          "description": "Package names to add or remove (e.g. ['pytest', 'ruff']).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "path": {
+          "description": "Project folder, e.g. 'my-app' or 'my-app/packages/api'. Default: the session's active repository, or the only repository under /workspace.",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "description": "Timeout (default 600).",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "description": "Run the project test suite, auto-detecting npm/cargo/go/pytest, and return a parsed pass/fail summary. Use this to verify changes before finishing.",
     "name": "run_tests",
     "parameters": {
@@ -1165,53 +1285,6 @@
         "command": {
           "description": "Optional explicit build command overriding detection.",
           "type": "string"
-        },
-        "path": {
-          "description": "Project folder, e.g. 'my-app' or 'my-app/packages/api'. Default: the session's active repository, or the only repository under /workspace.",
-          "type": "string"
-        },
-        "timeout_seconds": {
-          "description": "Timeout (default 600).",
-          "type": "integer"
-        }
-      },
-      "type": "object"
-    }
-  },
-  {
-    "description": "Install or manage project dependencies through the workspace's declared package manager (uv, pnpm, npm or poetry). Lockfile-aware; returns a parsed failure cause when an install fails.",
-    "name": "package_manager",
-    "parameters": {
-      "properties": {
-        "action": {
-          "description": "Operation to perform (default: install).",
-          "enum": [
-            "install",
-            "add",
-            "remove"
-          ],
-          "type": "string"
-        },
-        "dev": {
-          "description": "Add as a development dependency (add only).",
-          "type": "boolean"
-        },
-        "manager": {
-          "description": "Optional explicit manager overriding workspace detection.",
-          "enum": [
-            "uv",
-            "pnpm",
-            "npm",
-            "poetry"
-          ],
-          "type": "string"
-        },
-        "packages": {
-          "description": "Package names for add/remove, applied in the given order.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
         },
         "path": {
           "description": "Project folder, e.g. 'my-app' or 'my-app/packages/api'. Default: the session's active repository, or the only repository under /workspace.",
@@ -1566,6 +1639,37 @@
       "required": [
         "title",
         "body"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Pause execution and wait durably for an external event to complete before continuing: CI status on a pull request ('ci_status'), a pull request review ('review'), a sandbox background process ('process_exit'), or a timer delay ('time'). The turn concludes in a 'waiting' state, yielding resources; when the event occurs, a new continuation turn is automatically woken with the result payload.",
+    "name": "wait_for",
+    "parameters": {
+      "properties": {
+        "identifier": {
+          "description": "Target identifier: 'owner/repo#123' for ci_status/review, process id for process_exit, or duration in seconds for time.",
+          "type": "string"
+        },
+        "target": {
+          "description": "The event category to wait for: ci_status, review, process_exit, or time.",
+          "enum": [
+            "ci_status",
+            "review",
+            "process_exit",
+            "time"
+          ],
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "description": "Optional maximum wait timeout in seconds before automatically waking.",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "target",
+        "identifier"
       ],
       "type": "object"
     }

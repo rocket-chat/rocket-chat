@@ -101,7 +101,7 @@ def test_system_defaults_are_independent_copies() -> None:
         ("sandboxes", {"cpu_limit": "lots"}, "org", "must be a float"),
         ("sandboxes", {"cpu_limit": 0}, "org", "at least"),
         ("general", {"max_turns": 0}, "org", "at least 1"),
-        ("general", {"max_turns": 500}, "org", "at most 200"),
+        ("general", {"max_turns": 1000}, "org", "at most 500"),
         ("general", {"session_privacy_default": "everyone"}, "org", "one of"),
         ("general", {"max_turns": True}, "org", "must be a int"),
         ("models", {"fallback_models": [1]}, "org", "list of text"),

@@ -235,5 +235,7 @@ def test_turn_trace_persists_routing_and_usage() -> None:
     assert finished.tokens["roles"]["suggest"] == FAST
     assert finished.tokens["usage"]["prompt_tokens"] == 10
     assert finished.tokens["usage"]["completion_tokens"] == 4
-    assert finished.tokens["usage"]["model_calls"] == 1
-    assert finished.tokens["by_model"][FAST] == {"prompt_tokens": 10, "completion_tokens": 4}
+    assert finished.tokens["by_model"][FAST]["prompt_tokens"] == 10
+    assert finished.tokens["by_model"][FAST]["completion_tokens"] == 4
+    assert finished.tokens["by_model"][FAST]["cache_read_tokens"] == 2
+    assert finished.tokens["by_model"][FAST]["cache_creation_tokens"] == 1

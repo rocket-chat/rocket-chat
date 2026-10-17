@@ -204,8 +204,10 @@ async def clone_into_workspace(
     folder = shlex.quote(target)
     command = (
         f"if git -C {folder} rev-parse --is-inside-work-tree >/dev/null 2>&1; then "
-        f"echo ALREADY_CLONED; git -C {folder} fetch {shallow}origin 2>&1 | tail -3; "
-        f"else git clone --filter=blob:none --single-branch {shallow}{branch_option}"
+        f"echo ALREADY_CLONED; "
+        f"git -C {folder} config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' 2>/dev/null; "
+        f"git -C {folder} fetch {shallow}origin 2>&1 | tail -3; "
+        f"else git clone --filter=blob:none --no-tags {shallow}{branch_option}"
         f"{shlex.quote(repo.url)} {folder} 2>&1; fi "
         # Grouped: without the parentheses the summary's own `;` would run even after a failed clone.
         f"&& cd {folder} && ( {_SUMMARY} )"
