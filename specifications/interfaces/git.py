@@ -46,6 +46,9 @@ class CommitSpec:
     # Identity recorded as author/committer; None falls back to the engine's bot identity.
     committer_name: str | None = None
     committer_email: str | None = None
+    # Author identity when distinct from committer; None falls back to committer.
+    author_name: str | None = None
+    author_email: str | None = None
     # The repository folder, absolute or relative to /workspace. Empty: the session's active
     # repository, /workspace itself, or the one repository found under it.
     path: str = ""

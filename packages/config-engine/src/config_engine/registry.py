@@ -463,8 +463,9 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "both",
             "apps/api/src/api/services/turn_service.py",
             "co_authored = bot commits with the member as Co-authored-by, user_only = commits "
-            "as the member, bot_only = commits as the bot.",
-            choices=("co_authored", "user_only", "bot_only"),
+            "as the member, bot_only = commits as the bot, authored_by_user_committed_by_bot = "
+            "member is git author and bot is committer (requires gpg_key or none signing).",
+            choices=("co_authored", "user_only", "bot_only", "authored_by_user_committed_by_bot"),
         ),
         _spec(
             "pr_creation_policy",

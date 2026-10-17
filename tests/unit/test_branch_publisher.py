@@ -47,7 +47,11 @@ class SimulatedGitHub:
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.tokens.append(request.headers["authorization"])
-        body = json.loads(request.content)
+        if request.method == "DELETE" and "/git/refs/heads/" in request.url.path:
+            branch = request.url.path.split("/git/refs/heads/", 1)[1]
+            git(self.bare, "update-ref", "-d", f"refs/heads/{branch}")
+            return httpx.Response(204)
+        body = json.loads(request.content) if request.content else {}
         if request.url.path.endswith("/git/refs"):
             git(self.bare, "update-ref", body["ref"], body["sha"])
             return httpx.Response(201, json={})
@@ -594,3 +598,29 @@ def test_the_co_authored_policy_credits_the_member_on_app_commits_only() -> None
     assert publish_spec_for_policy(replace(member, authorship="user_only")).co_authors == (), (
         "the member's own commits need no credit"
     )
+
+
+def test_authored_by_user_committed_by_bot_policy() -> None:
+    from agent_core.tools.git_tools import commit_spec_for_policy, publish_spec_for_policy
+
+    from specifications.interfaces.agent import GitPolicy
+
+    policy = GitPolicy(
+        authorship="authored_by_user_committed_by_bot",
+        signing_mode="gpg_key",
+        user_name="Nathan",
+        user_email="nathan@x.test",
+        bot_name="Rocket Bot",
+        bot_email="bot@x.test",
+    )
+    commit_spec = commit_spec_for_policy("feat: something", "", None, policy)
+    assert commit_spec.author_name == "Nathan"
+    assert commit_spec.author_email == "nathan@x.test"
+    assert commit_spec.committer_name == "Rocket Bot"
+    assert commit_spec.committer_email == "bot@x.test"
+
+    pub_spec = publish_spec_for_policy(policy)
+    assert pub_spec.signing_mode == SigningMode.GPG_KEY
+
+    with pytest.raises(ValueError, match="GitHub App signing cannot set a custom author"):
+        publish_spec_for_policy(replace(policy, signing_mode="github_app"))

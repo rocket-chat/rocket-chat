@@ -407,27 +407,56 @@ class BranchPublisher:
         co_authors: tuple[CoAuthor, ...] = (),
         rewritten: list[tuple[str, str]] | None = None,
     ) -> str:
-        if plan.created:
+        staging_branch: str | None = None
+        if plan.lease:
+            # Replaying directly on the PR branch requires setting the branch ref to plan.base
+            # first, which causes GitHub to observe head == base (0 commits) and auto-close the PR!
+            # Replay onto an ephemeral staging branch instead, then atomically update the real
+            # branch ref to the final new head.
+            staging_branch = f"rocket-staging/{branch}-{uuid.uuid4().hex[:8]}"
+            await self._rest(
+                "POST",
+                f"/repos/{repository}/git/refs",
+                token,
+                {"ref": f"refs/heads/{staging_branch}", "sha": plan.base},
+            )
+            replay_branch = staging_branch
+        elif plan.created:
             await self._rest(
                 "POST",
                 f"/repos/{repository}/git/refs",
                 token,
                 {"ref": f"refs/heads/{branch}", "sha": plan.base},
             )
-        elif plan.lease:
-            await self._rest(
-                "PATCH",
-                f"/repos/{repository}/git/refs/heads/{branch}",
-                token,
-                {"sha": plan.base, "force": True},
-            )
+            replay_branch = branch
+        else:
+            replay_branch = branch
+
         head = plan.base
-        for sha in plan.commits:
-            head = await self._create_commit(
-                host, repository, branch, sha, head, token, notices, co_authors
-            )
-            if rewritten is not None:
-                rewritten.append((sha, head))
+        try:
+            for sha in plan.commits:
+                head = await self._create_commit(
+                    host, repository, replay_branch, sha, head, token, notices, co_authors
+                )
+                if rewritten is not None:
+                    rewritten.append((sha, head))
+            if staging_branch is not None:
+                await self._rest(
+                    "PATCH",
+                    f"/repos/{repository}/git/refs/heads/{branch}",
+                    token,
+                    {"sha": head, "force": True},
+                )
+        finally:
+            if staging_branch is not None:
+                try:
+                    await self._rest(
+                        "DELETE",
+                        f"/repos/{repository}/git/refs/heads/{staging_branch}",
+                        token,
+                    )
+                except Exception:
+                    pass
         return head
 
     async def _create_commit(
@@ -513,12 +542,14 @@ class BranchPublisher:
             "User-Agent": "Rocket-Chat",
         }
 
-    async def _rest(self, method: str, path: str, token: str, body: dict[str, object]) -> None:
+    async def _rest(
+        self, method: str, path: str, token: str, body: dict[str, object] | None = None
+    ) -> None:
         async with httpx.AsyncClient(timeout=API_TIMEOUT_SECONDS) as client:
             response = await client.request(
                 method, f"{self._api_url}{path}", headers=await self._headers(token), json=body
             )
-        if response.status_code not in (200, 201):
+        if response.status_code not in (200, 201, 204):
             raise PublishError(_describe_failure(response))
 
     async def _graphql(self, token: str, commit_input: dict[str, object]) -> str:
