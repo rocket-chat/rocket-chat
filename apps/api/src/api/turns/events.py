@@ -10,6 +10,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from api.services.metrics import record_tool_call
+from api.services.turn_trace import record_running_tool_call
 from api.turns.context import TurnContext
 from api.turns.gates import _remember_pending_decision
 from specifications.interfaces.agent import AgentEvent
@@ -40,11 +41,87 @@ def _published(result: object) -> bool:
     return text.startswith(("Published ", "Pushed ", "Pull request opened"))
 
 
+class TokenCoalescer:
+    """Buffers streaming token deltas to reduce event volume and bus write amplification.
+
+    Flushes to the event bus when:
+    1. Buffered character count reaches ``max_chars`` (~400 chars).
+    2. Elapsed time since first buffered token reaches ``max_delay_ms`` (~100 ms).
+    3. The token stream shifts between assistant text and reasoning thoughts.
+    4. Any non-token event arrives (preserving causal ordering).
+    5. The turn ends.
+    """
+
+    def __init__(
+        self,
+        publish_fn: Callable[[EventType, dict[str, Any]], Awaitable[None]],
+        max_chars: int = 400,
+        max_delay_ms: float = 100.0,
+    ) -> None:
+        self._publish_fn = publish_fn
+        self._max_chars = max_chars
+        self._max_delay_seconds = max_delay_ms / 1000.0
+        self._current_type: EventType | None = None
+        self._buffer: list[str] = []
+        self._first_buffered_at: float = 0.0
+        self._char_count: int = 0
+        self._timer_task: asyncio.Task[None] | None = None
+
+    async def add(self, event_type: EventType, delta: str) -> None:
+        if not delta:
+            return
+        now = time.monotonic()
+        if self._current_type is not None and self._current_type != event_type:
+            await self.flush()
+        if self._current_type is None:
+            self._current_type = event_type
+            self._first_buffered_at = now
+            self._schedule_timer()
+        self._buffer.append(delta)
+        self._char_count += len(delta)
+        if (
+            self._char_count >= self._max_chars
+            or (now - self._first_buffered_at) >= self._max_delay_seconds
+        ):
+            await self.flush()
+
+    def _schedule_timer(self) -> None:
+        self._cancel_timer()
+        self._timer_task = asyncio.create_task(self._timer_flush())
+
+    def _cancel_timer(self) -> None:
+        if self._timer_task is not None:
+            self._timer_task.cancel()
+            self._timer_task = None
+
+    async def _timer_flush(self) -> None:
+        try:
+            await asyncio.sleep(self._max_delay_seconds)
+            await self.flush()
+        except asyncio.CancelledError:
+            pass
+
+    async def flush(self) -> None:
+        self._cancel_timer()
+        if self._current_type is None or not self._buffer:
+            self._current_type = None
+            self._buffer.clear()
+            self._char_count = 0
+            return
+        merged_delta = "".join(self._buffer)
+        event_type = self._current_type
+        self._current_type = None
+        self._buffer.clear()
+        self._char_count = 0
+        await self._publish_fn(event_type, {"delta": merged_delta})
+
+
 class TurnEventHandlers:
     """Dispatch table: one method per orchestrator event type."""
 
     def __init__(self, ctx: TurnContext) -> None:
         self.ctx = ctx
+        self._coalescer = TokenCoalescer(self._publish)
         self._handlers: dict[str, Handler] = {
             "model_usage": self._model_usage,
             "thought": self._thought,
@@ -58,6 +135,7 @@ class TurnEventHandlers:
             "subagent_started": self._forward(EventType.SUBAGENT_STARTED),
             "subagent_progress": self._forward(EventType.SUBAGENT_PROGRESS),
             "subagent_completed": self._forward(EventType.SUBAGENT_COMPLETED),
+            "context_compacted": self._forward(EventType.CONTEXT_COMPACTED),
             "post_failure_synthesis": self._post_failure_synthesis,
         }
 
@@ -67,9 +145,14 @@ class TurnEventHandlers:
             event.event_type == "status" and event.payload.get("state") == "paused_for_input"
         ):
             state.open_decision = None  # the turn moved on, so the question was answered
+        if event.event_type != "thought":
+            await self._coalescer.flush()
         handler = self._handlers.get(event.event_type)
         if handler is not None:
             await handler(event)
+
+    async def flush(self) -> None:
+        await self._coalescer.flush()
 
     # -- helpers ------------------------------------------------------------------------
 
@@ -102,22 +185,26 @@ class TurnEventHandlers:
 
     async def _thought(self, event: AgentEvent) -> None:
         state = self.ctx.state
-        delta = event.payload.get("delta", "")
-        is_reasoning = event.payload.get("is_reasoning", False)
+        delta = str(event.payload.get("delta") or "")
+        is_reasoning = bool(event.payload.get("is_reasoning", False))
         if not is_reasoning:
             if state.first_token_at is None and delta:
                 state.first_token_at = time.monotonic()
             state.assistant_parts.append(delta)
         else:
             state.reasoning_parts.append(delta)
-        # Differentiate reasoning thoughts from assistant response text
-        await self._publish(
-            EventType.REASONING_TOKEN if is_reasoning else EventType.TOKEN, {"delta": delta}
-        )
+        event_type = EventType.REASONING_TOKEN if is_reasoning else EventType.TOKEN
+        await self._coalescer.add(event_type, delta)
         await asyncio.sleep(0)
 
     async def _tool_call(self, event: AgentEvent) -> None:
-        arguments = _parse_arguments(event.payload.get("arguments", "{}"))
+        raw_args = event.payload.get("arguments", "{}")
+        ctx = self.ctx
+        if isinstance(raw_args, str) and ctx.redactor:
+            redaction = ctx.redactor.redact(raw_args)
+            if redaction is not None:
+                raw_args = redaction.text
+        arguments = _parse_arguments(raw_args)
         tool_name = event.payload.get("name", "")
         await self._publish(
             EventType.TOOL_STARTED,
@@ -149,12 +236,13 @@ class TurnEventHandlers:
             "status": event.payload.get("status", "completed"),
             "duration_ms": event.payload.get("duration_ms", 0),
         }
-        if redaction is not None and redaction.applied:
+        total_redacted = (redaction.count if redaction is not None else 0) + int(
+            event.payload.get("redacted") or 0
+        )
+        if total_redacted:
             # The "redaction applied" marker lives on the stored trace/event so a reader knows
             # the result was scrubbed, not that the tool returned this.
-            tool_data["redacted"] = redaction.count
-        ctx.state.executed_tools.append(tool_data)
-        ctx.trace.record_tool_call(tool_data)
+            tool_data["redacted"] = total_redacted
         # Tool metric recorded at the app layer, not in the registry, so the agent-core
         # package never imports the application (layering invariant).
         record_tool_call(tool_name, tool_data.get("duration_ms", 0) / 1000.0 or None)
@@ -165,8 +253,8 @@ class TurnEventHandlers:
             tool_name=tool_name,
             status=str(tool_data.get("status") or "completed"),
             duration_ms=int(tool_data.get("duration_ms") or 0),
-            redacted=bool(redaction is not None and redaction.applied),
-            redaction_count=redaction.count if redaction is not None else 0,
+            redacted=bool(total_redacted > 0),
+            redaction_count=total_redacted,
         )
         if tool_name in _PUBLISHING_TOOLS and _published(result_output):
             await ctx.audit.record_git_publish(
@@ -177,6 +265,12 @@ class TurnEventHandlers:
                 outcome=str(result_output).splitlines()[0],
             )
         await self._publish(EventType.TOOL_COMPLETED, tool_data)
+        tool_data["seq"] = ctx.req.event_bus.latest_seq(ctx.session_id)
+        ctx.state.executed_tools.append(tool_data)
+        ctx.trace.record_tool_call(tool_data)
+        await record_running_tool_call(
+            ctx.req.db_mgr, ctx.trace.trace_id, ctx.session.tenant_org_id, tool_data
+        )
         # Stream command output to the terminal stream for bash tools
         if tool_name == "bash_exec" and result_output:
             text = result_output if isinstance(result_output, str) else str(result_output)
@@ -256,8 +350,13 @@ class TurnEventHandlers:
         await self._publish(EventType.PLAN_UPDATED, event.payload)
 
     async def _status(self, event: AgentEvent) -> None:
+        if event.payload.get("discard_partial"):
+            self.ctx.state.assistant_parts.clear()
+            self.ctx.state.first_token_at = None
         if event.payload.get("status") == "error":
             self.ctx.state.orchestrator_error = str(event.payload.get("error") or "The turn failed")
+        if event.payload.get("status") == "waiting":
+            self.ctx.state.is_waiting = True
         await self._publish(EventType.STATUS_CHANGED, event.payload)
 
     async def _post_failure_synthesis(self, event: AgentEvent) -> None:

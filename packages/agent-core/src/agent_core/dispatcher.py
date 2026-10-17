@@ -9,15 +9,17 @@ import json
 import os
 import time
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
+from agent_core.context import current_execution_ctx
 from agent_core.repeats import repeated_failure_note
 from agent_core.tool_slot import ToolSlot, current_tool_slot
+from agent_core.tools.offload import DEFAULT_OFFLOAD_THRESHOLD, offload_tool_output
 from agent_core.tools.registry import ToolRegistry
 from agent_core.transcript import INTERRUPTED_TOOL_RESULT
 from specifications.interfaces.agent import AgentEvent
@@ -73,8 +75,10 @@ class ToolDispatcher:
         max_concurrency: int | None = None,
         tool_timeout_seconds: int | None = None,
         process_concurrency: int | None = None,
+        redactor: Callable[[str], tuple[str, int] | str] | None = None,
     ) -> None:
         self.registry = registry
+        self.redactor = redactor
         # (session_id, path) -> [lock, holders]. Scoped per session so two sessions editing
         # a same-named file do not serialize each other, and entries are dropped as soon
         # as nobody holds or awaits them, which keeps the map from growing for ever.
@@ -172,11 +176,20 @@ class ToolDispatcher:
         tool_name = tc.get("name") or "unknown"
         raw_args = tc.get("arguments") or "{}"
 
+        redacted_args = raw_args
+        ctx = current_execution_ctx.get()
+        redactor = self.redactor or (
+            ctx.callbacks.redact_tool_output if ctx and ctx.callbacks else None
+        )
+        if redactor is not None and isinstance(raw_args, str):
+            res = redactor(raw_args)
+            redacted_args = res[0] if isinstance(res, tuple) else str(res)
+
         await event_queue.put(
             AgentEvent(
                 event_type="tool_call",
                 session_id=session_id,
-                payload={"id": call_id, "name": tool_name, "arguments": raw_args},
+                payload={"id": call_id, "name": tool_name, "arguments": redacted_args},
             )
         )
 
@@ -210,20 +223,53 @@ class ToolDispatcher:
 
         duration_ms = max(1, int((time.monotonic() - start_time) * 1000))
 
+        redacted_count = 0
+        ctx = current_execution_ctx.get()
+        redactor = self.redactor or (
+            ctx.callbacks.redact_tool_output if ctx and ctx.callbacks else None
+        )
+        if redactor is not None and isinstance(output, str):
+            res = redactor(output)
+            if isinstance(res, tuple):
+                output, redacted_count = res
+            else:
+                output = str(res)
+
+        if isinstance(output, str) and tool_name not in ("file_read", "read_file"):
+            driver = getattr(self.registry, "driver", None)
+            threshold = (
+                ctx.policy.output_offload_threshold
+                if ctx and hasattr(ctx.policy, "output_offload_threshold")
+                else DEFAULT_OFFLOAD_THRESHOLD
+            )
+            turn_idx = getattr(ctx, "turn_index", 1) if ctx else 1
+            output = await offload_tool_output(
+                output,
+                session_id=session_id,
+                call_id=call_id,
+                threshold=threshold,
+                driver=driver,
+                turn_index=turn_idx,
+            )
+
+        payload: dict[str, Any] = {
+            "id": call_id,
+            "name": tool_name,
+            "arguments": raw_args,
+            "result": output,
+            "status": status,
+            "duration_ms": duration_ms,
+            "timed_out": timed_out,
+            "timeout_ms": timeout_seconds * 1000,
+        }
+        if redacted_count:
+            payload["redacted"] = redacted_count
+
         await event_queue.put(
             AgentEvent(
                 event_type="tool_completed",
                 session_id=session_id,
-                payload={
-                    "id": call_id,
-                    "name": tool_name,
-                    "arguments": raw_args,
-                    "result": output,
-                    "status": status,
-                    "duration_ms": duration_ms,
-                    "timed_out": timed_out,
-                    "timeout_ms": timeout_seconds * 1000,
-                },
+                payload=payload,
             )
         )
         return call_id, tool_name, output, duration_ms

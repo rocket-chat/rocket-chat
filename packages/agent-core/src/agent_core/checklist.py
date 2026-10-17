@@ -72,3 +72,28 @@ def stale_notice(conversation: Sequence[ChatMessage]) -> str | None:
         "`update_task_checklist` with the complete list (finished tasks completed, the current "
         "one in_progress), together with your next tool call."
     )
+
+
+EDIT_TOOLS = frozenset(
+    {"file_write", "file_edit", "file_replace", "apply_patch", "apply_diff_file", "replace_symbol"}
+)
+VERIFY_TOOLS = frozenset({"run_tests", "lint", "typecheck", "build"})
+
+
+def verification_gate_notice(conversation: Sequence[ChatMessage]) -> str | None:
+    """A reminder when code was edited but no test/verification tool ran before completing."""
+    for message in reversed(conversation):
+        for call in message.tool_calls or []:
+            name = call.get("name") or call.get("function", {}).get("name", "")
+            if name in VERIFY_TOOLS:
+                return None
+            if name in EDIT_TOOLS:
+                tasks = latest_tasks(conversation)
+                if any(t.get("status") == "completed" for t in tasks):
+                    return (
+                        "Verification gate: you modified files but have not run project verification "
+                        "tools since your last edit. Run `run_tests`, `lint`, `typecheck`, or `build` to verify "
+                        "your changes before finalizing tasks."
+                    )
+                return None
+    return None

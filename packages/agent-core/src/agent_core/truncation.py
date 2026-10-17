@@ -51,13 +51,18 @@ def truncation_notice(cut: list[dict[str, Any]]) -> str:
 MAX_EMPTY_RETRIES = 2
 
 
-def empty_reply_notice(finish_reason: str | None) -> str:
+def empty_reply_notice(finish_reason: str | None, remaining_steps: int | None = None) -> str:
     if finish_reason == TRUNCATED:
+        steps_note = (
+            f" You have {remaining_steps} steps remaining in this turn."
+            if remaining_steps is not None
+            else ""
+        )
         return (
             "Your last reply reached the output token limit while you were still reasoning, so "
             "it contained no answer and no tool call, and nothing happened. Reason less before "
             "acting: take the next concrete step now with a tool call (or give your answer), "
-            "and work through long analyses one step at a time."
+            f"and work through long analyses one step at a time.{steps_note}"
         )
     return (
         "Your last reply was empty: no answer and no tool call, so nothing happened. Continue "

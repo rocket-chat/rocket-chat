@@ -8,9 +8,9 @@ from sandbox_driver.workspace import RepositoryNotFoundError, workspace_path
 
 from agent_core.context import current_execution_ctx
 from agent_core.tools import browser as browser_tools
+from agent_core.tools import git_tools, tier2, verification, workspace_changes
 from agent_core.tools import images as image_tools
 from agent_core.tools import package_manager as package_manager_tools
-from agent_core.tools import tier2, verification, workspace_changes
 from agent_core.tools.builtin.files import emit_file_diff
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 
@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 def register(registry: "ToolRegistry") -> None:
     _register_shell_tools(registry)
+    _register_verification_tools(registry)
     _register_inspection_tools(registry)
 
 
@@ -47,6 +48,16 @@ async def _project(
         return driver, session_id, await registry.project_dir(session_id, path)
     except RepositoryNotFoundError as err:
         return f"Error: {err}"
+
+
+async def _maybe_auto_checkpoint(
+    driver: SandboxDriverProtocol, session_id: str, command: str, workdir: str
+) -> None:
+    if op := git_tools.classify_risky_git_operation(command):
+        try:
+            await git_tools.git_checkpoint(driver, session_id, label=f"auto-{op}", workdir=workdir)
+        except Exception:
+            pass
 
 
 def _register_shell_tools(registry: "ToolRegistry") -> None:
@@ -75,14 +86,52 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
         driver, session_id = target
         await registry._ensure_sandbox(session_id)
         workdir = workspace_path(cwd) if cwd else await registry.shell_dir(session_id)
+        await _maybe_auto_checkpoint(driver, session_id, command, workdir)
         before = await workspace_changes.snapshot(driver, session_id, workdir)
         output = await tier2.bash_exec(driver, session_id, command, timeout_seconds, workdir)
+
         after = await workspace_changes.snapshot(driver, session_id, workdir)
         changed = workspace_changes.changed_paths(before, after)
         for diff in await workspace_changes.diffs_for(driver, session_id, after[0], changed):
             emit_file_diff(registry, diff)
         return output
 
+    @registry._tool(
+        description=(
+            "Install or manage project dependencies through the workspace's declared "
+            "package manager (uv, pnpm, npm or poetry). Lockfile-aware; returns a "
+            "parsed failure cause when an install fails."
+        )
+    )
+    async def package_manager(
+        action: Annotated[
+            Literal["install", "add", "remove"],
+            Field(description="Operation to perform (default: install)."),
+        ] = "install",
+        packages: Annotated[
+            list[str] | None,
+            Field(description="Package names to add or remove (e.g. ['pytest', 'ruff'])."),
+        ] = None,
+        manager: Annotated[
+            Literal["uv", "pnpm", "npm", "poetry"] | None,
+            Field(description="Explicit package manager override (auto-detected if omitted)."),
+        ] = None,
+        dev: Annotated[
+            bool, Field(description="Add as a development dependency (add only).")
+        ] = False,
+        timeout_seconds: Annotated[int, Field(description="Timeout (default 600).")] = 600,
+        path: ProjectPath = None,
+    ) -> str:
+        resolved = await _project(registry, "package_manager", path)
+        if isinstance(resolved, str):
+            return resolved
+        driver, session_id, folder = resolved
+        return await package_manager_tools.package_manager(
+            driver, session_id, action, packages, manager, dev, timeout_seconds, folder
+        )
+
+
+def _register_verification_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
             "Run the project test suite, auto-detecting npm/cargo/go/pytest, and return"
@@ -158,40 +207,6 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
         driver, session_id, folder = resolved
         return await verification.run_check(
             driver, session_id, "build", command, timeout_seconds, folder
-        )
-
-    @registry._tool(
-        description=(
-            "Install or manage project dependencies through the workspace's declared "
-            "package manager (uv, pnpm, npm or poetry). Lockfile-aware; returns a "
-            "parsed failure cause when an install fails."
-        )
-    )
-    async def package_manager(
-        action: Annotated[
-            Literal["install", "add", "remove"],
-            Field(description="Operation to perform (default: install)."),
-        ] = "install",
-        packages: Annotated[
-            list[str] | None,
-            Field(description="Package names for add/remove, applied in the given order."),
-        ] = None,
-        manager: Annotated[
-            Literal["uv", "pnpm", "npm", "poetry"] | None,
-            Field(description="Optional explicit manager overriding workspace detection."),
-        ] = None,
-        dev: Annotated[
-            bool, Field(description="Add as a development dependency (add only).")
-        ] = False,
-        timeout_seconds: Annotated[int, Field(description="Timeout (default 600).")] = 600,
-        path: ProjectPath = None,
-    ) -> str:
-        resolved = await _project(registry, "package_manager", path)
-        if isinstance(resolved, str):
-            return resolved
-        driver, session_id, folder = resolved
-        return await package_manager_tools.package_manager(
-            driver, session_id, action, packages, manager, dev, timeout_seconds, folder
         )
 
 
