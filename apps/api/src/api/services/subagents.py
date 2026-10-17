@@ -103,7 +103,47 @@ async def load_subagent_configs(db_mgr: Any, org_id: str) -> dict[str, SubagentC
 
 
 async def list_subagent_configs(db_mgr: Any, org_id: str) -> list[SubagentConfigModel]:
-    return [_to_model(c) for c in (await load_subagent_configs(db_mgr, org_id)).values()]
+    overrides = await _overrides(db_mgr, org_id)
+    configs = dict(DEFAULT_SUBAGENT_CONFIGS)
+    for role_id, model in overrides.items():
+        configs[role_id] = _to_config(model)
+    result: list[SubagentConfigModel] = []
+    for c in configs.values():
+        m = _to_model(c)
+        m.built_in = c.id in DEFAULT_SUBAGENT_CONFIGS
+        m.customized = c.id in overrides
+        result.append(m)
+    return result
+
+
+async def delete_subagent_config(db_mgr: Any, org_id: str, subagent_id: str) -> tuple[bool, bool]:
+    """Delete this organization's override or custom subagent role.
+
+    Returns (deleted, is_reset_to_default).
+    """
+    is_builtin = subagent_id in DEFAULT_SUBAGENT_CONFIGS
+    if db_mgr is None:
+        if org_id in _memory and subagent_id in _memory[org_id]:
+            del _memory[org_id][subagent_id]
+            return True, is_builtin
+        return False, False
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        row = (
+            (
+                await session.execute(
+                    select(SubagentConfigEntityModel).where(
+                        SubagentConfigEntityModel.id == _row_prefix(org_id) + subagent_id,
+                        SubagentConfigEntityModel.org_id == org_id,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if row is not None:
+            await session.delete(row)
+            return True, is_builtin
+        return False, False
 
 
 async def save_subagent_config(

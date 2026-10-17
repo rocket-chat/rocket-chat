@@ -376,6 +376,8 @@ export interface SubagentConfig {
   whitelisted_tools: string[];
   temperature: number;
   enabled: boolean;
+  built_in?: boolean;
+  customized?: boolean;
 }
 
 export interface CustomSkillConfig {

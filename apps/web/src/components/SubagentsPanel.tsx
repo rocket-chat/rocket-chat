@@ -69,9 +69,14 @@ export const SubagentsPanel: React.FC = () => {
     }
   }, [sessionId]);
 
+  const flightLog = useMissionStore((s) => s.flightLog);
+  const completedSubagentsCount = flightLog.filter(
+    (e) => e.subagent && (e.subagent.status === "completed" || e.subagent.status === "error")
+  ).length;
+
   useEffect(() => {
     void loadSubagents();
-  }, [loadSubagents]);
+  }, [loadSubagents, completedSubagentsCount]);
 
   const loadDetail = async (subagentId: string) => {
     if (!sessionId) return;

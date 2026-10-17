@@ -72,7 +72,7 @@
           "max_turns": {
             "anyOf": [
               {
-                "maximum": 200.0,
+                "maximum": 500.0,
                 "minimum": 1.0,
                 "type": "integer"
               },
@@ -4536,6 +4536,18 @@
       },
       "SubagentConfigModel": {
         "properties": {
+          "built_in": {
+            "default": false,
+            "description": "Shipped with the platform default fleet",
+            "title": "Built In",
+            "type": "boolean"
+          },
+          "customized": {
+            "default": false,
+            "description": "A built-in role customized by the organization",
+            "title": "Customized",
+            "type": "boolean"
+          },
           "description": {
             "title": "Description",
             "type": "string"
@@ -11390,6 +11402,51 @@
       }
     },
     "/v1/subagents/{subagent_id}": {
+      "delete": {
+        "description": "Delete a custom subagent role or reset an overridden built-in role back to default.",
+        "operationId": "delete_subagent_v1_subagents__subagent_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "subagent_id",
+            "required": true,
+            "schema": {
+              "title": "Subagent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Delete Subagent V1 Subagents  Subagent Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Subagent",
+        "tags": [
+          "Agents"
+        ]
+      },
       "put": {
         "description": "Override a subagent role for this organization (admin only; other orgs are unaffected).",
         "operationId": "update_subagent_config_v1_subagents__subagent_id__put",

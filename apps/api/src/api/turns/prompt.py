@@ -22,6 +22,7 @@ from api.services.project_instructions import load_project_instructions
 from api.services.session_support import active_repository_of
 from api.services.settings import effective_settings
 from api.services.skills_lookup import list_visible_skills
+from api.services.subagents import load_subagent_configs
 from api.services.workspace_release import RELEASED_AT, released_notice
 from api.turns.context import TurnContext
 from specifications.interfaces.agent import GitPolicy, SystemPrompt
@@ -88,9 +89,9 @@ WORKING_STYLE_GUIDANCE = (
     "- For work of three or more steps keep `update_task_checklist` current as you go and "
     "settled before you answer. Say you are nearly done only when the next step is the final "
     "answer.\n"
-    "- Hand focused research, security review or test runs to a subagent "
-    "(`delegate_subagent`) when it saves you steps; it reports back and changes nothing "
-    "unless its tools allow it.\n"
+    "- Hand focused tasks or investigations to specialist subagents "
+    "(`delegate_subagent` or `delegate_subagents_parallel` for concurrent tasks) when it saves you steps; "
+    "they report back and isolate work on their own branch if they edit files.\n"
     "- Do not emit reflexive conversational acknowledgments ('Creator, noted', 'Understood', "
     "'Acknowledged') in response to system reminders or turn notices. Never speak filler "
     "acknowledgments; proceed directly to the required action with a tool call or deliver your "
@@ -221,6 +222,27 @@ async def _skills_guidance(ctx: TurnContext) -> list[str]:
     return lines
 
 
+async def _subagents_guidance(ctx: TurnContext) -> list[str]:
+    """Inform the lead agent of the organization's available specialist subagents."""
+    try:
+        configs = await load_subagent_configs(ctx.req.db_mgr, ctx.session.tenant_org_id)
+    except Exception:
+        return []
+    active = [c for c in configs.values() if c.enabled]
+    if not active:
+        return []
+    lines = [
+        "\n[Specialist Subagents & Delegation]",
+        "- Hand focused investigations, security reviews, test runs, or isolated tasks to specialist "
+        "subagents (`delegate_subagent` for one task, or `delegate_subagents_parallel` for multiple "
+        "tasks concurrently). Subagents run in isolated worktrees and report findings back:",
+    ]
+    for c in sorted(active, key=lambda x: x.id):
+        desc = " ".join((c.description or c.role_title).split())[:120]
+        lines.append(f"  - `{c.id}` ({c.role_title}): {desc}")
+    return lines
+
+
 async def build_system_prompt(
     ctx: TurnContext, git_bundle: GitCredentialBundle, member_prefs: dict[str, Any]
 ) -> SystemPrompt:
@@ -239,6 +261,7 @@ async def build_system_prompt(
     ]
     env_details += await _organization_guidance(ctx, member_prefs)
     env_details += await _skills_guidance(ctx)
+    env_details += await _subagents_guidance(ctx)
     if instructions := await _project_instructions(ctx):
         env_details.append(instructions)
 

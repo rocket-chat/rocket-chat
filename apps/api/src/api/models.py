@@ -404,6 +404,10 @@ class SubagentConfigModel(BaseModel):
     whitelisted_tools: list[str] = Field(default_factory=lambda: ["*"])
     temperature: float = 0.2
     enabled: bool = True
+    built_in: bool = Field(default=False, description="Shipped with the platform default fleet")
+    customized: bool = Field(
+        default=False, description="A built-in role customized by the organization"
+    )
 
 
 class GitHubLinkRequest(BaseModel):

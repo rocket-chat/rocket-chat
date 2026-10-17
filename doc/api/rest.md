@@ -171,6 +171,20 @@ Override a subagent role for this organization (admin only; other orgs are unaff
 | whitelisted_tools | list of string | no |  |
 | temperature | number | no |  |
 | enabled | boolean | no |  |
+| built_in | boolean | no | Shipped with the platform default fleet |
+| customized | boolean | no | A built-in role customized by the organization |
+
+**Responses:** `200`
+
+### `DELETE /v1/subagents/{subagent_id}`
+
+Delete a custom subagent role or reset an overridden built-in role back to default.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| subagent_id | path | yes | string |
 
 **Responses:** `200`
 

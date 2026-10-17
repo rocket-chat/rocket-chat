@@ -40,6 +40,10 @@ def _format_subagent_report(res: SubagentTaskResult) -> str:
         f"Task: {res.task}",
         f"Status: {res.status} ({res.turns_taken} turns, {res.tool_calls_count} tools, {res.duration_ms}ms, {res.tokens} tokens, ${res.cost:.4f})",
     ]
+    if getattr(res, "branch", None):
+        lines.append(
+            f"Git branch: {res.branch} (isolated worktree commits; inspect with git diff, merge if approved)"
+        )
     if res.changed_files:
         lines.append(f"Changed files: {', '.join(res.changed_files)}")
     if res.artefacts:
@@ -260,14 +264,14 @@ def _register_delegation_tools(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
             "Delegate an isolated investigation or task to a specialist subagent (e.g. "
-            "security_auditor, qa_verifier, researcher)."
+            "security_auditor, qa_verifier, researcher, or any custom role configured by the organization)."
         )
     )
     async def delegate_subagent(
         role: Annotated[
             str,
             Field(
-                description="Specialist role to spawn: 'security_auditor', 'qa_verifier', or 'researcher'."
+                description="Specialist role to spawn (e.g. 'security_auditor', 'qa_verifier', 'researcher', or custom organization specialist)."
             ),
         ],
         task: Annotated[

@@ -69,6 +69,7 @@ class SubagentTaskResult:
     changed_files: list[str] = field(default_factory=list)
     tokens: int = 0
     cost: float = 0.0
+    branch: str | None = None
 
 
 @dataclass

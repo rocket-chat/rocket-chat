@@ -2,6 +2,7 @@
 
 import logging
 
+from agent_core.subagents import DEFAULT_SUBAGENT_CONFIGS
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -22,6 +23,7 @@ from api.services.personas import (
 )
 from api.services.subagents import (
     ROLE_ID_PATTERN,
+    delete_subagent_config,
     list_subagent_configs,
     save_subagent_config,
 )
@@ -104,3 +106,15 @@ async def update_subagent_config(
             detail="The role id must match the URL and be 1-32 chars of a-z, 0-9, '_' or '-'.",
         )
     return await save_subagent_config(getattr(request.app.state, "db_manager", None), org_id, cfg)
+
+
+@router.delete("/subagents/{subagent_id}")
+async def delete_subagent(subagent_id: str, request: Request) -> dict[str, bool]:
+    """Delete a custom subagent role or reset an overridden built-in role back to default."""
+    org_id, _, _ = _require_admin(request)
+    deleted, reset = await delete_subagent_config(
+        getattr(request.app.state, "db_manager", None), org_id, subagent_id
+    )
+    if not deleted and subagent_id not in DEFAULT_SUBAGENT_CONFIGS:
+        raise HTTPException(status_code=404, detail="Subagent not found")
+    return {"deleted": deleted, "reset_to_default": reset}
