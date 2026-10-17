@@ -278,3 +278,62 @@ async def test_the_tools_follow_and_stop_following_through_the_turns_callbacks()
         )
     finally:
         current_execution_ctx.reset(token)
+
+
+def test_workflow_run_and_check_run_events_are_parsed() -> None:
+    repo = {"full_name": "acme/api"}
+
+    wf = _parse(
+        "workflow_run",
+        {
+            "action": "completed",
+            "repository": repo,
+            "workflow_run": {
+                "name": "CI",
+                "conclusion": "success",
+                "head_branch": "feat/my-pr",
+                "head_sha": "abcdef123456",
+                "pull_requests": [{"number": 42}],
+                "html_url": "https://github.com/acme/api/actions/runs/100",
+            },
+        },
+    )
+    assert wf is not None
+    assert wf.kind == "workflow_run.completed"
+    assert wf.outcome == "success"
+    assert wf.pr_numbers == (42,)
+    assert wf.branch == "feat/my-pr"
+    assert wf.trusted is True
+
+    cr = _parse(
+        "check_run",
+        {
+            "action": "completed",
+            "repository": repo,
+            "check_run": {
+                "name": "lint",
+                "conclusion": "failure",
+                "head_sha": "1234567890ab",
+                "check_suite": {
+                    "head_branch": "feat/my-pr",
+                    "pull_requests": [{"number": 42}],
+                },
+                "html_url": "https://github.com/acme/api/runs/200",
+            },
+        },
+    )
+    assert cr is not None
+    assert cr.kind == "check_run.completed"
+    assert cr.outcome == "failure"
+    assert cr.pr_numbers == (42,)
+    assert cr.branch == "feat/my-pr"
+
+
+async def test_watch_matching_branch_when_pull_requests_is_empty() -> None:
+    store = GithubWatchStore(None)
+    await store.watch(ORG, "s1", "acme/api", pr_number=42, branch="feat/my-pr")
+
+    # When GitHub sends a check suite or workflow run where pull_requests is empty, branch matches!
+    matches = await store.matching(ORG, "acme/api", pr_numbers=(), branch="feat/my-pr")
+    assert len(matches) == 1
+    assert matches[0].session_id == "s1"

@@ -63,8 +63,9 @@ async def _maybe_auto_checkpoint(
 def _register_shell_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
-            "Execute a shell command inside the sandbox. Each call is a fresh shell: `cd` and "
-            "exported variables do not carry over, so pass `cwd` instead of `cd`."
+            "Execute a shell command inside the sandbox (/bin/sh by default; write POSIX-compliant "
+            "syntax or invoke bash explicitly if using bashisms). Each call is a fresh shell: "
+            "`cd` and exported variables do not carry over, so pass `cwd` instead of `cd`."
         )
     )
     async def bash_exec(
