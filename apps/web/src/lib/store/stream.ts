@@ -194,6 +194,16 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
       };
     }),
   clearReasoning: () => set({ reasoningStream: "", isReasoningActive: false, suggestedFollowup: null }),
+  discardPartialTokens: () =>
+    set((state) => {
+      const logs = [...state.flightLog];
+      const last = logs[logs.length - 1];
+      if (last && last.role === "AGENT" && !last.isPersisted) {
+        logs.pop();
+        return { flightLog: logs, reasoningStream: "", isReasoningActive: false };
+      }
+      return { reasoningStream: "", isReasoningActive: false };
+    }),
   setIsReasoningActive: (active) => set({ activeDecision: null, isReasoningActive: active }),
   setActiveDecision: (decision) => set({ activeDecision: decision }),
   setActiveApproval: (approval) => set({ activeApproval: approval }),

@@ -4603,6 +4603,219 @@
         "title": "SubagentConfigModel",
         "type": "object"
       },
+      "SubagentTranscriptDetail": {
+        "properties": {
+          "artefacts": {
+            "description": "Artefacts produced by this delegate",
+            "items": {
+              "type": "string"
+            },
+            "title": "Artefacts",
+            "type": "array"
+          },
+          "changed_files": {
+            "description": "Files modified by this delegate",
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed Files",
+            "type": "array"
+          },
+          "cost_usd": {
+            "description": "Estimated cost in USD",
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "created_at": {
+            "description": "Epoch timestamp in seconds",
+            "title": "Created At",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "description": "Total elapsed execution time in milliseconds",
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique transcript record identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "messages": {
+            "description": "Full conversation transcript of the subagent execution",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "role": {
+            "description": "Role title or role key of the subagent",
+            "title": "Role",
+            "type": "string"
+          },
+          "session_id": {
+            "description": "Parent session identifier",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "Outcome status (completed, partial, failed, etc.)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subagent_id": {
+            "description": "Subagent delegation identifier",
+            "title": "Subagent Id",
+            "type": "string"
+          },
+          "summary": {
+            "description": "Final synthesized report summary",
+            "title": "Summary",
+            "type": "string"
+          },
+          "task": {
+            "description": "Task objective delegated to the subagent",
+            "title": "Task",
+            "type": "string"
+          },
+          "tokens": {
+            "description": "Total prompt and completion tokens consumed",
+            "title": "Tokens",
+            "type": "integer"
+          },
+          "tool_calls_count": {
+            "description": "Number of tool calls executed",
+            "title": "Tool Calls Count",
+            "type": "integer"
+          },
+          "turns_taken": {
+            "description": "Number of execution turns consumed",
+            "title": "Turns Taken",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "subagent_id",
+          "role",
+          "task",
+          "summary",
+          "status",
+          "turns_taken",
+          "tool_calls_count",
+          "duration_ms",
+          "tokens",
+          "cost_usd",
+          "created_at"
+        ],
+        "title": "SubagentTranscriptDetail",
+        "type": "object"
+      },
+      "SubagentTranscriptSummary": {
+        "properties": {
+          "artefacts": {
+            "description": "Artefacts produced by this delegate",
+            "items": {
+              "type": "string"
+            },
+            "title": "Artefacts",
+            "type": "array"
+          },
+          "changed_files": {
+            "description": "Files modified by this delegate",
+            "items": {
+              "type": "string"
+            },
+            "title": "Changed Files",
+            "type": "array"
+          },
+          "cost_usd": {
+            "description": "Estimated cost in USD",
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "created_at": {
+            "description": "Epoch timestamp in seconds",
+            "title": "Created At",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "description": "Total elapsed execution time in milliseconds",
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "id": {
+            "description": "Unique transcript record identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "description": "Role title or role key of the subagent",
+            "title": "Role",
+            "type": "string"
+          },
+          "session_id": {
+            "description": "Parent session identifier",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "Outcome status (completed, partial, failed, etc.)",
+            "title": "Status",
+            "type": "string"
+          },
+          "subagent_id": {
+            "description": "Subagent delegation identifier",
+            "title": "Subagent Id",
+            "type": "string"
+          },
+          "summary": {
+            "description": "Final synthesized report summary",
+            "title": "Summary",
+            "type": "string"
+          },
+          "task": {
+            "description": "Task objective delegated to the subagent",
+            "title": "Task",
+            "type": "string"
+          },
+          "tokens": {
+            "description": "Total prompt and completion tokens consumed",
+            "title": "Tokens",
+            "type": "integer"
+          },
+          "tool_calls_count": {
+            "description": "Number of tool calls executed",
+            "title": "Tool Calls Count",
+            "type": "integer"
+          },
+          "turns_taken": {
+            "description": "Number of execution turns consumed",
+            "title": "Turns Taken",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "subagent_id",
+          "role",
+          "task",
+          "summary",
+          "status",
+          "turns_taken",
+          "tool_calls_count",
+          "duration_ms",
+          "tokens",
+          "cost_usd",
+          "created_at"
+        ],
+        "title": "SubagentTranscriptSummary",
+        "type": "object"
+      },
       "TemplateBody": {
         "properties": {
           "agent_id": {
@@ -10061,6 +10274,103 @@
         "summary": "Create Public Link",
         "tags": [
           "Sharing"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/subagents": {
+      "get": {
+        "operationId": "list_session_subagents_v1_sessions__session_id__subagents_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SubagentTranscriptSummary"
+                  },
+                  "title": "Response List Session Subagents V1 Sessions  Session Id  Subagents Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List delegated subagent executions for a session",
+        "tags": [
+          "Subagents"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/subagents/{subagent_id}": {
+      "get": {
+        "operationId": "get_session_subagent_transcript_v1_sessions__session_id__subagents__subagent_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "subagent_id",
+            "required": true,
+            "schema": {
+              "title": "Subagent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubagentTranscriptDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get detailed transcript and messages for a delegated subagent",
+        "tags": [
+          "Subagents"
         ]
       }
     },

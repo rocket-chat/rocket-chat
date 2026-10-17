@@ -177,6 +177,13 @@ Ready-to-use artifacts live alongside this page in `doc/operate/`:
 - **Alert rules:** `observability-alerts.yaml` — a Prometheus Operator `PrometheusRule` covering availability, TTFT/Turn p95, cache hit ratio, cost spikes, queue backlog, code-index footprint and quota rejections.
 - **Grafana dashboard:** `grafana-dashboard.json` — importable dashboard (uid `rocket-chat-ops`) for TTFT, turn throughput, cache ratio, tool/model activity, code-index footprint, backpressure and quota rejects.
 
+### Prompt Cache Telemetry (`rocket_prompt_cache_hit_ratio`)
+
+The `rocket_prompt_cache_hit_ratio` gauge tracks `cache_read_tokens ÷ prompt_tokens` across model dispatches. On multi-step agent turns, target hit ratio is $\ge 60\%$.
+- **Request Layout:** To maximize prefix caching, requests maintain a byte-stable prefix: system prompt first, tool definitions in stable order (built-ins, dynamic, then MCP tools by server and name), followed by conversation history and a rolling cache breakpoint. Volatile items (turn checklist, reminders, dynamic images) ride at the tail.
+- **Sticky Session Routing:** Outbound completions set the session ID on `user` and `prompt_cache_key`, enabling upstream providers and proxies (such as OpenRouter) to route subsequent turn steps to the same GPU worker.
+- **Cache-Aware Cost:** Cached prompt reads benefit from provider-native discounts (e.g., 90% discount on Anthropic Claude and DeepSeek), tracked per call and recorded in the tenant usage ledger.
+
 Backpressure is bounded process-wide by `ROCKET_GLOBAL_CONCURRENCY_LIMIT` (default 16) with the waiting depth exposed as `rocket_turn_queue_depth`; each session is additionally guarded by a single-writer lock (`ROCKET_SESSION_LOCK_CAPACITY`, default 256).
 
 ### Logs and traces
@@ -184,3 +191,8 @@ Backpressure is bounded process-wide by `ROCKET_GLOBAL_CONCURRENCY_LIMIT` (defau
 - **Correlated logs.** With `backend.logFormat: json` every line is one JSON object carrying `request_id`, `org_id`, `user_id`, `session_id` and (when tracing is on) `trace_id` / `span_id`, so one turn can be followed across the API, tool and sandbox layers by filtering on `session_id`. Every response carries an `X-Request-ID` header (a well-formed inbound id from your gateway is kept). Credentials, tool arguments and command lines are never logged.
 - **Traces.** Set `observability.otlpEndpoint` (any OTLP/HTTP collector: Tempo, Jaeger, Honeycomb, an OpenTelemetry Collector) to export spans: the HTTP/WebSocket request, `agent.turn`, `agent.tool` (per tool, with its status) and `sandbox.exec` (per command, with the driver and exit code). Tool arguments and command lines are deliberately not span attributes. Headers, sampling and resource attributes use the standard `OTEL_*` variables (put credentials such as `OTEL_EXPORTER_OTLP_HEADERS` in a secret). Without an endpoint no exporter is started and spans are no-ops.
 - **Authentication failures** are counted in `rocket_auth_failures_total{reason}` (alert `RocketAuthFailuresHigh`) and logged with method, path and client address; failed password sign-ins are additionally audit events.
+
+### Session Storage and Secret Redaction
+
+Starting with this release, tool execution outputs are redacted immediately at execution time in `ToolDispatcher` before being appended to `session_messages` or emitted as events. This guarantees that unredacted secrets (such as API keys or access tokens) never enter persisted conversation history, events, or subsequent prompts. In environments running pre-release deployments, existing unredacted session tables must be wiped or truncated before upgrade (`TRUNCATE sessions, session_messages, turn_traces CASCADE;`).
+

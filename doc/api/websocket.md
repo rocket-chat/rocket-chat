@@ -23,6 +23,7 @@ Upon connection the server rehydrates the session and emits a state sync frame:
     "title": "Mission Alpha",
     "status": "idle"
   },
+  "running_turn": null,
   "last_seq": 411,
   "catch_up": null
 }
@@ -30,7 +31,7 @@ Upon connection the server rehydrates the session and emits a state sync frame:
 
 `catch_up` is `null` for an idle session. When a turn is still running (or ended while the
 session record was being read) it is `{"from_seq": 398, "events": [...]}`: the events the
-record cannot hold yet, to apply on top of `session`. Events are idempotent by `seq`, and
+record cannot hold yet, to apply on top of `session`. `running_turn` provides the in-flight turn metadata and its completed steps (`steps` list with `id`, `name`, `arguments`, `result`, `status`, `duration_ms`, `redacted`, `seq`) so a client connecting or refreshing mid-turn renders the full flight log without waiting for the turn to complete. Events are idempotent by `seq`, and
 tokens of an answer that is already stored are ignored, so overlap with the record is safe. A client that applies a `sync` with a `catch_up` must rewind its resume cursor to `from_seq` first: the snapshot replaced the transcript, so anything it had applied beyond that point has to be applied again.
 
 A turn is over when a `status_changed` event with `"final": true` arrives (completed, or error). The orchestrator also reports `completed` earlier, before the answer is stored, which is why that one does not carry the flag.
@@ -126,7 +127,7 @@ The remaining catalogue uses the same envelope: `token`, `status_changed`,
 `plan_updated`, `post_failure_synthesis`, `subagent_started`,
 `subagent_progress`, `subagent_completed`, `followup_suggestion`,
 `session_updated`, `sandbox_state` (payload: `state`, `message`; `state: "failed"` means the sandbox could not start and `message` says why, for example an image that cannot be pulled), `decision_submitted`, `user_message`, `process_started`,
-`process_exited` (payload: `process_id`, `name`, `command`, `state`, `port`, `exit_code`), `github_event` (activity on a pull request the session follows; payload: `kind`, `repo`, `pr_number`, `summary`, `outcome`, `url`, `actor`, `at`, `woke`), and `error`.
+`process_exited` (payload: `process_id`, `name`, `command`, `state`, `port`, `exit_code`), `github_event` (activity on a pull request the session follows; payload: `kind`, `repo`, `pr_number`, `summary`, `outcome`, `url`, `actor`, `at`, `woke`), `context_compacted` (payload: `tokens_before`, `tokens_after`, `compacted_messages_count`, `summary`), `goal_updated` (payload: `goal_id`, `description`, `status`, `consumed_tokens`, `consumed_cost_usd`, `continuation_count`, `max_continuations`, `stop_condition`), `continuation_scheduled` (payload: `continuation_index`, `max_continuations`, `reason`, `goal_id`), `wait_started` (payload: `wait_id`, `wait_type`, `target`, `timeout_seconds`), `wait_completed` (payload: `wait_id`, `wait_type`, `target`, `status`, `payload`), and `error`.
 
 ### E2. Replay After a Reconnect (`replay`)
 Sent in answer to a client `resume` frame (§3 F). It carries every retained event
@@ -282,3 +283,7 @@ Emitted when the agent updates its task checklist. Payload: `{"session_id": "...
 ## `post_failure_synthesis`
 
 Emitted when autonomous execution reaches its maximum turn budget or encounters an error after gathering findings. Payload: `{"reason": "...", "max_turns": 30, "turns_taken": 30}`. The UI renders an in-stream amber pill notification in the flight stream while the agent synthesizes its concluding answer with tools disabled.
+
+## `context_compacted`
+
+Emitted when context window compaction runs to prune verbose tool results or summarize intermediate turns. Payload: `{"tokens_before": 145000, "tokens_after": 52000, "compacted_messages_count": 28, "summary": "..."}`. The UI renders a compaction milestone badge in the flight log.

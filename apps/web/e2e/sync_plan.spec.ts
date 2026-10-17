@@ -46,7 +46,20 @@ test.describe("what a sync frame asks of the tab", () => {
 
   test("an idle session's snapshot is complete: a resuming tab keeps its cursor", () => {
     const frame = { type: "sync", last_seq: 12, catch_up: null } as SyncFrame;
-    expect(planSync(frame, true)).toEqual({ rewindCursorTo: null, events: [], continueFrom: null });
-    expect(planSync(frame, false)).toEqual({ rewindCursorTo: null, events: [], continueFrom: 12 });
+    expect(planSync(frame, true)).toEqual({ rewindCursorTo: null, events: [], continueFrom: null, runningTurn: null });
+    expect(planSync(frame, false)).toEqual({ rewindCursorTo: null, events: [], continueFrom: 12, runningTurn: null });
+  });
+
+  test("running_turn data is passed through to the plan", () => {
+    const runningTurn = {
+      turn_index: 2,
+      started_at: 1000,
+      model: "gpt-4o",
+      status: "running",
+      steps: [{ name: "bash_exec", status: "completed", result: "ok" }],
+    };
+    const frame = { type: "sync", last_seq: 5, catch_up: null, running_turn: runningTurn } as SyncFrame;
+    const plan = planSync(frame, false);
+    expect(plan.runningTurn).toEqual(runningTurn);
   });
 });

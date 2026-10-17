@@ -53,6 +53,10 @@ Under **Sandbox runtime** on the same page:
 | Maximum background processes | Servers and watchers one session may run at once (default 5). |
 | Process keep-awake (minutes) | How long a sandbox with a running process is kept out of idle sleep. |
 
+### Parallel write subagents
+
+When an agent delegates work concurrently using parallel subagents (`delegate_subagents_parallel`), each write-capable subagent operates in its own isolated git worktree (`.rocket/worktrees/<id>`). To prevent memory exhaustion and compiler out-of-memory errors during concurrent builds, parallel write subagents require a sandbox profile with **at least 2 CPU cores and 4 GiB RAM**. If a sandbox has smaller resource limits, delegations are automatically serialized one-by-one.
+
 ## Network egress
 
 The governance settings can restrict what a sandbox reaches: an allowlist of hosts, CIDRs or `*.suffix` names, and blocking internal subnets (including the cloud metadata address). Rules are applied to the **resolved** address, on Docker through an allow-listing proxy and on Kubernetes through network policy. Loopback always works, so previews and local servers keep working.
@@ -61,6 +65,6 @@ The governance settings can restrict what a sandbox reaches: an allowlist of hos
 
 A sandbox starts with the first tool call that needs it. On Kubernetes that call waits up to 2 minutes for the pod, long enough for the cluster to add a node to a full pool. A pod still waiting after that is kept, and the next call waits on it; a pod whose image cannot be pulled fails at once with the reason.
 
-A sandbox with no activity for the idle period is stopped and its workspace volume is kept (the operator sets the period with `SANDBOX_INACTIVITY_PAUSE_SECONDS`: 30 minutes on Docker, 10 minutes on Kubernetes by default), so the next turn finds the repositories it cloned. Running processes end when a sandbox sleeps.
+A sandbox with no activity for the idle period is stopped and its workspace volume is kept (the operator sets the period with `SANDBOX_INACTIVITY_PAUSE_SECONDS`: 30 minutes on Docker, 10 minutes on Kubernetes by default), so the next turn finds the repositories it cloned. Sandboxes executing an active turn or running background processes are held awake and never hibernated mid-flight. In multi-replica deployments, the inactivity reaper runs under cluster leader election and cross-checks active running turns and recent turn activity from the database, preventing non-executing replicas from prematurely hibernating active sandboxes. Running background processes end when a sandbox sleeps.
 
 A kept volume still costs storage. After **`workspace_release_days`** (Settings → Sandboxes, 7 days by default, 0 = keep it as long as the session exists) without activity in the session, the volume is deleted too; a sandbox type can set its own delay. The session stays: its next turn starts with a blank sandbox, and the agent is told the workspace was released, so it clones again (work that was not pushed is gone). Workspaces are also removed with their session.
