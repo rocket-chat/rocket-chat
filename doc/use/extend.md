@@ -39,7 +39,24 @@ Upload documents (architecture notes, runbooks, API docs) and the agent searches
 
 ## Agents (personas)
 
-An agent is a system prompt, a model and an optional list of allowed tools, skills and knowledge bases. The default, **General Software Engineer**, has every tool. Administrators can edit the built-in agents for the whole organization (prompt, model, tools, step limit) and use **Reset to default** to restore the shipped version; members who want a variation save a copy. Define narrower ones for specific jobs (a reviewer limited to read-only tools, a security auditor). A persona can also name a sandbox image, subject to your organization's catalogue.
+An agent is a system prompt, a model and an optional list of allowed tools, skills, knowledge bases, and resource limits. The platform ships with three built-in agents:
+
+* **General Software Engineer (`persona-general`)**: versatile full-stack autonomous engineer with access to all runtime tools.
+* **Backend Developer (`persona-backend`)**: optimized for complex, long-running backend engineering tasks (APIs, microservices, databases, durable waits, and subagent worktrees) with `on_demand` tool loading, `medium` reasoning effort, and a 100-step turn budget.
+* **Security & Penetration Auditor (`persona-security`)**: focused read-only code auditor checking for OWASP vulnerabilities, RLS leaks, and secret exposure.
+
+Administrators can edit the built-in agents for the whole organization (prompt, model, tools, reasoning effort, temperature, step limit, and sandbox sizing) and use **Reset to default** to restore the shipped version; members who want a variation save a copy. Define narrower ones for specific jobs (a reviewer limited to read-only tools, a database migration specialist). A persona can also name a sandbox image and placement profile, subject to your organization's catalogue.
+
+### Reasoning effort and temperature
+
+Under **Settings → Agents**, you can configure fine-grained model execution parameters for each persona:
+
+* **Reasoning effort**: for reasoning models (Anthropic Claude 3.7 Sonnet with thinking, OpenAI o1/o3-mini, Gemini 2.5 Pro with thinking). Choose `low` for fast, cost-conscious responses, `medium` for balanced engineering, or `high` for deep architectural refactors and complex migrations.
+* **Sampling temperature**: overrides the model's default sampling temperature (`0.0` is deterministic; `1.0+` is creative). Leave empty to inherit the model default. (Note: reasoning models typically enforce temperature `1.0` or ignore this parameter).
+
+### Max steps per turn
+
+Each agent can set **Max steps per turn**, from 1 up to the organization's ceiling (configured under **Settings → Organization → Turn limits**, up to 500); leave it empty to use the organization's limit. For complex missions requiring hundreds of steps across multiple files and tests, Rocket Chat automatically schedules **Goal Continuations** when a turn hits its step cap while the `.rocket/PLAN.md` checklist has pending items.
 
 ### Which tools every step carries
 
@@ -63,8 +80,6 @@ Pin a tool (the pin on an allowed tool) or list patterns under **Always loaded**
 An agent's prompt says who it is and how it should work. The platform adds the facts about where it works, whatever the prompt says: the sandbox starts blank and how to find and clone a repository; the workspace (the active repository, a fresh shell per command, clamped output); how to edit and verify; and the git and GitHub rules. Those rules cover no credentials in the sandbox, never committing to the default branch, publishing with `git_push` or `git_open_pr`, how the organization's signing mode applies, and the `github_*` tools. The platform also adds your organization's skills and the active repository's own `AGENTS.md` (or similar). The built-in agents use whatever model you or your organization choose, from any provider.
 
 Each agent can set a **Sandbox**: the sandbox type its sessions start in when you pick none in the composer (a sandbox you pick still wins); empty uses the organization's default.
-
-Each agent can set **Max steps per turn**, from 1 up to the organization's limit (Settings > Models & routing); leave it empty to use the organization's. Lower it for a quick helper, or raise it, within the limit, for a long investigation.
 
 ## Memory
 

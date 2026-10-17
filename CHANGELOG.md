@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `api`, `web`: **Built-in Backend Developer persona (`persona-backend`).** Shipped default persona tailored for complex backend and microservice engineering, configured with `on_demand` tool loading, `medium` reasoning effort tier, 100 max turns, 4 CPU / 8 GiB RAM sizing, and pre-seeded active tools for workspace navigation, git checkpoints, and subagent worktrees.
+- `web`: **Agent reasoning effort and sampling temperature controls.** Added dedicated form fields in the Cockpit Agent Persona configuration UI (`/settings/agents`) to configure `reasoning_effort` (`low`, `medium`, `high`) for reasoning models and sampling `temperature` overrides.
 - `sandbox-driver`, `deploy`: **Persistent language caches on workspace volume.** Language package and build caches (`GOMODCACHE`, `GOCACHE`, `UV_CACHE_DIR`, `PIP_CACHE_DIR`, `PNPM_HOME`, `CARGO_HOME`) are mapped to `/workspace/.rocket/cache/` via sandbox environment configuration (`DEFAULT_SANDBOX_CACHE_ENV` and `Dockerfile.sandbox`), ensuring dependency downloads and build artefacts persist across sandbox restarts and hibernations without polluting git workspaces.
 - `api`, `agent-core`: **Repository-scoped project memory recall on clone.** Learned repository-specific knowledge (build, test, lint commands and conventions) stored in long-term memory is automatically queried and injected into `clone_repository` outcome notes with repo-specific filtering.
 - `api`: **Symbol definition indexing & boosting in code search.** `code_search` semantic retrieval boosts code chunks containing function, class, type, struct, and interface definitions matching the search query, improving definition discovery in large repositories.
@@ -46,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- `api`: **`AgentPersonaModel` `max_turns` validation ceiling raised from 200 to 500**, aligning custom agent persona validation with the organization `general.max_turns` maximum range so agents can configure up to 500 steps per turn.
 
 ### Security
 - `agent-core`, `api`: **Tool output is redacted before storage in session history and prompt continuation.** Sensitive tokens and credentials appearing in tool outputs (such as `bash_exec`) are now scrubbed immediately in `ToolDispatcher` before being appended to the conversation history or published in events. Raw secrets never reach stored session rows, events, turn traces, or subsequent model requests.
