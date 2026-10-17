@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
+import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from fnmatch import fnmatch
@@ -22,10 +23,15 @@ from fnmatch import fnmatch
 import litellm
 from llm_gateway.tokens import request_tokens
 
-from agent_core.notes import REMINDER_OPEN, render_notes
+from agent_core.notes import REMINDER_CLOSE, REMINDER_OPEN, render_notes
 from agent_core.transcript import repair_tool_pairs
 from specifications.interfaces.agent import AgentEvent, TurnCallbacks, TurnPolicy
-from specifications.interfaces.llm import AttachmentRef, ChatMessage, ToolDefinition
+from specifications.interfaces.llm import (
+    AttachmentRef,
+    ChatMessage,
+    ModelCatalogueProtocol,
+    ToolDefinition,
+)
 
 Summarizer = Callable[[list[ChatMessage]], Awaitable[str]]
 logger = logging.getLogger(__name__)
@@ -66,6 +72,7 @@ class ExecutionContext:
     # session has loaded so far.
     deferred_tools: frozenset[str] = frozenset()
     loaded_tools: set[str] = field(default_factory=set)
+    loaded_tools_order: list[str] = field(default_factory=list)
     # Model data governance for every request this turn makes: propagated
     # onto each ModelRequest so the gateway can pass it to the provider.
     zero_retention: bool = False
@@ -88,11 +95,38 @@ class ExecutionContext:
     # The prompt size the provider reported for the turn's latest request (0 until one did, and
     # again after a compaction): the floor for the next request's estimate.
     measured_prompt_tokens: int = 0
+    # Tracks consecutive model calls with < 20% prompt cache hit rate for alert detection (G4).
+    consecutive_low_cache_calls: int = 0
 
 
 current_execution_ctx: contextvars.ContextVar[ExecutionContext | None] = contextvars.ContextVar(
     "current_execution_ctx", default=None
 )
+
+
+class CompactionResult(list[ChatMessage]):
+    """Result of context hygiene pass containing messages and compaction metadata."""
+
+    def __init__(
+        self,
+        messages: Sequence[ChatMessage] = (),
+        *,
+        compacted: bool = False,
+        tokens_before: int = 0,
+        tokens_after: int = 0,
+        summary: str | None = None,
+        compacted_count: int = 0,
+        compacted_prefix: Sequence[ChatMessage] = (),
+        tail_count: int = 0,
+    ) -> None:
+        super().__init__(messages)
+        self.compacted = compacted
+        self.tokens_before = tokens_before
+        self.tokens_after = tokens_after
+        self.summary = summary
+        self.compacted_count = compacted_count
+        self.compacted_prefix = list(compacted_prefix)
+        self.tail_count = tail_count
 
 
 class ContextManager:
@@ -102,18 +136,32 @@ class ContextManager:
         self,
         tier2_threshold_ratio: float = 0.70,
         tier3_threshold_ratio: float = 0.85,
+        target_prune_ratio: float = 0.45,
+        target_summary_ratio: float = 0.35,
         recent_turns_to_preserve: int = 3,
+        min_steps_between_compactions: int = 5,
+        emergency_threshold_ratio: float = 0.90,
+        catalogue: ModelCatalogueProtocol | None = None,
     ) -> None:
         self.tier2_threshold_ratio = tier2_threshold_ratio
         self.tier3_threshold_ratio = tier3_threshold_ratio
+        self.target_prune_ratio = target_prune_ratio
+        self.target_summary_ratio = target_summary_ratio
         self.recent_turns_to_preserve = recent_turns_to_preserve
+        self.min_steps_between_compactions = min_steps_between_compactions
+        self.emergency_threshold_ratio = emergency_threshold_ratio
+        self.catalogue = catalogue
 
     def get_model_context_limit(self, model: str, overrides: Sequence[tuple[str, int]] = ()) -> int:
-        """The model's input window: the organization's own size, the library's, a family's."""
+        """The model's input window: the organization's own size, the catalogue, the library's, a family's."""
         name = model.lower()
         for pattern, size in overrides:
             if name == pattern.lower() or fnmatch(name, pattern.lower()):
                 return size
+        if self.catalogue is not None:
+            spec = self.catalogue.get_model_spec(model)
+            if spec and spec.context_window > 0:
+                return spec.context_window
         try:
             # `max_input_tokens` is the context window; `get_max_tokens` is the *output* cap.
             info = litellm.get_model_info(model)
@@ -207,10 +255,19 @@ class ContextManager:
             lead += 1
         current = _current_request(messages)
         anchored = current is not None and lead <= current < tail_start
-        head = [
-            *messages[:lead],
-            *([messages[current]] if anchored and current is not None else []),
-        ]
+        anchor_msgs: list[ChatMessage] = []
+        if anchored and current is not None:
+            anchor = messages[current]
+            content = anchor.content or ""
+            if REMINDER_OPEN in content and "[Compacted " in content:
+                cleaned = re.sub(
+                    rf"{re.escape(REMINDER_OPEN)}\s*\[Compacted[\s\S]*?{re.escape(REMINDER_CLOSE)}",
+                    "",
+                    content,
+                ).strip()
+                anchor = replace(anchor, content=cleaned)
+            anchor_msgs.append(anchor)
+        head = [*messages[:lead], *anchor_msgs]
         middle = [
             message
             for index, message in enumerate(messages[lead:tail_start], start=lead)
@@ -230,7 +287,13 @@ class ContextManager:
                     return str(arguments) if arguments else None
         return None
 
-    def _bridge(self, middle: list[ChatMessage], summary: str | None) -> ChatMessage:
+    def _bridge(
+        self,
+        middle: list[ChatMessage],
+        summary: str | None,
+        working_plan: str | None = None,
+        progress_md: str | None = None,
+    ) -> ChatMessage:
         # A user-role reminder, not a system message: providers that hoist system messages into
         # the system prompt would lose where the summary sits in the conversation.
         parts: list[str] = [
@@ -242,12 +305,18 @@ class ContextManager:
         plan = self._latest_checklist(middle)
         if plan:
             parts.append(f"Active Task Checklist State: {plan}")
+        if working_plan:
+            parts.append(f"Working Plan (.rocket/PLAN.md):\n{working_plan}")
+        if progress_md:
+            parts.append(f"Working Progress (.rocket/PROGRESS.md):\n{progress_md}")
         return ChatMessage(role="user", content=render_notes(parts))
 
     def compact_with_anchors(
         self,
         messages: list[ChatMessage],
         recent_turns_to_preserve: int | None = None,
+        working_plan: str | None = None,
+        progress_md: str | None = None,
     ) -> list[ChatMessage]:
         """
         Tier 3 Compaction: Anchor system prompt, initial user prompt, active checklist,
@@ -257,13 +326,15 @@ class ContextManager:
         if parts is None:
             return list(messages)
         head, middle, tail = parts
-        return _compose(head, self._bridge(middle, None), tail)
+        return _compose(head, self._bridge(middle, None, working_plan, progress_md), tail)
 
     async def compact_with_summary(
         self,
         messages: list[ChatMessage],
         summarize: Summarizer,
         recent_turns_to_preserve: int | None = None,
+        working_plan: str | None = None,
+        progress_md: str | None = None,
     ) -> list[ChatMessage]:
         """Tier 3 with a model-written summary of the middle; falls back to the bridge."""
         parts = self._partition(messages, recent_turns_to_preserve)
@@ -282,7 +353,29 @@ class ContextManager:
             summary = (await summarize([*goal, *middle])).strip() or None
         except Exception as err:
             logger.warning("Summarising compaction failed, using the bridge only: %s", err)
-        return _compose(head, self._bridge(middle, summary), tail)
+        return _compose(head, self._bridge(middle, summary, working_plan, progress_md), tail)
+
+    def should_compact_tier3(
+        self,
+        tokens: int,
+        limit: int,
+        step: int | None = None,
+        last_compaction_step: int | None = None,
+        force_compaction: bool = False,
+    ) -> bool:
+        """Determines whether Tier 3 compaction should trigger, enforcing hysteresis."""
+        if force_compaction:
+            return True
+        if tokens < int(limit * self.tier3_threshold_ratio):
+            return False
+        # If tokens are above emergency threshold (> 90%), compact regardless of step frequency
+        if tokens >= int(limit * self.emergency_threshold_ratio):
+            return True
+        # Hysteresis: don't compact more than once per N steps
+        if step is not None and last_compaction_step is not None:
+            if step - last_compaction_step < self.min_steps_between_compactions:
+                return False
+        return True
 
     def enforce_hygiene(
         self,
@@ -313,25 +406,68 @@ class ContextManager:
         tools: Sequence[ToolDefinition] = (),
         measured_tokens: int = 0,
         overrides: Sequence[tuple[str, int]] = (),
-    ) -> list[ChatMessage]:
-        """Like :meth:`enforce_hygiene`, but Tier 3 summarizes with a model when given one.
-
-        ``measured_tokens`` is what the provider reported for the previous request of the turn:
-        the history only grows within a turn, so the estimate never goes below it.
-        """
+        step: int | None = None,
+        last_compaction_step: int | None = None,
+        force_compaction: bool = False,
+        working_plan: str | None = None,
+        progress_md: str | None = None,
+    ) -> CompactionResult:
+        """Runs progressive Tier 2 & Tier 3 hygiene checks against model context limits."""
         limit = self.get_model_context_limit(model, overrides)
         counted = self.count_tokens(model, messages, tools)
         tokens = max(counted, measured_tokens)
+        tokens_before = tokens
+
+        # Tier 2 check (> 70%)
         if tokens >= int(limit * self.tier2_threshold_ratio):
             messages = self.prune_tool_payloads(messages)
             pruned = self.count_tokens(model, messages, tools)
-            # The measured floor shrinks by what pruning removed, never to the bare estimate.
             tokens = max(pruned, measured_tokens - (counted - pruned))
-        if tokens >= int(limit * self.tier3_threshold_ratio):
-            if summarize is not None:
-                return await self.compact_with_summary(messages, summarize)
-            return self.compact_with_anchors(messages)
-        return messages
+
+        # Tier 3 check (> 85% or forced)
+        if self.should_compact_tier3(tokens, limit, step, last_compaction_step, force_compaction):
+            parts = self._partition(messages, self.recent_turns_to_preserve)
+            if parts is not None:
+                head, middle, tail = parts
+                summary = None
+                if summarize is not None:
+                    goal = [
+                        replace(
+                            message,
+                            content=f"[The request being worked on, kept verbatim] {message.content}",
+                        )
+                        for message in head
+                        if message.role == "user"
+                    ]
+                    try:
+                        summary = (await summarize([*goal, *middle])).strip() or None
+                    except Exception as err:
+                        logger.warning("Summarising compaction failed: %s", err)
+                bridge = self._bridge(middle, summary, working_plan, progress_md)
+                composed = _compose(head, bridge, tail)
+                lead = 0
+                while lead < len(head) and head[lead].role == "system":
+                    lead += 1
+                conv_head = head[lead:]
+                prefix = _compose(conv_head, bridge, [])
+                tokens_after = self.count_tokens(model, composed, tools)
+                return CompactionResult(
+                    composed,
+                    compacted=True,
+                    tokens_before=tokens_before,
+                    tokens_after=tokens_after,
+                    summary=summary,
+                    compacted_count=len(middle),
+                    compacted_prefix=prefix,
+                    tail_count=len(tail),
+                )
+
+        return CompactionResult(
+            messages,
+            compacted=False,
+            tokens_before=tokens_before,
+            tokens_after=tokens,
+        )
 
 
 def _current_request(messages: list[ChatMessage]) -> int | None:

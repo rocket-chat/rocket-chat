@@ -2,7 +2,7 @@
 
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, cast
 
@@ -289,6 +289,33 @@ class TurnTraceStore:
                 for row in result.all()
             ]
 
+    async def active_running_sessions(self) -> set[str]:
+        """Return the set of session IDs that currently have a turn in RUNNING status."""
+        async with self.manager.session() as session:
+            result = await session.execute(
+                select(TurnTraceModel.session_id)
+                .where(TurnTraceModel.status == TURN_STATUS_RUNNING)
+                .distinct()
+            )
+            return {row[0] for row in result.all()}
+
+    async def latest_turn_activity(self) -> dict[str, float]:
+        """Return a mapping of session_id to latest turn activity timestamp."""
+        async with self.manager.session() as session:
+            result = await session.execute(
+                select(
+                    TurnTraceModel.session_id,
+                    func.max(
+                        func.coalesce(
+                            TurnTraceModel.ended_at,
+                            TurnTraceModel.heartbeat_at,
+                            TurnTraceModel.started_at,
+                        )
+                    ),
+                ).group_by(TurnTraceModel.session_id)
+            )
+            return {row[0]: float(row[1]) for row in result.all() if row[1] is not None}
+
     async def set_pending_decision(
         self, trace_id: str, tenant_org_id: str, decision: dict[str, Any] | None
     ) -> None:
@@ -329,6 +356,36 @@ class TurnTraceStore:
                 )
             ).first()
             return dict(row[0]) if row and row[0] else None
+
+    async def record_tool_call(
+        self, trace_id: str, tenant_org_id: str, tool_data: Mapping[str, Any]
+    ) -> None:
+        """Persist a completed tool call on the running trace so reconnecting clients see it."""
+        async with self.manager.session(tenant_org_id=tenant_org_id) as session:
+            result = await session.execute(
+                select(TurnTraceModel).where(TurnTraceModel.id == trace_id).with_for_update()
+            )
+            model = result.scalars().first()
+            if model is not None:
+                current_calls = list(model.tool_calls or [])
+                current_calls.append(dict(tool_data))
+                model.tool_calls = current_calls
+
+    async def running_turn(self, session_id: str, tenant_org_id: str) -> TurnTraceRecord | None:
+        """Return the active running turn trace for the session, if any."""
+        async with self.manager.session(tenant_org_id=tenant_org_id) as session:
+            stmt = (
+                select(TurnTraceModel)
+                .where(
+                    TurnTraceModel.session_id == session_id,
+                    TurnTraceModel.status == TURN_STATUS_RUNNING,
+                )
+                .order_by(TurnTraceModel.started_at.desc())
+                .limit(1)
+            )
+            result = await session.execute(stmt)
+            model = result.scalars().first()
+            return self._model_to_record(model) if model else None
 
     async def list_for_session(
         self,

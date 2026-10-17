@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, TypedDict
 
@@ -13,18 +15,136 @@ from api.services.github_installations import installations_for_org
 from api.services.github_watches import GithubWatchStore, watch_callbacks
 from api.services.knowledge import search_knowledge
 from api.services.mcp_runtime import McpToolProvider
+from api.services.memory import MemoryService
 from api.services.process_tracker import ProcessTracker
 from api.services.session_support import choose_active_repository, remember_active_repository
 from api.services.settings import effective_settings
 from api.services.skills import test_skill_execution
 from api.services.skills_lookup import _find_visible_skill
+from api.services.subagent_transcripts import get_subagent_transcript_store
 from api.services.subagents import load_subagent_configs
 from api.services.tool_loading import remember_loaded
 from api.turns.context import TurnContext
 from api.turns.provisioning import provision_session_sandbox, run_repository_setup
+from api.turns.shared import _background_tasks
 from specifications.interfaces.agent import GithubAccess, TurnCallbacks
 from specifications.interfaces.events import EventType, SessionEvent
 from specifications.interfaces.session import SessionRecord
+
+
+def _schedule_time_wake(ctx: TurnContext, delay: float) -> None:
+    async def _wake() -> None:
+        await asyncio.sleep(delay)
+        from api.turns.tasks import _spawn_background_turn
+
+        _spawn_background_turn(
+            session_id=ctx.session_id,
+            prompt=f"Timer delay of {delay}s expired. Resuming execution.",
+            orchestrator=ctx.req.orchestrator,
+            event_bus=ctx.req.event_bus,
+            driver=ctx.req.driver,
+            registry=ctx.req.registry,
+            store=ctx.req.store,
+            model=ctx.effective_model,
+            git_engine=ctx.req.git_engine,
+            db_mgr=ctx.req.db_mgr,
+            concurrency_gate=ctx.req.concurrency_gate,
+            session_locks=ctx.req.session_locks,
+            synthetic_prompt=True,
+        )
+
+    task = asyncio.create_task(_wake())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+def _schedule_process_wake(ctx: TurnContext, identifier: str, timeout_seconds: int | None) -> None:
+    driver = ctx.req.driver
+    if driver is None:
+        return
+
+    async def _wake() -> None:
+        max_wait = float(timeout_seconds) if timeout_seconds else 600.0
+        start = asyncio.get_running_loop().time()
+        while (asyncio.get_running_loop().time() - start) < max_wait:
+            await asyncio.sleep(2.0)
+            try:
+                res = await driver.exec_command(
+                    ctx.session_id, f"kill -0 {identifier} 2>/dev/null", timeout_seconds=5
+                )
+                if res.exit_code != 0:
+                    break
+            except Exception:
+                break
+        from api.turns.tasks import _spawn_background_turn
+
+        _spawn_background_turn(
+            session_id=ctx.session_id,
+            prompt=f"Background process {identifier} completed. Resuming execution.",
+            orchestrator=ctx.req.orchestrator,
+            event_bus=ctx.req.event_bus,
+            driver=ctx.req.driver,
+            registry=ctx.req.registry,
+            store=ctx.req.store,
+            model=ctx.effective_model,
+            git_engine=ctx.req.git_engine,
+            db_mgr=ctx.req.db_mgr,
+            concurrency_gate=ctx.req.concurrency_gate,
+            session_locks=ctx.req.session_locks,
+            synthetic_prompt=True,
+        )
+
+    task = asyncio.create_task(_wake())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+def _build_wait_for(
+    session_id: str,
+    event_bus: Any,
+    github_watch: Any,
+    ctx: TurnContext | None = None,
+) -> Callable[[str, str, int | None], Awaitable[str]]:
+    async def wait_for(target: str, identifier: str, timeout_seconds: int | None) -> str:
+        wait_id = f"wait_{uuid.uuid4().hex[:12]}"
+        await event_bus.publish(
+            SessionEvent(
+                session_id=session_id,
+                event_type=EventType.WAIT_STARTED,
+                payload={
+                    "wait_id": wait_id,
+                    "wait_type": target,
+                    "target": identifier,
+                    "timeout_seconds": timeout_seconds,
+                },
+            )
+        )
+        if target in ("ci_status", "review"):
+            parts = identifier.split("#")
+            repo = parts[0].strip()
+            pr_num = (
+                int(parts[1].strip()) if len(parts) > 1 and parts[1].strip().isdigit() else None
+            )
+            await github_watch(repo, pr_num, branch=None, wake=True)
+            return (
+                f"Waiting for {target} on {identifier}. Turn paused; "
+                "will automatically wake upon webhook arrival."
+            )
+        if target == "time":
+            delay = float(identifier) if identifier.replace(".", "", 1).isdigit() else 30.0
+            if ctx is not None:
+                _schedule_time_wake(ctx, delay)
+            return f"Waiting for timer delay of {delay}s. Turn paused; will wake after delay."
+        if target == "process_exit":
+            if ctx is not None:
+                _schedule_process_wake(ctx, identifier, timeout_seconds)
+            return (
+                f"Waiting for background process {identifier} to exit. Turn paused; "
+                "will wake when process completes."
+            )
+        return f"Waiting for {target} ({identifier}). Turn entering waiting state."
+
+    return wait_for
 
 
 async def build_turn_callbacks(
@@ -120,7 +240,7 @@ async def build_turn_callbacks(
             keepalive_seconds=float(sandbox_settings["process_keepalive_minutes"]) * 60,
         )
 
-    # Long-term memory is bound once at composition time
+    wait_for = _build_wait_for(ctx.session_id, event_bus, github_watch, ctx=ctx)
     # (`bind_context_memory_callbacks` in main.py); it resolves the tenant from the turn's
     # execution context, so every path (web, Slack, webhooks) shares it.
     return TurnCallbacks(
@@ -133,10 +253,15 @@ async def build_turn_callbacks(
         github_write_access=_github_write_access(ctx, git_bundle),
         github_watch=github_watch,
         github_unwatch=github_unwatch,
+        wait_for=wait_for,
         **_session_record_callbacks(ctx),
         processes_changed=processes_changed if driver else None,
         max_background_processes=int(sandbox_settings["max_background_processes"]),
         subagent_configs=await load_subagent_configs(db_mgr, session.tenant_org_id),
+        redact_tool_output=ctx.redactor.redact_text
+        if getattr(ctx, "redactor", None) is not None
+        else None,
+        subagent_transcript_persister=get_subagent_transcript_store(db_mgr).save_transcript,
     )
 
 
@@ -154,10 +279,23 @@ def _session_record_callbacks(ctx: TurnContext) -> _SessionRecordCallbacks:
     async def repository_cloned(target_session_id: str, folder: str) -> str | None:
         assert driver is not None
         await remember_active_repository(store, target_session_id, org, folder)
+        notes: list[str] = []
         sandbox_cfg = await effective_settings(req.db_mgr, org, "sandboxes")
-        if not sandbox_cfg.get("run_repo_setup"):
-            return None
-        return await run_repository_setup(driver, target_session_id, folder, req.event_bus)
+        if sandbox_cfg.get("run_repo_setup"):
+            setup_res = await run_repository_setup(driver, target_session_id, folder, req.event_bus)
+            if setup_res:
+                notes.append(setup_res)
+        if proj_mem := await _recall_project_memory_for_repo(
+            req.db_mgr, org, session.tenant_user_id, folder
+        ):
+            notes.append(proj_mem)
+        try:
+            from agent_core.tools.builtin.workspace import sync_workspace_manifest
+
+            await sync_workspace_manifest(driver, target_session_id, active_repo=folder)
+        except Exception:
+            pass
+        return "\n\n".join(notes) if notes else None
 
     async def active_repository_chosen(target_session_id: str, folder: str) -> None:
         await choose_active_repository(store, target_session_id, org, folder)
@@ -204,3 +342,32 @@ def _github_write_access(
         return as_member if member else GithubAccess(None, api_url, "")
 
     return access
+
+
+async def _recall_project_memory_for_repo(
+    db_mgr: Any,
+    org: str,
+    user_id: str,
+    folder: str,
+) -> str | None:
+    """Recall learned project memories (build/test/lint commands) for the cloned repository (Item I1)."""
+    if db_mgr is None:
+        return None
+    repo_name = folder.rstrip("/").split("/")[-1]
+    mem_service = MemoryService(db_mgr)
+    try:
+        records = await mem_service.recall(
+            org_id=org,
+            user_id=user_id,
+            query=f"{repo_name} build test lint setup command",
+            limit=5,
+        )
+        repo_memories = [r for r in records if repo_name.lower() in r.content.lower()]
+        if not repo_memories:
+            return None
+        lines = [f"Project memory for {repo_name}:"]
+        for r in repo_memories:
+            lines.append(f"- [{r.kind}] {r.content}")
+        return "\n".join(lines)
+    except Exception:
+        return None

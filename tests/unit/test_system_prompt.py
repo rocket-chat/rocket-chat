@@ -76,7 +76,13 @@ async def test_the_stable_prompt_carries_no_per_turn_content() -> None:
     for volatile in ("Active model", "routing mode", "Background processes"):
         assert volatile not in first
     assert prompt.DEFAULT_AGENT_PROMPT in first
+
     assert "[Workspace]" in first and "[Editing and verifying]" in first
+    assert "[Long-running tasks and git hygiene]" in first
+    assert "never leave a rebase" in first
+    assert "maintain `.rocket/PLAN.md`" in first
+    # Size budget assertion on stable platform prompt to prevent unbounded prompt inflation
+    assert 2_000 < len(first) < 10_000
 
 
 def _ctx(store: InMemorySessionStore, record: SessionRecord, driver: Any) -> Any:

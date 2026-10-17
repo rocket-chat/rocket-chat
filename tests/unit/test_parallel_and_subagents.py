@@ -139,7 +139,7 @@ class TestSubagentRunner:
             session_id="test-session-2",
         )
 
-        assert result.status == "completed"
+        assert result.status == "partial"
         # Two working steps, then one tool-less call for the final report.
         assert call_count == 3
         assert result.turns_taken == 2

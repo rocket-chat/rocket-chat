@@ -156,3 +156,43 @@ def test_sync_hands_out_the_current_sequence() -> None:
         sync = ws.receive_json()
         assert sync["type"] == "sync"
         assert sync["last_seq"] == 0
+
+
+def test_sync_includes_running_turn_and_completed_steps() -> None:
+    """The handshake includes running turn and completed steps when a turn is in flight."""
+    from api.turns.runner import _active_running_turns
+
+    session_id = "session_replay_running"
+    _wire_app(session_id)
+    client = TestClient(app)
+
+    _active_running_turns[session_id] = {
+        "turn_index": 1,
+        "started_at": int(time.time()),
+        "model": "model-1",
+        "status": "running",
+        "steps": [
+            {
+                "id": "step_1",
+                "name": "bash_exec",
+                "arguments": {"command": "pwd"},
+                "result": "/workspace",
+                "status": "completed",
+                "duration_ms": 50,
+                "seq": 5,
+            }
+        ],
+    }
+
+    try:
+        with client.websocket_connect(f"/v1/sessions/{session_id}/ws?token=dev_token") as ws:
+            sync = ws.receive_json()
+            assert sync["type"] == "sync"
+            assert sync["running_turn"] is not None
+            assert sync["running_turn"]["status"] == "running"
+            assert sync["running_turn"]["turn_index"] == 1
+            assert len(sync["running_turn"]["steps"]) == 1
+            assert sync["running_turn"]["steps"][0]["name"] == "bash_exec"
+            assert sync["running_turn"]["steps"][0]["result"] == "/workspace"
+    finally:
+        _active_running_turns.pop(session_id, None)

@@ -202,6 +202,22 @@ async def provision_session_sandbox(
             record.sandbox_status = SandboxStatus.RUNNING
 
         await store.mutate_session(session_id, s_rec.tenant_org_id, mark_running)
+        if hasattr(driver, "write_file"):
+            meta = s_rec.metadata if isinstance(s_rec.metadata, dict) else {}
+            if plan_md := meta.get("plan_md"):
+                try:
+                    await driver.write_file(
+                        session_id, ".rocket/PLAN.md", str(plan_md), overwrite=False
+                    )
+                except Exception:
+                    pass
+            if progress_md := meta.get("progress_md"):
+                try:
+                    await driver.write_file(
+                        session_id, ".rocket/PROGRESS.md", str(progress_md), overwrite=False
+                    )
+                except Exception:
+                    pass
     await event_bus.publish(
         SessionEvent(
             session_id=session_id,

@@ -37,10 +37,12 @@ __all__ = [
     "TURN_STATUS_INTERRUPTED",
     "TURN_STATUS_RUNNING",
     "TurnTraceAccumulator",
+    "active_turn_sessions",
     "beat_turn_leases",
     "begin_turn_trace",
     "persist_turn_trace",
     "recover_interrupted_turns",
+    "session_turn_activity",
     "user_turn_index",
 ]
 
@@ -102,6 +104,7 @@ class TurnTraceAccumulator:
         self._routing: dict[str, Any] | None = None
         self._usage: dict[str, int] = {}
         self._usage_by_model: dict[str, dict[str, int]] = {}
+        self._model_calls: list[dict[str, Any]] = []
 
     def start_record(self) -> TurnTraceRecord:
         """The durable ``running`` marker persisted before the turn does any work."""
@@ -171,20 +174,55 @@ class TurnTraceAccumulator:
         completion = int(payload.get("completion_tokens") or 0)
         cache_read = int(payload.get("cache_read_tokens") or 0)
         cache_creation = int(payload.get("cache_creation_tokens") or 0)
+        cost = float(payload.get("cost_usd") or 0.0)
         self._usage["prompt_tokens"] = self._usage.get("prompt_tokens", 0) + prompt
         self._usage["completion_tokens"] = self._usage.get("completion_tokens", 0) + completion
         self._usage["cache_read_tokens"] = self._usage.get("cache_read_tokens", 0) + cache_read
         self._usage["cache_creation_tokens"] = (
             self._usage.get("cache_creation_tokens", 0) + cache_creation
         )
+        self._usage["cost_usd"] = int(self._usage.get("cost_usd", 0) + int(cost * 1_000_000))
         self._usage["model_calls"] = self._usage.get("model_calls", 0) + 1
 
         model = str(payload.get("model") or "unknown")
         bucket = self._usage_by_model.setdefault(
-            model, {"prompt_tokens": 0, "completion_tokens": 0}
+            model,
+            {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "cache_read_tokens": 0,
+                "cache_creation_tokens": 0,
+            },
         )
         bucket["prompt_tokens"] += prompt
         bucket["completion_tokens"] += completion
+        bucket["cache_read_tokens"] += cache_read
+        bucket["cache_creation_tokens"] += cache_creation
+
+        self._model_calls.append(
+            {
+                "model": model,
+                "role": str(payload.get("role") or "assistant"),
+                "prompt_tokens": prompt,
+                "completion_tokens": completion,
+                "cache_read_tokens": cache_read,
+                "cache_creation_tokens": cache_creation,
+                "cost_usd": cost,
+                "finish_reason": str(payload.get("finish_reason") or "stop"),
+            }
+        )
+
+    @property
+    def prompt_tokens(self) -> int:
+        return self._usage.get("prompt_tokens", 0)
+
+    @property
+    def completion_tokens(self) -> int:
+        return self._usage.get("completion_tokens", 0)
+
+    @property
+    def cost_usd(self) -> float:
+        return float(self._usage.get("cost_usd", 0)) / 1_000_000.0
 
     def finish(
         self,
@@ -208,6 +246,7 @@ class TurnTraceAccumulator:
             tokens["by_model"] = {
                 model: dict(totals) for model, totals in self._usage_by_model.items()
             }
+            tokens["calls"] = list(self._model_calls)
         return TurnTraceRecord(
             id=self.trace_id,
             session_id=self.session_id,
@@ -315,3 +354,55 @@ async def recover_interrupted_turns(
     if recovered:
         logger.warning("Recovered %d interrupted turn trace(s)", recovered)
     return recovered
+
+
+async def active_turn_sessions(db_manager: DatabaseSessionManager | None) -> set[str]:
+    """Return session IDs that currently have a turn actively running."""
+    if db_manager is None:
+        return set()
+    try:
+        return await TurnTraceStore(db_manager).active_running_sessions()
+    except Exception:
+        logger.exception("Failed to query active running sessions")
+        return set()
+
+
+async def session_turn_activity(db_manager: DatabaseSessionManager | None) -> dict[str, float]:
+    """Return mapping of session ID to most recent turn activity timestamp."""
+    if db_manager is None:
+        return {}
+    try:
+        return await TurnTraceStore(db_manager).latest_turn_activity()
+    except Exception:
+        logger.exception("Failed to query session turn activity")
+        return {}
+
+
+async def record_running_tool_call(
+    db_manager: DatabaseSessionManager | None,
+    trace_id: str,
+    org_id: str,
+    tool_data: Mapping[str, Any],
+) -> None:
+    """Save a completed tool call to the running turn trace in PostgreSQL."""
+    if db_manager is None:
+        return
+    try:
+        await TurnTraceStore(db_manager).record_tool_call(trace_id, org_id, tool_data)
+    except Exception:
+        logger.exception("Failed to record tool call for running trace %s", trace_id)
+
+
+async def session_running_turn(
+    db_manager: DatabaseSessionManager | None,
+    session_id: str,
+    org_id: str,
+) -> TurnTraceRecord | None:
+    """Fetch the active running turn trace for a session."""
+    if db_manager is None:
+        return None
+    try:
+        return await TurnTraceStore(db_manager).running_turn(session_id, org_id)
+    except Exception:
+        logger.exception("Failed to query running turn for session %s", session_id)
+        return None

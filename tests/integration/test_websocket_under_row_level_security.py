@@ -106,3 +106,44 @@ def test_a_stored_question_is_shown_again_and_answering_it_continues_the_work(
     assert len(started) == 1
     assert "Which repository should I clone?" in started[0] and "b/two" in started[0]
     assert "the private one" in started[0]
+
+
+def test_mid_turn_websocket_reconnect_sees_running_turn_and_completed_steps() -> None:
+    from api.services.turn_trace import (
+        TurnTraceAccumulator,
+        begin_turn_trace,
+        record_running_tool_call,
+    )
+
+    with TestClient(app) as client:
+        created = client.post("/v1/sessions", json={"title": "mid-turn-test"}, headers=HEADERS)
+        session_id = created.json()["session_id"]
+        db = client.app.state.db_manager  # type: ignore[attr-defined]
+
+        tool_step = {
+            "id": "step_1",
+            "name": "bash_exec",
+            "arguments": {"command": "git status"},
+            "result": "On branch main\nnothing to commit",
+            "status": "completed",
+            "duration_ms": 120,
+            "seq": 10,
+        }
+
+        async def setup_running_turn() -> None:
+            trace = TurnTraceAccumulator(session_id=session_id, org_id="test_org", turn_index=1)
+            await begin_turn_trace(db, trace)
+            await record_running_tool_call(db, trace.trace_id, "test_org", tool_step)
+
+        client.portal.call(setup_running_turn)  # type: ignore[union-attr]
+
+        with client.websocket_connect(f"/v1/sessions/{session_id}/ws", headers=HEADERS) as ws:
+            sync = ws.receive_json()
+            assert sync["type"] == "sync"
+            assert sync["session_id"] == session_id
+            assert sync["running_turn"] is not None
+            assert sync["running_turn"]["status"] == "running"
+            assert sync["running_turn"]["turn_index"] == 1
+            assert len(sync["running_turn"]["steps"]) == 1
+            assert sync["running_turn"]["steps"][0]["name"] == "bash_exec"
+            assert sync["running_turn"]["steps"][0]["result"] == "On branch main\nnothing to commit"

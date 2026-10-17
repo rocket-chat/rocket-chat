@@ -20,6 +20,7 @@ from api.db.session import DatabaseSessionManager
 from api.services.attachments import AttachmentService
 from api.services.audit import AuditService, GovernancePolicy
 from api.services.mcp_runtime import McpToolProvider
+from api.services.metrics import GlobalConcurrencyGate, SessionWriteLocks
 from api.services.redaction import Redactor
 from api.services.turn_trace import TurnTraceAccumulator
 from specifications.interfaces.agent import AgentBinding, TurnOverlay
@@ -59,6 +60,9 @@ class TurnRequest:
     overlay: TurnOverlay | None = None
     resume_attempt: int = 0
     selection: TurnSelection | None = None
+    synthetic_prompt: bool = False
+    concurrency_gate: GlobalConcurrencyGate | None = None
+    session_locks: SessionWriteLocks | None = None
 
 
 @dataclass
@@ -84,6 +88,8 @@ class TurnState:
     # about them even when routing fails before assignment.
     effective_model: str | None = None
     router: ModelRouter | None = None
+    is_continuation: bool = False
+    is_waiting: bool = False
 
 
 @dataclass

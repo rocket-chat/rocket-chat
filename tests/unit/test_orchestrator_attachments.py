@@ -95,7 +95,11 @@ async def test_attachment_rides_only_the_first_dispatch() -> None:
     await _drain(orchestrator, "sess_attach_one", "read the log", attachments=[attachment])
 
     assert len(gateway.requests) == 1
-    user_messages = [m for m in gateway.requests[0].messages if m.role == "user"]
+    user_messages = [
+        m
+        for m in gateway.requests[0].messages
+        if m.role == "user" and not (m.content or "").startswith("<system-reminder>")
+    ]
     assert user_messages[-1].attachments == [attachment]
     # The stored conversation must stay plain so the bytes can never be replayed.
     stored_users = [

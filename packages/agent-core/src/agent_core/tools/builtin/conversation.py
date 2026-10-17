@@ -1,7 +1,8 @@
-"""Talking to the person and managing the plan: questions, status, checklist, subagents, plan mode, approvals."""
+from __future__ import annotations
 
+import asyncio
 import logging
-from typing import TYPE_CHECKING, Annotated, Literal, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Annotated, Any, Literal, NotRequired, TypedDict
 
 from pydantic import Field
 
@@ -9,6 +10,7 @@ from agent_core.context import current_execution_ctx
 from specifications.interfaces.agent import (
     AgentEvent,
     SubagentTaskRequest,
+    SubagentTaskResult,
 )
 
 if TYPE_CHECKING:
@@ -32,13 +34,43 @@ class ChecklistTask(TypedDict):
 MAX_TOOLS_LISTED = 60
 
 
-def register(registry: "ToolRegistry") -> None:
+def _format_subagent_report(res: SubagentTaskResult) -> str:
+    lines = [
+        f"[{res.role.upper()} SUBAGENT REPORT]",
+        f"Task: {res.task}",
+        f"Status: {res.status} ({res.turns_taken} turns, {res.tool_calls_count} tools, {res.duration_ms}ms, {res.tokens} tokens, ${res.cost:.4f})",
+    ]
+    if res.changed_files:
+        lines.append(f"Changed files: {', '.join(res.changed_files)}")
+    if res.artefacts:
+        lines.append(f"Artefacts: {', '.join(res.artefacts)}")
+    lines.append(f"\n{res.summary}")
+    return "\n".join(lines)
+
+
+async def _execute_delegation(runner: Any, ctx: Any, d: dict[str, Any]) -> str:
+    role = str(d.get("role") or "researcher")
+    task = str(d.get("task") or "")
+    context = str(d.get("context") or "")
+    req = SubagentTaskRequest(role=role, task=task, context=context)
+    res = await runner.run(
+        request=req,
+        session_id=ctx.session_id,
+        event_queue=ctx.event_queue,
+        default_model=ctx.parent_model,
+    )
+    return _format_subagent_report(res)
+
+
+def register(registry: ToolRegistry) -> None:
     _register_discovery_tools(registry)
     _register_dialogue_tools(registry)
+    _register_checklist_tools(registry)
+    _register_delegation_tools(registry)
     _register_planning_tools(registry)
 
 
-def _register_discovery_tools(registry: "ToolRegistry") -> None:
+def _register_discovery_tools(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
             "List the tools available to you in this session, optionally filtered by a keyword "
@@ -100,7 +132,7 @@ def _register_discovery_tools(registry: "ToolRegistry") -> None:
         return "\n".join(parts) or "Nothing to load."
 
 
-def _register_dialogue_tools(registry: "ToolRegistry") -> None:
+def _register_dialogue_tools(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
             "Ask the human user a question and WAIT: the whole turn is blocked until they "
@@ -194,7 +226,7 @@ def _register_dialogue_tools(registry: "ToolRegistry") -> None:
         return "Reasoning checkpoint recorded."
 
 
-def _register_planning_tools(registry: "ToolRegistry") -> None:
+def _register_checklist_tools(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
             "Create or update the task checklist the user follows. Every call REPLACES the whole "
@@ -223,6 +255,8 @@ def _register_planning_tools(registry: "ToolRegistry") -> None:
         completed = sum(1 for t in tasks if t.get("status") == "completed")
         return f"Task checklist updated: {completed}/{len(tasks)} tasks completed."
 
+
+def _register_delegation_tools(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
             "Delegate an isolated investigation or task to a specialist subagent (e.g. "
@@ -252,16 +286,62 @@ def _register_planning_tools(registry: "ToolRegistry") -> None:
                 event_queue=ctx.event_queue,
                 default_model=ctx.parent_model,
             )
-            return (
-                f"[{sub_res.role.upper()} SUBAGENT REPORT]\n"
-                f"Task: {sub_res.task}\n"
-                f"Status: {sub_res.status} ({sub_res.turns_taken} turns, {sub_res.tool_calls_count} tools, {sub_res.duration_ms}ms)\n\n"
-                f"{sub_res.summary}"
-            )
+            return _format_subagent_report(sub_res)
         delegate = registry._turn_callback("subagent")
         if delegate:
             return str(await delegate(role, task, context))
         return f"Subagent delegation requested for role '{role}': {task}"
+
+    @registry._tool(
+        description=(
+            "Delegate multiple specialized subagents to execute tasks concurrently or sequentially. "
+            "Parallel write subagents require >= 2 CPU and >= 4 GiB RAM; if the sandbox profile "
+            "is smaller, delegations run sequentially to prevent memory exhaustion."
+        )
+    )
+    async def delegate_subagents_parallel(
+        delegations: Annotated[
+            list[dict[str, Any]],
+            Field(
+                description="List of subagent tasks: [{'role': '...', 'task': '...', 'context': '...'}, ...]"
+            ),
+        ],
+    ) -> str:
+        ctx = current_execution_ctx.get()
+        if not delegations:
+            return "No subagent delegations provided."
+        if not (registry._subagent_runner and ctx):
+            return f"Subagent parallel delegation requested for {len(delegations)} tasks."
+
+        runner = registry._subagent_runner
+        from sandbox_driver.profiles import configured_profiles, has_parallel_write_capacity
+
+        profiles = configured_profiles()
+        profile_name = (
+            getattr(ctx.policy, "sandbox_profile", "") if ctx and hasattr(ctx, "policy") else ""
+        )
+        current_profile = profiles.get(profile_name) if profile_name else None
+        allow_parallel = has_parallel_write_capacity(current_profile)
+
+        reports: list[str] = []
+        if allow_parallel:
+            tasks = [_execute_delegation(runner, ctx, d) for d in delegations]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for i, r in enumerate(results):
+                reports.append(
+                    f"[DELEGATION {i + 1} ERROR]: {r}" if isinstance(r, Exception) else str(r)
+                )
+        else:
+            for i, d in enumerate(delegations):
+                try:
+                    reports.append(await _execute_delegation(runner, ctx, d))
+                except Exception as err:
+                    reports.append(f"[DELEGATION {i + 1} ERROR]: {err}")
+
+        return "\n\n---\n\n".join(reports)
+
+
+def _register_planning_tools(registry: ToolRegistry) -> None:
 
     @registry._tool(
         description=(
