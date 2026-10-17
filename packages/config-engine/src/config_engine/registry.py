@@ -514,7 +514,14 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
         _spec(
             "app_token_permissions",
             "dict",
-            {"contents": "read", "pull_requests": "read"},
+            {
+                "contents": "read",
+                "pull_requests": "read",
+                "checks": "read",
+                "actions": "read",
+                "statuses": "read",
+                "issues": "read",
+            },
             "org",
             _GIT_CREDS,
             "Permissions requested for the GitHub App token the sandbox receives. Always lowered to "

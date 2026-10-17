@@ -106,14 +106,14 @@ async def _pull(
 ) -> str:
     slug = parse_repository(repository).slug
     if action == "list":
-        return await github_prs.list_pulls(await registry._github_access(), slug, state)
+        return await github_prs.list_pulls(await registry._github_access(slug), slug, state)
     if number is None:
         raise GithubError("Give the pull request number.")
     if action in github_prs.PR_WRITE_ACTIONS:
         return await github_prs.write_pull(
             await _write(registry, slug), slug, number, action, fields
         )
-    read = await registry._github_access()
+    read = await registry._github_access(slug)
     readers = {
         "view": lambda: github_prs.view(read, slug, number),
         "files": lambda: github_prs.files(read, slug, number),
@@ -189,8 +189,9 @@ def _register_ci(registry: ToolRegistry) -> None:
         query: Annotated[str, Field(description="Search text, GitHub syntax.")],
         repository: Annotated[str | None, Field(description="owner/name to search within.")] = None,
     ) -> str:
+        repo_slug = parse_repository(repository).slug if repository else None
         return await _guarded(
-            github_ci.search(await registry._github_access(), kind, query, repository)
+            github_ci.search(await registry._github_access(repo_slug), kind, query, repository)
         )
 
 
@@ -206,7 +207,7 @@ async def _ci(
     slug = parse_repository(repository).slug
     if action in github_ci.ACTIONS_WRITE:
         return await github_ci.write_run(await _write(registry, slug), slug, action, fields)
-    read = await registry._github_access()
+    read = await registry._github_access(slug)
     if action == "runs":
         return await github_ci.runs(read, slug, branch)
     if action == "run_view" and run_id:
@@ -223,7 +224,7 @@ async def _release(
     if action in github_ci.RELEASES_WRITE:
         return await github_ci.write_release(await _write(registry, slug), slug, action, fields)
     tag = fields.get("tag_name") if action == "view" else None
-    return await github_ci.releases(await registry._github_access(), slug, tag)
+    return await github_ci.releases(await registry._github_access(slug), slug, tag)
 
 
 def _register_api(registry: ToolRegistry) -> None:
@@ -258,8 +259,12 @@ def _register_api(registry: ToolRegistry) -> None:
         async def checked_write(slug: str) -> GithubAccess:
             return await _write(registry, slug)
 
+        target_repo = repository
+        if not target_repo and path and path.startswith("/repos/"):
+            parts = [p for p in path.removeprefix("/repos/").split("/") if p]
+            if len(parts) >= 2:
+                target_repo = f"{parts[0]}/{parts[1]}"
+        read_access = await registry._github_access(target_repo)
         return await _guarded(
-            github_generic.call(
-                await registry._github_access(), checked_write if write_for else None, arguments
-            )
+            github_generic.call(read_access, checked_write if write_for else None, arguments)
         )

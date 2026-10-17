@@ -249,7 +249,15 @@ async def _app_read_token(
         return None
     try:
         permissions = read_only_permissions(
-            org_github.get("app_token_permissions") or {"contents": "read"}
+            org_github.get("app_token_permissions")
+            or {
+                "contents": "read",
+                "pull_requests": "read",
+                "checks": "read",
+                "actions": "read",
+                "statuses": "read",
+                "issues": "read",
+            }
         )
         installation_id = pick_installation(
             [

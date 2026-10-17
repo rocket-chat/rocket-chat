@@ -164,7 +164,7 @@ def _register_github_reads(registry: "ToolRegistry") -> None:
             str | None, Field(description="A user or organization to restrict to.")
         ] = None,
     ) -> str:
-        access = await registry._github_access()
+        access = await registry._github_access(owner)
         return await github_tools.find_repositories(access, query, owner)
 
     @registry._tool(
@@ -196,7 +196,7 @@ def _register_github_reads(registry: "ToolRegistry") -> None:
                 f"changes). Use this tool only for a repository that is not cloned, or pass "
                 f"`ref` to read another branch or commit."
             )
-        access = await registry._github_access()
+        access = await registry._github_access(repository)
         return await github_tools.read_file(access, repository, path, ref)
 
     @registry._tool(
@@ -224,7 +224,7 @@ def _register_github_reads(registry: "ToolRegistry") -> None:
         assignees: Annotated[list[str] | None, Field(description="Logins (create, edit).")] = None,
     ) -> str:
         if action is None:
-            access = await registry._github_access()
+            access = await registry._github_access(repository)
             return await github_tools.issues(access, repository, number, query, state)
         fields = {"title": title, "body": body, "labels": labels, "assignees": assignees}
         try:

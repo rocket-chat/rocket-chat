@@ -237,8 +237,9 @@ class TurnCallbacks:
     plan: Callable[[list[dict[str, Any]]], None] | None = None
     subagent: Callable[[str, str, str], Awaitable[str]] | None = None
     external_tools: ExternalToolProvider | None = None
-    # Credential for the read-only GitHub tools (find repositories, read files, issues).
-    github_access: Callable[[], Awaitable[GithubAccess]] | None = None
+    # Credential for the read-only GitHub tools (find repositories, read files, issues, checks).
+    # May accept an optional repository slug to resolve repo-specific App installation tokens.
+    github_access: Callable[..., Awaitable[GithubAccess]] | None = None
     # Credential for changes on GitHub (comments, reviews, merges, issues) in one repository,
     # resolved on the platform from the organization's policy; never given to a sandbox.
     github_write_access: Callable[[str], Awaitable[GithubAccess]] | None = None
