@@ -425,21 +425,21 @@ export default function AgentsSettingsPage() {
               </span>
               <div className="flex items-center gap-1.5 shrink-0">
                 {agent.built_in && (
-                  <span className="text-[9px] text-neutral-400 bg-neutral-800 px-1.5 py-0.2 rounded border border-neutral-700">
+                  <span className="text-[9px] text-neutral-700 dark:text-neutral-200 bg-surface px-1.5 py-0.5 rounded border border-border font-medium">
                     Built-in
                   </span>
                 )}
                 {isEnabled ? (
-                  <span className="text-[9px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/30">
+                  <span className="text-[9px] text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/30 font-medium">
                     Active
                   </span>
                 ) : (
-                  <span className="text-[9px] text-neutral-400 bg-neutral-800/80 px-1.5 py-0.2 rounded border border-neutral-700">
+                  <span className="text-[9px] text-neutral-600 dark:text-neutral-300 bg-surface px-1.5 py-0.5 rounded border border-border">
                     Off
                   </span>
                 )}
                 {isActiveInCockpit && (
-                  <span className="text-[9px] text-cyan bg-cyan/20 px-1.5 py-0.2 rounded-lg border border-cyan/30">
+                  <span className="text-[9px] text-cyan bg-cyan/20 px-1.5 py-0.5 rounded-lg border border-cyan/30">
                     ACTIVE
                   </span>
                 )}
@@ -551,18 +551,20 @@ export default function AgentsSettingsPage() {
             </div>
 
             <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1.5 cursor-pointer text-xs font-medium text-foreground px-2 py-1 rounded-lg border border-border bg-surface">
-                <input
-                  type="checkbox"
-                  checked={formData.enabled !== false}
-                  disabled={!canEditCurrentAgent}
-                  onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                  className="w-3.5 h-3.5 rounded border-border bg-void text-cyan focus:ring-cyan/40"
-                />
-                <span className={formData.enabled !== false ? "text-emerald-400 font-semibold text-[11px]" : "text-neutral-400 text-[11px]"}>
-                  {formData.enabled !== false ? "Enabled" : "Disabled"}
-                </span>
-              </label>
+              <button
+                type="button"
+                disabled={!canEditCurrentAgent}
+                onClick={() => setFormData({ ...formData, enabled: formData.enabled === false ? true : false })}
+                className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border transition-colors ${
+                  formData.enabled !== false
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20"
+                    : "border-border bg-surface text-neutral-600 dark:text-neutral-300 hover:text-foreground"
+                }`}
+                title={formData.enabled !== false ? "Click to deactivate agent" : "Click to activate agent"}
+              >
+                <span className={`w-2 h-2 rounded-full ${formData.enabled !== false ? "bg-emerald-500" : "bg-neutral-400"}`} />
+                <span>{formData.enabled !== false ? "Active" : "Disabled"}</span>
+              </button>
 
               <button
                 type="button"
