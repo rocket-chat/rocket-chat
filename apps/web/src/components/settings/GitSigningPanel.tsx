@@ -128,6 +128,18 @@ export const GitSigningPanel: React.FC = () => {
         </p>
       )}
 
+      {usesKeys && !status.configured && (
+        <div data-testid="unsigned-commits-warning" className="flex items-start gap-2.5 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs">
+          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+          <div className="space-y-0.5">
+            <span className="font-semibold">Unsigned Commits Warning</span>
+            <p className="text-[11px] leading-relaxed">
+              Your git policy is set to GPG key signing, but you have no private key configured below. Commits pushed from sandboxes will be <strong>unsigned</strong> and may be rejected by GitHub repositories with branch protection requiring signed commits.
+            </p>
+          </div>
+        </div>
+      )}
+
       {usesKeys && (
         <>
           <p className="text-xs text-muted-foreground">

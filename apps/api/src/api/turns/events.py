@@ -122,6 +122,7 @@ class TurnEventHandlers:
     def __init__(self, ctx: TurnContext) -> None:
         self.ctx = ctx
         self._coalescer = TokenCoalescer(self._publish)
+        self._intervening_tool_called = False
         self._handlers: dict[str, Handler] = {
             "model_usage": self._model_usage,
             "thought": self._thought,
@@ -190,6 +191,12 @@ class TurnEventHandlers:
         if not is_reasoning:
             if state.first_token_at is None and delta:
                 state.first_token_at = time.monotonic()
+            if self._intervening_tool_called and state.assistant_parts and delta.strip():
+                last = state.assistant_parts[-1]
+                if not last.endswith("\n\n"):
+                    separator = "\n" if last.endswith("\n") else "\n\n"
+                    state.assistant_parts.append(separator)
+                self._intervening_tool_called = False
             state.assistant_parts.append(delta)
         else:
             state.reasoning_parts.append(delta)
@@ -198,6 +205,7 @@ class TurnEventHandlers:
         await asyncio.sleep(0)
 
     async def _tool_call(self, event: AgentEvent) -> None:
+        self._intervening_tool_called = True
         raw_args = event.payload.get("arguments", "{}")
         ctx = self.ctx
         if isinstance(raw_args, str) and ctx.redactor:

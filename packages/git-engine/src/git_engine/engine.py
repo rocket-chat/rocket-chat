@@ -84,11 +84,13 @@ class GitEngine(GitEngineProtocol):
             return await self.driver.exec_command(session_id, command, workdir=repository)
 
         # The caller's (policy-resolved) identity, else this deployment's own bot.
-        author_name = spec.committer_name or self.settings.bot_author_name
-        author_email = spec.committer_email or self.settings.bot_author_email
+        committer_name = spec.committer_name or self.settings.bot_author_name
+        committer_email = spec.committer_email or self.settings.bot_author_email
+        author_name = spec.author_name or committer_name
+        author_email = spec.author_email or committer_email
         await run(
-            f"git config user.name {shlex.quote(author_name)} && "
-            f"git config user.email {shlex.quote(author_email)}"
+            f"git config user.name {shlex.quote(committer_name)} && "
+            f"git config user.email {shlex.quote(committer_email)}"
         )
         if spec.branch:
             checkout = await run(f"git checkout -B {shlex.quote(spec.branch)}")
@@ -98,7 +100,11 @@ class GitEngine(GitEngineProtocol):
 
         # Never signed here: the sandbox holds no key. ``gpg_key`` commits are signed on the
         # platform when the branch is published (``host_repo.HostRepository.resign``).
-        res = await run(f"git commit --no-gpg-sign -m {shlex.quote(formatted_message)}")
+        env_prefix = (
+            f"GIT_AUTHOR_NAME={shlex.quote(author_name)} "
+            f"GIT_AUTHOR_EMAIL={shlex.quote(author_email)} "
+        )
+        res = await run(f"{env_prefix}git commit --no-gpg-sign -m {shlex.quote(formatted_message)}")
         if res.exit_code != 0 and "nothing to commit" not in res.stdout + res.stderr:
             raise RuntimeError(f"git commit failed (exit {res.exit_code}): {res.stderr}")
         return (await run("git rev-parse HEAD")).stdout.strip()

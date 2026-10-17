@@ -70,7 +70,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 
 | Setting | Scope | Type / values | Default | Description |
 | :-- | :-- | :-- | :-- | :-- |
-| `commit_authorship_policy` | Org default, member override | `co_authored` / `user_only` / `bot_only` | `co_authored` | co_authored = bot commits with the member as Co-authored-by, user_only = commits as the member, bot_only = commits as the bot. |
+| `commit_authorship_policy` | Org default, member override | `co_authored` / `user_only` / `bot_only` / `authored_by_user_committed_by_bot` | `co_authored` | co_authored = bot commits with the member as Co-authored-by, user_only = commits as the member, bot_only = commits as the bot, authored_by_user_committed_by_bot = member is git author and bot is committer (requires gpg_key or none signing). |
 | `pr_creation_policy` | Org default, member override | `as_user` / `as_bot` | `as_user` | Open pull requests with the member's token (as_user) or the GitHub App (as_bot). |
 | `commit_signing_mode` | Org default, member override | `github_app` / `gpg_key` / `none` | `github_app` | github_app: commits are created through GitHub's API so GitHub signs them (verified, made by the GitHub App); gpg_key: members who imported a GPG key and chose to commit as themselves sign with it, everyone else gets github_app; none: unsigned. |
 | `bot_author_name` | Organization | str | `RocketChat Bot` | Name of the bot identity used for bot commits. |

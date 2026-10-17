@@ -75,6 +75,9 @@ def commit_spec_for_policy(
     trailer; ``user_only``: the member commits, no trailers; ``bot_only``: the bot commits.
     """
     use_user_identity = policy.authorship == "user_only" and bool(policy.user_name)
+    user_author_bot_committer = policy.authorship == "authored_by_user_committed_by_bot" and bool(
+        policy.user_name
+    )
     co_authors = [CoAuthor(name=a, email="") for a in (extra_co_authors or [])]
     if policy.authorship == "co_authored" and policy.user_name and policy.user_email:
         co_authors.append(CoAuthor(name=policy.user_name, email=policy.user_email))
@@ -90,6 +93,8 @@ def commit_spec_for_policy(
         gpg_key_id=policy.signing_key_id or None,
         committer_name=policy.user_name if use_user_identity else policy.bot_name,
         committer_email=policy.user_email if use_user_identity else policy.bot_email,
+        author_name=policy.user_name if user_author_bot_committer else None,
+        author_email=policy.user_email if user_author_bot_committer else None,
     )
 
 
@@ -109,7 +114,18 @@ def publish_spec_for_policy(
         signing = SigningMode(policy.signing_mode)
     except ValueError:
         signing = SigningMode.NONE
-    as_member = policy.authorship == "user_only" or signing != SigningMode.GITHUB_APP
+    if (
+        policy.authorship == "authored_by_user_committed_by_bot"
+        and signing == SigningMode.GITHUB_APP
+    ):
+        raise ValueError(
+            "GitHub App signing cannot set a custom author on commits. To use 'Authored by user, "
+            "committed by bot', select GPG signing mode or None under Settings > GitHub."
+        )
+    as_member = (
+        policy.authorship in ("user_only", "authored_by_user_committed_by_bot")
+        or signing != SigningMode.GITHUB_APP
+    )
     return PublishSpec(
         branch=branch or "",
         signing_mode=signing,
