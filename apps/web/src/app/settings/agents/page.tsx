@@ -43,6 +43,8 @@ const getAgentIcon = (iconName?: string) => {
   switch (iconName) {
     case "shield":
       return <Shield className="w-4 h-4 text-emerald-400" />;
+    case "server":
+      return <Server className="w-4 h-4 text-sky-400" />;
     case "bug":
       return <Bug className="w-4 h-4 text-amber-400" />;
     case "book":
@@ -586,6 +588,60 @@ export default function AgentsSettingsPage() {
               />
             )}
           </Field>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field
+              label="Reasoning effort"
+              hint="For reasoning models (o1, o3-mini, Claude 3.7 Sonnet). Controls thinking depth."
+            >
+              {(control) => (
+                <Select
+                  {...control}
+                  data-testid="agent-reasoning-effort"
+                  disabled={!canEditCurrentAgent}
+                  value={formData.reasoning_effort ?? ""}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      reasoning_effort: (e.target.value || undefined) as AgentPersonaConfig["reasoning_effort"],
+                    })
+                  }
+                  className="w-full"
+                >
+                  <option value="">Model / organization default</option>
+                  <option value="low">Low (faster, budget-friendly)</option>
+                  <option value="medium">Medium (balanced reasoning)</option>
+                  <option value="high">High (deep architectural thinking)</option>
+                </Select>
+              )}
+            </Field>
+
+            <Field
+              label="Sampling temperature"
+              hint="0.0 is deterministic and focused; 1.0+ is creative. Empty uses model default."
+            >
+              {(control) => (
+                <Input
+                  {...control}
+                  data-testid="agent-temperature"
+                  type="number"
+                  min={0}
+                  max={2}
+                  step={0.1}
+                  disabled={!canEditCurrentAgent}
+                  value={formData.temperature ?? ""}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      temperature: e.target.value === "" ? undefined : Number(e.target.value),
+                    })
+                  }
+                  placeholder="Model default"
+                  className="w-full"
+                />
+              )}
+            </Field>
+          </div>
 
           {/* The sandbox type this agent's sessions start in, unless their creator picks one */}
           <Field

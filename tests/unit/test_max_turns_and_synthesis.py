@@ -73,6 +73,16 @@ async def test_resolve_effective_max_turns_cascading() -> None:
     await save_org_config(None, org_id, "general", {"max_turns": 8}, [])
     assert await _resolve_effective_max_turns(agent=custom_agent, org_id=org_id) == 8
 
+    # 5. Agent persona model allows up to 500 turns matching the maximum org limit
+    agent_500 = AgentPersonaModel(
+        id="persona-high-turns",
+        name="Long Session Agent",
+        role_title="Lead",
+        system_prompt="prompt",
+        max_turns=500,
+    )
+    assert agent_500.max_turns == 500
+
     # Cleanup
     reset_memory_settings()
 

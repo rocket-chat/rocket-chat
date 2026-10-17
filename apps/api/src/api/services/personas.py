@@ -56,6 +56,55 @@ DEFAULT_AGENT_PERSONAS: tuple[AgentPersonaModel, ...] = (
         icon="bot",
     ),
     AgentPersonaModel(
+        id="persona-backend",
+        name="Backend Developer",
+        role_title="Senior Backend & Systems Engineer",
+        description="Autonomous backend engineer specialized in distributed systems, APIs, database migrations, microservices, and durable multi-turn execution.",
+        system_prompt=(
+            "You are a Senior Backend & Systems Engineer working in Rocket Chat. You specialize in "
+            "reliable backend development, API design, database migrations, asynchronous pipelines, "
+            "and microservice refactors. You write idiomatic, type-safe, well-tested code. "
+            "For multi-step missions, maintain .rocket/PLAN.md as durable working memory, verify all "
+            "changes with tests before completing steps, use wait_for on external CI or PR gates, "
+            "and delegate deep research or test runs to subagents to keep turn context clean."
+        ),
+        model="",
+        reasoning_effort="medium",
+        max_turns=100,
+        cpu_limit="4",
+        memory_limit="8Gi",
+        tool_loading="on_demand",
+        whitelisted_tools=["*"],
+        active_tools=[
+            "file_read",
+            "file_edit",
+            "apply_patch",
+            "file_write",
+            "grep_search",
+            "glob_files",
+            "code_search",
+            "workspace_status",
+            "git_status_all",
+            "repo_foreach",
+            "bash_exec",
+            "process_start",
+            "process_wait",
+            "process_output",
+            "git_status",
+            "git_diff",
+            "git_commit",
+            "git_branch",
+            "git_checkpoint",
+            "git_push",
+            "git_open_pr",
+            "update_task_checklist",
+            "wait_for",
+            "delegate_subagent",
+            "delegate_subagents_parallel",
+        ],
+        icon="server",
+    ),
+    AgentPersonaModel(
         id="persona-security",
         name="Security & Penetration Auditor",
         role_title="Application Security Specialist",
