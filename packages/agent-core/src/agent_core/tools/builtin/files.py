@@ -82,17 +82,11 @@ def _register_file_editing_tools(registry: "ToolRegistry") -> None:
         s_id = ctx.session_id if ctx else registry._session_id
         target = registry.workspace_file(path)
         cached = get_cached_offload(s_id, target) if s_id else None
+        if cached is not None:
+            return _slice_cached_text(cached, start_line, end_line, line_numbers)
         if not registry._driver or not s_id:
-            if cached is not None:
-                return _slice_cached_text(cached, start_line, end_line, line_numbers)
             return "Error: Sandbox not initialized for file_read"
         await registry._ensure_sandbox(s_id)
-        if cached is not None and registry._driver:
-            try:
-                rel = target.removeprefix(f"{WORKSPACE}/").lstrip("/")
-                await registry._driver.write_file(s_id, rel, cached, overwrite=False)
-            except Exception:
-                pass
         result = await tier2.file_read(
             registry._driver, s_id, target, start_line, end_line, line_numbers
         )

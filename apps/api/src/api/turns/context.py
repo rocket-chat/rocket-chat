@@ -90,6 +90,8 @@ class TurnState:
     router: ModelRouter | None = None
     is_continuation: bool = False
     is_waiting: bool = False
+    wait_target: str | None = None
+    wait_summary: str | None = None
 
 
 @dataclass

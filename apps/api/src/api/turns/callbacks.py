@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, TypedDict
@@ -30,6 +31,8 @@ from api.turns.shared import _background_tasks
 from specifications.interfaces.agent import GithubAccess, TurnCallbacks
 from specifications.interfaces.events import EventType, SessionEvent
 from specifications.interfaces.session import SessionRecord
+
+logger = logging.getLogger(__name__)
 
 
 def _schedule_time_wake(ctx: TurnContext, delay: float) -> None:
@@ -99,13 +102,100 @@ def _schedule_process_wake(ctx: TurnContext, identifier: str, timeout_seconds: i
     task.add_done_callback(_background_tasks.discard)
 
 
+async def _check_github_ci_poll(
+    ctx: TurnContext,
+    git_bundle: GitCredentialBundle | None,
+    repo: str,
+    pr_num: int,
+) -> tuple[str, str, bool]:
+    if git_bundle is None:
+        return "", "", False
+    access_fn = _github_read_access(ctx, git_bundle)
+    access = await access_fn(repo)
+    if not access or not access.token:
+        return "", "", False
+    try:
+        from agent_core.tools.github_client import request as gh_request
+
+        pull = await gh_request(access, "GET", f"/repos/{repo}/pulls/{pr_num}")
+        head_sha = (pull.get("head") or {}).get("sha")
+        if not head_sha:
+            return "", "", False
+        runs_data = await gh_request(
+            access, "GET", f"/repos/{repo}/commits/{head_sha}/check-runs", params={"per_page": 100}
+        )
+        check_runs = runs_data.get("check_runs", [])
+        status_data = await gh_request(access, "GET", f"/repos/{repo}/commits/{head_sha}/status")
+        statuses = status_data.get("statuses", [])
+
+        failed = [
+            r.get("name") or "unnamed"
+            for r in check_runs
+            if r.get("conclusion") in ("failure", "timed_out", "cancelled", "action_required")
+        ] + [
+            s.get("context") or "unnamed"
+            for s in statuses
+            if s.get("state") in ("failure", "error")
+        ]
+        if failed:
+            return "failed", f"CI failed on {repo}#{pr_num} ({', '.join(failed[:5])})", True
+
+        in_progress = any(
+            r.get("status") in ("in_progress", "queued", "pending") for r in check_runs
+        ) or any(s.get("state") == "pending" for s in statuses)
+
+        total = len(check_runs) + len(statuses)
+        if total > 0 and not in_progress:
+            return "completed", f"All {total} CI check(s) passed on {repo}#{pr_num}.", True
+
+        return "in_progress", "", False
+    except Exception as exc:
+        logger.warning("Error checking GitHub CI poll for %s#%s: %s", repo, pr_num, exc)
+        return "", "", False
+
+
+async def _check_github_review_poll(
+    ctx: TurnContext,
+    git_bundle: GitCredentialBundle | None,
+    repo: str,
+    pr_num: int,
+) -> tuple[str, str, bool]:
+    if git_bundle is None:
+        return "", "", False
+    access_fn = _github_read_access(ctx, git_bundle)
+    access = await access_fn(repo)
+    if not access or not access.token:
+        return "", "", False
+    try:
+        from agent_core.tools.github_client import request as gh_request
+
+        reviews = await gh_request(access, "GET", f"/repos/{repo}/pulls/{pr_num}/reviews")
+        substantive = [r for r in reviews if r.get("state") in ("APPROVED", "CHANGES_REQUESTED")]
+        if substantive:
+            latest = substantive[-1]
+            state = str(latest.get("state") or "")
+            author = (latest.get("user") or {}).get("login") or "reviewer"
+            return state, f"PR review submitted by {author}: {state}.", True
+        return "pending", "", False
+    except Exception as exc:
+        logger.warning("Error checking GitHub review poll for %s#%s: %s", repo, pr_num, exc)
+        return "", "", False
+
+
 def _schedule_github_wake(
-    ctx: TurnContext, target: str, identifier: str, timeout_seconds: int | None
+    ctx: TurnContext,
+    target: str,
+    identifier: str,
+    timeout_seconds: int | None,
+    git_bundle: GitCredentialBundle | None = None,
 ) -> None:
     max_wait = float(timeout_seconds) if timeout_seconds else 1800.0
+    parts = identifier.split("#")
+    repo = parts[0].strip()
+    pr_num = int(parts[1].strip()) if len(parts) > 1 and parts[1].strip().isdigit() else None
 
     async def _wake() -> None:
-        poll_interval = 60.0
+        poll_interval = 300.0
         start = asyncio.get_running_loop().time()
         while (asyncio.get_running_loop().time() - start) < max_wait:
             await asyncio.sleep(
@@ -120,8 +210,83 @@ def _schedule_github_wake(
             if not matching:
                 return
 
+            if pr_num is not None:
+                if target == "ci_status":
+                    status, summary, should_wake = await _check_github_ci_poll(
+                        ctx, git_bundle, repo, pr_num
+                    )
+                elif target == "review":
+                    status, summary, should_wake = await _check_github_review_poll(
+                        ctx, git_bundle, repo, pr_num
+                    )
+                else:
+                    status, summary, should_wake = "", "", False
+
+                if should_wake:
+                    for w in matching:
+                        await store.record_delivery(
+                            w, {"status": status, "summary": summary}, woke=True, finished=True
+                        )
+                    await ctx.req.event_bus.publish(
+                        SessionEvent(
+                            session_id=ctx.session_id,
+                            event_type=EventType.WAIT_COMPLETED,
+                            payload={
+                                "wait_id": f"poll_{uuid.uuid4().hex[:8]}",
+                                "wait_type": target,
+                                "target": identifier,
+                                "status": status,
+                                "summary": summary,
+                            },
+                        )
+                    )
+                    from api.turns.tasks import _spawn_background_turn
+
+                    _spawn_background_turn(
+                        session_id=ctx.session_id,
+                        prompt=(
+                            f"{target} update for {identifier}: {summary} "
+                            "Proceed with the next steps."
+                        ),
+                        orchestrator=ctx.req.orchestrator,
+                        event_bus=ctx.req.event_bus,
+                        driver=ctx.req.driver,
+                        registry=ctx.req.registry,
+                        store=ctx.req.store,
+                        model=ctx.effective_model,
+                        git_engine=ctx.req.git_engine,
+                        db_mgr=ctx.req.db_mgr,
+                        concurrency_gate=ctx.req.concurrency_gate,
+                        session_locks=ctx.req.session_locks,
+                        synthetic_prompt=True,
+                    )
+                    return
+
         from api.turns.tasks import _spawn_background_turn
 
+        store = GithubWatchStore(ctx.req.db_mgr)
+        watches = await store.for_session(ctx.session.tenant_org_id, ctx.session_id)
+        matching = [w for w in watches if w.target == identifier and w.active]
+        for w in matching:
+            await store.record_delivery(
+                w,
+                {"status": "timeout", "summary": f"Wait timeout of {int(max_wait)}s expired"},
+                woke=True,
+                finished=True,
+            )
+        await ctx.req.event_bus.publish(
+            SessionEvent(
+                session_id=ctx.session_id,
+                event_type=EventType.WAIT_COMPLETED,
+                payload={
+                    "wait_id": f"timeout_{uuid.uuid4().hex[:8]}",
+                    "wait_type": target,
+                    "target": identifier,
+                    "status": "timeout",
+                    "summary": f"Wait timeout of {int(max_wait)}s expired for {target} on {identifier}.",
+                },
+            )
+        )
         _spawn_background_turn(
             session_id=ctx.session_id,
             prompt=(
@@ -151,9 +316,11 @@ def _build_wait_for(
     event_bus: Any,
     github_watch: Any,
     ctx: TurnContext | None = None,
+    git_bundle: GitCredentialBundle | None = None,
 ) -> Callable[[str, str, int | None], Awaitable[str]]:
     async def wait_for(target: str, identifier: str, timeout_seconds: int | None) -> str:
         wait_id = f"wait_{uuid.uuid4().hex[:12]}"
+        reason = f"{target} on {identifier}"
         await event_bus.publish(
             SessionEvent(
                 session_id=session_id,
@@ -163,9 +330,14 @@ def _build_wait_for(
                     "wait_type": target,
                     "target": identifier,
                     "timeout_seconds": timeout_seconds,
+                    "reason": reason,
                 },
             )
         )
+        if ctx is not None:
+            ctx.state.is_waiting = True
+            ctx.state.wait_target = reason
+            ctx.state.wait_summary = f"Waiting for {reason}. Durable wait registered; turn paused."
         if target in ("ci_status", "review"):
             parts = identifier.split("#")
             repo = parts[0].strip()
@@ -175,7 +347,9 @@ def _build_wait_for(
             branch = ctx.session.git_branch if ctx is not None else None
             await github_watch(repo, pr_num, branch=branch, wake=True)
             if ctx is not None:
-                _schedule_github_wake(ctx, target, identifier, timeout_seconds)
+                _schedule_github_wake(
+                    ctx, target, identifier, timeout_seconds, git_bundle=git_bundle
+                )
             effective_timeout = timeout_seconds or 1800
             return (
                 f"Waiting for {target} on {identifier} (timeout: {effective_timeout}s). Turn paused; "
@@ -283,7 +457,9 @@ async def build_turn_callbacks(
             keepalive_seconds=float(sandbox_settings["process_keepalive_minutes"]) * 60,
         )
 
-    wait_for = _build_wait_for(ctx.session_id, event_bus, github_watch, ctx=ctx)
+    wait_for = _build_wait_for(
+        ctx.session_id, event_bus, github_watch, ctx=ctx, git_bundle=git_bundle
+    )
     # (`bind_context_memory_callbacks` in main.py); it resolves the tenant from the turn's
     # execution context, so every path (web, Slack, webhooks) shares it.
     return TurnCallbacks(

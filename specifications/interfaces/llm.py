@@ -180,6 +180,7 @@ class ChatMessage:
     agent_id: str | None = None
     agent_name: str | None = None
     model: str | None = None
+    created_at: int = field(default_factory=lambda: int(time.time()))
 
 
 @dataclass

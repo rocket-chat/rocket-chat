@@ -123,6 +123,8 @@ class TurnEventHandlers:
         self.ctx = ctx
         self._coalescer = TokenCoalescer(self._publish)
         self._intervening_tool_called = False
+        self._step_text_parts: list[str] = []
+        self._tool_prefaces: list[str] = []
         self._handlers: dict[str, Handler] = {
             "model_usage": self._model_usage,
             "thought": self._thought,
@@ -152,8 +154,21 @@ class TurnEventHandlers:
         if handler is not None:
             await handler(event)
 
+    def _commit_step_text(self) -> None:
+        if self._step_text_parts:
+            text = "".join(self._step_text_parts)
+            if text.strip():
+                state = self.ctx.state
+                if state.assistant_parts:
+                    last = state.assistant_parts[-1]
+                    separator = "\n" if last.endswith("\n") else "\n\n"
+                    state.assistant_parts.append(separator)
+                state.assistant_parts.append(text)
+            self._step_text_parts.clear()
+
     async def flush(self) -> None:
         await self._coalescer.flush()
+        self._commit_step_text()
 
     # -- helpers ------------------------------------------------------------------------
 
@@ -191,13 +206,7 @@ class TurnEventHandlers:
         if not is_reasoning:
             if state.first_token_at is None and delta:
                 state.first_token_at = time.monotonic()
-            if self._intervening_tool_called and state.assistant_parts and delta.strip():
-                last = state.assistant_parts[-1]
-                if not last.endswith("\n\n"):
-                    separator = "\n" if last.endswith("\n") else "\n\n"
-                    state.assistant_parts.append(separator)
-                self._intervening_tool_called = False
-            state.assistant_parts.append(delta)
+            self._step_text_parts.append(delta)
         else:
             state.reasoning_parts.append(delta)
         event_type = EventType.REASONING_TOKEN if is_reasoning else EventType.TOKEN
@@ -206,6 +215,9 @@ class TurnEventHandlers:
 
     async def _tool_call(self, event: AgentEvent) -> None:
         self._intervening_tool_called = True
+        if self._step_text_parts:
+            self._tool_prefaces.append("".join(self._step_text_parts))
+            self._step_text_parts.clear()
         raw_args = event.payload.get("arguments", "{}")
         ctx = self.ctx
         if isinstance(raw_args, str) and ctx.redactor:
@@ -360,7 +372,10 @@ class TurnEventHandlers:
     async def _status(self, event: AgentEvent) -> None:
         if event.payload.get("discard_partial"):
             self.ctx.state.assistant_parts.clear()
+            self._step_text_parts.clear()
             self.ctx.state.first_token_at = None
+        if event.payload.get("status") in ("completed", "waiting"):
+            self._commit_step_text()
         if event.payload.get("status") == "error":
             self.ctx.state.orchestrator_error = str(event.payload.get("error") or "The turn failed")
         if event.payload.get("status") == "waiting":

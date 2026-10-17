@@ -153,6 +153,13 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                       <span className="ml-2 text-neutral-500" title={entry.reasoning.trim()}>{firstLine(entry.reasoning)}</span>
                     </>
                   }
+                  meta={
+                    entry.timestamp ? (
+                      <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">
+                        {entry.timestamp}
+                      </span>
+                    ) : undefined
+                  }
                 >
                   <div className="text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
                     <MarkdownRenderer content={entry.reasoning} />
@@ -165,6 +172,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                   call={entry.toolCall}
                   recordedDiff={fileDiffs.find((diff) => diff.path === describeToolCall(entry.toolCall!).path)}
                   onOpenInInspector={() => openInInspector(describeToolCall(entry.toolCall!).path)}
+                  timestamp={entry.timestamp}
                 />
               )}
 
@@ -188,7 +196,16 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                       <span className="ml-2 text-neutral-500" title={entry.subagent.task}>{entry.subagent.task}</span>
                     </>
                   }
-                  meta={entry.subagent.duration_ms ? <span>{(entry.subagent.duration_ms / 1000).toFixed(1)}s</span> : undefined}
+                  meta={
+                    <>
+                      {entry.subagent.duration_ms ? <span>{(entry.subagent.duration_ms / 1000).toFixed(1)}s</span> : null}
+                      {entry.timestamp ? (
+                        <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">
+                          {entry.timestamp}
+                        </span>
+                      ) : null}
+                    </>
+                  }
                 >
                   <SubagentExecutionCard subagent={entry.subagent} />
                 </StepRow>
@@ -205,7 +222,8 @@ const ToolRow: React.FC<{
   call: NonNullable<FlightLogEntry["toolCall"]>;
   recordedDiff?: React.ComponentProps<typeof ToolExecutionCard>["recordedDiff"];
   onOpenInInspector: () => void;
-}> = ({ call, recordedDiff, onOpenInInspector }) => {
+  timestamp?: string;
+}> = ({ call, recordedDiff, onOpenInInspector, timestamp }) => {
   const step = describeToolCall(call);
   const Icon = KIND_ICON[step.kind];
   const failed = isFailed(call);
@@ -235,6 +253,11 @@ const ToolRow: React.FC<{
         <>
           {counts && <DiffChips additions={counts.additions} deletions={counts.deletions} />}
           {failed && <span className="text-diff-del">failed</span>}
+          {timestamp && (
+            <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">
+              {timestamp}
+            </span>
+          )}
         </>
       }
     >

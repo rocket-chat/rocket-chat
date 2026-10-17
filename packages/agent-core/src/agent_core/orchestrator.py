@@ -1446,14 +1446,21 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                     reasoning_blocks=reply.reasoning_blocks or None,
                 )
             )
-            # Once per turn: a second reminder would loop a model that cannot finish the list.
-            if not run.checklist_reminded and (reminder := unfinished_notice(run.conversation)):
+            # Once per turn: ask the model to reconcile unfinished items or verify edits,
+            # but never reject on the final step so the substantive answer is never lost to budget exhaustion.
+            if (
+                not run.checklist_reminded
+                and step < run.turn_limit - 1
+                and (reminder := unfinished_notice(run.conversation))
+            ):
                 run.checklist_reminded = True
                 run.next_notes.append(reminder)
                 await self._flush_transcript(run.session_id, run.org_id, run.conversation)
                 return False
-            if not run.verification_reminded and (
-                reminder := verification_gate_notice(run.conversation)
+            if (
+                not run.verification_reminded
+                and step < run.turn_limit - 1
+                and (reminder := verification_gate_notice(run.conversation))
             ):
                 run.verification_reminded = True
                 run.next_notes.append(reminder)

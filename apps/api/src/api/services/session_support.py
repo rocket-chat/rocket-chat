@@ -108,6 +108,7 @@ def _to_response(s: SessionRecord) -> SessionResponse:
             "agent_id": getattr(m, "agent_id", None),
             "agent_name": getattr(m, "agent_name", None),
             "model": getattr(m, "model", None),
+            "created_at": getattr(m, "created_at", None),
         }
         for m in (s.conversation_history or [])
     ]

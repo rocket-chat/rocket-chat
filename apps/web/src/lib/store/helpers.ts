@@ -68,6 +68,14 @@ export function matchesPendingEcho(
   return true;
 }
 
+function formatTimestamp(ts?: number | string | null): string {
+  if (!ts) return "";
+  const num = typeof ts === "string" ? parseInt(ts, 10) : ts;
+  if (!num || isNaN(num)) return "";
+  const ms = num < 1e11 ? num * 1000 : num;
+  return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
 export function convertHistoryToFlightLogs(
   history: NonNullable<SessionData["conversation_history"]>,
   sessionId: string
@@ -77,13 +85,14 @@ export function convertHistoryToFlightLogs(
   let answeredBy: TurnBinding | null = null;
   history.forEach((m, idx) => {
     const roleUpper = m.role.toUpperCase();
+    const timestamp = formatTimestamp(m.created_at);
     if (roleUpper === "USER") {
       answeredBy = m.model ? { agentName: m.agent_name || "", model: m.model } : null;
       logs.push({
         id: `msg-${sessionId}-${idx}-user`,
         role: "USER",
         content: m.content,
-        timestamp: "",
+        timestamp,
         isPersisted: true,
         authorUserId: m.author_user_id ?? null,
       });
@@ -92,7 +101,7 @@ export function convertHistoryToFlightLogs(
         id: `msg-${sessionId}-${idx}-sys`,
         role: "SYSTEM",
         content: m.content,
-        timestamp: "",
+        timestamp,
       });
     } else {
       if (m.reasoning) {
@@ -101,7 +110,7 @@ export function convertHistoryToFlightLogs(
           role: "AGENT",
           content: "",
           reasoning: m.reasoning,
-          timestamp: "",
+          timestamp,
           isPersisted: true,
         });
       }
@@ -112,7 +121,7 @@ export function convertHistoryToFlightLogs(
             role: "AGENT",
             content: `Executing tool: ${tc.name}`,
             toolCall: tc,
-            timestamp: "",
+            timestamp,
           });
         });
       }
@@ -121,7 +130,7 @@ export function convertHistoryToFlightLogs(
           id: `msg-${sessionId}-${idx}-ans`,
           role: "AGENT",
           content: m.content,
-          timestamp: "",
+          timestamp,
           isPersisted: true,
           answeredBy,
         });

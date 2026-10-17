@@ -22,6 +22,7 @@ import {
   Copy,
   FileText,
   GitFork,
+  GitPullRequest,
   Info,
   RefreshCw,
   Search,
@@ -174,11 +175,29 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     }
   };
 
-  for (const entry of flightLog) {
+  for (let i = 0; i < flightLog.length; i++) {
+    const entry = flightLog[i];
     if (entry.role === "USER") {
       flushGroup();
       rawStreamItems.push({ type: "user", entry });
     } else if (entry.role === "SYSTEM") {
+      const lower = (entry.content || "").toLowerCase();
+      const isWait =
+        lower.includes("waiting for") ||
+        lower.includes("wait started") ||
+        lower.includes("durable wait");
+      // If a wait entry precedes an adjacent wait_for tool call, group the tool call first
+      if (
+        isWait &&
+        i + 1 < flightLog.length &&
+        flightLog[i + 1].toolCall?.name === "wait_for"
+      ) {
+        currentGroupEntries.push(flightLog[i + 1]);
+        flushGroup();
+        rawStreamItems.push({ type: "system", entry });
+        i++;
+        continue;
+      }
       flushGroup();
       rawStreamItems.push({ type: "system", entry });
     } else {
@@ -337,17 +356,33 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
 
       // Durable Wait Card
       if (lower.includes("waiting for") || lower.includes("wait started") || lower.includes("durable wait")) {
+        const isCi = lower.includes("ci_status") || lower.includes("check") || lower.includes("ci ");
+        const isReview = lower.includes("review");
         return (
           <div key={item.entry.id} data-testid="waiting-card" className="flex justify-center my-3">
-            <div className="w-full max-w-xl rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5 space-y-2 text-foreground">
+            <div className="w-full max-w-xl rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5 space-y-2 text-foreground shadow-sm">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-amber-400" />
+                  {isCi ? (
+                    <GitPullRequest className="w-4 h-4 text-amber-400 shrink-0" />
+                  ) : (
+                    <Clock className="w-4 h-4 text-amber-400 shrink-0" />
+                  )}
                   <span className="font-semibold text-xs text-amber-300 uppercase tracking-wide">
-                    Durable Wait
+                    {isCi ? "CI Status Gate" : isReview ? "PR Review Gate" : "Durable Wait"}
                   </span>
                 </div>
-                <span className="text-[10px] font-mono text-amber-400/80">Paused</span>
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-mono font-medium text-amber-300 border border-amber-500/30">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                    Waiting for external event
+                  </span>
+                  {item.entry.timestamp && (
+                    <span suppressHydrationWarning className="text-[10px] font-mono text-neutral-500/70">
+                      {item.entry.timestamp}
+                    </span>
+                  )}
+                </div>
               </div>
               <div className="text-xs text-neutral-300 leading-relaxed font-sans">
                 <MarkdownRenderer content={content} />
@@ -430,12 +465,13 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
                 binding={item.entry.answeredBy ?? (item.entry.isPersisted ? null : turnBinding)}
               />
             </span>
-            <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+            <div className="flex items-center gap-2">
               {item.entry.timestamp && (
-                <span suppressHydrationWarning className="mr-1 text-[11px] text-neutral-500">
+                <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">
                   {item.entry.timestamp}
                 </span>
               )}
+              <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
               <button
                 type="button"
                 aria-label="Copy answer"
@@ -463,6 +499,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
               </button>
             </div>
           </div>
+        </div>
 
           <div className="font-sans text-[14.5px] leading-relaxed text-foreground">
             <MarkdownRenderer content={item.entry.content} />

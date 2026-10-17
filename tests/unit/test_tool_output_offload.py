@@ -95,3 +95,31 @@ async def test_tier1_mcp_output_offloaded_without_sandbox_and_read_back() -> Non
     assert "[lines 50-60 of 300]" in content
     assert "Item 049:" in content
     assert "Item 059:" in content
+
+
+@pytest.mark.asyncio
+async def test_cached_offload_file_read_skips_ensure_sandbox() -> None:
+    from unittest.mock import AsyncMock
+
+    from agent_core.tools.builtin.files import register
+    from agent_core.tools.registry import ToolRegistry
+
+    lines = [f"Data line {i}" for i in range(100)]
+    await offload_tool_output(
+        "\n".join(lines),
+        session_id="s_fast",
+        call_id="call_fast",
+        threshold=200,
+        driver=None,
+        turn_index=1,
+    )
+    registry = ToolRegistry(driver=AsyncMock(), session_id="s_fast")
+    registry._ensure_sandbox = AsyncMock()
+    register(registry)
+
+    content = await registry.call_tool(
+        "file_read",
+        {"path": "/workspace/.rocket/outputs/1_call_fast.txt", "start_line": 1, "end_line": 5},
+    )
+    assert "Data line 0" in content
+    registry._ensure_sandbox.assert_not_called()

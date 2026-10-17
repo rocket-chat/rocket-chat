@@ -230,6 +230,7 @@ class WaitStartedPayload(TypedDict):
     wait_type: str
     target: str
     timeout_seconds: NotRequired[int | None]
+    reason: NotRequired[str | None]
 
 
 class WaitCompletedPayload(TypedDict):
@@ -237,6 +238,7 @@ class WaitCompletedPayload(TypedDict):
     wait_type: str
     target: str
     status: str
+    summary: NotRequired[str | None]
     payload: NotRequired[dict[str, Any]]
 
 

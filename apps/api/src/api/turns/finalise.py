@@ -55,6 +55,16 @@ async def record_answer(ctx: TurnContext) -> str:
                 tool_calls=state.executed_tools or None,
             )
         )
+        if getattr(state, "is_waiting", False):
+            wait_msg = getattr(state, "wait_summary", None) or (
+                f"Waiting for {getattr(state, 'wait_target', 'external event')}. Durable wait registered; turn paused."
+            )
+            record.conversation_history.append(
+                ChatMessage(
+                    role="system",
+                    content=wait_msg,
+                )
+            )
 
     # Atomic: the title task writes the same record while the turn is finishing.
     await req.store.mutate_session(ctx.session_id, ctx.session.tenant_org_id, append_answer)

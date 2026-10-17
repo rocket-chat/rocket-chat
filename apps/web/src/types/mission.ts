@@ -162,6 +162,7 @@ export interface SessionData {
     agent_id?: string | null;
     agent_name?: string | null;
     model?: string | null;
+    created_at?: number | string | null;
   }>;
   collaborators?: string[];
   checklist?: ChecklistTask[];
