@@ -7,7 +7,7 @@ import posixpath
 import shlex
 from collections.abc import Awaitable, Callable
 from fnmatch import fnmatch
-from typing import Any, ClassVar
+from typing import Any, ClassVar, cast
 
 from fastmcp import FastMCP
 from fastmcp.tools.function_tool import FunctionTool
@@ -333,10 +333,15 @@ class ToolRegistry:
     def _register_tools(self) -> None:
         register_all(self)
 
-    async def _github_access(self) -> GithubAccess:
+    async def _github_access(self, repository: str | None = None) -> GithubAccess:
         """The credential for this turn's read-only GitHub tools (public access without one)."""
         provider = self._turn_callback("github_access")
-        return await provider() if provider else GithubAccess(token=None)
+        if not provider:
+            return GithubAccess(token=None)
+        try:
+            return cast(GithubAccess, await provider(repository))
+        except TypeError:
+            return cast(GithubAccess, await provider())
 
     @staticmethod
     def _git_policy() -> GitPolicy:

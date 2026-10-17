@@ -198,14 +198,6 @@ async def build_turn_callbacks(
                 allowed_kb_ids=binding.knowledge_base_ids,
             )
 
-    async def github_access() -> GithubAccess:
-        return GithubAccess(
-            token=git_bundle.token,
-            api_url=req.git_engine.settings.github_api_url
-            if req.git_engine
-            else "https://api.github.com",
-        )
-
     async def execute_skill(skill_name: str, args: dict[str, Any]) -> str:
         skill = await _find_visible_skill(
             db_mgr,
@@ -249,7 +241,7 @@ async def build_turn_callbacks(
         kb_search=kb_search,
         execute_skill=execute_skill,
         external_tools=mcp_tools,
-        github_access=github_access,
+        github_access=_github_read_access(ctx, git_bundle),
         github_write_access=_github_write_access(ctx, git_bundle),
         github_watch=github_watch,
         github_unwatch=github_unwatch,
@@ -308,6 +300,59 @@ def _session_record_callbacks(ctx: TurnContext) -> _SessionRecordCallbacks:
         active_repository_chosen=active_repository_chosen if driver else None,
         tools_loaded=tools_loaded,
     )
+
+
+def _github_read_access(
+    ctx: TurnContext, git_bundle: GitCredentialBundle
+) -> Callable[..., Awaitable[GithubAccess]]:
+    """Credential for read-only GitHub tools. Uses member token if linked, else dynamically
+    resolves an App installation token for the requested repository or organization."""
+    engine, api_url = ctx.req.git_engine, github_api_url_of(ctx.req.git_engine)
+    member = git_bundle.user_token
+    login = str(git_bundle.source_details.get("username") or "")
+    as_member = GithubAccess(
+        member, api_url, f"@{login}" if login else "your linked GitHub account"
+    )
+    app_actor = "the organization's GitHub App"
+    bundle_actor = (
+        app_actor
+        if git_bundle.mode == "app"
+        else (as_member.actor if git_bundle.mode == "member" else "")
+    )
+
+    async def access(repository: str | None = None) -> GithubAccess:
+        if member:
+            return as_member
+        org = ctx.session.tenant_org_id
+        if engine is not None:
+            clean = (
+                (repository or "")
+                .strip()
+                .removeprefix("https://github.com/")
+                .removesuffix(".git")
+                .strip("/")
+            )
+            github_settings = await effective_settings(ctx.req.db_mgr, org, "github")
+            if not clean or app_may_act_on(github_settings, clean):
+                mapped = await installations_for_org(ctx.req.db_mgr, org)
+                inst_id = pick_installation(
+                    [(i.installation_id, i.account_login) for i in mapped], clean or None
+                )
+                if inst_id is not None:
+                    repos = [clean.rsplit("/", 1)[-1]] if "/" in clean else None
+                    token = await engine.get_github_access_token(
+                        repo=clean or None,
+                        repositories=repos,
+                        installation_id=inst_id,
+                        inherit_permissions=True,
+                    )
+                    if token:
+                        return GithubAccess(token, api_url, app_actor)
+        if git_bundle.token:
+            return GithubAccess(git_bundle.token, api_url, bundle_actor)
+        return GithubAccess(None, api_url, "")
+
+    return access
 
 
 def _github_write_access(

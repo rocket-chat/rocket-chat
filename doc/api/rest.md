@@ -121,6 +121,7 @@ persona carries the stored id, which can differ from the proposed one.
 | max_turns | integer | no | Maximum reasoning steps per turn for this agent; empty inherits the organization's limit, and a value above it is refused |
 | tool_loading | `all` / `on_demand` / `auto` | no | Which allowed tools every step carries: all, on_demand (the platform's tools and active_tools; the others are loaded when needed) or auto; empty inherits the organization's setting |
 | active_tools | list of string | no | Tools always loaded, by name or pattern (mcp__signoz*__*search*); with on_demand, only these and the loading tools are, when set |
+| default_permission_mode | string | no | Default permission mode ('plan', 'ask', 'auto_edit', 'auto', 'bypass'); empty inherits |
 
 **Responses:** `200`
 

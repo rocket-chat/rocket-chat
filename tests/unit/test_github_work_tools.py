@@ -372,3 +372,46 @@ async def test_a_pull_request_is_viewed_with_the_pull_request_permission_alone(
     assert viewed.startswith("#7 [open] Expected errors (feat/x -> main; by octocat)")
     assert "3 files, +40 -2" in viewed and "Treats 4xx as expected." in viewed
     assert "Comments not shown" in viewed and "Error" not in viewed
+
+
+async def test_read_tools_pass_repository_to_github_access(github: FakeGitHub) -> None:
+    requested_repos: list[str | None] = []
+
+    async def read(repository: str | None = None) -> GithubAccess:
+        requested_repos.append(repository)
+        return GithubAccess(READ, actor="the organization's GitHub App")
+
+    ctx = ExecutionContext(
+        session_id="s2",
+        event_queue=asyncio.Queue(),
+        parent_model="m",
+        callbacks=TurnCallbacks(github_access=read, approval=_approve),
+    )
+    token = current_execution_ctx.set(ctx)
+    try:
+        reg = ToolRegistry()
+        await reg.call_tool(
+            "github_pull_request",
+            {"repository": "acme/app", "action": "checks", "number": 7},
+        )
+        assert requested_repos == ["acme/app"]
+    finally:
+        current_execution_ctx.reset(token)
+
+
+async def test_read_tool_forbidden_reports_actor(
+    registry: ToolRegistry, github: FakeGitHub
+) -> None:
+    def route(method: str, path: str, params: dict[str, str], body: Any) -> httpx.Response:
+        if "check-runs" in path:
+            return httpx.Response(403, json={"message": "Resource not accessible by integration"})
+        if path == "/repos/acme/app/pulls/7":
+            return httpx.Response(200, json={"head": {"sha": "abc12345"}})
+        return httpx.Response(404, json={"message": "Not Found"})
+
+    github.route = route  # type: ignore[method-assign]
+    result = await registry.call_tool(
+        "github_pull_request", {"repository": "acme/app", "action": "checks", "number": 7}
+    )
+    assert "the App (read)" in result
+    assert "the credential is missing or not allowed to do this" in result

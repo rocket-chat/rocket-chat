@@ -44,6 +44,18 @@
             "title": "Customized",
             "type": "boolean"
           },
+          "default_permission_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Default permission mode ('plan', 'ask', 'auto_edit', 'auto', 'bypass'); empty inherits",
+            "title": "Default Permission Mode"
+          },
           "description": {
             "default": "",
             "description": "Detailed persona description",
