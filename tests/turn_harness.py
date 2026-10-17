@@ -16,6 +16,7 @@ from agent_core.orchestrator import AsyncReActOrchestrator
 from agent_core.tools.registry import ToolRegistry
 from api.db.session import current_tenant_org_id
 from api.events import AsyncIOEventBus
+from api.services.compaction import InMemoryCompactionStore
 from api.services.transcript import InMemoryTranscriptStore
 from api.store import InMemorySessionStore
 from api.turns.context import TurnSelection
@@ -39,6 +40,21 @@ class ScriptedModel(LLMGatewayProtocol):
     # provider streams them) before the script starts.
     leaks: list[str] = field(default_factory=list)
     leaked: int = 0
+    steps: list[Any] = field(default_factory=list)
+    step_index: int = 0
+
+    @property
+    def last_request(self) -> Any:
+        return self.requests[-1] if self.requests else None
+
+    def request_notes(self, index: int = -1) -> str:
+        if not self.requests or abs(index) > len(self.requests):
+            return ""
+        req = self.requests[index]
+        if not getattr(req, "messages", None):
+            return ""
+        last = req.messages[-1]
+        return (last.content or "") if last.role == "user" else ""
 
     async def chat_stream(self, request: Any) -> AsyncIterator[StreamChunk]:
         self.requests.append(request)
@@ -49,6 +65,57 @@ class ScriptedModel(LLMGatewayProtocol):
             for start in range(0, len(text), 5):
                 yield StreamChunk(text_delta=text[start : start + 5])
             return
+
+        if self.steps and self.step_index < len(self.steps):
+            step = self.steps[self.step_index]
+            self.step_index += 1
+            if isinstance(step, tuple):
+                kind = step[0]
+                if kind == "call":
+                    name = step[1]
+                    arguments = step[2]
+                    usage = step[3] if len(step) > 3 else None
+                    yield StreamChunk(
+                        tool_call_delta={
+                            "index": 0,
+                            "id": f"call_{self.step_index}",
+                            "function": {
+                                "name": name,
+                                "arguments": json.dumps(arguments)
+                                if isinstance(arguments, dict)
+                                else str(arguments),
+                            },
+                        }
+                    )
+                    yield StreamChunk(
+                        is_finished=True, finish_reason="tool_calls", token_usage=usage
+                    )
+                    return
+                if kind == "think":
+                    finish_reason = step[1]
+                    reasoning_text = (
+                        step[2] if len(step) > 2 else "Analyzing deep reasoning trace... " * 20
+                    )
+                    usage = step[3] if len(step) > 3 else None
+                    yield StreamChunk(reasoning_delta=reasoning_text)
+                    yield StreamChunk(
+                        is_finished=True, finish_reason=finish_reason, token_usage=usage
+                    )
+                    return
+                if kind == "say":
+                    text = step[1]
+                    usage = step[2] if len(step) > 2 else None
+                    yield StreamChunk(text_delta=text)
+                    yield StreamChunk(is_finished=True, finish_reason="stop", token_usage=usage)
+                    return
+                if kind == "empty":
+                    finish_reason = step[1]
+                    usage = step[2] if len(step) > 2 else None
+                    yield StreamChunk(
+                        is_finished=True, finish_reason=finish_reason, token_usage=usage
+                    )
+                    return
+
         if request.tools and self.issued < len(self.script):
             name, arguments = self.script[self.issued]
             self.issued += 1
@@ -76,6 +143,13 @@ class TurnOutcome:
     model: ScriptedModel
     driver: FakeSandboxDriver
 
+    @property
+    def last_request(self) -> Any:
+        return self.model.last_request
+
+    def request_notes(self, index: int = -1) -> str:
+        return self.model.request_notes(index)
+
     def events_of(self, event_type: str) -> list[Any]:
         return [e for e in self.events if e.event_type.value == event_type]
 
@@ -87,6 +161,7 @@ async def run_turn(
     org: str,
     *,
     script: list[tuple[str, dict[str, Any]]] | None = None,
+    steps: list[Any] | None = None,
     prompt: str = "Please go ahead.",
     metadata: dict[str, Any] | None = None,
     driver: FakeSandboxDriver | None = None,
@@ -97,31 +172,42 @@ async def run_turn(
     store: InMemorySessionStore | None = None,
     selection: TurnSelection | None = None,
     model_choice: str | None = None,
+    synthetic_prompt: bool = False,
+    transcript_store: Any = None,
+    compaction_store: Any = None,
 ) -> TurnOutcome:
     """Run a web-cockpit style turn for ``org`` and return what happened."""
     session_id = f"session_{org}"
     store, bus = store or InMemorySessionStore(), AsyncIOEventBus()
     driver = driver or FakeSandboxDriver()
-    model = ScriptedModel(script=script or [], final_text=final_text, leaks=leaks or [])
+    model = ScriptedModel(
+        script=script or [],
+        steps=steps or [],
+        final_text=final_text,
+        leaks=leaks or [],
+    )
     registry = ToolRegistry(driver=driver, session_id=session_id)
     if git_engine is not None:
         registry.bind_git_engine(git_engine)
     orchestrator = AsyncReActOrchestrator(
-        gateway=model, registry=registry, transcript_store=InMemoryTranscriptStore()
+        gateway=model,
+        registry=registry,
+        transcript_store=transcript_store or InMemoryTranscriptStore(),
+        compaction_store=compaction_store or InMemoryCompactionStore(),
     )
-    # A second turn on the same store continues the session instead of starting it over.
-    if await store.get_session(session_id) is None:
-        await store.create_session(
-            SessionRecord(
-                session_id=session_id,
-                tenant_org_id=org,
-                tenant_user_id=user,
-                title="harness",
-                metadata=metadata or {},
-            )
-        )
     token = current_tenant_org_id.set(org)
     try:
+        # A second turn on the same store continues the session instead of starting it over.
+        if await store.get_session(session_id) is None:
+            await store.create_session(
+                SessionRecord(
+                    session_id=session_id,
+                    tenant_org_id=org,
+                    tenant_user_id=user,
+                    title="harness",
+                    metadata=metadata or {},
+                )
+            )
         await execute_turn_background(
             session_id=session_id,
             prompt=prompt,
@@ -133,10 +219,11 @@ async def run_turn(
             git_engine=git_engine,
             selection=selection,
             model=model_choice,
+            synthetic_prompt=synthetic_prompt,
         )
+        events, _ = bus.replay_since(session_id, 0)
+        record = await store.get_session(session_id)
+        assert record is not None
+        return TurnOutcome(session=record, events=events, model=model, driver=driver)
     finally:
         current_tenant_org_id.reset(token)
-    events, _ = bus.replay_since(session_id, 0)
-    record = await store.get_session(session_id)
-    assert record is not None
-    return TurnOutcome(session=record, events=events, model=model, driver=driver)

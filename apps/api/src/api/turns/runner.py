@@ -8,6 +8,7 @@ live in their own modules.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import replace
 from typing import Any
@@ -42,7 +43,10 @@ from api.services.session_support import (
 from api.services.settings import effective_settings, load_org_config
 from api.services.title import TITLE_SOURCE_AUTO
 from api.services.tool_loading import loaded_tools_of
+from api.services.turn_resume import RESUME_NOTICE
 from api.services.turn_trace import (
+    LEASE_HEARTBEAT_SECONDS,
+    LEASE_TTL_SECONDS,
     TurnTraceAccumulator,
     begin_turn_trace,
     user_turn_index,
@@ -50,6 +54,7 @@ from api.services.turn_trace import (
 from api.telemetry import traced_turn
 from api.turns.callbacks import build_turn_callbacks
 from api.turns.context import TurnContext, TurnRequest, TurnSelection, TurnState
+from api.turns.continuation import check_and_schedule_continuation
 from api.turns.events import TurnEventHandlers
 from api.turns.finalise import housekeeping, persist_trace, publish_followup, record_answer
 from api.turns.prompt import build_system_prompt
@@ -64,6 +69,7 @@ from specifications.interfaces.session import SessionRecord, SessionStoreProtoco
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER_TITLES = ("new session", "new chat", "mission", "")
+_active_running_turns: dict[str, dict[str, Any]] = {}
 
 
 class TurnRunner:
@@ -71,19 +77,127 @@ class TurnRunner:
         self.req = request
         self.state = TurnState()
         self._org_id: str | None = None
+        self._hold_task: asyncio.Task[None] | None = None
 
     async def run(self) -> None:
+        self._start_turn_hold()
         try:
             ctx = await self._prepare()
+            await self._restore_working_memory(ctx)
             await self._execute(ctx)
             answer = await record_answer(ctx)
-            await publish_followup(ctx, answer)
+            await self._backup_working_memory(ctx)
+            should_continue = await check_and_schedule_continuation(ctx)
+            if not should_continue:
+                await publish_followup(ctx, answer)
         except Exception as err:
             await self._fail(err)
         finally:
+            _active_running_turns.pop(self.req.session_id, None)
+            await self._stop_turn_hold()
             await self._cleanup()
 
+    def _start_turn_hold(self) -> None:
+        driver = self.req.driver
+        if driver is None or not hasattr(driver, "hold_awake"):
+            return
+        session_id = self.req.session_id
+
+        async def _beat_hold() -> None:
+            while True:
+                try:
+                    driver.hold_awake(
+                        session_id,
+                        seconds=LEASE_TTL_SECONDS * 2,
+                        reason="turn",
+                    )
+                    await asyncio.sleep(LEASE_HEARTBEAT_SECONDS)
+                except asyncio.CancelledError:
+                    break
+                except Exception:
+                    logger.exception("Failed to heartbeat turn hold for session %s", session_id)
+                    await asyncio.sleep(LEASE_HEARTBEAT_SECONDS)
+
+        self._hold_task = asyncio.create_task(_beat_hold())
+
+    async def _stop_turn_hold(self) -> None:
+        if self._hold_task is not None:
+            self._hold_task.cancel()
+            try:
+                await self._hold_task
+            except asyncio.CancelledError:
+                pass
+            self._hold_task = None
+        driver = self.req.driver
+        if driver is not None and hasattr(driver, "hold_awake"):
+            try:
+                driver.hold_awake(self.req.session_id, seconds=0, reason="turn")
+            except Exception:
+                logger.exception("Failed to release turn hold for session %s", self.req.session_id)
+
     # -- phase 1: everything resolved before the model is called ---------------------------
+
+    async def _restore_working_memory(self, ctx: TurnContext) -> None:
+        driver = self.req.driver
+        if driver is None or not hasattr(driver, "write_file"):
+            return
+        meta = ctx.session.metadata if isinstance(ctx.session.metadata, dict) else {}
+        session_id = self.req.session_id
+        if plan_md := meta.get("plan_md"):
+            try:
+                await driver.write_file(
+                    session_id, ".rocket/PLAN.md", str(plan_md), overwrite=False
+                )
+            except Exception:
+                pass
+        if progress_md := meta.get("progress_md"):
+            try:
+                await driver.write_file(
+                    session_id, ".rocket/PROGRESS.md", str(progress_md), overwrite=False
+                )
+            except Exception:
+                pass
+
+    async def _backup_working_memory(self, ctx: TurnContext) -> None:
+        driver = self.req.driver
+        if driver is None or not hasattr(driver, "read_file"):
+            return
+        session_id = self.req.session_id
+        active_repo = active_repository_of(ctx.session)
+        repo_slug = active_repo.rstrip("/").split("/")[-1] if active_repo else ""
+        plan_paths = (
+            [f"{repo_slug}/.rocket/PLAN.md", ".rocket/PLAN.md"]
+            if repo_slug
+            else [".rocket/PLAN.md"]
+        )
+        prog_paths = (
+            [f"{repo_slug}/.rocket/PROGRESS.md", ".rocket/PROGRESS.md"]
+            if repo_slug
+            else [".rocket/PROGRESS.md"]
+        )
+        updates: dict[str, str] = {}
+        for p in plan_paths:
+            try:
+                if plan := await driver.read_file(session_id, p):
+                    updates["plan_md"] = plan
+                    break
+            except Exception:
+                pass
+        for p in prog_paths:
+            try:
+                if prog := await driver.read_file(session_id, p):
+                    updates["progress_md"] = prog
+                    break
+            except Exception:
+                pass
+        if updates:
+            if isinstance(ctx.session.metadata, dict):
+                ctx.session.metadata.update(updates)
+            await self.req.store.mutate_session(
+                session_id,
+                ctx.session.tenant_org_id,
+                lambda rec: rec.metadata.update(updates),
+            )
 
     async def _prepare(self) -> TurnContext:
         req, state = self.req, self.state
@@ -177,8 +291,13 @@ class TurnRunner:
         req = self.req
         # A resumed turn continues the user's last instruction: the notice in `prompt` is for
         # the model only and must not appear as something the user said.
-        if req.resume_attempt or (
-            session.conversation_history and session.conversation_history[-1].content == req.prompt
+        if (
+            req.synthetic_prompt
+            or req.resume_attempt
+            or (
+                session.conversation_history
+                and session.conversation_history[-1].content == req.prompt
+            )
         ):
             return
         author = req.author_user_id or session.tenant_user_id
@@ -290,6 +409,14 @@ class TurnRunner:
             },
         )
 
+        _active_running_turns[req.session_id] = {
+            "turn_index": ctx.trace.turn_index,
+            "started_at": ctx.trace.started_at,
+            "model": ctx.effective_model,
+            "status": "running",
+            "steps": ctx.state.executed_tools,
+        }
+
         member_prefs = await effective_settings(
             req.db_mgr, session.tenant_org_id, "user_preferences", session.tenant_user_id
         )
@@ -310,32 +437,36 @@ class TurnRunner:
 
         overlay = req.overlay
         handlers = TurnEventHandlers(ctx)
-        async for event in _turn_service.stream_turn(
-            req.orchestrator,
-            ctx.binding,
-            req.session_id,
-            model_prompt,
-            system_prompt_parts=system_prompt,
-            tenant_org_id=session.tenant_org_id,
-            tenant_user_id=session.tenant_user_id,
-            attachments=attachments,
-            # Model data governance: the gateway applies zero-retention and
-            # regional routing for every request this turn (and its subagents) makes.
-            zero_retention=ctx.governance.model_data.zero_retention,
-            region=ctx.governance.model_data.region,
-            # Session-enabled toolsets (e.g. "slack") make their tools available for the whole
-            # session, on every turn - web included.
-            enabled_toolsets=self._toolsets(session),
-            policy=self._turn_policy(ctx, git_bundle),
-            denied_tools=overlay.denied_tools if overlay is not None else None,
-            whitelisted_tools=(
-                overlay.tool_scope(_restriction(ctx.binding.whitelisted_tools))
-                if overlay is not None and overlay.tool_scope is not None
-                else ...
-            ),
-            callbacks=await build_turn_callbacks(ctx, git_bundle, self.state.mcp_tools),
-        ):
-            await handlers.handle(event)
+        try:
+            async for event in _turn_service.stream_turn(
+                req.orchestrator,
+                ctx.binding,
+                req.session_id,
+                model_prompt,
+                system_prompt_parts=system_prompt,
+                tenant_org_id=session.tenant_org_id,
+                tenant_user_id=session.tenant_user_id,
+                attachments=attachments,
+                # Model data governance: the gateway applies zero-retention and
+                # regional routing for every request this turn (and its subagents) makes.
+                zero_retention=ctx.governance.model_data.zero_retention,
+                region=ctx.governance.model_data.region,
+                # Session-enabled toolsets (e.g. "slack") make their tools available for the whole
+                # session, on every turn - web included.
+                enabled_toolsets=self._toolsets(session),
+                policy=self._turn_policy(ctx, git_bundle),
+                denied_tools=overlay.denied_tools if overlay is not None else None,
+                whitelisted_tools=(
+                    overlay.tool_scope(_restriction(ctx.binding.whitelisted_tools))
+                    if overlay is not None and overlay.tool_scope is not None
+                    else ...
+                ),
+                callbacks=await build_turn_callbacks(ctx, git_bundle, self.state.mcp_tools),
+                synthetic_prompt=self.req.synthetic_prompt or bool(self.req.resume_attempt),
+            ):
+                await handlers.handle(event)
+        finally:
+            await handlers.flush()
 
     async def _auto_title(self, ctx: TurnContext) -> None:
         """Silently name a default-titled session after its first message."""
@@ -345,7 +476,13 @@ class TurnRunner:
             or session.title.startswith("Mission ")
             or session.title.strip().lower() in _PLACEHOLDER_TITLES
         )
-        if not is_default or len(session.conversation_history) > 1:
+        if (
+            not is_default
+            or len(session.conversation_history) > 1
+            or self.req.synthetic_prompt
+            or bool(self.req.resume_attempt)
+            or RESUME_NOTICE in self.req.prompt
+        ):
             return
         words = self.req.prompt.strip().replace("\n", " ").split()
         candidates = [w for w in words if len(w) > 1 and not w.startswith("/")][:5]
@@ -518,6 +655,9 @@ async def execute_turn_background(
     overlay: TurnOverlay | None = None,
     resume_attempt: int = 0,
     selection: TurnSelection | None = None,
+    synthetic_prompt: bool = False,
+    concurrency_gate: Any = None,
+    session_locks: Any = None,
 ) -> None:
     """Run one turn of ``session_id``; the entry point web, Slack, webhooks and missions share."""
     await TurnRunner(
@@ -539,6 +679,9 @@ async def execute_turn_background(
             overlay=overlay,
             resume_attempt=resume_attempt,
             selection=selection,
+            synthetic_prompt=synthetic_prompt or bool(resume_attempt),
+            concurrency_gate=concurrency_gate,
+            session_locks=session_locks,
         )
     ).run()
 

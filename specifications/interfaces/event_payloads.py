@@ -20,6 +20,16 @@ class TokenPayload(TypedDict):
     delta: str
 
 
+class RunningTurnPayload(TypedDict, total=False):
+    """Metadata and completed steps of a turn actively in flight."""
+
+    turn_index: int
+    started_at: int
+    model: NotRequired[str]
+    status: NotRequired[str]
+    steps: list[dict[str, Any]]
+
+
 class StatusPayload(TypedDict):
     """Progress of a turn. ``final`` marks the runner's closing event (answer stored)."""
 
@@ -38,6 +48,7 @@ class StatusPayload(TypedDict):
     agent_id: NotRequired[str]
     agent_name: NotRequired[str]
     model: NotRequired[str]
+    discard_partial: NotRequired[bool]
 
 
 class ToolStartedPayload(TypedDict):
@@ -141,6 +152,10 @@ class SubagentCompletedPayload(TypedDict):
     turns_taken: NotRequired[int]
     tool_calls_count: NotRequired[int]
     status: NotRequired[str]
+    tokens: NotRequired[int]
+    cost: NotRequired[float]
+    changed_files: NotRequired[list[str]]
+    artefacts: NotRequired[list[str]]
 
 
 class PostFailureSynthesisPayload(TypedDict):
@@ -185,6 +200,46 @@ class SandboxStatePayload(TypedDict, total=False):
     message: str
 
 
+class ContextCompactedPayload(TypedDict):
+    tokens_before: int
+    tokens_after: int
+    compacted_messages_count: int
+    summary: NotRequired[str | None]
+
+
+class GoalUpdatedPayload(TypedDict):
+    goal_id: str
+    description: str
+    status: str
+    consumed_tokens: int
+    consumed_cost_usd: float
+    continuation_count: int
+    max_continuations: int
+    stop_condition: NotRequired[str | None]
+
+
+class ContinuationScheduledPayload(TypedDict):
+    continuation_index: int
+    max_continuations: int
+    reason: str
+    goal_id: NotRequired[str | None]
+
+
+class WaitStartedPayload(TypedDict):
+    wait_id: str
+    wait_type: str
+    target: str
+    timeout_seconds: NotRequired[int | None]
+
+
+class WaitCompletedPayload(TypedDict):
+    wait_id: str
+    wait_type: str
+    target: str
+    status: str
+    payload: NotRequired[dict[str, Any]]
+
+
 PAYLOAD_TYPES: dict[EventType, Any] = {
     EventType.TOKEN: TokenPayload,
     EventType.REASONING_TOKEN: TokenPayload,
@@ -208,5 +263,10 @@ PAYLOAD_TYPES: dict[EventType, Any] = {
     EventType.PROCESS_STARTED: ProcessPayload,
     EventType.PROCESS_EXITED: ProcessPayload,
     EventType.GITHUB_EVENT: GithubEventPayload,
+    EventType.CONTEXT_COMPACTED: ContextCompactedPayload,
+    EventType.GOAL_UPDATED: GoalUpdatedPayload,
+    EventType.CONTINUATION_SCHEDULED: ContinuationScheduledPayload,
+    EventType.WAIT_STARTED: WaitStartedPayload,
+    EventType.WAIT_COMPLETED: WaitCompletedPayload,
     EventType.ERROR: ErrorPayload,
 }

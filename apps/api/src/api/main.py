@@ -52,6 +52,7 @@ from api.routers.skills import router as skills_router
 from api.routers.slack_admin import router as slack_admin_router
 from api.routers.slack_bots import router as slack_bots_router
 from api.routers.slack_status import router as slack_status_router
+from api.routers.subagents import router as subagents_router
 from api.routers.templates import router as templates_router
 from api.routers.terminal import router as terminal_router
 from api.routers.tools import router as tools_router
@@ -278,6 +279,7 @@ app.include_router(terminal_router)
 app.include_router(turns_router)
 app.include_router(slack_admin_router)
 app.include_router(slack_bots_router)
+app.include_router(subagents_router)
 app.include_router(workspace_router)
 app.include_router(webhooks_router, prefix="/v1")
 app.include_router(webhooks_router, prefix="/api/v1")

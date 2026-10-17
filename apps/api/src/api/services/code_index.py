@@ -126,10 +126,15 @@ class CodeIndex:
         self.byte_size += len(path.encode("utf-8")) + CHUNK_OVERHEAD_BYTES
 
     def search(
-        self, query_vector: Sequence[float], limit: int = 8
+        self, query_vector: Sequence[float], limit: int = 8, query_text: str | None = None
     ) -> list[tuple[float, CodeChunk]]:
-        """Return the ``limit`` most similar chunks by cosine similarity."""
+        """Return the ``limit`` most similar chunks by cosine similarity with symbol boosting."""
         scored = [(_cosine(query_vector, e.embedding), e.chunk) for e in self.entries]
+        if query_text:
+            for idx, (score, chunk) in enumerate(scored):
+                boost = _symbol_boost(chunk.text, query_text)
+                if boost > 0.0:
+                    scored[idx] = (min(1.0, score + boost), chunk)
         scored.sort(key=lambda item: item[0], reverse=True)
         return scored[: max(1, limit)]
 
@@ -242,6 +247,29 @@ async def build_code_index(
     return index
 
 
+SYMBOL_KEYWORDS = ("def", "class", "function", "type", "struct", "func", "interface", "fn")
+
+
+def _symbol_boost(chunk_text: str, query_text: str) -> float:
+    """Boost chunks that define matching functions, classes, or types (C5)."""
+    clean = query_text.strip().lower()
+    if not clean:
+        return 0.0
+    chunk_low = chunk_text.lower()
+    for line in chunk_low.splitlines():
+        stripped = line.strip()
+        for kw in SYMBOL_KEYWORDS:
+            if stripped.startswith(f"{kw} "):
+                defn = stripped[len(kw) + 1 :]
+                if clean in defn:
+                    exact = any(
+                        defn.startswith(f"{clean}{sep}")
+                        for sep in ("(", ":", " ", "<", "[", "{", "\n")
+                    )
+                    return 0.35 if exact else 0.20
+    return 0.0
+
+
 async def search_code_index(
     index: CodeIndex, query: str, limit: int = 8
 ) -> list[tuple[float, CodeChunk]]:
@@ -249,7 +277,7 @@ async def search_code_index(
     if index.size == 0:
         return []
     query_vector = await compute_embedding(query)
-    return index.search(query_vector, limit=limit)
+    return index.search(query_vector, limit=limit, query_text=query)
 
 
 def format_results(results: list[tuple[float, CodeChunk]]) -> str:

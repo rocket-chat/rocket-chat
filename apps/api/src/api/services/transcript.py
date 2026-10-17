@@ -59,8 +59,17 @@ class InMemoryTranscriptStore(TranscriptStoreProtocol):
     def __init__(self) -> None:
         self._logs: dict[tuple[str, str], list[ChatMessage]] = {}
 
-    async def load(self, session_id: str, org_id: str) -> list[ChatMessage]:
-        return [_clone(m) for m in self._logs.get((org_id, session_id), [])]
+    async def load(
+        self, session_id: str, org_id: str, since_seq: int | None = None
+    ) -> list[ChatMessage]:
+        messages = self._logs.get((org_id, session_id), [])
+        if since_seq is not None:
+            messages = messages[since_seq + 1 :]
+        return [_clone(m) for m in messages]
+
+    async def latest_seq(self, session_id: str, org_id: str) -> int | None:
+        messages = self._logs.get((org_id, session_id), [])
+        return len(messages) - 1 if messages else None
 
     async def append(self, session_id: str, org_id: str, messages: Sequence[ChatMessage]) -> None:
         self._logs.setdefault((org_id, session_id), []).extend(_clone(m) for m in messages)
@@ -86,16 +95,26 @@ class PostgresTranscriptStore(TranscriptStoreProtocol):
     def __init__(self, db_manager: Any) -> None:
         self._db = db_manager
 
-    async def load(self, session_id: str, org_id: str) -> list[ChatMessage]:
+    async def load(
+        self, session_id: str, org_id: str, since_seq: int | None = None
+    ) -> list[ChatMessage]:
         async with self._db.session(tenant_org_id=org_id) as session:
-            rows = (
-                await session.execute(
-                    select(SessionMessageModel)
-                    .where(SessionMessageModel.session_id == session_id)
-                    .order_by(SessionMessageModel.seq)
-                )
-            ).scalars()
+            stmt = select(SessionMessageModel).where(SessionMessageModel.session_id == session_id)
+            if since_seq is not None:
+                stmt = stmt.where(SessionMessageModel.seq > since_seq)
+            rows = (await session.execute(stmt.order_by(SessionMessageModel.seq))).scalars()
             return [_from_row(row) for row in rows]
+
+    async def latest_seq(self, session_id: str, org_id: str) -> int | None:
+        async with self._db.session(tenant_org_id=org_id) as session:
+            val = (
+                await session.execute(
+                    select(func.max(SessionMessageModel.seq)).where(
+                        SessionMessageModel.session_id == session_id
+                    )
+                )
+            ).scalar_one_or_none()
+            return int(val) if val is not None else None
 
     async def append(self, session_id: str, org_id: str, messages: Sequence[ChatMessage]) -> None:
         if not messages:

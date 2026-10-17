@@ -78,6 +78,11 @@ READ_TOOLS: frozenset[str] = frozenset(
         "remember",
         "git_checkpoint",
         "delegate_subagent",
+        "delegate_subagents_parallel",
+        "workspace_status",
+        "git_status_all",
+        "repo_foreach",
+        "wait_for",
     }
 )
 EDIT_TOOLS: frozenset[str] = frozenset(

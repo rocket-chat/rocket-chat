@@ -618,6 +618,106 @@ class SessionMessageModel(Base):
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
+class SessionCompactionModel(Base):
+    """Compaction checkpoints for crash-resilient session rehydration.
+
+    Preserves the compacted prefix (system prompt, anchor user request, summary bridge)
+    up to ``boundary_seq`` so that sessions with hundreds of steps can rehydrate instantly
+    without losing history or recompacting from scratch. Full raw messages remain in
+    ``session_messages``.
+    """
+
+    __tablename__ = "session_compactions"
+    __table_args__ = (
+        UniqueConstraint("session_id", "boundary_seq", name="uq_session_compactions_boundary"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    boundary_seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compacted_messages: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False
+    )
+    tokens_before: Mapped[int] = mapped_column(Integer, nullable=False)
+    tokens_after: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class SessionGoalModel(Base):
+    """Goals and safety budgets for autonomous multi-turn continuations.
+
+    Persists the overarching goal, completion status, safety caps (wall time, tokens, cost),
+    and execution tallies across automatic turn continuations.
+    """
+
+    __tablename__ = "session_goals"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    max_wall_time_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    max_cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    consumed_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    consumed_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    continuation_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_continuations: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
+    stop_condition: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    completed_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
+class SubagentTranscriptModel(Base):
+    """Subagent execution transcripts and structured delegation results.
+
+    Persists delegated subagent messages, tool calls, results, changed files,
+    artefacts, and token/cost metrics with Row-Level Security.
+    """
+
+    __tablename__ = "subagent_transcripts"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    subagent_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(64), nullable=False)
+    task: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="completed")
+    turns_taken: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    tool_calls_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    changed_files: Mapped[list[Any]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=list
+    )
+    artefacts: Mapped[list[Any]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=list
+    )
+    messages: Mapped[list[Any]] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=list
+    )
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
 class AttachmentModel(Base):
     """A file uploaded into a session, addressed by its content hash.
 

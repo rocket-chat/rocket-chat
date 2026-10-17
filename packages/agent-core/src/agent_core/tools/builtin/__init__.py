@@ -17,13 +17,27 @@ from agent_core.tools.builtin import (
     github,
     knowledge,
     repository,
+    wait,
     web,
+    workspace,
 )
 
 if TYPE_CHECKING:
     from agent_core.tools.registry import ToolRegistry
 
-_DOMAINS = (web, conversation, knowledge, repository, github, files, commands, background, git)
+_DOMAINS = (
+    web,
+    conversation,
+    knowledge,
+    repository,
+    workspace,
+    github,
+    files,
+    commands,
+    background,
+    git,
+    wait,
+)
 
 
 def register_all(registry: ToolRegistry) -> None:

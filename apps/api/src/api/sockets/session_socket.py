@@ -25,8 +25,10 @@ from api.services.metrics import (
 )
 from api.services.pending_gates import pending_gates
 from api.services.session_support import apply_sharing
+from api.services.turn_trace import session_running_turn
 from api.turns.context import TurnSelection
 from api.turns.gates import _forget_pending_decisions, take_stored_question
+from api.turns.runner import _active_running_turns
 from api.turns.tasks import _spawn_background_turn
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
 from specifications.interfaces.sandbox import SandboxDriverProtocol
@@ -82,6 +84,7 @@ class SessionSocket:
         self._is_owner = False
         self._is_admin = False
         self._stored_decision: dict[str, Any] | None = None
+        self._running_turn: dict[str, Any] | None = None
         self._session: Any = None
         self._handlers: dict[str, FrameHandler] = {
             frame: getattr(self, method) for frame, method in self._FRAME_HANDLERS.items()
@@ -181,6 +184,30 @@ class SessionSocket:
         record = await self._store.get_session(self._session_id)
         if record is not None:
             self._session = record
+        self._running_turn = await self._read_running_turn()
+
+    async def _read_running_turn(self) -> dict[str, Any] | None:
+        running = _active_running_turns.get(self._session_id)
+        if running is not None:
+            return {
+                "turn_index": running["turn_index"],
+                "started_at": running["started_at"],
+                "model": running.get("model") or "",
+                "status": running.get("status") or "running",
+                "steps": list(running.get("steps") or []),
+            }
+        if self._db is None:
+            return None
+        trace = await session_running_turn(self._db, self._session_id, self._org_id)
+        if trace is None:
+            return None
+        return {
+            "turn_index": trace.turn_index,
+            "started_at": trace.started_at,
+            "model": trace.tokens.get("model") or "",
+            "status": trace.status,
+            "steps": list(trace.tool_calls or []),
+        }
 
     def _snapshot(self, seq_before_read: int) -> tuple[dict[str, Any], int]:
         """The sync frame and the sequence the live stream must continue after.
@@ -191,7 +218,9 @@ class SessionSocket:
         history, _ = bus.replay_since(session_id, 0)
         gates = pending_gates(history)
         latest = bus.latest_seq(session_id)
-        catch_up_from = min(seq_before_read, _in_flight_turn_cursor(history, latest))
+        in_flight_cursor = _in_flight_turn_cursor(history, latest)
+        running_turn = getattr(self, "_running_turn", None)
+        catch_up_from = min(seq_before_read, in_flight_cursor)
         catch_up, continuous = bus.replay_since(session_id, catch_up_from)
         frame: dict[str, Any] = {
             "type": "sync",
@@ -201,6 +230,7 @@ class SessionSocket:
             # never show its card.
             "pending_approval": gates.approval,
             "pending_decision": gates.decision or self._stored_decision,
+            "running_turn": running_turn,
             # Sent back as `resume` after a reconnect so nothing published in the gap is lost.
             "last_seq": latest,
             "catch_up": (
@@ -364,7 +394,8 @@ class SessionSocket:
                 str(stored.get("question_text") or "your question"),
                 data.get("selected_options", []),
                 data.get("custom_text"),
-            )
+            ),
+            synthetic_prompt=True,
         )
 
     async def _on_approval(self, data: dict[str, Any]) -> None:

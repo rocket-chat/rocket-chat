@@ -11,12 +11,14 @@ render the event stream.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
+from fnmatch import fnmatch
 from types import EllipsisType
 from typing import Any
 
 from config_engine.cascading import RoutingPolicy, model_is_allowed
 
 from api.services.github_installations import installations_for_org
+from api.services.model_catalogue import default_catalogue
 from api.services.settings import effective_settings, resolve_settings
 from api.services.tool_loading import tool_loading_for
 from specifications.interfaces.agent import (
@@ -29,6 +31,7 @@ from specifications.interfaces.agent import (
     GenerationParams,
     GitPolicy,
     HookSpec,
+    ReasoningPolicy,
     SystemPrompt,
     TurnCallbacks,
     TurnPolicy,
@@ -104,6 +107,77 @@ def _context_windows(raw: object) -> tuple[tuple[str, int], ...]:
     return tuple(windows)
 
 
+def _match_output_tokens(model: str, mapping: Any) -> int | None:
+    """Find the max output tokens configured for a model (exact or wildcard)."""
+    if not isinstance(mapping, dict):
+        return None
+    clean = model.lower()
+    base = clean.split("/")[-1]
+    # Exact match takes precedence over wildcard patterns.
+    for key, val in mapping.items():
+        k = str(key).lower()
+        if k == clean or k == base:
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                pass
+    for pattern, val in mapping.items():
+        pat = str(pattern).lower()
+        if fnmatch(clean, pat) or ("/" not in pat and fnmatch(base, pat)):
+            try:
+                return int(val)
+            except (ValueError, TypeError):
+                continue
+    return None
+
+
+def _resolve_model_generation(
+    model: str | None,
+    agent: Any,
+    models: dict[str, Any],
+    fallbacks: tuple[str, ...],
+) -> GenerationParams:
+    """Resolve generation params with output budget ceiling and reasoning policy."""
+    agent_temp = getattr(agent, "temperature", None)
+    temperature = float(agent_temp) if agent_temp is not None else float(models["temperature"])
+    agent_tokens = getattr(agent, "max_tokens", None)
+
+    spec = default_catalogue.get_model_spec(model) if model else None
+    configured_tokens = _match_output_tokens(model, models.get("output_tokens")) if model else None
+
+    max_tokens: int | None = None
+    if agent_tokens is not None:
+        max_tokens = int(agent_tokens)
+    elif configured_tokens is not None:
+        max_tokens = configured_tokens
+    elif spec and spec.supports_reasoning:
+        max_tokens = spec.max_output_tokens
+    else:
+        max_tokens = int(models["max_tokens"]) if models.get("max_tokens") else None
+
+    thinking_budget = getattr(agent, "thinking_budget_tokens", None)
+    effort = getattr(agent, "reasoning_effort", None)
+    reasoning_policy: ReasoningPolicy | None = None
+    if spec and spec.supports_reasoning:
+        if effort is None and thinking_budget is None:
+            effort = "medium"
+            if model and ("claude" in model.lower() or "anthropic" in model.lower()):
+                thinking_budget = 16_000
+        if thinking_budget is not None and max_tokens is not None and thinking_budget >= max_tokens:
+            thinking_budget = max(1024, max_tokens - 1024) if max_tokens > 1024 else None
+        reasoning_policy = ReasoningPolicy(effort=effort or "medium", budget_tokens=thinking_budget)
+
+    return GenerationParams(
+        temperature=temperature,
+        max_tokens=max_tokens,
+        thinking_budget_tokens=thinking_budget,
+        reasoning_effort=effort,
+        reasoning=reasoning_policy,
+        fallback_models=fallbacks,
+        context_windows=_context_windows(models.get("context_windows")),
+    )
+
+
 class TurnService:
     """Resolves the turn plan for a session and invokes the orchestrator.
 
@@ -148,7 +222,9 @@ class TurnService:
             global_default_model=global_default_model or self._default_model,
         )
         max_turns = await self._resolve_max_turns(agent=agent, org_id=org_id, db_mgr=db_mgr)
-        policy = await self._resolve_policy(db_mgr, org_id, user_id, agent, session_permission_mode)
+        policy = await self._resolve_policy(
+            db_mgr, org_id, user_id, agent, session_permission_mode, model=model
+        )
         return AgentBinding(
             id=agent.id if agent else "persona-general",
             name=agent.name if agent else "",
@@ -177,6 +253,7 @@ class TurnService:
         user_id: str,
         agent: Any,
         session_permission_mode: str | None = None,
+        model: str | None = None,
     ) -> TurnPolicy:
         """Generation parameters and git rules from the registry-backed org/member settings."""
         models = await effective_settings(db_mgr, org_id, "models")
@@ -196,27 +273,15 @@ class TurnService:
         # Fail-over models obey the same allowlist as the primary: a disallowed model must
         # not become reachable through a provider error.
         fallbacks = tuple(
-            model
-            for model in models.get("fallback_models") or []
+            m
+            for m in models.get("fallback_models") or []
             if model_is_allowed(
-                model,
+                m,
                 allowed_models=policy.allowed_models,
                 forbidden_models=policy.forbidden_models,
             )
         )
-        agent_temperature = getattr(agent, "temperature", None)
-        generation = GenerationParams(
-            temperature=(
-                float(agent_temperature)
-                if agent_temperature is not None
-                else float(models["temperature"])
-            ),
-            max_tokens=int(models["max_tokens"]) if models.get("max_tokens") else None,
-            thinking_budget_tokens=getattr(agent, "thinking_budget_tokens", None),
-            reasoning_effort=getattr(agent, "reasoning_effort", None),
-            fallback_models=fallbacks,
-            context_windows=_context_windows(models.get("context_windows")),
-        )
+        generation = _resolve_model_generation(model, agent, models, fallbacks)
         git = GitPolicy(
             authorship=str(github["commit_authorship_policy"]),
             pr_creation=str(github["pr_creation_policy"]),
@@ -233,6 +298,13 @@ class TurnService:
                 for i in await installations_for_org(db_mgr, org_id)
             ),
         )
+        general = await effective_settings(db_mgr, org_id, "general")
+        sandboxes = await effective_settings(db_mgr, org_id, "sandboxes")
+        budgets = await effective_settings(db_mgr, org_id, "budgets")
+        max_cost = float(budgets["max_turn_cost_usd"]) if budgets.get("max_turn_cost_usd") else None
+        sandbox_profile = str(
+            sandboxes.get("default_profile") or getattr(agent, "sandbox_profile", "") or "standard"
+        )
         return TurnPolicy(
             generation=generation,
             git=git,
@@ -244,6 +316,9 @@ class TurnService:
                 allow_bypass=bool(governance.get("allow_bypass_permissions")),
             ),
             tool_loading=await tool_loading_for(db_mgr, org_id, agent),
+            output_offload_threshold=int(general.get("output_offload_threshold", 6000)),
+            max_turn_cost_usd=max_cost,
+            sandbox_profile=sandbox_profile,
         )
 
     async def stream_turn(
@@ -264,6 +339,7 @@ class TurnService:
         policy: TurnPolicy | None = None,
         whitelisted_tools: list[str] | EllipsisType | None = ...,
         denied_tools: frozenset[str] | None = None,
+        synthetic_prompt: bool = False,
     ) -> AsyncIterator[AgentEvent]:
         """Invoke the orchestrator with the resolved plan; yields agent events.
 
@@ -292,5 +368,6 @@ class TurnService:
             enabled_toolsets=toolsets,
             callbacks=callbacks,
             policy=policy if policy is not None else plan.policy,
+            synthetic_prompt=synthetic_prompt,
         ):
             yield event

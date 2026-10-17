@@ -26,6 +26,7 @@ from agent_core.permissions import (
     is_read_call,
     touches_workspace,
 )
+from agent_core.tool_loading import server_of
 from agent_core.tools import git_tools, memory_tools
 from agent_core.tools.builtin import register_all
 from agent_core.tools.schema import definition_from_tool
@@ -82,6 +83,11 @@ class ToolRegistry:
         self._builtin_tools: dict[str, FunctionTool] = {}
         self._register_tools()
 
+    @property
+    def driver(self) -> SandboxDriverProtocol | None:
+        """The bound SandboxDriverProtocol, if any."""
+        return self._driver
+
     # Tools that remain permitted while the session is in read-only plan mode.
     PLAN_READ_ONLY_TOOLS: frozenset[str] = frozenset(
         {
@@ -110,6 +116,10 @@ class ToolRegistry:
             "ask_question",
             "session_rename",
             "think",
+            "wait_for",
+            "workspace_status",
+            "git_status_all",
+            "delegate_subagents_parallel",
             "exit_plan_mode",
         }
     )
@@ -173,6 +183,53 @@ class ToolRegistry:
             )
         except Exception:
             logger.exception("Recalled-memory injection failed")
+            return ""
+
+    async def build_workspace_context(self) -> str:
+        """Return a compact <=10-line multi-repo summary for volatile context, or ''."""
+        target = self._sandbox_target("workspace_status")
+        if not target or self._driver is None:
+            return ""
+        _, session_id = target
+        try:
+            import json
+            import posixpath
+
+            raw_manifest = ""
+            for path in ("/workspace/.rocket/workspace.json", ".rocket/workspace.json"):
+                try:
+                    raw_manifest = await self._driver.read_file(session_id, path)
+                    if raw_manifest:
+                        break
+                except Exception:
+                    continue
+            if not raw_manifest:
+                ctx = current_execution_ctx.get()
+                if ctx is not None and ctx.plan_mode:
+                    return ""
+                repos_list = await list_repositories(self._driver, session_id)
+                if len(repos_list) <= 1:
+                    return ""
+                lines = [f"Workspace Repositories ({len(repos_list)}):"]
+                for r in repos_list[:8]:
+                    name = posixpath.basename(r)
+                    lines.append(f"- {name} (branch: main)")
+                if len(repos_list) > 8:
+                    lines.append(f"... and {len(repos_list) - 8} more repositories")
+                return "\n".join(lines)
+            manifest = json.loads(raw_manifest)
+            repos = manifest.get("repositories", [])
+            if len(repos) <= 1:
+                return ""
+            lines = [f"Workspace Repositories ({len(repos)}):"]
+            for r in repos[:8]:
+                name = r.get("name") or posixpath.basename(r.get("path", ""))
+                branch = r.get("default_branch") or r.get("branch") or "main"
+                lines.append(f"- {name} (branch: {branch})")
+            if len(repos) > 8:
+                lines.append(f"... and {len(repos) - 8} more repositories")
+            return "\n".join(lines)
+        except Exception:
             return ""
 
     def register_dynamic_tool(
@@ -563,6 +620,10 @@ class ToolRegistry:
         if not fresh:
             return []
         ctx.loaded_tools.update(fresh)
+        sorted_fresh = sorted(fresh, key=lambda n: (server_of(n), n))
+        for n in sorted_fresh:
+            if n not in ctx.loaded_tools_order:
+                ctx.loaded_tools_order.append(n)
         if remember := self._turn_callback("tools_loaded"):
             await remember(ctx.session_id, fresh)
         return fresh
@@ -586,8 +647,8 @@ class ToolRegistry:
         """Return ToolDefinitions formatted for ModelRequest consumption.
 
         The order is stable for a session (built-ins in registration order, then dynamic and
-        external tools by name): tool schemas are part of the cached request prefix, so an MCP
-        server answering its tool list in another order must not invalidate it.
+        external tools by server then name): tool schemas are part of the cached request prefix,
+        so an MCP server answering its tool list in another order must not invalidate it.
         """
         return [
             *(
@@ -596,7 +657,10 @@ class ToolRegistry:
                 if self._capability_missing(name) is None
             ),
             *sorted(self.visible_dynamic_tools(), key=lambda definition: definition.name),
-            *sorted(self._external_definitions(), key=lambda definition: definition.name),
+            *sorted(
+                self._external_definitions(),
+                key=lambda definition: (server_of(definition.name), definition.name),
+            ),
         ]
 
     def _external_provider(self) -> ExternalToolProvider | None:

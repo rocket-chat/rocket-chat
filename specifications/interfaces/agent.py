@@ -60,11 +60,55 @@ class SubagentTaskResult:
     role: str
     task: str
     summary: str
-    status: str = "completed"  # "completed", "failed", "timeout"
+    status: str = "completed"  # "completed", "done", "partial", "blocked", "failed", "timeout"
     turns_taken: int = 1
     tool_calls_count: int = 0
     duration_ms: int = 0
     subagent_id: str = ""
+    artefacts: list[str] = field(default_factory=list)
+    changed_files: list[str] = field(default_factory=list)
+    tokens: int = 0
+    cost: float = 0.0
+
+
+@dataclass
+class SubagentTranscriptRecord:
+    """A completed subagent execution transcript and metadata stored durably."""
+
+    id: str
+    session_id: str
+    org_id: str
+    subagent_id: str
+    role: str
+    task: str
+    summary: str
+    status: str
+    turns_taken: int
+    tool_calls_count: int
+    duration_ms: int
+    tokens: int
+    cost_usd: float
+    changed_files: list[str]
+    artefacts: list[str]
+    messages: list[dict[str, Any]]
+    created_at: int
+
+
+class SubagentTranscriptStoreProtocol(Protocol):
+    """Storage contract for durable subagent transcripts."""
+
+    async def save_transcript(self, record: SubagentTranscriptRecord) -> None:
+        pass
+
+    async def get_transcript(
+        self, session_id: str, subagent_id: str, org_id: str
+    ) -> SubagentTranscriptRecord | None:
+        pass
+
+    async def list_transcripts(
+        self, session_id: str, org_id: str
+    ) -> list[SubagentTranscriptRecord]:
+        pass
 
 
 class TaskStatus(str, Enum):
@@ -210,6 +254,8 @@ class TurnCallbacks:
     github_watch: Callable[[str, int | None, str | None, bool], Awaitable[str]] | None = None
     # Stop following: (repo, pull request, branch) -> a note for the agent.
     github_unwatch: Callable[[str, int | None, str | None], Awaitable[str]] | None = None
+    # Durable wait for external events (CI status, PR review, process exit, time): (target, identifier, timeout_seconds) -> note
+    wait_for: Callable[[str, str, int | None], Awaitable[str]] | None = None
     # Called after a background process tool ran so the tracker can mirror the sandbox's
     # processes into the database and announce changes.
     processes_changed: Callable[[str], Awaitable[None]] | None = None
@@ -217,6 +263,13 @@ class TurnCallbacks:
     max_background_processes: int = 5
     # The organization's subagent roles for this turn (None = the built-in defaults).
     subagent_configs: Mapping[str, SubagentConfig] | None = None
+    # Scrub secrets/sensitive data from tool execution results before they reach
+    # conversation history, events, or the model. Returns (scrubbed_text, count).
+    redact_tool_output: Callable[[str], tuple[str, int]] | None = None
+    # Persist completed subagent execution transcripts to durable storage
+    subagent_transcript_persister: Callable[[SubagentTranscriptRecord], Awaitable[None]] | None = (
+        None
+    )
 
 
 @dataclass(frozen=True)
@@ -277,6 +330,14 @@ class TurnOverlay:
 
 
 @dataclass(frozen=True)
+class ReasoningPolicy:
+    """Reasoning effort or thinking budget configuration for frontier models."""
+
+    effort: str = "medium"  # "low", "medium", "high"
+    budget_tokens: int | None = None  # explicit thinking budget tokens (Anthropic / DeepSeek)
+
+
+@dataclass(frozen=True)
 class GenerationParams:
     """Sampling and provider parameters for a turn's model calls (None = provider default)."""
 
@@ -284,6 +345,7 @@ class GenerationParams:
     max_tokens: int | None = None
     thinking_budget_tokens: int | None = None
     reasoning_effort: str | None = None
+    reasoning: ReasoningPolicy | None = None
     fallback_models: tuple[str, ...] = ()
     # The organization's own context-window sizes, as (model name or fnmatch pattern, tokens),
     # for models the provider library does not know (a BYOK or self-hosted model).
@@ -342,7 +404,7 @@ PERMISSION_MODES: tuple[str, ...] = ("plan", "ask", "auto_edit", "auto", "bypass
 DEFAULT_PERMISSION_MODE = "auto"
 # Reasoning steps a turn may take before the agent must summarise what it has (an agent persona or
 # the organization can set another value).
-DEFAULT_MAX_TURNS = 60
+DEFAULT_MAX_TURNS = 100
 
 
 TOOL_LOADING_MODES = ("all", "on_demand", "auto")
@@ -384,6 +446,9 @@ class TurnPolicy:
     # tools act when the agent names no folder. Empty until the session clones one.
     active_repository: str = ""
     tool_loading: ToolLoading = field(default_factory=ToolLoading)
+    output_offload_threshold: int = 6_000
+    max_turn_cost_usd: float | None = None
+    sandbox_profile: str = ""
 
 
 @dataclass(frozen=True)
@@ -461,6 +526,7 @@ class AgentOrchestratorProtocol(ABC):
         enabled_toolsets: frozenset[str] | None = None,
         callbacks: TurnCallbacks | None = None,
         policy: TurnPolicy | None = None,
+        synthetic_prompt: bool = False,
     ) -> AsyncIterator[AgentEvent]:
         """
         Executes an agent reasoning & action cycle.

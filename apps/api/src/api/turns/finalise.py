@@ -58,11 +58,17 @@ async def record_answer(ctx: TurnContext) -> str:
 
     # Atomic: the title task writes the same record while the turn is finishing.
     await req.store.mutate_session(ctx.session_id, ctx.session.tenant_org_id, append_answer)
+    status = "waiting" if getattr(state, "is_waiting", False) else "completed"
+    msg = (
+        "Paused waiting for external condition."
+        if getattr(state, "is_waiting", False)
+        else "Agent turn complete."
+    )
     await req.event_bus.publish(
         SessionEvent(
             session_id=ctx.session_id,
             event_type=EventType.STATUS_CHANGED,
-            payload={"status": "completed", "message": "Agent turn complete.", "final": True},
+            payload={"status": status, "message": msg, "final": True},
         )
     )
     return content
@@ -70,6 +76,8 @@ async def record_answer(ctx: TurnContext) -> str:
 
 async def publish_followup(ctx: TurnContext, answer: str) -> None:
     """Offer the likely next instruction, unless the member turned suggestions off."""
+    if getattr(ctx.state, "is_continuation", False) or getattr(ctx.state, "is_waiting", False):
+        return
     req, session = ctx.req, ctx.session
     prefs = await effective_settings(
         req.db_mgr, session.tenant_org_id, "user_preferences", session.tenant_user_id
@@ -134,7 +142,7 @@ async def housekeeping(req: TurnRequest, state: TurnState) -> None:
         max(0.0, time.monotonic() - state.started_at),
         (state.first_token_at - state.started_at) if state.first_token_at is not None else None,
     )
-    if state.turn_error:
+    if state.turn_error or getattr(state, "is_continuation", False):
         return
     session = await req.store.get_session(req.session_id)
     if not session:

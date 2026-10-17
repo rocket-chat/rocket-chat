@@ -37,6 +37,11 @@ class EventType(str, Enum):
         "post_failure_synthesis"  # Final synthesis triggered after turn budget exhaustion or error
     )
     GITHUB_EVENT = "github_event"  # Something happened on a pull request the session follows
+    CONTEXT_COMPACTED = "context_compacted"  # Session context window compacted
+    GOAL_UPDATED = "goal_updated"  # Goal progress or budget update
+    CONTINUATION_SCHEDULED = "continuation_scheduled"  # Automatic turn continuation scheduled
+    WAIT_STARTED = "wait_started"  # Turn entered durable waiting state
+    WAIT_COMPLETED = "wait_completed"  # Wake trigger resumed waiting session
     ERROR = "error"  # Unrecoverable or tool error
 
 

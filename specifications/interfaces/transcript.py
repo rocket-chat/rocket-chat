@@ -19,8 +19,14 @@ class TranscriptStoreProtocol(ABC):
     """Append-only, per-session, tenant-scoped message log."""
 
     @abstractmethod
-    async def load(self, session_id: str, org_id: str) -> list[ChatMessage]:
-        """Every message of the session in order."""
+    async def load(
+        self, session_id: str, org_id: str, since_seq: int | None = None
+    ) -> list[ChatMessage]:
+        """Messages of the session in order, optionally starting after ``since_seq``."""
+
+    @abstractmethod
+    async def latest_seq(self, session_id: str, org_id: str) -> int | None:
+        """The sequence number of the session's latest message, or ``None`` when empty."""
 
     @abstractmethod
     async def append(self, session_id: str, org_id: str, messages: Sequence[ChatMessage]) -> None:

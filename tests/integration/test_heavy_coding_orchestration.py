@@ -134,7 +134,7 @@ async def test_heavy_coding_orchestration_context_hygiene() -> None:
         assert tm.content is not None
         # Head lines present
         assert "compile step 0" in tm.content
-        # Marker present due to clamping
-        assert "hidden;" in tm.content
+        # Marker present due to clamping or offload
+        assert "hidden;" in tm.content or "omitted" in tm.content
         # Tail lines present
         assert "Build succeeded with 0 errors" in tm.content

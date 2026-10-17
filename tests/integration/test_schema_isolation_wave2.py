@@ -23,11 +23,13 @@ from api.db.models import (
     AttachmentModel,
     MemoryModel,
     OrganizationModel,
+    SessionGoalModel,
     SessionModel,
     SessionSummaryModel,
     SlackBotModel,
     SlackRouteDecisionModel,
     SlackWorkspaceQuotaModel,
+    SubagentTranscriptModel,
     UserModel,
 )
 from api.db.session import DatabaseSessionManager
@@ -44,6 +46,9 @@ NEW_WAVE2_TABLES: tuple[str, ...] = (
     "slack_workspace_quotas",
     # Added by M12 (migration 009) and covered by the same isolation guarantees.
     "session_messages",
+    "session_compactions",
+    "session_goals",
+    "subagent_transcripts",
     "slack_bots",
     "slack_route_decisions",
 )
@@ -289,6 +294,38 @@ async def test_new_wave2_tables_deny_cross_tenant_reads(
                 created_at=now,
             )
         )
+        session.add(
+            SessionGoalModel(
+                id=f"goal_{suffix}",
+                session_id=session_a,
+                org_id=org_a,
+                description="Refactor payments to microservice",
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        session.add(
+            SubagentTranscriptModel(
+                id=f"sat_{suffix}",
+                session_id=session_a,
+                org_id=org_a,
+                subagent_id="sub_test_123",
+                role="security_auditor",
+                task="Audit SQL injection",
+                summary="No vulnerabilities found",
+                status="completed",
+                turns_taken=2,
+                tool_calls_count=3,
+                duration_ms=1500,
+                tokens=450,
+                cost_usd=0.015,
+                changed_files=[],
+                artefacts=[],
+                messages=[],
+                created_at=now,
+            )
+        )
 
     for model in (
         AttachmentModel,
@@ -297,6 +334,8 @@ async def test_new_wave2_tables_deny_cross_tenant_reads(
         SlackWorkspaceQuotaModel,
         SlackBotModel,
         SlackRouteDecisionModel,
+        SessionGoalModel,
+        SubagentTranscriptModel,
     ):
         # The owning tenant sees exactly its row; no explicit WHERE clause is used, so a
         # non-empty result can only come from RLS leaking the row.

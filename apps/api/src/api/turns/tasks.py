@@ -61,6 +61,7 @@ async def run_guarded_turn(
     overlay: TurnOverlay | None = None,
     resume_attempt: int = 0,
     selection: TurnSelection | None = None,
+    synthetic_prompt: bool = False,
 ) -> None:
     """Run one turn under process-wide backpressure and a per-session single-writer lock.
 
@@ -88,6 +89,9 @@ async def run_guarded_turn(
             overlay=overlay,
             resume_attempt=resume_attempt,
             selection=selection,
+            synthetic_prompt=synthetic_prompt,
+            concurrency_gate=concurrency_gate,
+            session_locks=session_locks,
         )
 
     if concurrency_gate is not None and session_locks is not None:
@@ -117,6 +121,7 @@ def _spawn_background_turn(
     session_locks: SessionWriteLocks | None = None,
     resume_attempt: int = 0,
     selection: TurnSelection | None = None,
+    synthetic_prompt: bool = False,
 ) -> asyncio.Task[None]:
     task = asyncio.create_task(
         run_guarded_turn(
@@ -138,6 +143,7 @@ def _spawn_background_turn(
             session_locks=session_locks,
             resume_attempt=resume_attempt,
             selection=selection,
+            synthetic_prompt=synthetic_prompt,
         )
     )
     _background_tasks.add(task)
@@ -231,7 +237,13 @@ def _report_mission_to_slack(app: FastAPI, mission: Mission, session_id: str) ->
 
 
 async def start_turn_on_session(
-    app: FastAPI, org_id: str, session_id: str, prompt: str, *, resume_attempt: int = 0
+    app: FastAPI,
+    org_id: str,
+    session_id: str,
+    prompt: str,
+    *,
+    resume_attempt: int = 0,
+    synthetic_prompt: bool = False,
 ) -> bool:
     """Start a turn on an existing session that nobody typed into; False when it is gone."""
     state = app.state
@@ -253,6 +265,7 @@ async def start_turn_on_session(
             concurrency_gate=getattr(state, "global_concurrency_gate", None),
             session_locks=getattr(state, "session_write_locks", None),
             resume_attempt=resume_attempt,
+            synthetic_prompt=synthetic_prompt,
         )
     finally:
         current_tenant_org_id.reset(token)
@@ -262,5 +275,10 @@ async def start_turn_on_session(
 async def resume_claimed_turn(app: FastAPI, turn: ResumableTurn) -> None:
     """Start the follow-up turn for an interrupted turn this replica has claimed."""
     await start_turn_on_session(
-        app, turn.org_id, turn.session_id, RESUME_NOTICE, resume_attempt=turn.resume_attempt + 1
+        app,
+        turn.org_id,
+        turn.session_id,
+        RESUME_NOTICE,
+        resume_attempt=turn.resume_attempt + 1,
+        synthetic_prompt=True,
     )

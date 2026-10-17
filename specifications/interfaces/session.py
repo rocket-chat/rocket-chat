@@ -180,3 +180,63 @@ class SessionStoreProtocol(ABC):
     async def delete_session(self, session_id: str, tenant_org_id: str | None = None) -> bool:
         """Deletes a session record by its unique ID (scoped like ``get_session``)."""
         pass
+
+
+class GoalStatus(str, Enum):
+    ACTIVE = "active"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    PAUSED = "paused"
+
+
+@dataclass
+class SessionGoal:
+    """Overarching goal and safety budgets for autonomous multi-turn continuations."""
+
+    id: str
+    session_id: str
+    tenant_org_id: str
+    description: str
+    status: GoalStatus = GoalStatus.ACTIVE
+    max_wall_time_seconds: int | None = None
+    max_total_tokens: int | None = None
+    max_cost_usd: float | None = None
+    consumed_tokens: int = 0
+    consumed_cost_usd: float = 0.0
+    continuation_count: int = 0
+    max_continuations: int = 10
+    stop_condition: str | None = None
+    created_at: int = field(default_factory=lambda: int(time.time()))
+    updated_at: int = field(default_factory=lambda: int(time.time()))
+    completed_at: int | None = None
+
+
+class GoalStoreProtocol(ABC):
+    """Storage protocol for autonomous session goals and safety budgets."""
+
+    @abstractmethod
+    async def create_goal(self, goal: SessionGoal) -> None:
+        """Persist a new session goal."""
+        pass
+
+    @abstractmethod
+    async def get_goal(self, session_id: str, tenant_org_id: str) -> SessionGoal | None:
+        """Get the active goal for a session, if any."""
+        pass
+
+    @abstractmethod
+    async def update_goal(self, goal: SessionGoal) -> None:
+        """Update an existing session goal."""
+        pass
+
+    @abstractmethod
+    async def record_consumption(
+        self,
+        session_id: str,
+        tenant_org_id: str,
+        tokens: int,
+        cost_usd: float,
+    ) -> tuple[SessionGoal | None, bool, str | None]:
+        """Record token and cost consumption; returns (goal, budget_exceeded, warning_reason)."""
+        pass

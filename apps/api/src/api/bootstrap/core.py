@@ -25,6 +25,7 @@ from api.events_shared import PostgresEventBus, asyncpg_dsn
 from api.services.attachments import AttachmentService
 from api.services.budgets import BudgetService
 from api.services.cluster import ClusterRelay, ClusterSessionLocks
+from api.services.compaction import InMemoryCompactionStore, PostgresCompactionStore
 from api.services.git_gateway import GitGateway
 from api.services.memory import MemoryPolicy, bind_context_memory_callbacks
 from api.services.metrics import (
@@ -33,11 +34,13 @@ from api.services.metrics import (
     build_backpressure,
     session_lock_capacity,
 )
+from api.services.model_catalogue import default_catalogue
 from api.services.model_credentials import CredentialResolver, ModelCredentialStore
 from api.services.redaction import RedactionPolicy, Redactor
 from api.services.settings import load_org_config
 from api.services.transcript import InMemoryTranscriptStore, PostgresTranscriptStore
 from api.services.usage import UsageLedger
+from specifications.interfaces.compaction import CompactionStoreProtocol
 from specifications.interfaces.events import EventBusProtocol
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 from specifications.interfaces.session import SessionStoreProtocol
@@ -82,7 +85,10 @@ async def assemble_core(app: FastAPI) -> CoreServices:
     tool_registry.bind_git_engine(git_engine)
     app.state.code_index_cache = register_code_search(tool_registry, sandbox_driver)
     orchestrator = AsyncReActOrchestrator(
-        gateway=llm_gateway, registry=tool_registry, default_model=default_model()
+        gateway=llm_gateway,
+        registry=tool_registry,
+        default_model=default_model(),
+        catalogue=default_catalogue,
     )
 
     persistence = await open_persistence(database_url)
@@ -94,6 +100,7 @@ async def assemble_core(app: FastAPI) -> CoreServices:
     gate, session_locks = _build_backpressure(orchestrator, shared_bus, database_url)
     attachment_service = AttachmentService(db_manager, sandbox_driver)
     transcript_store = _bind_transcript_store(orchestrator, db_manager)
+    compaction_store = _bind_compaction_store(orchestrator, db_manager)
     _bind_long_term_memory(tool_registry, db_manager)
 
     app.state.sandbox_driver = sandbox_driver
@@ -109,6 +116,7 @@ async def assemble_core(app: FastAPI) -> CoreServices:
     app.state.draining = False
     app.state.attachment_service = attachment_service
     app.state.transcript_store = transcript_store
+    app.state.compaction_store = compaction_store
     if db_manager:
         app.state.db_manager = db_manager
 
@@ -192,6 +200,17 @@ def _bind_transcript_store(
         PostgresTranscriptStore(db_manager) if db_manager else InMemoryTranscriptStore()
     )
     orchestrator.transcript_store = store
+    return store
+
+
+def _bind_compaction_store(
+    orchestrator: AsyncReActOrchestrator, db_manager: DatabaseSessionManager | None
+) -> CompactionStoreProtocol:
+    """Durable compaction checkpoints: crash-resilient rehydration from PostgreSQL."""
+    store: CompactionStoreProtocol = (
+        PostgresCompactionStore(db_manager) if db_manager else InMemoryCompactionStore()
+    )
+    orchestrator.compaction_store = store
     return store
 
 
