@@ -94,6 +94,7 @@ _GIT_CREDS = "apps/api/src/api/services/git_credentials.py"
 _GIT_IDENTITY = "apps/api/src/api/services/github_identity.py"
 _GIT_SIGNING = "apps/api/src/api/services/git_signing.py"
 _BUDGETS = "apps/api/src/api/services/budgets.py"
+_DISPATCHER = "packages/agent-core/src/agent_core/dispatcher.py"
 
 _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
     "general": (
@@ -126,12 +127,12 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
         _spec(
             "max_turns",
             "int",
-            60,
+            100,
             "org",
             _TURN_LIMITS,
             "Maximum reasoning steps per turn. It is the default for agents, and the ceiling for an agent that sets its own limit.",
             minimum=1,
-            maximum=200,
+            maximum=500,
         ),
         _spec(
             "tool_loading",
@@ -156,6 +157,17 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "tools are loaded on demand.",
             minimum=1,
             maximum=1000,
+        ),
+        _spec(
+            "output_offload_threshold",
+            "int",
+            6000,
+            "org",
+            _DISPATCHER,
+            "Character threshold above which tool execution outputs are offloaded to "
+            "/workspace/.rocket/outputs with head and tail preserved in context.",
+            minimum=500,
+            maximum=100000,
         ),
         _spec(
             "sso_allowed_domains",
@@ -246,6 +258,15 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Default maximum completion tokens per model call.",
             minimum=1,
             maximum=200_000,
+        ),
+        _spec(
+            "output_tokens",
+            "dict",
+            {},
+            "org",
+            _TURN,
+            "Maximum completion tokens per model name or pattern (e.g. {'*': 64000, 'claude*': 64000}), "
+            "overriding the catalogue default ceiling.",
         ),
     ),
     "budgets": (

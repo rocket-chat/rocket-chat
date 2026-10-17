@@ -11,13 +11,18 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Sequence
-from typing import Any
+from typing import Any, cast
 
 import litellm
 from config_engine.cascading import model_is_allowed
 
 from api.services.model_credentials import ModelCredentialStore
 from api.services.settings import effective_settings
+from specifications.interfaces.llm import (
+    ModelCatalogueProtocol,
+    ModelSpec,
+    is_reasoning_model,
+)
 
 # Provider -> the environment variable holding the platform's key for it.
 PLATFORM_KEY_ENV = {
@@ -27,6 +32,78 @@ PLATFORM_KEY_ENV = {
     "deepseek": "DEEPSEEK_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
 }
+
+REASONING_OUTPUT_CEILING = 64_000
+DEFAULT_MAX_OUTPUT = 8_192
+
+
+def _lookup_litellm_info(model: str) -> dict[str, Any] | None:
+    """Look up model info from litellm, trying full name then base name."""
+    if model in litellm.model_cost:
+        return cast(dict[str, Any], litellm.model_cost[model])
+    base = model.split("/", 1)[-1]
+    if base in litellm.model_cost:
+        return cast(dict[str, Any], litellm.model_cost[base])
+    if "/" in model:
+        stripped = model.split("/")[-1]
+        if stripped in litellm.model_cost:
+            return cast(dict[str, Any], litellm.model_cost[stripped])
+    return None
+
+
+def resolve_model_spec(model: str) -> ModelSpec:
+    """Derive context window, max output tokens, and reasoning support for a model."""
+    clean_id = (model or "").strip()
+    reasoning = is_reasoning_model(clean_id)
+    info = _lookup_litellm_info(clean_id)
+
+    context_window = 128_000
+    max_output = REASONING_OUTPUT_CEILING if reasoning else DEFAULT_MAX_OUTPUT
+    provider = clean_id.split("/")[0] if "/" in clean_id else ""
+
+    if info:
+        provider = str(info.get("litellm_provider") or provider)
+        ctx = info.get("max_input_tokens") or info.get("max_tokens")
+        if isinstance(ctx, (int, float)) and ctx > 0:
+            context_window = int(ctx)
+        out = info.get("max_output_tokens") or info.get("max_tokens")
+        if isinstance(out, (int, float)) and out > 0:
+            max_output = int(out)
+
+    if reasoning:
+        # Standard reasoning ceiling: up to 64k, bounded if provider catalog explicitly has lower
+        max_output_tokens = REASONING_OUTPUT_CEILING
+        if max_output > 8_192 and max_output < REASONING_OUTPUT_CEILING:
+            max_output_tokens = max_output
+    else:
+        max_output_tokens = min(max_output, 16_384) if max_output > 0 else DEFAULT_MAX_OUTPUT
+
+    return ModelSpec(
+        id=clean_id,
+        name=clean_id.split("/")[-1],
+        provider=_provider_label(provider),
+        context_window=context_window,
+        max_output_tokens=max_output_tokens,
+        supports_reasoning=reasoning,
+    )
+
+
+class ModelCatalogue(ModelCatalogueProtocol):
+    """Protocol-compliant catalogue service for model capabilities and budgets."""
+
+    def __init__(self) -> None:
+        self._overrides: dict[str, ModelSpec] = {}
+
+    def register(self, spec: ModelSpec) -> None:
+        self._overrides[spec.id] = spec
+
+    def get_model_spec(self, model: str) -> ModelSpec:
+        if model in self._overrides:
+            return self._overrides[model]
+        return resolve_model_spec(model)
+
+
+default_catalogue = ModelCatalogue()
 
 
 def _provider_label(provider: str) -> str:

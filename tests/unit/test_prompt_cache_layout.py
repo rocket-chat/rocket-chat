@@ -75,8 +75,12 @@ async def test_each_step_extends_the_previous_request_up_to_its_breakpoint() -> 
         roles = [m.role for m in request.messages]
         assert roles.count("system") == 1 and roles[0] == "system"
         assert request.messages[0].cacheable
-        assert "VOLATILE-123" in (request.messages[-1].content or ""), "volatile context is last"
-        assert not any("VOLATILE-123" in (m.content or "") for m in request.messages[:-1])
+        assert "VOLATILE-123" in (request.messages[2].content or ""), (
+            "turn-fixed context follows user prompt"
+        )
+        assert not any(
+            "VOLATILE-123" in (m.content or "") for i, m in enumerate(request.messages) if i != 2
+        )
     for earlier, later in zip(gateway.requests, gateway.requests[1:], strict=False):
         marked = [i for i, m in enumerate(earlier.messages) if m.cacheable and m.role != "system"]
         assert len(marked) == 1, "one rolling breakpoint per request"

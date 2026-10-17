@@ -18,7 +18,7 @@ import base64
 import fnmatch
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 from sandbox_driver.exceptions import SandboxFilesystemError, SandboxNotFoundError
 from sandbox_driver.patcher import apply_unified_diff
@@ -71,8 +71,11 @@ class FakeSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         # Audit trail: every command the harness ran, in order.
         self.exec_calls: list[tuple[str, str]] = []
         self.ptys: list[FakePty] = []
-        # The environment each command ran with (session env merged with the call's own).
         self.exec_envs: list[dict[str, str]] = []
+        self._holds: dict[str, dict[str, float]] = {}
+        self._held_until: dict[str, float] = {}
+        self._last_activity: dict[str, float] = {}
+        self.inactivity_pause_seconds: float = 1800.0
 
     # -- test helpers ---------------------------------------------------------
 
@@ -130,11 +133,69 @@ class FakeSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         self.ptys.append(pty)
         return pty
 
+    def hold_awake(self, session_id: str, seconds: float, reason: str = "process") -> None:
+        if seconds <= 0:
+            if session_id in self._holds:
+                self._holds[session_id].pop(reason, None)
+                if not self._holds[session_id]:
+                    self._holds.pop(session_id, None)
+                    self._held_until.pop(session_id, None)
+                else:
+                    self._held_until[session_id] = max(self._holds[session_id].values())
+            else:
+                self._held_until.pop(session_id, None)
+        else:
+            now = time.time()
+            self._holds.setdefault(session_id, {})[reason] = now + seconds
+            self._held_until[session_id] = max(self._holds[session_id].values())
+
+    def is_held(self, session_id: str) -> bool:
+        """Return True if the sandbox is held awake by an active lease."""
+        return self._held_until.get(session_id, 0) > time.time()
+
+    def record_activity(self, session_id: str) -> None:
+        self._last_activity[session_id] = time.time()
+
+    async def pause_inactive_sandboxes(
+        self,
+        threshold_seconds: float | None = None,
+        active_sessions: set[str] | None = None,
+        session_idleness: Mapping[str, float] | None = None,
+    ) -> list[str]:
+        threshold = (
+            threshold_seconds if threshold_seconds is not None else self.inactivity_pause_seconds
+        )
+        now = time.time()
+        paused: list[str] = []
+
+        activity = dict(self._last_activity)
+        if session_idleness:
+            for s_id, t_stamp in session_idleness.items():
+                if s_id not in activity or t_stamp > activity[s_id]:
+                    activity[s_id] = t_stamp
+
+        for session_id, last_time in list(activity.items()):
+            if active_sessions and session_id in active_sessions:
+                continue
+            if self._held_until.get(session_id, 0) > now:
+                continue
+            if now - last_time >= threshold:
+                status = await self.get_status(session_id)
+                if status == SandboxStatus.RUNNING:
+                    await self.hibernate_sandbox(session_id)
+                    paused.append(session_id)
+        return paused
+
     async def reconcile_inactivity(
-        self, is_live: SessionLivenessCheck | None = None
+        self,
+        is_live: SessionLivenessCheck | None = None,
+        active_sessions: set[str] | None = None,
+        session_idleness: Mapping[str, float] | None = None,
     ) -> tuple[list[str], list[str]]:
-        """Nothing to reconcile in memory: no paused and no cleaned sessions."""
-        return [], []
+        paused = await self.pause_inactive_sandboxes(
+            active_sessions=active_sessions, session_idleness=session_idleness
+        )
+        return paused, []
 
     async def cleanup_warm_pool(self) -> None:
         """No warm pool exists; present for lifecycle parity."""

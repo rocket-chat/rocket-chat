@@ -119,14 +119,17 @@ class SandboxDriverProtocol(ABC):
         """
         pass
 
-    def hold_awake(self, session_id: str, seconds: float) -> None:
-        """Keep the sandbox out of idle hibernation for ``seconds`` (0 releases the hold).
+    def hold_awake(self, session_id: str, seconds: float, reason: str = "process") -> None:
+        """Keep the sandbox out of idle hibernation for ``seconds`` under ``reason`` (0 releases).
 
-        Used while background processes run: they are not tool calls, so without a hold the
-        idle reaper would stop a dev server the person is still looking at. Drivers without
-        an idle reaper keep this no-op.
+        Used while a turn executes (`reason="turn"`) or while background processes run
+        (`reason="process"`). Holds are reason-scoped so releasing one does not cancel another.
         """
         return None
+
+    def is_held(self, session_id: str) -> bool:
+        """Return True if the sandbox is currently held awake by an active lease."""
+        return False
 
     @abstractmethod
     async def destroy_workspace(self, session_id: str) -> None:

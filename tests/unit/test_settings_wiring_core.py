@@ -54,6 +54,18 @@ async def test_the_organization_turn_limit_bounds_the_turn_unless_the_agent_sets
     assert (await _plan("wire_max_turns_other")).max_turns != 7
 
 
+@pytest.mark.setting("general.output_offload_threshold")
+async def test_output_offload_threshold_is_carried_on_turn_policy() -> None:
+    org = "wire_offload_threshold"
+    await save_org_config(None, org, "general", {"output_offload_threshold": 1200}, [])
+
+    plan = await _plan(org)
+    assert plan.policy.output_offload_threshold == 1200
+
+    plan_default = await _plan("wire_offload_threshold_other")
+    assert plan_default.policy.output_offload_threshold == 6000
+
+
 # --- models ----------------------------------------------------------------------------
 
 
@@ -112,6 +124,32 @@ async def test_generation_parameters_and_fallbacks_reach_the_turn_plan() -> None
 
     assert (generation.temperature, generation.max_tokens) == (0.9, 777)
     assert generation.fallback_models == ("ok/a",)
+
+
+@pytest.mark.setting("models.output_tokens")
+async def test_output_tokens_setting_overrides_max_tokens() -> None:
+    org = "wire_output_tokens"
+    await save_org_config(
+        None,
+        org,
+        "models",
+        {
+            "max_tokens": 4096,
+            "output_tokens": {"openai/*": 16000, "o3-mini": 32000},
+        },
+        [],
+    )
+
+    plan_exact = await _plan(org, request_model="openai/o3-mini")
+    assert plan_exact.policy.generation.max_tokens == 32000
+    assert plan_exact.policy.generation.reasoning is not None
+    assert plan_exact.policy.generation.reasoning.effort == "medium"
+
+    plan_wildcard = await _plan(org, request_model="openai/gpt-4o")
+    assert plan_wildcard.policy.generation.max_tokens == 16000
+
+    plan_unmatched = await _plan(org, request_model="other/model")
+    assert plan_unmatched.policy.generation.max_tokens == 4096
 
 
 # --- routing ---------------------------------------------------------------------------
@@ -250,5 +288,5 @@ async def test_the_default_turn_budget_is_the_same_everywhere_it_is_stated() -> 
 
     from specifications.interfaces.agent import DEFAULT_MAX_TURNS
 
-    assert REGISTRY["general"]["max_turns"].default == DEFAULT_MAX_TURNS == 60
+    assert REGISTRY["general"]["max_turns"].default == DEFAULT_MAX_TURNS == 100
     assert (await _plan("wire_default_budget")).max_turns == DEFAULT_MAX_TURNS

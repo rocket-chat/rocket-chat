@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 import pytest
 from agent_core.context import ExecutionContext, current_execution_ctx
 from agent_core.permissions import approval_needed
 from agent_core.tools.registry import ToolRegistry
-from agent_core.tools.repository import clone_repository
+from agent_core.tools.repository import clone_into_workspace, clone_repository
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
 from specifications.interfaces.agent import TurnCallbacks
@@ -44,10 +45,13 @@ async def test_a_repository_is_cloned_into_its_own_folder_and_described() -> Non
     assert "abc1234 Initial" in result and "README.md" in result
     command = driver.commands[-1]
     assert (
-        "git clone --filter=blob:none --single-branch https://github.com/acme/api.git /workspace/api"
+        "git clone --filter=blob:none --no-tags https://github.com/acme/api.git /workspace/api"
         in command
     )
     assert "ALREADY_CLONED" in command, "an existing clone is fetched, not an error"
+    assert "config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'" in command, (
+        "heals single-branch clones on refresh"
+    )
     assert "&& ( git rev-parse" in command, "the summary must be gated by the clone's success"
 
 
@@ -182,3 +186,86 @@ async def test_a_clone_without_instructions_adds_nothing() -> None:
     result = await clone_repository(_Driver(), "s", "acme/api")
 
     assert "Project Instructions" not in result
+
+
+async def _run_cmd(*cmd: str, cwd: Path | None = None) -> tuple[int, str, str]:
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        cwd=cwd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    return proc.returncode or 0, stdout.decode(), stderr.decode()
+
+
+async def test_clone_fetches_all_branches_and_heals_old_clones(tmp_path: Path) -> None:
+    origin = tmp_path / "origin.git"
+    init_repo = tmp_path / "init_repo"
+    init_repo.mkdir()
+    await _run_cmd("git", "init", "-b", "main", str(init_repo))
+    await _run_cmd("git", "config", "user.email", "test@example.com", cwd=init_repo)
+    await _run_cmd("git", "config", "user.name", "Test", cwd=init_repo)
+    (init_repo / "README.md").write_text("# Test")
+    await _run_cmd("git", "add", "README.md", cwd=init_repo)
+    await _run_cmd("git", "commit", "-m", "Initial commit", cwd=init_repo)
+
+    await _run_cmd("git", "checkout", "-b", "beta", cwd=init_repo)
+    (init_repo / "beta.txt").write_text("beta")
+    await _run_cmd("git", "add", "beta.txt", cwd=init_repo)
+    await _run_cmd("git", "commit", "-m", "Beta commit", cwd=init_repo)
+
+    await _run_cmd("git", "checkout", "-b", "feature/x", cwd=init_repo)
+    (init_repo / "feature.txt").write_text("feature")
+    await _run_cmd("git", "add", "feature.txt", cwd=init_repo)
+    await _run_cmd("git", "commit", "-m", "Feature commit", cwd=init_repo)
+
+    await _run_cmd("git", "clone", "--bare", str(init_repo), str(origin))
+
+    (tmp_path / "workspace").mkdir(exist_ok=True)
+
+    class RealExecDriver(FakeSandboxDriver):
+        async def exec_command(
+            self, session_id: str, command: str, *a: Any, **k: Any
+        ) -> ExecResult:
+            if command.startswith("command -v git"):
+                return ExecResult(0, "/usr/bin/git", "", 1)
+            mapped = command.replace("/workspace", str(tmp_path / "workspace"))
+            mapped = mapped.replace("https://github.com/acme/repo.git", str(origin))
+            rc, out, err = await _run_cmd("bash", "-c", mapped)
+            return ExecResult(rc, out, err, 1)
+
+    driver = RealExecDriver()
+
+    # 1. Fresh clone: origin/beta and origin/feature/x must exist
+    res = await clone_into_workspace(driver, "s", "acme/repo", directory="fresh")
+    assert "Cloned acme/repo" in res.message
+    fresh_target = tmp_path / "workspace" / "fresh"
+    assert fresh_target.exists()
+    code_beta, _, _ = await _run_cmd("git", "-C", str(fresh_target), "rev-parse", "origin/beta")
+    assert code_beta == 0
+    code_feat, _, _ = await _run_cmd(
+        "git", "-C", str(fresh_target), "rev-parse", "origin/feature/x"
+    )
+    assert code_feat == 0
+
+    # 2. Existing single-branch clone: heal on refresh
+    single_target = tmp_path / "workspace" / "single"
+    await _run_cmd(
+        "git",
+        "clone",
+        "--single-branch",
+        "--branch",
+        "main",
+        str(origin),
+        str(single_target),
+    )
+    # Before healing, origin/beta fails
+    code_before, _, _ = await _run_cmd("git", "-C", str(single_target), "rev-parse", "origin/beta")
+    assert code_before != 0
+
+    # Refresh via clone_into_workspace (hits ALREADY_CLONED branch, heals config and fetches)
+    res_healed = await clone_into_workspace(driver, "s", "acme/repo", directory="single")
+    assert "Already cloned" in res_healed.message
+    code_after, _, _ = await _run_cmd("git", "-C", str(single_target), "rev-parse", "origin/beta")
+    assert code_after == 0

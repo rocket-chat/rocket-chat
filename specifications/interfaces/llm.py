@@ -95,6 +95,40 @@ class CredentialResolverProtocol(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class ModelSpec:
+    """Capability and token limit metadata for a frontier or custom model."""
+
+    id: str
+    name: str = ""
+    provider: str = ""
+    context_window: int = 128_000
+    max_output_tokens: int = 8_192
+    supports_reasoning: bool = False
+    recommended: bool = False
+    custom: bool = False
+
+
+@runtime_checkable
+class ModelCatalogueProtocol(Protocol):
+    """Protocol for querying model specs (context window, max output, reasoning capability)."""
+
+    def get_model_spec(self, model: str) -> ModelSpec | None: ...
+
+
+def is_reasoning_model(model: str) -> bool:
+    """True if the model is known to perform internal reasoning/thinking steps."""
+    name = (model or "").lower().split("/")[-1]
+    if name.startswith(("o1", "o3", "o4")):
+        return True
+    if "claude-3-7" in name or "claude-3.7" in name:
+        return True
+    return any(
+        token in name
+        for token in ("thinking", "reasoner", "deepseek-r1", "-r1", "r1-", "qwq", "qvq")
+    )
+
+
 @dataclass
 class ToolDefinition:
     name: str

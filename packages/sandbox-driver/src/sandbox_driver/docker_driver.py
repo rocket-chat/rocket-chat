@@ -6,7 +6,7 @@ import io
 import logging
 import os
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import docker
@@ -30,7 +30,7 @@ from sandbox_driver.exceptions import (
 )
 from sandbox_driver.patcher import apply_unified_diff
 from sandbox_driver.pty import SHELL_LAUNCHER, DockerPty
-from sandbox_driver.session_env import SessionEnvMixin
+from sandbox_driver.session_env import DEFAULT_SANDBOX_CACHE_ENV, SessionEnvMixin
 from sandbox_driver.tracing import traced_exec
 from sandbox_driver.utils import (
     CLIENT_DEADLINE_MARGIN_SECONDS,
@@ -79,6 +79,7 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         )
         self._last_activity: dict[str, float] = {}
         self._held_until: dict[str, float] = {}
+        self._holds: dict[str, dict[str, float]] = {}
         # Serialises container lifecycle operations per session. Without it, two
         # concurrent turns on the same session can both observe "container absent"
         # and race into `containers.run(name=...)`, where the loser gets a 409.
@@ -92,11 +93,25 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
             self._lifecycle_locks[session_id] = lock
         return lock
 
-    def hold_awake(self, session_id: str, seconds: float) -> None:
+    def hold_awake(self, session_id: str, seconds: float, reason: str = "process") -> None:
         if seconds <= 0:
-            self._held_until.pop(session_id, None)
+            if session_id in self._holds:
+                self._holds[session_id].pop(reason, None)
+                if not self._holds[session_id]:
+                    self._holds.pop(session_id, None)
+                    self._held_until.pop(session_id, None)
+                else:
+                    self._held_until[session_id] = max(self._holds[session_id].values())
+            else:
+                self._held_until.pop(session_id, None)
         else:
-            self._held_until[session_id] = time.time() + seconds
+            now = time.time()
+            self._holds.setdefault(session_id, {})[reason] = now + seconds
+            self._held_until[session_id] = max(self._holds[session_id].values())
+
+    def is_held(self, session_id: str) -> bool:
+        """Return True if the sandbox is held awake by an active lease."""
+        return self._held_until.get(session_id, 0) > time.time()
 
     def record_activity(self, session_id: str) -> None:
         """Mark recent interaction timestamp to reset inactivity countdown."""
@@ -173,7 +188,7 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                 "rocket.tenant.user": spec.tenant_user_id,
                 "rocket.managed": "true",
             }
-            environment = dict(spec.env_vars)
+            environment = {**DEFAULT_SANDBOX_CACHE_ENV, **dict(spec.env_vars)}
             network: str | None = None
             if is_restricted(spec):
                 # No route out except through the organization's allow-listing proxy.
@@ -538,7 +553,12 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
             if session_id and session_id not in self._last_activity:
                 self.record_activity(session_id)
 
-    async def pause_inactive_sandboxes(self, threshold_seconds: float | None = None) -> list[str]:
+    async def pause_inactive_sandboxes(
+        self,
+        threshold_seconds: float | None = None,
+        active_sessions: set[str] | None = None,
+        session_idleness: Mapping[str, float] | None = None,
+    ) -> list[str]:
         """Hibernate running Docker sandboxes that exceeded configured idle duration."""
         threshold = (
             threshold_seconds if threshold_seconds is not None else self.inactivity_pause_seconds
@@ -546,7 +566,15 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         now = time.time()
         paused: list[str] = []
 
-        for session_id, last_time in list(self._last_activity.items()):
+        activity = dict(self._last_activity)
+        if session_idleness:
+            for s_id, t_stamp in session_idleness.items():
+                if s_id not in activity or t_stamp > activity[s_id]:
+                    activity[s_id] = t_stamp
+
+        for session_id, last_time in list(activity.items()):
+            if active_sessions and session_id in active_sessions:
+                continue
             if self._held_until.get(session_id, 0) > now:
                 continue
             if now - last_time >= threshold:
@@ -600,11 +628,16 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         return cleaned
 
     async def reconcile_inactivity(
-        self, is_live: SessionLivenessCheck | None = None
+        self,
+        is_live: SessionLivenessCheck | None = None,
+        active_sessions: set[str] | None = None,
+        session_idleness: Mapping[str, float] | None = None,
     ) -> tuple[list[str], list[str]]:
         """One sweep: adopt sandboxes that outlived a restart, pause idle compute, purge orphans."""
         await self.adopt_existing_sandboxes()
-        paused = await self.pause_inactive_sandboxes()
+        paused = await self.pause_inactive_sandboxes(
+            active_sessions=active_sessions, session_idleness=session_idleness
+        )
         cleaned = await self.cleanup_inactive_sandboxes(is_live=is_live)
         await run_blocking(remove_unused_proxies, self._client)
         return paused, cleaned

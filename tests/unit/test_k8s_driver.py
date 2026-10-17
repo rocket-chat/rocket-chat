@@ -186,6 +186,9 @@ async def test_exec_command_streaming_and_exit_code(mock_clients, spec):
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             pass
 
+        async def send_bytes(self, data: bytes) -> None:
+            pass
+
         async def __aiter__(self):
             messages = [
                 # Channel 1: STDOUT
@@ -420,6 +423,9 @@ async def test_exec_command_toggles_eviction_protection(mock_clients, spec):
             return self
 
         async def __aexit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+        async def send_bytes(self, data: bytes) -> None:
             pass
 
         async def __aiter__(self):
