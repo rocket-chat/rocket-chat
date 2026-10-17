@@ -439,6 +439,8 @@ export interface AgentPersonaConfig {
   tool_loading?: "all" | "on_demand" | "auto" | null;
   /** Tools always loaded, by name or shell-style pattern. */
   active_tools?: string[];
+  /** Default permission mode for sessions created with this persona. */
+  default_permission_mode?: PermissionMode | null;
 }
 
 

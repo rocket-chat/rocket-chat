@@ -859,6 +859,46 @@ export default function AgentsSettingsPage() {
             )}
           </Field>
 
+          {/* Default Permission Mode */}
+          <Field
+            label="Default permission mode"
+            hint="The supervision level for sessions using this agent: Plan (read-only), Ask (approve all), Auto-edit (free edits, approve commands/git), Auto (balanced), Bypass (unsupervised). Empty inherits the user or organization default."
+          >
+            {(control) => (
+              <Select {...control}
+                data-testid="agent-permission-mode"
+                disabled={!canEditCurrentAgent}
+                value={formData.default_permission_mode ?? ""}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    default_permission_mode: (e.target.value || null) as AgentPersonaConfig["default_permission_mode"],
+                  })
+                }
+                className="max-w-xs"
+              >
+                <option value="" title="Supervision follows user or organization preference">
+                  Inherit user / organization default
+                </option>
+                <option value="plan" title="Read-only: The agent inspects code and creates plans without modifying files or running commands.">
+                  Plan (read-only)
+                </option>
+                <option value="ask" title="Strict: Every file edit, shell command, and git publish requires approval.">
+                  Ask (approve every action)
+                </option>
+                <option value="auto_edit" title="Semi-autonomous: Edits run freely; commands and git publications require approval.">
+                  Auto-edit (edits run freely; approve commands & git)
+                </option>
+                <option value="auto" title="Balanced: Edits and standard commands run freely; only critical actions ask.">
+                  Auto (balanced; ask on critical actions)
+                </option>
+                <option value="bypass" title="Full autonomy: Zero approval prompts for any tool (requires Allow bypass permissions in Admin Governance).">
+                  Bypass (unsupervised / no approvals)
+                </option>
+              </Select>
+            )}
+          </Field>
+
           <Field
             label="Always loaded"
             hint="Pinned tools, and patterns such as mcp__signoz*__*search*, one per line. Use the pin on an allowed tool below."

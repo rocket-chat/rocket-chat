@@ -315,7 +315,11 @@ class TurnService:
             hooks=parse_hooks(governance.get("hooks")),
             permission_mode=resolve_permission_mode(
                 session_permission_mode,
-                str(prefs.get("permission_mode") or ""),
+                str(
+                    getattr(agent, "default_permission_mode", None)
+                    or prefs.get("permission_mode")
+                    or ""
+                ),
                 locked="permission_mode" in resolved_prefs.locked_keys,
                 allow_bypass=bool(governance.get("allow_bypass_permissions")),
             ),

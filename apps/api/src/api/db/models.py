@@ -499,6 +499,7 @@ class AgentPersonaEntityModel(Base):
     enabled: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true", nullable=False
     )
+    default_permission_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[int] = mapped_column(
         BigInteger, default=lambda: int(time.time()), nullable=False
     )

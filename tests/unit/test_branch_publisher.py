@@ -51,6 +51,10 @@ class SimulatedGitHub:
         if request.url.path.endswith("/git/refs"):
             git(self.bare, "update-ref", body["ref"], body["sha"])
             return httpx.Response(201, json={})
+        if "/git/refs/heads/" in request.url.path:
+            branch = request.url.path.split("/git/refs/heads/", 1)[1]
+            git(self.bare, "update-ref", f"refs/heads/{branch}", body["sha"])
+            return httpx.Response(200, json={})
         return self._create_commit(body["variables"]["input"])
 
     def _create_commit(self, data: dict[str, object]) -> httpx.Response:
@@ -359,6 +363,76 @@ async def test_force_with_lease_replaces_a_diverged_remote_branch_it_has_seen(ri
 
     assert git(rig.bare, "log", "-1", "--format=%s", "refs/heads/feat/force") == "Local"
     assert result.commits == 1
+
+
+async def test_force_with_lease_replays_through_github_app_mode(rig: Rig) -> None:
+    git(rig.work, "checkout", "-q", "-b", "feat/force-api")
+    rig.commit("a.txt", "1\n", "Initial local")
+    # Publish initially
+    await rig.publisher().publish("s1", API)
+
+    # Now simulate divergence: someone pushes to remote or we rebase
+    git(rig.github.scratch, "fetch", "-q", "origin")
+    git(rig.github.scratch, "checkout", "-q", "feat/force-api")
+    rig.github.scratch.joinpath("remote.txt").write_text("remote change\n")
+    git(rig.github.scratch, "add", "-A")
+    git(rig.github.scratch, "commit", "-q", "-m", "Remote commit on branch")
+    git(rig.github.scratch, "push", "-q", "origin", "feat/force-api")
+
+    # Local commit after rebase
+    rig.commit("b.txt", "2\n", "Rebased local feature commit")
+
+    # Publishing without force_with_lease should fail
+    with pytest.raises(PublishError, match="rebase"):
+        await rig.publisher().publish("s1", API)
+
+    # Publishing with force_with_lease=True should succeed and reset remote ref
+    forced = replace(API, force_with_lease=True)
+    result = await rig.publisher().publish("s1", forced)
+
+    assert result.via == "github_api"
+    assert result.commits == 2
+    assert "Remote commit on branch" not in git(
+        rig.bare, "log", "--format=%s", "refs/heads/feat/force-api"
+    )
+    assert "Rebased local feature commit" in git(
+        rig.bare, "log", "--format=%s", "refs/heads/feat/force-api"
+    )
+
+
+async def test_dynamic_base_detection_picks_closest_ancestor_branch(rig: Rig) -> None:
+    # Create origin/beta with multiple commits and a merge commit
+    git(rig.github.scratch, "fetch", "-q", "origin")
+    git(rig.github.scratch, "checkout", "-q", "-b", "beta", "origin/main")
+    rig.github.scratch.joinpath("beta1.txt").write_text("beta 1\n")
+    git(rig.github.scratch, "add", "-A")
+    git(rig.github.scratch, "commit", "-q", "-m", "Beta commit 1")
+
+    # Add a merge commit on beta
+    git(rig.github.scratch, "checkout", "-q", "-b", "temp-side", "beta")
+    rig.github.scratch.joinpath("side.txt").write_text("side\n")
+    git(rig.github.scratch, "add", "-A")
+    git(rig.github.scratch, "commit", "-q", "-m", "Side commit")
+    git(rig.github.scratch, "checkout", "-q", "beta")
+    git(rig.github.scratch, "merge", "-q", "--no-ff", "-m", "Merge side into beta", "temp-side")
+    git(rig.github.scratch, "push", "-q", "origin", "beta")
+
+    # Local sandbox fetches beta and branches off beta
+    git(rig.work, "fetch", "-q", "origin")
+    git(rig.work, "checkout", "-q", "-b", "feat/from-beta", "origin/beta")
+    rig.commit("feature.txt", "feat\n", "Feature commit only")
+
+    # Publish with GITHUB_APP mode, default_branch is "main"
+    # Even though default_branch is "main" and beta has a merge commit,
+    # dynamic base detection must pick beta as the base, ensuring only the 1 feature commit is replayed.
+    result = await rig.publisher().publish("s1", API)
+
+    assert result.via == "github_api"
+    assert result.commits == 1
+    assert (
+        git(rig.bare, "log", "-1", "--format=%s", "refs/heads/feat/from-beta")
+        == "Feature commit only"
+    )
 
 
 async def test_a_branch_deleted_on_the_remote_is_published_again_as_new(rig: Rig) -> None:

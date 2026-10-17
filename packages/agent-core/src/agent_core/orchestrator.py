@@ -1587,6 +1587,15 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
 
     async def _handle_progress_decision(self, run: _TurnRun, res: LoopDetectionResult) -> None:
         """Present an interactive decision card when progress is stuck in a loop."""
+        mode = run.exec_ctx.policy.permission_mode if run.exec_ctx and run.exec_ctx.policy else ""
+        if mode == "bypass":
+            # In bypass mode, never block execution with an interactive question modal.
+            # Continue running autonomously while injecting the warning into prompt notes.
+            run.next_notes.append(
+                f"[Bypass Autonomous Progress: {res.reason} Continuing automatically without pausing.]"
+            )
+            return
+
         question_text = (
             res.question_text or "The task appears stuck. How would you like to proceed?"
         )

@@ -79,25 +79,25 @@ def test_checklist_stagnation_detection() -> None:
         {"id": "3", "status": "pending"},
     ]
 
-    # Call 1 sets initial baseline. Then 7 steps with same checklist state: no alarm
-    for _ in range(8):
+    # Call 1 sets initial baseline. Then 24 steps with same checklist state: no alarm
+    for _ in range(25):
         assert tracker.record_checklist_state(tasks) is None
 
-    # Step 8 without progress: triggers level 1 stall warning
+    # Step 25 without progress: triggers level 1 stall warning
     res1 = tracker.record_checklist_state(tasks)
     assert res1 is not None
     assert res1.level == 1
-    assert "8 steps have completed without updating any checklist item" in res1.suggested_nudge
+    assert "25 steps have completed without updating any checklist item" in res1.suggested_nudge
 
-    # Run up to 14 steps
-    for _ in range(6):
+    # Run up to 74 steps
+    for _ in range(49):
         tracker.record_checklist_state(tasks)
 
-    # Step 15: triggers level 2 decision required
+    # Step 75: triggers level 2 decision required
     res2 = tracker.record_checklist_state(tasks)
     assert res2 is not None
     assert res2.level == 2
-    assert "has continued for 15 steps without updating any checklist task" in (
+    assert "has continued for 75 steps without updating any checklist task" in (
         res2.question_text or ""
     )
 
@@ -114,21 +114,21 @@ def test_checklist_all_completed_no_stagnation() -> None:
 
 def test_record_step_stagnation() -> None:
     tracker = ProgressTracker()
-    for _ in range(7):
+    for _ in range(24):
         assert tracker.record_step(has_active_checklist=True) is None
 
     res1 = tracker.record_step(has_active_checklist=True)
     assert res1 is not None
     assert res1.level == 1
-    assert "8 steps have completed without updating any checklist item" in res1.suggested_nudge
+    assert "25 steps have completed without updating any checklist item" in res1.suggested_nudge
 
-    for _ in range(6):
+    for _ in range(49):
         tracker.record_step(has_active_checklist=True)
 
     res2 = tracker.record_step(has_active_checklist=True)
     assert res2 is not None
     assert res2.level == 2
-    assert "15 steps" in (res2.question_text or "")
+    assert "75 steps" in (res2.question_text or "")
 
 
 def test_classify_risky_git_operations() -> None:
@@ -150,3 +150,32 @@ def test_classify_risky_git_operations() -> None:
     assert classify_risky_git_operation("git status") is None
     assert classify_risky_git_operation("git log -n 5") is None
     assert classify_risky_git_operation("git diff") is None
+
+
+def test_notice_for_manual_github_write() -> None:
+    from agent_core.tools.git_tools import notice_for_manual_github_write
+
+    # git push variants
+    res = notice_for_manual_github_write("git push origin feat/fif-123")
+    assert res is not None
+    assert "Direct 'git push' from the sandbox shell cannot authenticate" in res
+    assert "git_push" in res
+
+    res2 = notice_for_manual_github_write("git push -u origin main")
+    assert res2 is not None
+
+    # gh pr create
+    res3 = notice_for_manual_github_write("gh pr create --title 'Fix nil panic' --body '...'")
+    assert res3 is not None
+    assert "git_open_pr" in res3
+
+    # gh issue create
+    res4 = notice_for_manual_github_write("gh issue create -t 'Bug' -b '...'")
+    assert res4 is not None
+    assert "github_issues" in res4
+
+    # benign commands without notice
+    assert notice_for_manual_github_write("git status") is None
+    assert notice_for_manual_github_write("git diff") is None
+    assert notice_for_manual_github_write("go test ./...") is None
+    assert notice_for_manual_github_write("make build") is None

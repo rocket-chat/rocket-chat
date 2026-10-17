@@ -90,6 +90,9 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
         before = await workspace_changes.snapshot(driver, session_id, workdir)
         output = await tier2.bash_exec(driver, session_id, command, timeout_seconds, workdir)
 
+        if notice := git_tools.notice_for_manual_github_write(command):
+            output = f"{notice}\n\n{output}" if output else notice
+
         after = await workspace_changes.snapshot(driver, session_id, workdir)
         changed = workspace_changes.changed_paths(before, after)
         for diff in await workspace_changes.diffs_for(driver, session_id, after[0], changed):
