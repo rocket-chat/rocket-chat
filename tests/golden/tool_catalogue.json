@@ -1144,7 +1144,7 @@
     }
   },
   {
-    "description": "Execute a shell command inside the sandbox. Each call is a fresh shell: `cd` and exported variables do not carry over, so pass `cwd` instead of `cd`.",
+    "description": "Execute a shell command inside the sandbox (/bin/sh by default; write POSIX-compliant syntax or invoke bash explicitly if using bashisms). Each call is a fresh shell: `cd` and exported variables do not carry over, so pass `cwd` instead of `cd`.",
     "name": "bash_exec",
     "parameters": {
       "properties": {

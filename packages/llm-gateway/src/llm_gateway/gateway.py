@@ -378,6 +378,9 @@ class LiteLLMGateway(LLMGatewayProtocol):
             kwargs["user"] = scope.session_id
             if "openrouter" in model_lower or "openai" in model_lower:
                 kwargs["prompt_cache_key"] = scope.session_id
+            if "openrouter" in model_lower:
+                kwargs.setdefault("extra_body", {})["session_id"] = scope.session_id
+                kwargs.setdefault("extra_headers", {})["x-session-id"] = scope.session_id
         return kwargs
 
     def _generation_options(self, request: ModelRequest) -> dict[str, Any]:
@@ -463,8 +466,12 @@ class LiteLLMGateway(LLMGatewayProtocol):
         if cache_read is None and details is not None:
             cache_read = cls._get_val(details, "cached_tokens")
         cache_creation = cls._get_val(usage, "cache_creation_input_tokens")
+        if cache_creation is None:
+            cache_creation = cls._get_val(usage, "cache_write_tokens")
         if cache_creation is None and details is not None:
             cache_creation = cls._get_val(details, "cache_creation_input_tokens")
+            if cache_creation is None:
+                cache_creation = cls._get_val(details, "cache_write_tokens")
         if cache_read is not None:
             usage_dict["cache_read_tokens"] = int(cache_read)
         if cache_creation is not None:
@@ -538,17 +545,16 @@ class LiteLLMGateway(LLMGatewayProtocol):
                 yield error_chunk
             return
 
-        finished = False
         latest_usage: dict[str, int] | None = None
+        last_finish_reason: str | None = None
         async for chunk in response:
             # Providers put usage on the finishing chunk, on a trailing chunk without choices
             # or on an ordinary content chunk; keep the latest wherever it came.
-            usage_dict = self._usage_from_chunk(chunk) or latest_usage
-            latest_usage = usage_dict
+            usage_dict = self._usage_from_chunk(chunk)
+            if usage_dict:
+                latest_usage = usage_dict
             choices = getattr(chunk, "choices", None)
             if not choices:
-                if usage_dict:
-                    yield StreamChunk(is_finished=True, token_usage=usage_dict)
                 continue
 
             choice = choices[0]
@@ -557,21 +563,17 @@ class LiteLLMGateway(LLMGatewayProtocol):
                 for delta_chunk in self._delta_chunks(delta, reasoning_filter):
                     yield delta_chunk
 
-            finish_reason = getattr(choice, "finish_reason", None)
-            if finish_reason:
-                finished = True
-                for pending in self._filtered_chunks(reasoning_filter.flush()):
-                    yield pending
-                yield StreamChunk(
-                    is_finished=True,
-                    finish_reason=finish_reason,
-                    token_usage=usage_dict,
-                )
+            fr = getattr(choice, "finish_reason", None)
+            if fr:
+                last_finish_reason = fr
 
-        if not finished:
-            for pending in self._filtered_chunks(reasoning_filter.flush()):
-                yield pending
-            yield StreamChunk(is_finished=True, token_usage=latest_usage)
+        for pending in self._filtered_chunks(reasoning_filter.flush()):
+            yield pending
+        yield StreamChunk(
+            is_finished=True,
+            finish_reason=last_finish_reason or "stop",
+            token_usage=latest_usage,
+        )
 
     async def chat_stream(
         self,

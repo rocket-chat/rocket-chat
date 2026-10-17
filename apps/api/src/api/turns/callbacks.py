@@ -99,6 +99,53 @@ def _schedule_process_wake(ctx: TurnContext, identifier: str, timeout_seconds: i
     task.add_done_callback(_background_tasks.discard)
 
 
+def _schedule_github_wake(
+    ctx: TurnContext, target: str, identifier: str, timeout_seconds: int | None
+) -> None:
+    max_wait = float(timeout_seconds) if timeout_seconds else 1800.0
+
+    async def _wake() -> None:
+        poll_interval = 60.0
+        start = asyncio.get_running_loop().time()
+        while (asyncio.get_running_loop().time() - start) < max_wait:
+            await asyncio.sleep(
+                min(poll_interval, max_wait - (asyncio.get_running_loop().time() - start))
+            )
+            locks = ctx.req.session_locks
+            if locks is not None and locks.is_locked(ctx.session_id):
+                return
+            store = GithubWatchStore(ctx.req.db_mgr)
+            watches = await store.for_session(ctx.session.tenant_org_id, ctx.session_id)
+            matching = [w for w in watches if w.target == identifier and w.active]
+            if not matching:
+                return
+
+        from api.turns.tasks import _spawn_background_turn
+
+        _spawn_background_turn(
+            session_id=ctx.session_id,
+            prompt=(
+                f"Wait timeout of {int(max_wait)}s expired for {target} on {identifier}. "
+                "Resuming execution to verify status directly."
+            ),
+            orchestrator=ctx.req.orchestrator,
+            event_bus=ctx.req.event_bus,
+            driver=ctx.req.driver,
+            registry=ctx.req.registry,
+            store=ctx.req.store,
+            model=ctx.effective_model,
+            git_engine=ctx.req.git_engine,
+            db_mgr=ctx.req.db_mgr,
+            concurrency_gate=ctx.req.concurrency_gate,
+            session_locks=ctx.req.session_locks,
+            synthetic_prompt=True,
+        )
+
+    task = asyncio.create_task(_wake())
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
 def _build_wait_for(
     session_id: str,
     event_bus: Any,
@@ -125,10 +172,14 @@ def _build_wait_for(
             pr_num = (
                 int(parts[1].strip()) if len(parts) > 1 and parts[1].strip().isdigit() else None
             )
-            await github_watch(repo, pr_num, branch=None, wake=True)
+            branch = ctx.session.git_branch if ctx is not None else None
+            await github_watch(repo, pr_num, branch=branch, wake=True)
+            if ctx is not None:
+                _schedule_github_wake(ctx, target, identifier, timeout_seconds)
+            effective_timeout = timeout_seconds or 1800
             return (
-                f"Waiting for {target} on {identifier}. Turn paused; "
-                "will automatically wake upon webhook arrival."
+                f"Waiting for {target} on {identifier} (timeout: {effective_timeout}s). Turn paused; "
+                "will automatically wake upon webhook arrival or timeout."
             )
         if target == "time":
             delay = float(identifier) if identifier.replace(".", "", 1).isdigit() else 30.0

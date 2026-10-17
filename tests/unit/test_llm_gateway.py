@@ -215,3 +215,121 @@ async def test_gateway_credential_and_header_sanitization(
     assert captured_kwargs["api_key"] == "sk-or-byok-key"
     assert captured_kwargs["api_base"] == "https://openrouter.ai/api/v1"
     assert captured_kwargs["extra_headers"] == {"X-Custom-Header": "value-with-newline"}
+
+
+@pytest.mark.asyncio
+async def test_gateway_preserves_trailing_usage_chunk_and_cache_tokens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure LiteLLM trailing usage chunk (emitted after finish_reason='stop') is preserved."""
+
+    async def mock_acompletion(**kwargs: Any) -> AsyncIterator[Any]:
+        async def _gen() -> AsyncIterator[Any]:
+            # Chunk 1: text delta
+            c1 = MagicMock()
+            ch1 = MagicMock()
+            ch1.delta.content = "Response text"
+            ch1.delta.reasoning_content = None
+            ch1.delta.thinking = None
+            ch1.delta.tool_calls = None
+            ch1.finish_reason = None
+            c1.choices = [ch1]
+            c1.usage = None
+            yield c1
+
+            # Chunk 2: finish_reason="stop", but usage is None
+            c2 = MagicMock()
+            ch2 = MagicMock()
+            ch2.delta = None
+            ch2.finish_reason = "stop"
+            c2.choices = [ch2]
+            c2.usage = None
+            yield c2
+
+            # Chunk 3: trailing usage chunk
+            c3 = MagicMock()
+            ch3 = MagicMock()
+            ch3.delta = None
+            ch3.finish_reason = None
+            c3.choices = [ch3]
+            c3.usage = {
+                "prompt_tokens": 3000,
+                "completion_tokens": 50,
+                "total_tokens": 3050,
+                "prompt_tokens_details": {"cached_tokens": 2500, "cache_write_tokens": 100},
+            }
+            yield c3
+
+        return _gen()
+
+    import litellm
+
+    monkeypatch.setattr(litellm, "acompletion", mock_acompletion)
+
+    gateway = LiteLLMGateway()
+    request = ModelRequest(
+        model="openrouter/deepseek/deepseek-v4-pro",
+        messages=[ChatMessage(role="user", content="hello")],
+    )
+
+    chunks = []
+    async for chunk in gateway.chat_stream(request):
+        chunks.append(chunk)
+
+    finished_chunks = [c for c in chunks if c.is_finished]
+    assert len(finished_chunks) == 1
+    final = finished_chunks[0]
+    assert final.finish_reason == "stop"
+    assert final.token_usage is not None
+    assert final.token_usage["prompt_tokens"] == 3000
+    assert final.token_usage["cache_read_tokens"] == 2500
+    assert final.token_usage["cache_creation_tokens"] == 100
+
+
+@pytest.mark.asyncio
+async def test_gateway_openrouter_sticky_session_parameters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify session_id and x-session-id are passed for OpenRouter models."""
+    captured_kwargs: dict[str, Any] = {}
+
+    async def mock_acompletion(**kwargs: Any) -> AsyncIterator[Any]:
+        nonlocal captured_kwargs
+        captured_kwargs = kwargs
+
+        async def _gen() -> AsyncIterator[Any]:
+            c = MagicMock()
+            ch = MagicMock()
+            ch.delta.content = "ok"
+            ch.delta.reasoning_content = None
+            ch.delta.thinking = None
+            ch.delta.tool_calls = None
+            ch.finish_reason = "stop"
+            c.choices = [ch]
+            c.usage = None
+            yield c
+
+        return _gen()
+
+    import litellm
+    from llm_gateway.gateway import ModelScope, current_model_scope
+
+    monkeypatch.setattr(litellm, "acompletion", mock_acompletion)
+
+    gateway = LiteLLMGateway()
+    current_model_scope.set(
+        ModelScope(org_id="org_test", user_id="user_test", session_id="session_target_123")
+    )
+
+    request = ModelRequest(
+        model="openrouter/deepseek/deepseek-v4-pro",
+        messages=[ChatMessage(role="user", content="hello")],
+    )
+
+    async for _ in gateway.chat_stream(request):
+        pass
+
+    assert captured_kwargs["user"] == "session_target_123"
+    assert captured_kwargs["prompt_cache_key"] == "session_target_123"
+    assert captured_kwargs["extra_body"]["session_id"] == "session_target_123"
+    assert captured_kwargs["extra_headers"]["x-session-id"] == "session_target_123"

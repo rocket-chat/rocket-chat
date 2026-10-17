@@ -42,9 +42,11 @@ class GithubWatch:
     def matches(self, repo: str, pr_numbers: tuple[int, ...], branch: str | None) -> bool:
         if not self.active or self.repo != repo.lower():
             return False
-        if self.pr_number is not None:
-            return self.pr_number in pr_numbers
-        return self.branch is not None and self.branch == branch
+        if self.pr_number is not None and self.pr_number in pr_numbers:
+            return True
+        if self.branch is not None and branch is not None and self.branch == branch:
+            return True
+        return False
 
 
 def _from_row(row: GithubWatchModel) -> GithubWatch:

@@ -573,9 +573,53 @@ def _comment_event(payload: dict[str, Any]) -> RepoEvent | None:
     )
 
 
+def _workflow_run_event(payload: dict[str, Any]) -> RepoEvent | None:
+    run = payload.get("workflow_run", {})
+    if payload.get("action") != "completed" or not run.get("conclusion"):
+        return None
+    conclusion = str(run["conclusion"])
+    name = run.get("name") or "Workflow"
+    head_sha = str(run.get("head_sha", ""))[:7]
+    pr_numbers = tuple(int(pr["number"]) for pr in run.get("pull_requests", []) if "number" in pr)
+    return _repo_event(
+        payload,
+        kind="workflow_run.completed",
+        summary=f"{name} workflow finished: {conclusion} (commit {head_sha}).",
+        pr_numbers=pr_numbers,
+        branch=run.get("head_branch"),
+        url=run.get("html_url", ""),
+        outcome=conclusion,
+        trusted=True,
+    )
+
+
+def _check_run_event(payload: dict[str, Any]) -> RepoEvent | None:
+    run = payload.get("check_run", {})
+    if payload.get("action") != "completed" or not run.get("conclusion"):
+        return None
+    conclusion = str(run["conclusion"])
+    name = run.get("name") or "Check"
+    head_sha = str(run.get("head_sha", ""))[:7]
+    prs = run.get("pull_requests") or (run.get("check_suite") or {}).get("pull_requests", [])
+    pr_numbers = tuple(int(pr["number"]) for pr in prs if "number" in pr)
+    branch = (run.get("check_suite") or {}).get("head_branch")
+    return _repo_event(
+        payload,
+        kind="check_run.completed",
+        summary=f"{name} check finished: {conclusion} (commit {head_sha}).",
+        pr_numbers=pr_numbers,
+        branch=branch,
+        url=run.get("html_url", ""),
+        outcome=conclusion,
+        trusted=True,
+    )
+
+
 _EVENT_PARSERS = {
     "pull_request": _pull_request_event,
     "check_suite": _check_suite_event,
+    "workflow_run": _workflow_run_event,
+    "check_run": _check_run_event,
     "pull_request_review": _review_event,
     "issue_comment": _comment_event,
     "pull_request_review_comment": _comment_event,
