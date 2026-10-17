@@ -10,6 +10,7 @@ from sandbox_driver.workspace import WORKSPACE
 from agent_core.context import current_execution_ctx
 from agent_core.tools import code_search as code_search_tools
 from agent_core.tools import tier2
+from agent_core.tools.offload import get_cached_offload
 from specifications.interfaces.agent import AgentEvent, FileDiff
 
 if TYPE_CHECKING:
@@ -44,6 +45,19 @@ def register(registry: "ToolRegistry") -> None:
     _register_file_search_tools(registry)
 
 
+def _slice_cached_text(
+    cached: str, start_line: int | None, end_line: int | None, line_numbers: bool
+) -> str:
+    lines = cached.splitlines()
+    s = max(1, start_line or 1)
+    e = min(len(lines), end_line or (s + 399))
+    subset = lines[s - 1 : e]
+    if line_numbers:
+        numbered = [f"{i:4d} | {line}" for i, line in enumerate(subset, start=s)]
+        return f"[lines {s}-{e} of {len(lines)}]\n" + "\n".join(numbered)
+    return f"[lines {s}-{e} of {len(lines)}]\n" + "\n".join(subset)
+
+
 def _register_file_editing_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
@@ -66,10 +80,19 @@ def _register_file_editing_tools(registry: "ToolRegistry") -> None:
     ) -> str:
         ctx = current_execution_ctx.get()
         s_id = ctx.session_id if ctx else registry._session_id
+        target = registry.workspace_file(path)
+        cached = get_cached_offload(s_id, target) if s_id else None
         if not registry._driver or not s_id:
+            if cached is not None:
+                return _slice_cached_text(cached, start_line, end_line, line_numbers)
             return "Error: Sandbox not initialized for file_read"
         await registry._ensure_sandbox(s_id)
-        target = registry.workspace_file(path)
+        if cached is not None and registry._driver:
+            try:
+                rel = target.removeprefix(f"{WORKSPACE}/").lstrip("/")
+                await registry._driver.write_file(s_id, rel, cached, overwrite=False)
+            except Exception:
+                pass
         result = await tier2.file_read(
             registry._driver, s_id, target, start_line, end_line, line_numbers
         )

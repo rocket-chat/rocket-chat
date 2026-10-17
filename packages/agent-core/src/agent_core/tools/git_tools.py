@@ -378,3 +378,25 @@ def parse_pull_request_url(text: str) -> tuple[str, int] | None:
     if not text.startswith("Pull request opened") or not (match := _PULL_REQUEST_URL.search(text)):
         return None
     return match.group(1), int(match.group(2))
+
+
+_RISKY_GIT_OPERATIONS = (
+    ("rebase", r"\bgit\s+(?:-[^\s]+\s+)*rebase\b"),
+    ("reset_hard", r"\bgit\s+(?:-[^\s]+\s+)*reset\b.*--(?:hard|merge)\b"),
+    ("merge", r"\bgit\s+(?:-[^\s]+\s+)*merge\b"),
+    ("cherry_pick", r"\bgit\s+(?:-[^\s]+\s+)*cherry-pick\b"),
+    ("filter_branch", r"\bgit\s+(?:-[^\s]+\s+)*filter-branch\b"),
+    ("force_push", r"\bgit\s+(?:-[^\s]+\s+)*push\s+.*--(?:force|force-with-lease)\b"),
+    ("force_push", r"\bgit\s+(?:-[^\s]+\s+)*push\s+.*-[a-zA-Z]*f\b"),
+)
+
+
+def classify_risky_git_operation(command: str) -> str | None:
+    """Return the operation name if the command rewrites history or discards changes, else None."""
+    cmd = command.strip().lower()
+    if "--abort" in cmd:
+        return None
+    for name, pattern in _RISKY_GIT_OPERATIONS:
+        if re.search(pattern, cmd):
+            return name
+    return None

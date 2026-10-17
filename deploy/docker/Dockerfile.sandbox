@@ -30,8 +30,16 @@ RUN useradd --uid 1000 --create-home --shell /bin/bash agent \
     && mkdir -p /workspace \
     && chown agent:agent /workspace
 USER agent
+RUN echo ".rocket/" >> /home/agent/.gitignore \
+    && git config --global core.excludesFile /home/agent/.gitignore
 ENV HOME=/home/agent \
     PATH=/home/agent/.local/bin:${PATH} \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    UV_CACHE_DIR=/workspace/.rocket/cache/uv \
+    PNPM_HOME=/workspace/.rocket/cache/pnpm \
+    GOMODCACHE=/workspace/.rocket/cache/go/pkg/mod \
+    GOCACHE=/workspace/.rocket/cache/go/build \
+    PIP_CACHE_DIR=/workspace/.rocket/cache/pip \
+    CARGO_HOME=/workspace/.rocket/cache/cargo
 WORKDIR /workspace
 CMD ["tail", "-f", "/dev/null"]

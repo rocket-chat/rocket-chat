@@ -90,7 +90,25 @@ WORKING_STYLE_GUIDANCE = (
     "answer.\n"
     "- Hand focused research, security review or test runs to a subagent "
     "(`delegate_subagent`) when it saves you steps; it reports back and changes nothing "
-    "unless its tools allow it."
+    "unless its tools allow it.\n"
+    "- Do not emit reflexive conversational acknowledgments ('Creator, noted', 'Understood', "
+    "'Acknowledged') in response to system reminders or turn notices. Never speak filler "
+    "acknowledgments; proceed directly to the required action with a tool call or deliver your "
+    "substantive response."
+)
+
+LONG_TASK_GUIDANCE = (
+    "\n[Long-running tasks and git hygiene]\n"
+    "- Working plan: maintain `.rocket/PLAN.md` (and optional `PROGRESS.md`) for tasks of 3 or more "
+    "steps. Write the goal, planned steps, decisions, and current progress. This file is preserved "
+    "across turns and sandbox cycles.\n"
+    "- Safe git operations: never leave a rebase, merge conflict, or detached HEAD open at the "
+    "end of a turn. Always resolve or abort (`git rebase --abort`, `git merge --abort`) before "
+    "delivering your answer.\n"
+    "- Checkpoint before risky edits: create a git commit or branch before running sweeping edits, "
+    "refactors, or migrations so work can be cleanly reverted if needed.\n"
+    "- Dependency order: when working across multiple repositories or services, work on one repository "
+    "at a time in dependency order. Verify each component before moving to the next."
 )
 
 SHOWING_WORK_GUIDANCE = (
@@ -215,6 +233,7 @@ async def build_system_prompt(
         *WORKSPACE_GUIDANCE,
         *EDITING_GUIDANCE,
         WORKING_STYLE_GUIDANCE,
+        LONG_TASK_GUIDANCE,
         SHOWING_WORK_GUIDANCE,
         *git_guidance(git_bundle, ctx.binding.policy.git),
     ]
