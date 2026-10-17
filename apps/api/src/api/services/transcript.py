@@ -85,6 +85,12 @@ class InMemoryTranscriptStore(TranscriptStoreProtocol):
         self._logs[(org_id, target_session_id)] = [_clone(m) for m in prefix]
         return len(prefix)
 
+    async def truncate_to_turn(self, session_id: str, org_id: str, user_turns: int) -> int:
+        messages = self._logs.get((org_id, session_id), [])
+        prefix = slice_user_turns(messages, user_turns)
+        self._logs[(org_id, session_id)] = [_clone(m) for m in prefix]
+        return len(prefix)
+
     async def delete(self, session_id: str, org_id: str) -> None:
         self._logs.pop((org_id, session_id), None)
 
@@ -149,6 +155,16 @@ class PostgresTranscriptStore(TranscriptStoreProtocol):
                 )
             )
         await self.append(target_session_id, org_id, prefix)
+        return len(prefix)
+
+    async def truncate_to_turn(self, session_id: str, org_id: str, user_turns: int) -> int:
+        all_msgs = await self.load(session_id, org_id)
+        prefix = slice_user_turns(all_msgs, user_turns)
+        async with self._db.session(tenant_org_id=org_id) as session:
+            await session.execute(
+                delete(SessionMessageModel).where(SessionMessageModel.session_id == session_id)
+            )
+        await self.append(session_id, org_id, prefix)
         return len(prefix)
 
     async def delete(self, session_id: str, org_id: str) -> None:

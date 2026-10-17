@@ -139,11 +139,12 @@ def _register_discovery_tools(registry: ToolRegistry) -> None:
 def _register_dialogue_tools(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
-            "Ask the human user a question and WAIT: the whole turn is blocked until they "
-            "answer, which may take hours. Use it only as a last resort, when you cannot "
-            "continue or choose safely and the answer changes the outcome. Prefer to look "
-            "it up (knowledge bases, skills, GitHub tools, the code), or pick the most "
-            "reasonable option, say so in your answer and keep going."
+            "Prompt the human user with a structured single- or multi-choice decision card when "
+            "user intent is underspecified, requirements conflict, or multiple valid architectural "
+            "trade-offs exist (e.g. library choice, breaking API changes, destructive actions). "
+            "Always provide clear, distinct options with a recommended default. In the Web Cockpit "
+            "and Slack, this renders an interactive button/radio decision card and pauses the turn "
+            "until the user makes a selection."
         )
     )
     async def ask_question(

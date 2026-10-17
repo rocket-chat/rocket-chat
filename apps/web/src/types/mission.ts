@@ -20,6 +20,10 @@ export type EventType =
   | "goal_updated"
   | "wait_started"
   | "wait_completed"
+  | "artifact_created"
+  | "artifact_updated"
+  | "task_started"
+  | "task_completed"
   | "error"
   | "user_message";
 
@@ -58,6 +62,19 @@ export interface WaitCompletedPayload {
   identifier?: string;
   condition?: string;
   summary?: string;
+}
+
+export interface ArtifactItem {
+  id: string;
+  session_id: string;
+  title: string;
+  filename: string;
+  artifact_type: "markdown" | "diff" | "diagram" | "html" | "json" | string;
+  version: number;
+  content?: string;
+  metadata?: Record<string, unknown>;
+  created_at: number;
+  updated_at: number;
 }
 
 /** A telemetry envelope as published on the session socket (see the WebSocket reference). */

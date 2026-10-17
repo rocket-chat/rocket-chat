@@ -17,6 +17,7 @@ import {
   Brain,
   Share2,
   MessageSquare,
+  FileText,
 } from "lucide-react";
 import { slackThreadLink } from "../lib/slack";
 
@@ -34,6 +35,8 @@ export const FlightTelemetryHeader: React.FC = () => {
     setIsTurnInspectorOpen,
     isMemoryInspectorOpen,
     setIsMemoryInspectorOpen,
+    isArtifactsDrawerOpen,
+    setIsArtifactsDrawerOpen,
     isLeftSidebarOpen,
     setIsLeftSidebarOpen,
   } = useMissionStore();
@@ -123,6 +126,14 @@ export const FlightTelemetryHeader: React.FC = () => {
             onClick={() => setIsMemoryInspectorOpen(!isMemoryInspectorOpen)}
           >
             <Brain className="h-4 w-4" />
+          </IconButton>
+          <IconButton
+            data-testid="artifacts-drawer-toggle"
+            label="Session Deliverables & Artifacts"
+            pressed={isArtifactsDrawerOpen}
+            onClick={() => setIsArtifactsDrawerOpen(!isArtifactsDrawerOpen)}
+          >
+            <FileText className="h-4 w-4 text-orange-500" />
           </IconButton>
           <IconButton
             data-testid="turn-inspector-toggle"

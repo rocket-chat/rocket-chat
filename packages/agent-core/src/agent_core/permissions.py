@@ -54,6 +54,9 @@ READ_TOOLS: frozenset[str] = frozenset(
         "process_output",
         "process_wait",
         "process_stop",
+        "task_list",
+        "task_status",
+        "task_kill",
         # Read-only GitHub lookups: nothing in the sandbox, repository or account changes.
         "github_find_repositories",
         "github_read_file",
@@ -83,6 +86,10 @@ READ_TOOLS: frozenset[str] = frozenset(
         "git_status_all",
         "repo_foreach",
         "wait_for",
+        "create_artifact",
+        "update_artifact",
+        "read_artifact",
+        "list_artifacts",
     }
 )
 EDIT_TOOLS: frozenset[str] = frozenset(

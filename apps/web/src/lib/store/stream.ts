@@ -19,6 +19,12 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
   terminalLogs: "\x1b[38;5;208m[SYSTEM]\x1b[0m Session workspace attached.\r\n",
   tokenRate: 0,
   turnBinding: null,
+  artifacts: [],
+  upsertArtifact: (artifact) =>
+    set((state) => ({
+      artifacts: [artifact, ...state.artifacts.filter((a) => a.id !== artifact.id)],
+    })),
+  setArtifacts: (artifacts) => set({ artifacts }),
   setTurnBinding: (turnBinding) => set({ turnBinding }),
   setConnected: (connected) => set({ connected }),
   setStatusMessage: (msg) => set({ statusMessage: msg }),

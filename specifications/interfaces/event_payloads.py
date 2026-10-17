@@ -242,6 +242,42 @@ class WaitCompletedPayload(TypedDict):
     payload: NotRequired[dict[str, Any]]
 
 
+class ArtifactCreatedPayload(TypedDict):
+    id: str
+    title: str
+    filename: str
+    artifact_type: str
+    version: int
+    content: NotRequired[str | None]
+    metadata: NotRequired[dict[str, Any]]
+    created_at: int
+
+
+class ArtifactUpdatedPayload(TypedDict):
+    id: str
+    title: str
+    filename: str
+    artifact_type: str
+    version: int
+    content: NotRequired[str | None]
+    updated_at: int
+
+
+class TaskStartedPayload(TypedDict):
+    task_id: str
+    command: str
+    cwd: NotRequired[str | None]
+    started_at: int
+
+
+class TaskCompletedPayload(TypedDict):
+    task_id: str
+    command: str
+    exit_code: int
+    duration_ms: int
+    summary: NotRequired[str | None]
+
+
 PAYLOAD_TYPES: dict[EventType, Any] = {
     EventType.TOKEN: TokenPayload,
     EventType.REASONING_TOKEN: TokenPayload,
@@ -270,5 +306,9 @@ PAYLOAD_TYPES: dict[EventType, Any] = {
     EventType.CONTINUATION_SCHEDULED: ContinuationScheduledPayload,
     EventType.WAIT_STARTED: WaitStartedPayload,
     EventType.WAIT_COMPLETED: WaitCompletedPayload,
+    EventType.ARTIFACT_CREATED: ArtifactCreatedPayload,
+    EventType.ARTIFACT_UPDATED: ArtifactUpdatedPayload,
+    EventType.TASK_STARTED: TaskStartedPayload,
+    EventType.TASK_COMPLETED: TaskCompletedPayload,
     EventType.ERROR: ErrorPayload,
 }

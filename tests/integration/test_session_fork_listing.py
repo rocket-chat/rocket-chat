@@ -122,6 +122,39 @@ async def test_fork_preserves_history_and_isolates_later_turns(
 
 
 @pytest.mark.asyncio
+async def test_rewind_truncates_history_and_updates_session(
+    client: tuple[AsyncClient, InMemorySessionStore, CapturingBus, FakeSandboxDriver],
+) -> None:
+    ac, _store, _bus, _driver = client
+    sess_id = await _create_session(ac, "Rewindable Session")
+    sess = await _store.get_session(sess_id)
+    assert sess is not None
+    sess.conversation_history = [
+        ChatMessage(role="user", content="turn 1 q"),
+        ChatMessage(role="assistant", content="turn 1 a"),
+        ChatMessage(role="user", content="turn 2 q"),
+        ChatMessage(role="assistant", content="turn 2 a"),
+    ]
+    await _store.update_session(sess)
+
+    res = await ac.post(
+        f"/v1/sessions/{sess_id}/rewind",
+        json={"target_turn": 1},
+        headers=HEADERS,
+    )
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["session_id"] == sess_id
+    assert [m["content"] for m in body["conversation_history"]] == [
+        "turn 1 q",
+        "turn 1 a",
+    ]
+    updated_sess = await _store.get_session(sess_id)
+    assert updated_sess is not None
+    assert len(updated_sess.conversation_history) == 2
+
+
+@pytest.mark.asyncio
 async def test_fork_records_workspace_origin(
     client: tuple[AsyncClient, InMemorySessionStore, CapturingBus, FakeSandboxDriver],
 ) -> None:

@@ -6,8 +6,9 @@ import { PreviewPanel } from "./PreviewPanel";
 import { ProcessesPanel } from "./ProcessesPanel";
 import { SubagentsPanel } from "./SubagentsPanel";
 import { WorkspaceBrowser } from "./WorkspaceBrowser";
+import { ArtifactsPanel } from "./ArtifactsDrawer";
 
-type Tab = "changes" | "files" | "processes" | "subagents" | "preview";
+type Tab = "changes" | "files" | "processes" | "subagents" | "artifacts" | "preview";
 
 /** The inspector's upper half: the agent's proposed changes, or the live workspace. */
 export const InspectorTop: React.FC<{
@@ -39,6 +40,9 @@ export const InspectorTop: React.FC<{
         <button role="tab" aria-selected={tab === "subagents"} data-testid="tab-subagents" type="button" className={tabClass("subagents")} onClick={() => setTab("subagents")}>
           Subagents
         </button>
+        <button role="tab" aria-selected={tab === "artifacts"} data-testid="tab-artifacts" type="button" className={tabClass("artifacts")} onClick={() => setTab("artifacts")}>
+          Artifacts
+        </button>
         <button role="tab" aria-selected={tab === "preview"} data-testid="tab-preview" type="button" className={tabClass("preview")} onClick={() => setTab("preview")}>
           Preview
         </button>
@@ -48,6 +52,7 @@ export const InspectorTop: React.FC<{
         {tab === "files" && <WorkspaceBrowser />}
         {tab === "processes" && <ProcessesPanel onOpenPreview={openPreview} />}
         {tab === "subagents" && <SubagentsPanel />}
+        {tab === "artifacts" && <ArtifactsPanel />}
         {tab === "preview" && <PreviewPanel request={previewRequest} />}
       </div>
     </div>

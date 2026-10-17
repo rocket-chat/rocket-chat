@@ -44,11 +44,10 @@ SANDBOX_GUIDANCE: tuple[str, ...] = (
     "- Then fetch it with `clone_repository` (`owner/name` -> `/workspace/<name>`; safe to "
     "repeat). Once cloned, read it in the sandbox, never with `github_read_file`. If access "
     "is refused, continue without it where you can and say what you could not reach.",
-    "- `ask_question` BLOCKS the whole turn until the person answers, possibly for hours. "
-    "Treat it as a last resort, for a choice you cannot make safely and that changes the "
-    "outcome; "
-    "otherwise look it up, or pick the most reasonable option, state your assumption and "
-    "continue.",
+    "- `ask_question` BLOCKS the whole turn until the person answers (renders an interactive "
+    "decision card in Cockpit/Slack). Treat it as a last resort, for choices you cannot make safely "
+    "and that change the outcome (e.g. ambiguity in requirements or irreversible architectural forks); "
+    "otherwise look it up, or pick the most reasonable option, state your assumption and continue.",
     "- The default image has git, Python with uv, Node, build tools, ripgrep and fd; "
     "install anything else with the package manager.",
 )
@@ -99,6 +98,10 @@ WORKING_STYLE_GUIDANCE = (
     "- Hand focused tasks or investigations to specialist subagents "
     "(`delegate_subagent` or `delegate_subagents_parallel` for concurrent tasks) when it saves you steps; "
     "they report back and isolate work on their own branch if they edit files.\n"
+    "- Deliverable artifacts: for architectural designs, migration plans, comprehensive investigation reports, "
+    "or complex diffs meant for human review outside the sandbox, publish them via `create_artifact`. Artifacts "
+    "persist independently in the session control plane, appear in the Cockpit drawer and Slack, "
+    "and protect context window from large output dumping.\n"
     "- Do not emit reflexive conversational acknowledgments ('Creator, noted', 'Understood', "
     "'Acknowledged') in response to system reminders or turn notices. Never speak filler "
     "acknowledgments; proceed directly to the required action with a tool call or deliver your "

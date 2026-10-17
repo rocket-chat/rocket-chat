@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 from specifications.interfaces.git import SigningKey
 from specifications.interfaces.llm import AttachmentRef, ModelRouterProtocol, ToolDefinition
+from specifications.interfaces.session import SessionArtifact
 
 
 class SubAgentRole(str, Enum):
@@ -272,6 +273,11 @@ class TurnCallbacks:
     subagent_transcript_persister: Callable[[SubagentTranscriptRecord], Awaitable[None]] | None = (
         None
     )
+    # Durable session artifacts operations
+    create_artifact: Callable[[SessionArtifact], Awaitable[SessionArtifact]] | None = None
+    update_artifact: Callable[[str, str, str, str], Awaitable[SessionArtifact | None]] | None = None
+    get_artifact: Callable[[str, str, str], Awaitable[SessionArtifact | None]] | None = None
+    list_artifacts: Callable[[str, str], Awaitable[list[SessionArtifact]]] | None = None
 
 
 @dataclass(frozen=True)

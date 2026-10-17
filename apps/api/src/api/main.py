@@ -22,6 +22,7 @@ from api.middleware.auth import AuthMiddleware
 from api.routers.admin_audit import router as admin_audit_router
 from api.routers.admin_users import router as admin_users_router
 from api.routers.agents import router as agents_router
+from api.routers.artifacts import router as artifacts_router
 from api.routers.attachments import router as attachments_router
 from api.routers.auth import router as auth_router
 from api.routers.checkpoints import router as checkpoints_router
@@ -238,6 +239,7 @@ async def _provision_identity_if_enabled(request: Request, org_id: str, user_id:
 app.include_router(admin_audit_router)
 app.include_router(admin_users_router)
 app.include_router(attachments_router)
+app.include_router(artifacts_router)
 app.include_router(checkpoints_router)
 app.include_router(git_gateway_router)
 app.include_router(auth_router)

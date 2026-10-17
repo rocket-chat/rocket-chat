@@ -47,5 +47,12 @@ class TranscriptStoreProtocol(ABC):
         """
 
     @abstractmethod
+    async def truncate_to_turn(self, session_id: str, org_id: str, user_turns: int) -> int:
+        """Truncate the session transcript to the first ``user_turns`` user turns.
+
+        Returns the number of messages remaining.
+        """
+
+    @abstractmethod
     async def delete(self, session_id: str, org_id: str) -> None:
         """Drop the session's transcript."""

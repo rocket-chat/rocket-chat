@@ -192,6 +192,46 @@ Delete a custom subagent role or reset/disable an overridden built-in role.
 
 **Responses:** `200`
 
+## Artifacts
+
+### `GET /v1/sessions/{session_id}/artifacts`
+
+Retrieve all artifacts created in this session.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/artifacts/{artifact_id}`
+
+Retrieve a single artifact including its complete content.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| artifact_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/artifacts/{artifact_id}/raw`
+
+Stream raw content with appropriate Content-Type header.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| artifact_id | path | yes | string |
+
+**Responses:** `200`
+
 ## Attachments
 
 ### `GET /v1/sessions/{session_id}/attachments`
@@ -978,6 +1018,24 @@ Branch a session into a new one with its own history and workspace.
 | :--- | :--- | :--- | :--- |
 | up_to_turn | integer | no | Copy history through the Nth user turn, inclusive of its assistant response. Omit to copy the entire conversation. |
 | title | string | no | Optional title for the fork |
+
+**Responses:** `200`
+
+### `POST /v1/sessions/{session_id}/rewind`
+
+Time-travel rewind: roll conversation history, transcript, and sandbox back to turn N.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| target_turn | integer | yes | The turn index (1-indexed user turn) to rewind back to. |
 
 **Responses:** `200`
 

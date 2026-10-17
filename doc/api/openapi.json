@@ -346,6 +346,136 @@
         "title": "ApprovalRequestModel",
         "type": "object"
       },
+      "ArtifactDetailResponse": {
+        "description": "Detailed artifact with full content.",
+        "properties": {
+          "artifact_type": {
+            "description": "Artifact type (markdown, diff, diagram, html, json)",
+            "title": "Artifact Type",
+            "type": "string"
+          },
+          "content": {
+            "description": "Full text/code content of the artifact",
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Creation epoch timestamp",
+            "title": "Created At",
+            "type": "integer"
+          },
+          "filename": {
+            "description": "Filename with extension",
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique artifact ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "session_id": {
+            "description": "Session this artifact belongs to",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Human-readable title",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update epoch timestamp",
+            "title": "Updated At",
+            "type": "integer"
+          },
+          "version": {
+            "description": "Version increment",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "title",
+          "filename",
+          "artifact_type",
+          "version",
+          "created_at",
+          "updated_at",
+          "content"
+        ],
+        "title": "ArtifactDetailResponse",
+        "type": "object"
+      },
+      "ArtifactSummaryResponse": {
+        "description": "Metadata summary of a session artifact.",
+        "properties": {
+          "artifact_type": {
+            "description": "Artifact type (markdown, diff, diagram, html, json)",
+            "title": "Artifact Type",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Creation epoch timestamp",
+            "title": "Created At",
+            "type": "integer"
+          },
+          "filename": {
+            "description": "Filename with extension",
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique artifact ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "session_id": {
+            "description": "Session this artifact belongs to",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "description": "Human-readable title",
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "description": "Last update epoch timestamp",
+            "title": "Updated At",
+            "type": "integer"
+          },
+          "version": {
+            "description": "Version increment",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "title",
+          "filename",
+          "artifact_type",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ArtifactSummaryResponse",
+        "type": "object"
+      },
       "AttachmentListResponse": {
         "description": "Attachments already stored for a session, oldest first.",
         "properties": {
@@ -3263,6 +3393,22 @@
           "reference"
         ],
         "title": "RewindRequest",
+        "type": "object"
+      },
+      "RewindSessionRequest": {
+        "description": "Payload for rewinding a session to an earlier turn.",
+        "properties": {
+          "target_turn": {
+            "description": "The turn index (1-indexed user turn) to rewind back to.",
+            "minimum": 1.0,
+            "title": "Target Turn",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "target_turn"
+        ],
+        "title": "RewindSessionRequest",
         "type": "object"
       },
       "RouterTryRequest": {
@@ -9342,6 +9488,155 @@
         ]
       }
     },
+    "/v1/sessions/{session_id}/artifacts": {
+      "get": {
+        "description": "Retrieve all artifacts created in this session.",
+        "operationId": "list_session_artifacts_v1_sessions__session_id__artifacts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ArtifactSummaryResponse"
+                  },
+                  "title": "Response List Session Artifacts V1 Sessions  Session Id  Artifacts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List all durable artifacts for a session",
+        "tags": [
+          "Artifacts"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/artifacts/{artifact_id}": {
+      "get": {
+        "description": "Retrieve a single artifact including its complete content.",
+        "operationId": "get_session_artifact_v1_sessions__session_id__artifacts__artifact_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get detailed artifact content and metadata",
+        "tags": [
+          "Artifacts"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/artifacts/{artifact_id}/raw": {
+      "get": {
+        "description": "Stream raw content with appropriate Content-Type header.",
+        "operationId": "get_session_artifact_raw_v1_sessions__session_id__artifacts__artifact_id__raw_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download or stream raw artifact content",
+        "tags": [
+          "Artifacts"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/attachments": {
       "get": {
         "description": "List the attachments already stored for a session (cockpit reload).",
@@ -10075,6 +10370,59 @@
         "summary": "Answer Question",
         "tags": [
           "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/rewind": {
+      "post": {
+        "description": "Time-travel rewind: roll conversation history, transcript, and sandbox back to turn N.",
+        "operationId": "rewind_session_v1_sessions__session_id__rewind_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RewindSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionListItem"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rewind Session",
+        "tags": [
+          "Sessions"
         ]
       }
     },

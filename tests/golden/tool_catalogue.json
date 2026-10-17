@@ -80,7 +80,7 @@
     }
   },
   {
-    "description": "Ask the human user a question and WAIT: the whole turn is blocked until they answer, which may take hours. Use it only as a last resort, when you cannot continue or choose safely and the answer changes the outcome. Prefer to look it up (knowledge bases, skills, GitHub tools, the code), or pick the most reasonable option, say so in your answer and keep going.",
+    "description": "Prompt the human user with a structured single- or multi-choice decision card when user intent is underspecified, requirements conflict, or multiple valid architectural trade-offs exist (e.g. library choice, breaking API changes, destructive actions). Always provide clear, distinct options with a recommended default. In the Web Cockpit and Slack, this renders an interactive button/radio decision card and pauses the turn until the user makes a selection.",
     "name": "ask_question",
     "parameters": {
       "properties": {
@@ -303,6 +303,88 @@
         "action_type",
         "description"
       ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Create a durable session artifact (specifications, architecture documents, migration plans, diff reports, diagrams, or JSON deliverables). Artifacts are stored in the session control plane, readable by the user in the Cockpit Artifacts drawer independently of sandbox pod lifecycles, and save LLM context window by replacing large outputs with lightweight receipts.",
+    "name": "create_artifact",
+    "parameters": {
+      "properties": {
+        "artifact_type": {
+          "description": "Type of the artifact (default: 'markdown').",
+          "enum": [
+            "markdown",
+            "diff",
+            "diagram",
+            "html",
+            "json"
+          ],
+          "type": "string"
+        },
+        "content": {
+          "description": "The complete text/code content of the artifact.",
+          "type": "string"
+        },
+        "filename": {
+          "description": "Descriptive filename with extension (e.g. 'migration_plan.md', 'architecture.mermaid').",
+          "type": "string"
+        },
+        "title": {
+          "description": "Human-readable title (e.g. 'Database Migration Plan').",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "filename",
+        "content"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Update an existing session artifact with new content, incrementing its version.",
+    "name": "update_artifact",
+    "parameters": {
+      "properties": {
+        "artifact_id": {
+          "description": "The unique artifact ID to update.",
+          "type": "string"
+        },
+        "content": {
+          "description": "The updated text/code content.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "content"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Retrieve the content of a previously created session artifact by its ID.",
+    "name": "read_artifact",
+    "parameters": {
+      "properties": {
+        "artifact_id": {
+          "description": "The artifact ID to retrieve.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "List all durable artifacts created in the current session.",
+    "name": "list_artifacts",
+    "parameters": {
+      "properties": {},
       "type": "object"
     }
   },
@@ -1426,6 +1508,74 @@
       },
       "required": [
         "process_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Alias for process_start: launch a command as a detached background task.",
+    "name": "task_start",
+    "parameters": {
+      "properties": {
+        "command": {
+          "description": "The shell command to run in the background.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Short label shown to the user (default: the command).",
+          "type": "string"
+        },
+        "workdir": {
+          "description": "Directory to run in (default: /workspace).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Alias for process_list: list active background tasks.",
+    "name": "task_list",
+    "parameters": {
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
+    "description": "Alias for process_output: read output or check status of a background task.",
+    "name": "task_status",
+    "parameters": {
+      "properties": {
+        "lines": {
+          "description": "How many trailing lines of output to read.",
+          "type": "integer"
+        },
+        "task_id": {
+          "description": "Task id returned by task_start or process_start.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Alias for process_stop: cancel or terminate a running background task.",
+    "name": "task_kill",
+    "parameters": {
+      "properties": {
+        "task_id": {
+          "description": "Task id returned by task_start or process_start.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
       ],
       "type": "object"
     }

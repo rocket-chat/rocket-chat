@@ -10,6 +10,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDashed,
+  GitFork,
   History,
   Paperclip,
   RefreshCw,
@@ -55,13 +56,21 @@ function formatDuration(started: number, ended: number | null): string {
 }
 
 /** One persisted turn row, with its reasoning collapsed by default like the flight stream. */
-const TurnRow: React.FC<{ turn: TurnTrace; retryPrompt: string | null; onRetry: (prompt: string) => void }> = ({
+const TurnRow: React.FC<{
+  turn: TurnTrace;
+  sessionId: string;
+  retryPrompt: string | null;
+  onRetry: (prompt: string) => void;
+}> = ({
   turn,
+  sessionId,
   retryPrompt,
   onRetry,
 }) => {
   const [isReasoningOpen, setIsReasoningOpen] = useState(false);
   const [isCallsOpen, setIsCallsOpen] = useState(false);
+  const [isForking, setIsForking] = useState(false);
+  const [isRewinding, setIsRewinding] = useState(false);
   const statusClass = STATUS_STYLES[turn.status] || "border-surface-border bg-surface-card text-neutral-400";
   const toolCount = turn.tool_calls.length;
   const approvalCount = turn.approvals.length;
@@ -81,6 +90,52 @@ const TurnRow: React.FC<{ turn: TurnTrace; retryPrompt: string | null; onRetry: 
       ? Math.round((cacheReadTokens / promptTokens) * 100)
       : null;
   const calls = Array.isArray(tokenRecord.calls) ? (tokenRecord.calls as Array<Record<string, unknown>>) : [];
+
+  const handleFork = async () => {
+    setIsForking(true);
+    try {
+      const res = await fetch(`/v1/sessions/${sessionId}/fork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ up_to_turn: turn.turn_index }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.session_id) {
+          window.location.href = `/chat/${data.session_id}`;
+        }
+      }
+    } catch (err) {
+      console.error("Fork failed", err);
+    } finally {
+      setIsForking(false);
+    }
+  };
+
+  const handleRewind = async () => {
+    if (
+      !confirm(
+        `Rewind this session and workspace back to turn #${turn.turn_index}? Later turns and commits will be truncated.`
+      )
+    ) {
+      return;
+    }
+    setIsRewinding(true);
+    try {
+      const res = await fetch(`/v1/sessions/${sessionId}/rewind`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ target_turn: turn.turn_index }),
+      });
+      if (res.ok) {
+        window.location.reload();
+      }
+    } catch (err) {
+      console.error("Rewind failed", err);
+    } finally {
+      setIsRewinding(false);
+    }
+  };
 
   return (
     <li
@@ -248,23 +303,49 @@ const TurnRow: React.FC<{ turn: TurnTrace; retryPrompt: string | null; onRetry: 
         </div>
       )}
 
-      {canRetry && (
+      <div className="flex items-center gap-2 pt-1.5 border-t border-surface-border/40">
         <button
           type="button"
-          data-testid="turn-retry"
-          disabled={!retryPrompt}
-          title={retryPrompt ? "Re-run this interrupted turn" : "No prior prompt available to retry"}
-          onClick={() => retryPrompt && onRetry(retryPrompt)}
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors ${
-            retryPrompt
-              ? "bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-200 cursor-pointer"
-              : "bg-surface-elevated border border-surface-border text-neutral-500 cursor-not-allowed"
-          }`}
+          data-testid={`turn-fork-${turn.turn_index}`}
+          disabled={isForking}
+          onClick={handleFork}
+          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-surface-elevated hover:bg-surface-border/60 border border-surface-border text-neutral-300 transition-colors cursor-pointer"
+          title="Create a new session branched from this turn"
         >
-          <RotateCcw className="w-3 h-3" />
-          Retry turn
+          <GitFork className="w-3 h-3 text-brand" />
+          <span>{isForking ? "Forking..." : "Fork from here"}</span>
         </button>
-      )}
+
+        <button
+          type="button"
+          data-testid={`turn-rewind-${turn.turn_index}`}
+          disabled={isRewinding}
+          onClick={handleRewind}
+          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-surface-elevated hover:bg-amber-500/20 hover:border-amber-500/40 border border-surface-border text-neutral-400 hover:text-amber-200 transition-colors cursor-pointer"
+          title="Rewind this session and workspace back to this turn"
+        >
+          <RotateCcw className="w-3 h-3 text-amber-400" />
+          <span>{isRewinding ? "Rewinding..." : "Rewind to here"}</span>
+        </button>
+
+        {canRetry && (
+          <button
+            type="button"
+            data-testid="turn-retry"
+            disabled={!retryPrompt}
+            title={retryPrompt ? "Re-run this interrupted turn" : "No prior prompt available to retry"}
+            onClick={() => retryPrompt && onRetry(retryPrompt)}
+            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+              retryPrompt
+                ? "bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-200 cursor-pointer"
+                : "bg-surface-elevated border border-surface-border text-neutral-500 cursor-not-allowed"
+            }`}
+          >
+            <RotateCcw className="w-3 h-3" />
+            Retry turn
+          </button>
+        )}
+      </div>
     </li>
   );
 };
@@ -386,6 +467,7 @@ export const TurnInspector: React.FC<TurnInspectorProps> = ({ onRetryTurn }) => 
               <TurnRow
                 key={turn.id}
                 turn={turn}
+                sessionId={sessionId || ""}
                 retryPrompt={retryPrompt}
                 onRetry={onRetryTurn}
               />

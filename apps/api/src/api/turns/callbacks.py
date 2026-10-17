@@ -10,6 +10,7 @@ from typing import Any, TypedDict
 
 from git_engine.engine import pick_installation
 
+from api.services.artifacts import get_artifact_store
 from api.services.git_credentials import GitCredentialBundle, app_may_act_on
 from api.services.git_gateway_env import github_api_url_of
 from api.services.github_installations import installations_for_org
@@ -30,7 +31,11 @@ from api.turns.provisioning import provision_session_sandbox, run_repository_set
 from api.turns.shared import _background_tasks
 from specifications.interfaces.agent import GithubAccess, TurnCallbacks
 from specifications.interfaces.events import EventType, SessionEvent
-from specifications.interfaces.session import SessionRecord
+from specifications.interfaces.session import (
+    ArtifactStoreProtocol,
+    SessionArtifact,
+    SessionRecord,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -372,6 +377,64 @@ def _build_wait_for(
     return wait_for
 
 
+def _make_artifact_callbacks(
+    art_store: ArtifactStoreProtocol,
+    event_bus: Any,
+    session_id: str,
+) -> tuple[
+    Callable[[SessionArtifact], Awaitable[SessionArtifact]],
+    Callable[[str, str, str, str], Awaitable[SessionArtifact | None]],
+]:
+    async def _create(artifact: SessionArtifact) -> SessionArtifact:
+        saved = await art_store.create_artifact(artifact)
+        if event_bus:
+            await event_bus.publish(
+                session_id,
+                SessionEvent(
+                    session_id=session_id,
+                    event_type=EventType.ARTIFACT_CREATED,
+                    payload={
+                        "id": saved.id,
+                        "title": saved.title,
+                        "filename": saved.filename,
+                        "artifact_type": saved.artifact_type,
+                        "version": saved.version,
+                        "content": saved.content,
+                        "metadata": saved.metadata,
+                        "created_at": saved.created_at,
+                    },
+                ),
+            )
+        return saved
+
+    async def _update(
+        target_session_id: str, artifact_id: str, target_org: str, content: str
+    ) -> SessionArtifact | None:
+        updated = await art_store.update_artifact(
+            target_session_id, artifact_id, target_org, content
+        )
+        if updated and event_bus:
+            await event_bus.publish(
+                session_id,
+                SessionEvent(
+                    session_id=session_id,
+                    event_type=EventType.ARTIFACT_UPDATED,
+                    payload={
+                        "id": updated.id,
+                        "title": updated.title,
+                        "filename": updated.filename,
+                        "artifact_type": updated.artifact_type,
+                        "version": updated.version,
+                        "content": updated.content,
+                        "updated_at": updated.updated_at,
+                    },
+                ),
+            )
+        return updated
+
+    return _create, _update
+
+
 async def build_turn_callbacks(
     ctx: TurnContext, git_bundle: GitCredentialBundle, mcp_tools: McpToolProvider | None
 ) -> TurnCallbacks:
@@ -460,6 +523,11 @@ async def build_turn_callbacks(
     wait_for = _build_wait_for(
         ctx.session_id, event_bus, github_watch, ctx=ctx, git_bundle=git_bundle
     )
+    art_store = get_artifact_store(db_mgr)
+    _create_artifact, _update_artifact = _make_artifact_callbacks(
+        art_store, event_bus, session.session_id
+    )
+
     # (`bind_context_memory_callbacks` in main.py); it resolves the tenant from the turn's
     # execution context, so every path (web, Slack, webhooks) shares it.
     return TurnCallbacks(
@@ -473,6 +541,10 @@ async def build_turn_callbacks(
         github_watch=github_watch,
         github_unwatch=github_unwatch,
         wait_for=wait_for,
+        create_artifact=_create_artifact,
+        update_artifact=_update_artifact,
+        get_artifact=art_store.get_artifact,
+        list_artifacts=art_store.list_artifacts,
         **_session_record_callbacks(ctx),
         processes_changed=processes_changed if driver else None,
         max_background_processes=int(sandbox_settings["max_background_processes"]),

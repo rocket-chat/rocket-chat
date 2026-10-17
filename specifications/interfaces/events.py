@@ -42,6 +42,10 @@ class EventType(str, Enum):
     CONTINUATION_SCHEDULED = "continuation_scheduled"  # Automatic turn continuation scheduled
     WAIT_STARTED = "wait_started"  # Turn entered durable waiting state
     WAIT_COMPLETED = "wait_completed"  # Wake trigger resumed waiting session
+    ARTIFACT_CREATED = "artifact_created"  # Durable session deliverable created
+    ARTIFACT_UPDATED = "artifact_updated"  # Durable session deliverable updated
+    TASK_STARTED = "task_started"  # Background detached task started
+    TASK_COMPLETED = "task_completed"  # Background detached task completed
     ERROR = "error"  # Unrecoverable or tool error
 
 

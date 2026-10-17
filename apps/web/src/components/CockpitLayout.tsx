@@ -11,6 +11,7 @@ import { StreamingTerminal } from "./StreamingTerminal";
 import { SessionSidebar } from "./Sidebar/SessionSidebar";
 import { TurnInspector } from "./TurnInspector";
 import { MemoryInspector } from "./MemoryInspector";
+import { ArtifactsDrawer } from "./ArtifactsDrawer";
 import { MissionWebSocket } from "../lib/websocket";
 import { newMessageId } from "../lib/message-id";
 import { useMissionStore } from "../lib/store";
@@ -288,6 +289,9 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
 
       {/* Memory Inspector slide-over (view/forget long-term memory) */}
       <MemoryInspector />
+
+      {/* Artifacts Drawer slide-over (persistent deliverables) */}
+      <ArtifactsDrawer />
     </div>
   );
 };

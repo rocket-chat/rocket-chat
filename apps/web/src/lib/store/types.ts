@@ -2,6 +2,7 @@ import type {
   TurnBinding,
   AgentPersonaConfig,
   ApprovalRequestInfo,
+  ArtifactItem,
   AttachmentInfo,
   ChecklistTask,
   DecisionQuestion,
@@ -136,6 +137,9 @@ export interface StreamSlice {
   setTokenRate: (rate: number) => void;
   updateToolCall: (nameOrId: string, data: Partial<ToolCallData>) => void;
   updateSubagent: (subagentId: string, data: Partial<SubagentExecutionData>) => void;
+  artifacts: ArtifactItem[];
+  upsertArtifact: (artifact: ArtifactItem) => void;
+  setArtifacts: (artifacts: ArtifactItem[]) => void;
 }
 
 export interface ComposerSlice {
@@ -162,12 +166,14 @@ export interface LayoutSlice {
   isRightPanelOpen: boolean;
   isTurnInspectorOpen: boolean;
   isMemoryInspectorOpen: boolean;
+  isArtifactsDrawerOpen: boolean;
   setIsLeftSidebarOpen: (open: boolean) => void;
   isSettingsNavOpen: boolean;
   setIsSettingsNavOpen: (open: boolean) => void;
   setIsRightPanelOpen: (open: boolean) => void;
   setIsTurnInspectorOpen: (open: boolean) => void;
   setIsMemoryInspectorOpen: (open: boolean) => void;
+  setIsArtifactsDrawerOpen: (open: boolean) => void;
 }
 
 export type MissionStore = SessionsSlice &

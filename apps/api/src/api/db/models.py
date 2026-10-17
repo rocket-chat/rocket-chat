@@ -722,6 +722,33 @@ class SubagentTranscriptModel(Base):
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
+class SessionArtifactModel(Base):
+    """Durable session artifact deliverables (markdown, diffs, specs, diagrams).
+
+    Stored independently of sandbox pod lifecycles with forced Row-Level Security.
+    """
+
+    __tablename__ = "session_artifacts"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    artifact_type: Mapped[str] = mapped_column(String(32), nullable=False, default="markdown")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict
+    )
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
 class AttachmentModel(Base):
     """A file uploaded into a session, addressed by its content hash.
 

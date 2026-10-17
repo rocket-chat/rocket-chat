@@ -1,5 +1,6 @@
 import { useMissionStore } from "./store";
 import {
+  ArtifactItem,
   ChecklistTask,
   DecisionQuestion,
   FileDiffItem,
@@ -599,6 +600,21 @@ export class MissionWebSocket {
       case "plan_updated":
         store.setChecklist(Array.isArray(payload.tasks) ? payload.tasks : []);
         break;
+
+      case "artifact_created":
+      case "artifact_updated": {
+        const art = payload as unknown as ArtifactItem;
+        if (art && art.id) {
+          store.upsertArtifact(art);
+          store.appendFlightLog({
+            id: `artifact-${art.id}-${art.version || Date.now()}`,
+            role: "SYSTEM",
+            content: `📄 Deliverable Artifact: ${art.title} (${art.filename})`,
+            timestamp: new Date().toLocaleTimeString(),
+          });
+        }
+        break;
+      }
 
       case "context_compacted": {
         const boundary = payload.boundary_seq ?? 0;

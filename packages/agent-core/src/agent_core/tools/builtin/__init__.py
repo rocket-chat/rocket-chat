@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from agent_core.tools.builtin import (
+    artifacts,
     background,
     commands,
     conversation,
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
 _DOMAINS = (
     web,
     conversation,
+    artifacts,
     knowledge,
     repository,
     workspace,

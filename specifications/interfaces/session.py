@@ -240,3 +240,48 @@ class GoalStoreProtocol(ABC):
     ) -> tuple[SessionGoal | None, bool, str | None]:
         """Record token and cost consumption; returns (goal, budget_exceeded, warning_reason)."""
         pass
+
+
+@dataclass
+class SessionArtifact:
+    """Durable session deliverable stored independently of the sandbox lifecycle."""
+
+    id: str
+    session_id: str
+    tenant_org_id: str
+    title: str
+    filename: str
+    artifact_type: str = "markdown"  # 'markdown', 'diff', 'diagram', 'html', 'json'
+    version: int = 1
+    content: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: int = field(default_factory=lambda: int(time.time()))
+    updated_at: int = field(default_factory=lambda: int(time.time()))
+
+
+class ArtifactStoreProtocol(ABC):
+    """Storage protocol for durable session artifacts."""
+
+    @abstractmethod
+    async def create_artifact(self, artifact: SessionArtifact) -> SessionArtifact:
+        """Create and persist a new session artifact."""
+        pass
+
+    @abstractmethod
+    async def get_artifact(
+        self, session_id: str, artifact_id: str, tenant_org_id: str
+    ) -> SessionArtifact | None:
+        """Retrieve an artifact by its ID."""
+        pass
+
+    @abstractmethod
+    async def list_artifacts(self, session_id: str, tenant_org_id: str) -> list[SessionArtifact]:
+        """List all artifacts for a session."""
+        pass
+
+    @abstractmethod
+    async def update_artifact(
+        self, session_id: str, artifact_id: str, tenant_org_id: str, content: str
+    ) -> SessionArtifact | None:
+        """Update artifact content, incrementing version and updated_at."""
+        pass

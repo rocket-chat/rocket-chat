@@ -10,6 +10,7 @@ from sandbox_driver.workspace import WORKSPACE
 from agent_core.context import current_execution_ctx
 from agent_core.tools import code_search as code_search_tools
 from agent_core.tools import tier2
+from agent_core.tools.lsp import run_diagnostics_on_file
 from agent_core.tools.offload import get_cached_offload
 from specifications.interfaces.agent import AgentEvent, FileDiff
 
@@ -107,10 +108,12 @@ def _register_file_editing_tools(registry: "ToolRegistry") -> None:
         if not registry._driver or not s_id:
             return "Error: Sandbox not initialized for file_write"
         await registry._ensure_sandbox(s_id)
-        msg, diff = await tier2.file_write(
-            registry._driver, s_id, registry.workspace_file(path), content, overwrite
-        )
+        ws_path = registry.workspace_file(path)
+        msg, diff = await tier2.file_write(registry._driver, s_id, ws_path, content, overwrite)
         emit_file_diff(registry, diff)
+        diag = await run_diagnostics_on_file(registry._driver, s_id, ws_path)
+        if diag:
+            msg += diag
         return msg
 
     @registry._tool(description="Perform resilient block replacement in a workspace file.")
@@ -126,10 +129,14 @@ def _register_file_editing_tools(registry: "ToolRegistry") -> None:
         if not registry._driver or not s_id:
             return "Error: Sandbox not initialized for file_edit"
         await registry._ensure_sandbox(s_id)
+        ws_path = registry.workspace_file(path)
         msg, diff = await tier2.file_edit(
-            registry._driver, s_id, registry.workspace_file(path), target_block, replacement_block
+            registry._driver, s_id, ws_path, target_block, replacement_block
         )
         emit_file_diff(registry, diff)
+        diag = await run_diagnostics_on_file(registry._driver, s_id, ws_path)
+        if diag:
+            msg += diag
         return registry.explain_missing(path, msg)
 
 
@@ -144,10 +151,12 @@ def _register_patch_tools(registry: "ToolRegistry") -> None:
         if not registry._driver or not s_id:
             return "Error: Sandbox not initialized for apply_patch"
         await registry._ensure_sandbox(s_id)
-        msg, diff = await tier2.apply_patch(
-            registry._driver, s_id, registry.workspace_file(path), patch_content
-        )
+        ws_path = registry.workspace_file(path)
+        msg, diff = await tier2.apply_patch(registry._driver, s_id, ws_path, patch_content)
         emit_file_diff(registry, diff)
+        diag = await run_diagnostics_on_file(registry._driver, s_id, ws_path)
+        if diag:
+            msg += diag
         return msg
 
     @registry._tool(
