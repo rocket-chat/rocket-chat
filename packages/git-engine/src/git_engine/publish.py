@@ -248,12 +248,12 @@ class BranchPublisher:
             ancestor = await sandbox.run(f"git merge-base --is-ancestor {remote} HEAD")
             if ancestor.exit_code == 0:
                 return await self._commits(sandbox, remote, created=False)
-            if not spec.force_with_lease or spec.signing_mode == SigningMode.GITHUB_APP:
+            if not spec.force_with_lease:
                 raise PublishError(
                     f"origin/{branch} has commits this branch does not: fetch and rebase "
                     f"(git rebase origin/{branch}), then publish again."
                 )
-            base = await sandbox.git(f"git merge-base HEAD {remote}")
+            base = await self._detect_base(sandbox, branch, spec, fallback=remote)
             plan = await self._commits(sandbox, base, created=False)
             return _Plan(plan.base, plan.commits, created=False, lease=remote)
         default = await self._default_branch(sandbox, spec.default_branch)
@@ -266,8 +266,72 @@ class BranchPublisher:
                     "initial commit (a README) on GitHub, then publish again."
                 )
             return await self._commits(sandbox, "", created=True)
-        base = await sandbox.git(f"git merge-base HEAD refs/remotes/origin/{shlex.quote(default)}")
+        base = await self._detect_base(
+            sandbox, branch, spec, fallback=f"refs/remotes/origin/{shlex.quote(default)}"
+        )
         return await self._commits(sandbox, base, created=True)
+
+    async def _candidate_base_branches(
+        self, sandbox: _Sandbox, branch: str, spec: PublishSpec
+    ) -> list[str]:
+        candidates: list[str] = []
+        upstream_res = await sandbox.run(
+            f"git rev-parse --abbrev-ref {shlex.quote(branch)}@{{upstream}}"
+        )
+        if upstream_res.exit_code == 0:
+            up = upstream_res.stdout.strip().removeprefix("origin/")
+            if up and up != branch:
+                candidates.append(up)
+        default = await self._default_branch(sandbox, spec.default_branch)
+        for name in (
+            default,
+            spec.default_branch,
+            "main",
+            "master",
+            "beta",
+            "develop",
+            "dev",
+            "staging",
+        ):
+            if name and name not in candidates and name != branch:
+                candidates.append(name)
+        remote_refs = await sandbox.run(
+            "git for-each-ref --format=%(refname:strip=3) refs/remotes/origin/"
+        )
+        if remote_refs.exit_code == 0:
+            for line in remote_refs.stdout.splitlines():
+                ref = line.strip()
+                if ref and ref != "HEAD" and ref != branch and ref not in candidates:
+                    candidates.append(ref)
+        return candidates
+
+    async def _detect_base(
+        self, sandbox: _Sandbox, branch: str, spec: PublishSpec, fallback: str = ""
+    ) -> str:
+        candidates = await self._candidate_base_branches(sandbox, branch, spec)
+        best_base = ""
+        for name in candidates:
+            res = await sandbox.run(f"git merge-base HEAD refs/remotes/origin/{shlex.quote(name)}")
+            if res.exit_code != 0 or not res.stdout.strip():
+                continue
+            mb = res.stdout.strip()
+            if not best_base:
+                best_base = mb
+                continue
+            if mb == best_base:
+                continue
+            is_anc = await sandbox.run(
+                f"git merge-base --is-ancestor {shlex.quote(best_base)} {shlex.quote(mb)}"
+            )
+            if is_anc.exit_code == 0:
+                best_base = mb
+        if best_base:
+            return best_base
+        if fallback:
+            res = await sandbox.run(f"git merge-base HEAD {fallback}")
+            if res.exit_code == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        return ""
 
     @staticmethod
     async def _commits(sandbox: _Sandbox, base: str, *, created: bool) -> _Plan:
@@ -349,6 +413,13 @@ class BranchPublisher:
                 f"/repos/{repository}/git/refs",
                 token,
                 {"ref": f"refs/heads/{branch}", "sha": plan.base},
+            )
+        elif plan.lease:
+            await self._rest(
+                "PATCH",
+                f"/repos/{repository}/git/refs/heads/{branch}",
+                token,
+                {"sha": plan.base, "force": True},
             )
         head = plan.base
         for sha in plan.commits:
@@ -442,7 +513,7 @@ class BranchPublisher:
             "User-Agent": "Rocket-Chat",
         }
 
-    async def _rest(self, method: str, path: str, token: str, body: dict[str, str]) -> None:
+    async def _rest(self, method: str, path: str, token: str, body: dict[str, object]) -> None:
         async with httpx.AsyncClient(timeout=API_TIMEOUT_SECONDS) as client:
             response = await client.request(
                 method, f"{self._api_url}{path}", headers=await self._headers(token), json=body

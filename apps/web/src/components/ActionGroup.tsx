@@ -52,11 +52,12 @@ interface StepRowProps {
   label: React.ReactNode;
   meta?: React.ReactNode;
   tone?: "default" | "failed";
+  title?: string;
   children: React.ReactNode;
 }
 
 /** One line per step; the detail stays closed until asked for. */
-const StepRow: React.FC<StepRowProps> = ({ icon, label, meta, tone = "default", children }) => {
+const StepRow: React.FC<StepRowProps> = ({ icon, label, meta, tone = "default", title, children }) => {
   const [open, setOpen] = useState(false);
   return (
     <li>
@@ -64,13 +65,14 @@ const StepRow: React.FC<StepRowProps> = ({ icon, label, meta, tone = "default", 
         type="button"
         data-testid="activity-step"
         aria-expanded={open}
+        title={title}
         onClick={() => setOpen((value) => !value)}
         className="group flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-surface-elevated/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
       >
         <span className={cn("shrink-0", tone === "failed" ? "text-diff-del" : "text-neutral-500 dark:text-neutral-400")}>
           {icon}
         </span>
-        <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-300">{label}</span>
+        <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-300" title={title}>{label}</span>
         {meta && <span className="flex shrink-0 items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">{meta}</span>}
         <ChevronRight
           aria-hidden="true"
@@ -90,7 +92,7 @@ const DiffChips: React.FC<{ additions: number; deletions: number }> = ({ additio
 
 const firstLine = (text: string): string => {
   const line = text.replace(/[#*_`>]/g, "").split("\n").find((l) => l.trim()) ?? "";
-  return line.length > 90 ? `${line.slice(0, 89)}…` : line;
+  return line.length > 140 ? `${line.slice(0, 139)}…` : line;
 };
 
 export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = false }) => {
@@ -125,11 +127,14 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
             className={cn("h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform", isOpen && "rotate-90")}
           />
         )}
-        <span className="truncate text-neutral-600 dark:text-neutral-400 group-hover:text-foreground">
+        <span
+          className="truncate text-neutral-600 dark:text-neutral-400 group-hover:text-foreground"
+          title={isActive ? (summary.current ?? "Working…") : summary.text}
+        >
           {isActive ? <span className="text-foreground">{summary.current ?? "Working…"}</span> : summary.text}
         </span>
         {isActive && summary.text !== "Thought it through" && (
-          <span className="hidden truncate text-neutral-500 sm:inline">· {summary.text}</span>
+          <span className="hidden truncate text-neutral-500 sm:inline" title={summary.text}>· {summary.text}</span>
         )}
         {summary.failed > 0 && <Badge tone="danger">{summary.failed} failed</Badge>}
       </button>
@@ -141,10 +146,11 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
               {entry.reasoning && (
                 <StepRow
                   icon={<Sparkles className="h-3.5 w-3.5" />}
+                  title={entry.reasoning.trim()}
                   label={
                     <>
                       <span className="text-neutral-600 dark:text-neutral-400">Thought</span>
-                      <span className="ml-2 text-neutral-500">{firstLine(entry.reasoning)}</span>
+                      <span className="ml-2 text-neutral-500" title={entry.reasoning.trim()}>{firstLine(entry.reasoning)}</span>
                     </>
                   }
                 >
@@ -174,11 +180,12 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                     )
                   }
                   tone={entry.subagent.status === "error" ? "failed" : "default"}
+                  title={`Delegated to ${entry.subagent.role.replace(/_/g, " ")}: ${entry.subagent.task}`}
                   label={
                     <>
                       <span>Delegated to </span>
                       <span className="font-medium text-foreground">{entry.subagent.role.replace(/_/g, " ")}</span>
-                      <span className="ml-2 text-neutral-500">{entry.subagent.task}</span>
+                      <span className="ml-2 text-neutral-500" title={entry.subagent.task}>{entry.subagent.task}</span>
                     </>
                   }
                   meta={entry.subagent.duration_ms ? <span>{(entry.subagent.duration_ms / 1000).toFixed(1)}s</span> : undefined}
@@ -203,16 +210,22 @@ const ToolRow: React.FC<{
   const Icon = KIND_ICON[step.kind];
   const failed = isFailed(call);
   const counts = step.kind === "edit" ? diffCounts(call, recordedDiff) : null;
+  const toolTitle = step.target
+    ? `${isPending(call) ? step.doing : step.done}: ${step.target}`
+    : isPending(call)
+      ? step.doing
+      : step.done;
 
   return (
     <StepRow
       tone={failed ? "failed" : "default"}
       icon={isPending(call) ? <Loader2 className="h-3.5 w-3.5 animate-spin text-brand" /> : failed ? <AlertCircle className="h-3.5 w-3.5" /> : <Icon className="h-3.5 w-3.5" />}
+      title={toolTitle}
       label={
         <>
           <span>{isPending(call) ? step.doing : step.done}</span>
           {step.target && (
-            <code className="ml-2 rounded bg-surface-elevated px-1.5 py-0.5 font-mono text-[12px] text-neutral-700 dark:text-neutral-300">
+            <code className="ml-2 rounded bg-surface-elevated px-1.5 py-0.5 font-mono text-[12px] text-neutral-700 dark:text-neutral-300" title={step.target}>
               {step.target}
             </code>
           )}

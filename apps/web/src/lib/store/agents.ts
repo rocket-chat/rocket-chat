@@ -34,23 +34,27 @@ export const createAgentsSlice: StateCreator<MissionStore, [], [], AgentsSlice> 
   selectAgent: (agent: AgentPersonaConfig) => {
     const currentSession = get().session;
     const updatedModel = agent.model || get().selectedModel;
+    const modeUpdate = agent.default_permission_mode ? { permissionMode: agent.default_permission_mode } : {};
     set({
       activeAgent: agent,
       inferenceMode: "agent",
       selectedModel: updatedModel,
+      ...modeUpdate,
     });
     if (currentSession) {
+      const metadata = {
+        ...(currentSession.metadata || {}),
+        agent_id: agent.id,
+        inference_mode: "agent",
+        selected_model: updatedModel,
+        ...(agent.default_permission_mode ? { permission_mode: agent.default_permission_mode } : {}),
+      };
       const updatedSession: SessionData = {
         ...currentSession,
         agent_id: agent.id,
         inference_mode: "agent",
         selected_model: updatedModel,
-        metadata: {
-          ...(currentSession.metadata || {}),
-          agent_id: agent.id,
-          inference_mode: "agent",
-          selected_model: updatedModel,
-        },
+        metadata,
       };
       set({ session: updatedSession });
       if (!currentSession.is_draft && currentSession.session_id !== "draft") {

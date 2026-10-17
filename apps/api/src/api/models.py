@@ -85,6 +85,10 @@ class AgentPersonaModel(BaseModel):
             "only these and the loading tools are, when set"
         ),
     )
+    default_permission_mode: str | None = Field(
+        default=None,
+        description="Default permission mode ('plan', 'ask', 'auto_edit', 'auto', 'bypass'); empty inherits",
+    )
 
 
 class AgentLimitsResponse(BaseModel):

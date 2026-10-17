@@ -203,6 +203,7 @@ def _from_entity(entity: AgentPersonaEntityModel) -> AgentPersonaModel:
         enabled=getattr(entity, "enabled", True)
         if getattr(entity, "enabled", True) is not None
         else True,
+        default_permission_mode=getattr(entity, "default_permission_mode", None),
         scope=entity.scope,
         user_id=entity.user_id,
     )
@@ -229,6 +230,7 @@ _COPIED_FIELDS = (
     "tool_loading",
     "active_tools",
     "enabled",
+    "default_permission_mode",
     "scope",
 )
 

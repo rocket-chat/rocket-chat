@@ -400,3 +400,35 @@ def classify_risky_git_operation(command: str) -> str | None:
         if re.search(pattern, cmd):
             return name
     return None
+
+
+_MANUAL_GITHUB_WRITE_NOTICES = (
+    (
+        r"\bgit\s+(?:-[^\s]+\s+)*push\b",
+        "Direct 'git push' from the sandbox shell cannot authenticate because the sandbox holds no credentials. "
+        "Use the native 'git_push' tool (or 'git_open_pr') instead. It pushes your branch through Rocket Chat's "
+        "authenticated GitEngine, applies GitHub App tokens, and signs commits automatically.",
+    ),
+    (
+        r"\bgh\s+pr\s+(?:create|merge|close|edit|reopen|review)\b",
+        "The 'gh' CLI is not authenticated in the sandbox. Use the native 'git_open_pr' tool to open pull requests, "
+        "or 'github_pull_request' for reviews and checks.",
+    ),
+    (
+        r"\bgh\s+issue\s+(?:create|close|edit|reopen|comment|delete)\b",
+        "The 'gh' CLI is not authenticated in the sandbox. Use the native 'github_issues' tool instead.",
+    ),
+    (
+        r"\bgh\s+release\s+(?:create|delete|edit|upload)\b",
+        "The 'gh' CLI is not authenticated in the sandbox. Use the native 'github_releases' tool instead.",
+    ),
+)
+
+
+def notice_for_manual_github_write(command: str) -> str | None:
+    """Return an instructional notice if the command attempts git push or gh CLI write operations."""
+    cmd = command.strip().lower()
+    for pattern, guidance in _MANUAL_GITHUB_WRITE_NOTICES:
+        if re.search(pattern, cmd):
+            return f"[Platform Guidance: {guidance}]"
+    return None

@@ -268,7 +268,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
                     ) : (
                       <FileText className="w-3.5 h-3.5 text-neutral-400" />
                     )}
-                    <span className="max-w-[150px] truncate">{att.name}</span>
+                    <span className="max-w-[150px] truncate" title={att.name}>{att.name}</span>
                   </span>
                 ))}
               </div>
