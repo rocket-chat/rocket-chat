@@ -589,7 +589,7 @@ export default function AgentsSettingsPage() {
             )}
           </Field>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Field
               label="Reasoning effort"
               hint="For reasoning models (o1, o3-mini, Claude 3.7 Sonnet). Controls thinking depth."
@@ -613,6 +613,31 @@ export default function AgentsSettingsPage() {
                   <option value="medium">Medium (balanced reasoning)</option>
                   <option value="high">High (deep architectural thinking)</option>
                 </Select>
+              )}
+            </Field>
+
+            <Field
+              label="Thinking token budget"
+              hint="Tokens for extended thinking (Claude 3.7 Sonnet, Gemini 2.5). Empty uses default."
+            >
+              {(control) => (
+                <Input
+                  {...control}
+                  data-testid="agent-thinking-budget"
+                  type="number"
+                  min={0}
+                  step={1024}
+                  disabled={!canEditCurrentAgent}
+                  value={formData.thinking_budget_tokens ?? ""}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      thinking_budget_tokens: e.target.value === "" ? undefined : Number(e.target.value),
+                    })
+                  }
+                  placeholder="e.g. 8192"
+                  className="w-full"
+                />
               )}
             </Field>
 
@@ -669,6 +694,42 @@ export default function AgentsSettingsPage() {
               </Select>
             )}
           </Field>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field
+              label="CPU limit"
+              hint="Dedicated CPU cores (e.g. '2' or '4'). Empty inherits sandbox profile default."
+            >
+              {(control) => (
+                <Input
+                  {...control}
+                  data-testid="agent-cpu-limit"
+                  disabled={!canEditCurrentAgent}
+                  value={formData.cpu_limit || ""}
+                  onChange={(e) => setFormData({ ...formData, cpu_limit: e.target.value })}
+                  placeholder="Profile default (e.g. 2)"
+                  className="w-full"
+                />
+              )}
+            </Field>
+
+            <Field
+              label="Memory limit"
+              hint="RAM limit (e.g. '4Gi' or '8Gi'). Empty inherits sandbox profile default."
+            >
+              {(control) => (
+                <Input
+                  {...control}
+                  data-testid="agent-memory-limit"
+                  disabled={!canEditCurrentAgent}
+                  value={formData.memory_limit || ""}
+                  onChange={(e) => setFormData({ ...formData, memory_limit: e.target.value })}
+                  placeholder="Profile default (e.g. 4Gi)"
+                  className="w-full"
+                />
+              )}
+            </Field>
+          </div>
 
           {/* Step limit: empty inherits the organization's, which is also the ceiling */}
           <Field

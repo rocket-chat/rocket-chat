@@ -208,7 +208,7 @@
     }
   },
   {
-    "description": "Delegate an isolated investigation or task to a specialist subagent (e.g. security_auditor, qa_verifier, researcher).",
+    "description": "Delegate an isolated investigation or task to a specialist subagent (e.g. security_auditor, qa_verifier, researcher, or any custom role configured by the organization).",
     "name": "delegate_subagent",
     "parameters": {
       "properties": {
@@ -217,7 +217,7 @@
           "type": "string"
         },
         "role": {
-          "description": "Specialist role to spawn: 'security_auditor', 'qa_verifier', or 'researcher'.",
+          "description": "Specialist role to spawn (e.g. 'security_auditor', 'qa_verifier', 'researcher', or custom organization specialist).",
           "type": "string"
         },
         "task": {

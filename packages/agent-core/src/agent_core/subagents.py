@@ -382,6 +382,7 @@ class _SubagentExecution:
             changed_files=list(self._changed_files),
             tokens=self._tokens,
             cost=self._cost,
+            branch=self._worktree_branch if (self._worktree_branch and self._is_writer) else None,
         )
 
     async def announce_started(self) -> None:

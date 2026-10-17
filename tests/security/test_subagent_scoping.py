@@ -72,6 +72,48 @@ def test_only_administrators_edit_roles_and_ids_are_validated(client: TestClient
     assert client.put("/v1/subagents/a", json=_role("b"), headers=ADMIN_A).status_code == 422
 
 
+def test_delete_subagent_role_and_reset(client: TestClient) -> None:
+    # 1. Non-admin forbidden
+    assert client.delete("/v1/subagents/researcher", headers=MEMBER_A).status_code == 403
+
+    # 2. Add custom role, verify, then delete
+    put_res = client.put(
+        "/v1/subagents/db_specialist",
+        json=_role("db_specialist", name="DB Specialist", role_title="DBA"),
+        headers=ADMIN_A,
+    )
+    assert put_res.status_code == 200
+
+    roles = {r["id"]: r for r in client.get("/v1/subagents", headers=ADMIN_A).json()}
+    assert "db_specialist" in roles
+    assert roles["db_specialist"]["built_in"] is False
+
+    del_res = client.delete("/v1/subagents/db_specialist", headers=ADMIN_A)
+    assert del_res.status_code == 200
+    assert del_res.json() == {"deleted": True, "reset_to_default": False}
+
+    roles_after = {r["id"]: r for r in client.get("/v1/subagents", headers=ADMIN_A).json()}
+    assert "db_specialist" not in roles_after
+
+    # 3. Override built-in, delete -> resets to default
+    client.put(
+        "/v1/subagents/security_auditor",
+        json=_role("security_auditor", max_turns=3),
+        headers=ADMIN_A,
+    )
+    roles_ov = {r["id"]: r for r in client.get("/v1/subagents", headers=ADMIN_A).json()}
+    assert roles_ov["security_auditor"]["customized"] is True
+    assert roles_ov["security_auditor"]["max_turns"] == 3
+
+    del_ov = client.delete("/v1/subagents/security_auditor", headers=ADMIN_A)
+    assert del_ov.status_code == 200
+    assert del_ov.json() == {"deleted": True, "reset_to_default": True}
+
+    roles_reset = {r["id"]: r for r in client.get("/v1/subagents", headers=ADMIN_A).json()}
+    assert roles_reset["security_auditor"]["customized"] is False
+    assert roles_reset["security_auditor"]["max_turns"] == 12
+
+
 @dataclass
 class _Scripted(LLMGatewayProtocol):
     calls: list[tuple[str, dict[str, Any]]]
