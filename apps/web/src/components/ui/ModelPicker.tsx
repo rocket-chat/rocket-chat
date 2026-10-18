@@ -90,7 +90,7 @@ export function ModelPicker({
       >
         <span className="min-w-0 truncate">
           {label}
-          {value && <span className="ml-2 font-mono text-xs text-neutral-500">{value}</span>}
+          {value && <span className="ml-2 font-mono text-xs text-neutral-500 dark:text-neutral-400">{value}</span>}
         </span>
         <ChevronDown className="h-4 w-4 shrink-0 text-neutral-500" aria-hidden="true" />
       </button>
@@ -122,16 +122,16 @@ export function ModelPicker({
             {matches.slice(0, MAX_SHOWN).map((m) => (
               <Option key={m.id} selected={m.id === value} onChoose={() => choose(m.id)}>
                 <span className="font-medium">{m.name}</span>
-                <span className="ml-2 font-mono text-[11px] text-neutral-500">{m.id}</span>
+                <span className="ml-2 font-mono text-[11px] text-neutral-500 dark:text-neutral-400">{m.id}</span>
               </Option>
             ))}
             {matches.length > MAX_SHOWN && (
-              <li className="px-2 py-1.5 text-[11px] text-neutral-500">
+              <li className="px-2 py-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
                 {matches.length - MAX_SHOWN} more: refine the search.
               </li>
             )}
             {matches.length === 0 && (
-              <li className="px-2 py-3 text-center text-xs text-neutral-500">
+              <li className="px-2 py-3 text-center text-xs text-neutral-500 dark:text-neutral-400">
                 {loaded ? `No model matches "${query}".` : "Loading models…"}
               </li>
             )}

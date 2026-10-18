@@ -1255,7 +1255,7 @@ export default function AgentsSettingsPage() {
                             })}
                           </div>
                         ) : (
-                          <div className="text-[11px] text-neutral-500 italic">
+                          <div className="text-[11px] text-neutral-500 dark:text-neutral-400 italic">
                             No tools discovered for this server. Probe server from MCP settings.
                           </div>
                         )}
