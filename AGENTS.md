@@ -199,7 +199,6 @@ Also required: a `README.md` in every package and application (what it does, ins
 ## 9. Git hygiene
 
 * Trunk-based: branch from `main`, small atomic commits, **Conventional Commits** (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`), a linear history (rebase or squash; no merge commits).
-* Add `Co-authored-by:` trailers for every human or AI collaborator who contributed to the commit.
 * Open a pull request against `main`; it merges only when every gate is green. Update `CHANGELOG.md` in the same pull request.
 * Security issues are reported privately to `security@rocket-chat.dev`, not in public issues. Contributions are licensed GPL-3.0 (see `CONTRIBUTING.md`).
 
@@ -214,4 +213,4 @@ On every task and change:
 3. **Stay in scope.** Do the task that was asked; do not refactor, rename or "improve" unrelated code. Fix what you break.
 4. **Test what you change, then say what you ran.** Report failures with their output; never claim a gate passed without running it, and say plainly what was skipped.
 5. **Protect what is not yours.** Never point tests, migrations or scratch scripts at a database or cluster you did not create for the purpose; never switch the user's kube context; create throwaway infrastructure (own kubeconfig, spare ports) and delete it afterwards. Deploying, pushing images, publishing or anything else outward-facing happens only when explicitly asked, and the approval does not carry over to the next time.
-6. **Keep the repository clean.** No work-tracking files, no debug leftovers, no commented-out code, no secrets. Commit only when asked, with a Conventional Commit message and trailers.
+6. **Keep the repository clean.** No work-tracking files, no debug leftovers, no commented-out code, no secrets. Commit only when asked, with a Conventional Commit message.
