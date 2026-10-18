@@ -55,7 +55,6 @@ async def offload_tool_output(
 
     # Always persist in in-memory cache for Tier-1/MCP tools without a sandbox
     store_cached_offload(session_id, relative_path, output)
-    saved_to_disk = True
 
     if driver is not None and hasattr(driver, "write_file"):
         try:
@@ -71,11 +70,7 @@ async def offload_tool_output(
     if len(compacted) <= threshold:
         return compacted
 
-    save_notice = (
-        f"Full output saved to {display_path}. Use file_read to inspect middle sections."
-        if saved_to_disk
-        else f"Full output ({len(output):,} chars) omitted to fit context."
-    )
+    save_notice = f"Full output saved to {display_path}. Use file_read to inspect middle sections."
 
     lines = compacted.splitlines(keepends=True)
     if len(lines) <= OFFLOAD_HEAD_LINES + OFFLOAD_TAIL_LINES:

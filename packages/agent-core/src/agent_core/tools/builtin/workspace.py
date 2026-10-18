@@ -171,19 +171,6 @@ def _register_repo_foreach(registry: ToolRegistry) -> None:
         if not filtered:
             return f"No matching repositories found for filter: {repos}"
 
-        cmd_lower = command.strip().lower()
-        if (
-            any(
-                cmd_lower.startswith(prefix)
-                for prefix in ("git commit", "git push", "git reset", "git merge", "git rebase")
-            )
-            or "rm -rf" in cmd_lower
-        ):
-            return (
-                "Error: `repo_foreach` is restricted to read-only or test/verification commands. "
-                "Use individual tools or targeted bash_exec for repository edits."
-            )
-
         outputs: list[str] = []
         passed = 0
         failed = 0

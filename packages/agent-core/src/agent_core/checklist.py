@@ -23,14 +23,22 @@ def latest_tasks(conversation: Sequence[ChatMessage]) -> list[dict[str, Any]]:
     """The tasks of the most recent checklist update, or an empty list."""
     for message in reversed(conversation):
         for call in reversed(message.tool_calls or []):
-            function = call.get("function", {})
-            if function.get("name") != TOOL_NAME:
+            name = call.get("name")
+            args = call.get("arguments")
+            if not name and isinstance(call.get("function"), dict):
+                name = call["function"].get("name")
+                args = call["function"].get("arguments")
+            if name != TOOL_NAME:
                 continue
-            try:
-                tasks = json.loads(function.get("arguments") or "{}").get("tasks", [])
-            except (ValueError, AttributeError):
-                return []
-            return [task for task in tasks if isinstance(task, dict)]
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args or "{}")
+                except (ValueError, AttributeError):
+                    return []
+            if isinstance(args, dict):
+                tasks = args.get("tasks", [])
+                if isinstance(tasks, list):
+                    return [task for task in tasks if isinstance(task, dict)]
     return []
 
 

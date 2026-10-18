@@ -8,6 +8,7 @@ from pydantic import Field
 
 from agent_core.context import current_execution_ctx
 from specifications.interfaces.agent import (
+    APPROVAL_GRANTED_PREFIX,
     AgentEvent,
     SubagentTaskRequest,
     SubagentTaskResult,
@@ -371,13 +372,15 @@ def _register_planning_tools(registry: ToolRegistry) -> None:
         ],
     ) -> str:
         ctx = current_execution_ctx.get()
-        if ctx is not None:
-            ctx.plan_mode = False
         approve = registry._turn_callback("approval")
-        if approve:
-            decision = await approve("execute_plan", summary, "medium")
-            return f"Plan approval result: {decision}"
-        return "Plan mode disabled. Proceed with the plan."
+        if not approve:
+            return "Blocked: cannot exit plan mode without an approval channel to review the plan."
+        decision = await approve("execute_plan", summary, "medium")
+        if str(decision).startswith(APPROVAL_GRANTED_PREFIX):
+            if ctx is not None:
+                ctx.plan_mode = False
+            return f"Plan approved. Plan mode disabled. Proceed with execution: {decision}"
+        return f"Plan approval rejected: {decision}. Plan mode remains ACTIVE (read-only)."
 
     @registry._tool(
         description=(

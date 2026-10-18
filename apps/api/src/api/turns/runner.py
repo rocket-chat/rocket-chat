@@ -175,29 +175,44 @@ class TurnRunner:
             if repo_slug
             else [".rocket/PROGRESS.md"]
         )
-        updates: dict[str, str] = {}
+        found_plan: str | None = None
         for p in plan_paths:
             try:
-                if plan := await driver.read_file(session_id, p):
-                    updates["plan_md"] = plan
+                plan = await driver.read_file(session_id, p)
+                if isinstance(plan, str) and plan.strip():
+                    found_plan = plan[:50000]
                     break
             except Exception:
                 pass
+        found_prog: str | None = None
         for p in prog_paths:
             try:
-                if prog := await driver.read_file(session_id, p):
-                    updates["progress_md"] = prog
+                prog = await driver.read_file(session_id, p)
+                if isinstance(prog, str) and prog.strip():
+                    found_prog = prog[:50000]
                     break
             except Exception:
                 pass
-        if updates:
-            if isinstance(ctx.session.metadata, dict):
-                ctx.session.metadata.update(updates)
-            await self.req.store.mutate_session(
-                session_id,
-                ctx.session.tenant_org_id,
-                lambda rec: rec.metadata.update(updates),
-            )
+
+        def update_metadata(rec: SessionRecord) -> None:
+            if not isinstance(rec.metadata, dict):
+                rec.metadata = {}
+            if found_plan is not None:
+                rec.metadata["plan_md"] = found_plan
+            else:
+                rec.metadata.pop("plan_md", None)
+            if found_prog is not None:
+                rec.metadata["progress_md"] = found_prog
+            else:
+                rec.metadata.pop("progress_md", None)
+
+        if isinstance(ctx.session.metadata, dict):
+            update_metadata(ctx.session)
+        await self.req.store.mutate_session(
+            session_id,
+            ctx.session.tenant_org_id,
+            update_metadata,
+        )
 
     async def _prepare(self) -> TurnContext:
         req, state = self.req, self.state

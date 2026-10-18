@@ -18,11 +18,11 @@ class _DiagnosticDriver(FakeSandboxDriver):
         self.fail_command = fail_command
 
     async def exec_command(self, session_id: str, command: str, *a: Any, **k: Any) -> ExecResult:
-        if command.startswith("which "):
-            binary = command.split()[1]
-            if binary in self.installed_bins:
+        if command.startswith("which ") or "command -v" in command or "[ -x" in command:
+            binary = next((b for b in self.installed_bins if b in command), None)
+            if binary:
                 return ExecResult(0, f"/usr/bin/{binary}\n", "", 1)
-            return ExecResult(1, "", f"{binary} not found\n", 1)
+            return ExecResult(1, "", "binary not found\n", 1)
 
         if self.fail_command:
             return ExecResult(1, "", "syntax error at line 42: invalid syntax\n", 1)

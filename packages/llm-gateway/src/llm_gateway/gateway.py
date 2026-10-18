@@ -1,5 +1,6 @@
 """LiteLLM Gateway implementing LLMGatewayProtocol with BYOK routing and reasoning extraction."""
 
+import asyncio
 import base64
 import dataclasses
 import logging
@@ -547,7 +548,24 @@ class LiteLLMGateway(LLMGatewayProtocol):
 
         latest_usage: dict[str, int] | None = None
         last_finish_reason: str | None = None
-        async for chunk in response:
+        ait = aiter(response)
+        idle_timeout = float(getattr(request, "timeout", None) or 90.0)
+        while True:
+            try:
+                chunk = await asyncio.wait_for(anext(ait), timeout=idle_timeout)
+            except StopAsyncIteration:
+                break
+            except TimeoutError:
+                for pending in self._filtered_chunks(reasoning_filter.flush()):
+                    yield pending
+                yield StreamChunk(
+                    is_finished=True,
+                    finish_reason="error",
+                    error=f"LLM stream idle timeout after {int(idle_timeout)}s with no chunks received",
+                    token_usage=latest_usage,
+                )
+                return
+
             # Providers put usage on the finishing chunk, on a trailing chunk without choices
             # or on an ordinary content chunk; keep the latest wherever it came.
             usage_dict = self._usage_from_chunk(chunk)
@@ -634,7 +652,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
             )
             yield StreamChunk(is_finished=True, finish_reason=reason, error=str(err))
         finally:
-            if not failed:
+            if not failed or produced or usage:
                 await self._record_call(scope, request, usage, "".join(produced), key_source)
 
     async def _record_call(

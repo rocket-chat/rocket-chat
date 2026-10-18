@@ -355,6 +355,54 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         self._session_histories[session_id] = conversation
         return conversation
 
+    async def compact_history(
+        self,
+        session_id: str,
+        org_id: str,
+        model: str | None = None,
+    ) -> Any:
+        """Manually trigger compaction for a session's history."""
+        conversation = await self._conversation_for(session_id, org_id)
+        if len(conversation) < 3:
+            return None
+        effective_model = model or self.default_model
+        summarize = self._make_summarizer(effective_model)
+        cleaned = await self.context_manager.enforce_hygiene_async(
+            effective_model,
+            list(conversation),
+            summarize=summarize,
+            force_compaction=True,
+        )
+        if cleaned != conversation:
+            del conversation[:]
+            conversation.extend(cleaned)
+            boundary_seq = 0
+            if self.transcript_store is not None:
+                latest_seq = await self.transcript_store.latest_seq(session_id, org_id)
+                tail_count = getattr(cleaned, "tail_count", None)
+                if tail_count is None:
+                    tail_count = len(cleaned) - len(getattr(cleaned, "compacted_prefix", []))
+                boundary_seq = max(0, (latest_seq or 0) - max(0, tail_count))
+
+            if self.compaction_store is not None:
+                try:
+                    checkpoint = CompactionCheckpoint(
+                        id=f"cmp_{uuid.uuid4().hex[:24]}",
+                        session_id=session_id,
+                        org_id=org_id,
+                        boundary_seq=boundary_seq,
+                        summary=getattr(cleaned, "summary", None),
+                        compacted_messages=getattr(cleaned, "compacted_prefix", []),
+                        tokens_before=getattr(cleaned, "tokens_before", 0),
+                        tokens_after=getattr(cleaned, "tokens_after", 0),
+                        created_at=int(time.time()),
+                    )
+                    await self.compaction_store.record_compaction(checkpoint)
+                except Exception:
+                    logger.exception("Failed to record compaction checkpoint for %s", session_id)
+            return cleaned
+        return None
+
     async def _flush_transcript(
         self, session_id: str, org_id: str, conversation: list[ChatMessage]
     ) -> None:
@@ -960,6 +1008,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             try:
                 plan_md = await driver.read_file(session_id, p)
                 if plan_md and plan_md.strip():
+                    plan_md = plan_md[:50000]
                     break
             except Exception:
                 pass
@@ -967,6 +1016,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             try:
                 progress_md = await driver.read_file(session_id, p)
                 if progress_md and progress_md.strip():
+                    progress_md = progress_md[:50000]
                     break
             except Exception:
                 pass
@@ -988,27 +1038,28 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         summarize = self._make_summarizer(summary_model)
         step = run.step if run else None
         last_step = run.last_compaction_step if run else None
-        limit = self.context_manager.get_model_context_limit(
-            model, overrides=exec_ctx.policy.generation.context_windows if exec_ctx else ()
-        )
-        needs_memory = (
-            force_compaction
-            or (run and run.synthetic_prompt and run.step == 0)
-            or (
-                exec_ctx
-                and exec_ctx.measured_prompt_tokens
-                >= int(limit * self.context_manager.tier3_threshold_ratio)
-            )
-        )
         active_repo = exec_ctx.active_repository if exec_ctx else ""
         plan_md, progress_md = (
-            await self._read_working_memory(run.session_id, active_repo)
-            if run and needs_memory
-            else (None, None)
+            await self._read_working_memory(run.session_id, active_repo) if run else (None, None)
         )
-        if run and run.synthetic_prompt and run.step == 0 and plan_md:
-            if not any("Working Plan (.rocket/PLAN.md)" in n for n in run.sticky_notes):
-                run.sticky_notes.append(f"Working Plan (.rocket/PLAN.md):\n{plan_md}")
+        if run and plan_md:
+            note = f"Working Plan (.rocket/PLAN.md):\n{plan_md}"
+            existing_idx = next(
+                (
+                    i
+                    for i, n in enumerate(run.sticky_notes)
+                    if "Working Plan (.rocket/PLAN.md)" in n
+                ),
+                None,
+            )
+            if existing_idx is not None:
+                run.sticky_notes[existing_idx] = note
+            else:
+                run.sticky_notes.append(note)
+        elif run and not plan_md:
+            run.sticky_notes = [
+                n for n in run.sticky_notes if "Working Plan (.rocket/PLAN.md)" not in n
+            ]
 
         if run and isinstance(conversation, RecordingList) and conversation.pending:
             await self._flush_transcript(run.session_id, run.org_id, conversation)

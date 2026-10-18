@@ -212,6 +212,7 @@ class ModelRequest:
     # request (rather than read from the app layer inside agent-core) to preserve layering.
     zero_retention: bool = False
     region: str = ""
+    timeout: float | None = None
 
 
 @runtime_checkable

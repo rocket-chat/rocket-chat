@@ -23,6 +23,7 @@ import shlex
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -441,12 +442,35 @@ class BranchPublisher:
                 if rewritten is not None:
                     rewritten.append((sha, head))
             if staging_branch is not None:
+                if plan.lease:
+                    ref_data = await self._rest(
+                        "GET",
+                        f"/repos/{repository}/git/refs/heads/{branch}",
+                        token,
+                    )
+                    current_sha = (ref_data.get("object") or {}).get("sha")
+                    if current_sha and current_sha != plan.lease:
+                        raise PublishError(
+                            f"Refusing force-push: {branch} moved on GitHub from {plan.lease[:7]} "
+                            f"to {str(current_sha)[:7]} concurrently; fetch and rebase before publishing."
+                        )
                 await self._rest(
                     "PATCH",
                     f"/repos/{repository}/git/refs/heads/{branch}",
                     token,
                     {"sha": head, "force": True},
                 )
+        except Exception:
+            if plan.created:
+                try:
+                    await self._rest(
+                        "DELETE",
+                        f"/repos/{repository}/git/refs/heads/{branch}",
+                        token,
+                    )
+                except Exception:
+                    pass
+            raise
         finally:
             if staging_branch is not None:
                 try:
@@ -509,7 +533,7 @@ class BranchPublisher:
                 f"{change.path} is a {kind}, which GitHub's signed-commit API cannot create. "
                 "Remove it from the commit, or ask an administrator to use GPG signing."
             )
-        if change.status == "A" and change.mode == EXECUTABLE_MODE:
+        if change.status in ("A", "M") and change.mode == EXECUTABLE_MODE:
             notices.append(
                 f"{change.path} was published without its executable bit (GitHub's API cannot "
                 "set it); run `chmod +x` and commit again if it must be executable."
@@ -544,13 +568,14 @@ class BranchPublisher:
 
     async def _rest(
         self, method: str, path: str, token: str, body: dict[str, object] | None = None
-    ) -> None:
+    ) -> Any:
         async with httpx.AsyncClient(timeout=API_TIMEOUT_SECONDS) as client:
             response = await client.request(
                 method, f"{self._api_url}{path}", headers=await self._headers(token), json=body
             )
         if response.status_code not in (200, 201, 204):
             raise PublishError(_describe_failure(response))
+        return response.json() if response.content else {}
 
     async def _graphql(self, token: str, commit_input: dict[str, object]) -> str:
         query = (

@@ -67,6 +67,7 @@ class SlackAssistantState:
     _answer_stored_question_fn: (
         Callable[[str, str, list[str], str | None], Awaitable[str | None]] | None
     )
+    _clear_stored_question_fn: Callable[[str, str], Awaitable[None]] | None
 
     _gate_owners: dict[str, tuple[str, str | None]]
     _background: set[asyncio.Task[Any]]

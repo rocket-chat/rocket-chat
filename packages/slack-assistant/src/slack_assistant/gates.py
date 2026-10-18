@@ -111,6 +111,23 @@ class SlackGatesMixin(SlackAssistantState):
             await self.orchestrator.submit_question_answer(
                 session_id=session_id, question_id=question_id, selected_options=[option]
             )
+            if self.event_bus is not None:
+                from specifications.interfaces.events import EventType, SessionEvent
+
+                await self.event_bus.publish(
+                    SessionEvent(
+                        session_id=session_id,
+                        event_type=EventType.DECISION_SUBMITTED,
+                        payload={
+                            "question_id": question_id,
+                            "selected_options": [option],
+                            "custom_text": None,
+                        },
+                    )
+                )
+            if self._clear_stored_question_fn is not None:
+                org_id = await self._workspace_org(str(body.get("team_id") or self.team_id or ""))
+                await self._clear_stored_question_fn(session_id, org_id or "default_org")
         except KeyError:
             if await self._continue_after_restart(body, session_id, question_id, option, say):
                 self._gate_owners.pop(question_id, None)

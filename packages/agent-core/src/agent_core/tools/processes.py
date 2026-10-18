@@ -77,6 +77,28 @@ def _clean_name(name: str | None, command: str) -> str:
     return base[:60].strip() or "process"
 
 
+_WRAPPER = (
+    "import subprocess, sys\n"
+    "cmd, out_file, exit_file = sys.argv[1], sys.argv[2], sys.argv[3]\n"
+    "max_bytes = 10 * 1024 * 1024\n"
+    "p = subprocess.Popen(cmd, shell=True, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)\n"
+    "with open(out_file, 'wb') as f:\n"
+    "    if p.stdout:\n"
+    "        for line in p.stdout:\n"
+    "            f.write(line)\n"
+    "            f.flush()\n"
+    "            if f.tell() > max_bytes:\n"
+    "                f.seek(max_bytes // 2)\n"
+    "                rem = f.read()\n"
+    "                f.seek(0)\n"
+    "                f.truncate(0)\n"
+    "                f.write(rem)\n"
+    "                f.flush()\n"
+    "rc = p.wait()\n"
+    "with open(exit_file, 'w') as f:\n"
+    "    f.write(str(rc) + '\\n')\n"
+)
+
 _START = """\
 set -e
 D={dir}
@@ -84,13 +106,12 @@ mkdir -p "$D"
 printf %s {command} > "$D/cmd"
 printf 'name=%s\\n' {name} > "$D/meta"
 {port_line}
-wrapper='ulimit -f {limit}; sh -c "$1" >"$2" 2>&1 </dev/null; echo $? >"$3"'
 if command -v setsid >/dev/null 2>&1; then
-  setsid sh -c "$wrapper" _ {command} "$D/out.log" "$D/exit" </dev/null >/dev/null 2>&1 &
+  setsid python3 -c {wrapper_code} {command} "$D/out.log" "$D/exit" </dev/null >/dev/null 2>&1 &
 else
   # No setsid (rare): job control still gives the command its own process group.
   set -m
-  nohup sh -c "$wrapper" _ {command} "$D/out.log" "$D/exit" </dev/null >/dev/null 2>&1 &
+  nohup python3 -c {wrapper_code} {command} "$D/out.log" "$D/exit" </dev/null >/dev/null 2>&1 &
 fi
 echo $! > "$D/pid"
 echo started
@@ -142,7 +163,7 @@ async def start_process(
         command=shlex.quote(command),
         name=shlex.quote(_clean_name(name, command)),
         port_line=f"printf 'port=%s\\n' {int(port)} >> \"$D/meta\"" if port else ":",
-        limit=LOG_LIMIT_BLOCKS,
+        wrapper_code=shlex.quote(_WRAPPER),
     )
     result = await driver.exec_command(session_id, script, workdir=workdir, timeout_seconds=30)
     if result.exit_code != 0 or "started" not in result.stdout:

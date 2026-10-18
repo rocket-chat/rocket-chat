@@ -34,7 +34,7 @@ class DecisionGateManager:
         selected_options: list[str],
         custom_text: str | None = None,
     ) -> None:
-        item = self._pending_questions.get(question_id)
+        item = self._pending_questions.pop(question_id, None)
         if not item or item[0] != session_id:
             raise KeyError(f"Pending question {question_id} not found for session {session_id}")
 
@@ -60,7 +60,7 @@ class DecisionGateManager:
         action_id: str,
         approved: bool,
     ) -> None:
-        item = self._pending_approvals.get(action_id)
+        item = self._pending_approvals.pop(action_id, None)
         if not item or item[0] != session_id:
             raise KeyError(f"Pending approval {action_id} not found for session {session_id}")
 

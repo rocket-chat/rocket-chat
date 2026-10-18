@@ -285,3 +285,8 @@ class ArtifactStoreProtocol(ABC):
     ) -> SessionArtifact | None:
         """Update artifact content, incrementing version and updated_at."""
         pass
+
+    @abstractmethod
+    async def delete_artifacts(self, session_id: str, tenant_org_id: str) -> None:
+        """Delete all artifacts for a session."""
+        pass

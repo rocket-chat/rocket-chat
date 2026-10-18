@@ -49,14 +49,12 @@ READ_TOOLS: frozenset[str] = frozenset(
         # Fetching code to read it: it adds files to the sandbox but changes no repository.
         "clone_repository",
         "set_active_repository",
-        # Looking at, waiting for or stopping a process the session itself started.
+        # Looking at or waiting for a process the session itself started.
         "process_list",
         "process_output",
         "process_wait",
-        "process_stop",
         "task_list",
         "task_status",
-        "task_kill",
         # Read-only GitHub lookups: nothing in the sandbox, repository or account changes.
         "github_find_repositories",
         "github_read_file",
@@ -84,7 +82,6 @@ READ_TOOLS: frozenset[str] = frozenset(
         "delegate_subagents_parallel",
         "workspace_status",
         "git_status_all",
-        "repo_foreach",
         "wait_for",
         "create_artifact",
         "update_artifact",

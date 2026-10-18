@@ -42,5 +42,9 @@ class CompactionStoreProtocol(ABC):
         """Fetch the most recent compaction checkpoint for a session."""
 
     @abstractmethod
+    async def list_compactions(self, session_id: str, org_id: str) -> list[CompactionCheckpoint]:
+        """List all compaction checkpoints for a session."""
+
+    @abstractmethod
     async def delete_compactions(self, session_id: str, org_id: str) -> None:
         """Remove all compaction checkpoints for a session."""

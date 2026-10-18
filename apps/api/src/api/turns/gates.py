@@ -31,11 +31,11 @@ async def take_stored_question(
     """
     if db_mgr is None:
         return None
-    stored = await TurnTraceStore(db_mgr).latest_pending_decision(session_id, org_id)
-    if not stored or stored.get("question_id") != question_id:
+    try:
+        return await TurnTraceStore(db_mgr).take_pending_decision(session_id, org_id, question_id)
+    except Exception as err:
+        logger.warning("Could not take stored question %s: %s", question_id, err)
         return None
-    await _forget_pending_decisions(db_mgr, session_id, org_id)
-    return stored
 
 
 async def _forget_pending_decisions(

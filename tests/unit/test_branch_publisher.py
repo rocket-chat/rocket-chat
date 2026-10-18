@@ -57,6 +57,14 @@ class SimulatedGitHub:
             return httpx.Response(201, json={})
         if "/git/refs/heads/" in request.url.path:
             branch = request.url.path.split("/git/refs/heads/", 1)[1]
+            if request.method == "GET":
+                try:
+                    sha = git(self.bare, "rev-parse", f"refs/heads/{branch}").strip()
+                    return httpx.Response(
+                        200, json={"ref": f"refs/heads/{branch}", "object": {"sha": sha}}
+                    )
+                except Exception:
+                    return httpx.Response(404, json={"message": "Not Found"})
             git(self.bare, "update-ref", f"refs/heads/{branch}", body["sha"])
             return httpx.Response(200, json={})
         return self._create_commit(body["variables"]["input"])

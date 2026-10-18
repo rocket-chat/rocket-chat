@@ -289,6 +289,14 @@ class SlackTurnStreamMixin(SlackAssistantState):
         text = f"📄 *Artifact Created:* `{filename}` — *{title}* ({artifact_type})\nViewable in the Cockpit Artifacts drawer."
         await view.say_fn(text=text, thread_ts=view.thread_ts)
 
+    async def _render_artifact_updated(self, payload: dict[str, Any], view: TurnView) -> None:
+        title = payload.get("title", "Deliverable")
+        filename = payload.get("filename", "artifact.md")
+        version = payload.get("version", "")
+        version_str = f" (v{version})" if version else ""
+        text = f"📝 *Artifact Updated:* `{filename}` — *{title}*{version_str}\nUpdated deliverable viewable in the Cockpit Artifacts drawer."
+        await view.say_fn(text=text, thread_ts=view.thread_ts)
+
     _EVENT_RENDERERS: ClassVar[dict[EventType, Callable[..., Awaitable[None]]]] = {
         EventType.TOOL_STARTED: _render_tool_started,
         EventType.TOOL_COMPLETED: _render_tool_completed,
@@ -299,6 +307,7 @@ class SlackTurnStreamMixin(SlackAssistantState):
         EventType.DECISION_REQUIRED: _render_question,
         EventType.APPROVAL_REQUIRED: _render_approval,
         EventType.ARTIFACT_CREATED: _render_artifact_created,
+        EventType.ARTIFACT_UPDATED: _render_artifact_updated,
     }
 
     async def _post_result(self, view: TurnView, org_policy: SlackOrgPolicy) -> None:

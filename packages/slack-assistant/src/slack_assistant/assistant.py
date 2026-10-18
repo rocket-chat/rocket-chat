@@ -122,6 +122,7 @@ class SlackAssistant(
             [str, str, list[str], str | None], Awaitable[str | None]
         ]
         | None = None,
+        clear_stored_question_fn: Callable[[str, str], Awaitable[None]] | None = None,
         quota_gate: WorkspaceQuotaGate | None = None,
         clock: Callable[[], float] | None = None,
         ingest_attachment_fn: Callable[..., Any] | None = None,
@@ -173,6 +174,7 @@ class SlackAssistant(
         # Reads a sandbox file for upload (screenshots); injected by the API layer.
         self._read_file_bytes_fn = read_file_bytes_fn
         self._answer_stored_question_fn = answer_stored_question_fn
+        self._clear_stored_question_fn = clear_stored_question_fn
         self._active_turns: set[str] = set()
         self._stopped_by: dict[str, str] = {}
         self._rate_counters: dict[str, int] = {

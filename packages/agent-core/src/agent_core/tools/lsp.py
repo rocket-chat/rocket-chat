@@ -8,7 +8,9 @@ it is a zero-latency silent bypass.
 from __future__ import annotations
 
 import logging
-import os
+import posixpath
+import shlex
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -16,40 +18,68 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Map file extensions to check command template and required binary
-DIAGNOSTIC_COMMANDS: dict[str, tuple[str, str]] = {
-    ".py": ("ruff", "ruff check --select E,F,W --no-fix {file}"),
-    ".go": ("go", "go vet {file}"),
-    ".rs": ("cargo", "cargo check --quiet"),
-    ".ts": ("tsc", "npx tsc --noEmit {file}"),
-    ".tsx": ("tsc", "npx tsc --noEmit {file}"),
-}
-
-_BINARY_CACHE: dict[tuple[str, str], bool] = {}
+# Cache binary lookup per session with a TTL to avoid stale results while avoiding
+# re-running 'which' on every single edit.
+_BINARY_CACHE: dict[tuple[str, str], tuple[bool, float]] = {}
+CACHE_TTL_SECONDS = 60.0
 
 
-async def _has_binary(
+async def _resolve_binary(
     driver: SandboxDriverProtocol,
     session_id: str,
     binary: str,
-) -> bool:
-    """Check if a tool binary exists in the sandbox, cached per session."""
+    workdir: str,
+) -> str | None:
+    """Check if a tool binary exists in the sandbox, looking in local project paths first."""
+    now = time.time()
     key = (session_id, binary)
     if key in _BINARY_CACHE:
-        return _BINARY_CACHE[key]
+        available, cached_at = _BINARY_CACHE[key]
+        if (now - cached_at) < CACHE_TTL_SECONDS:
+            return binary if available else None
+
+    # Check project-local virtualenv and node_modules before global PATH
+    candidates = [
+        f"{workdir}/.venv/bin/{binary}",
+        f"{workdir}/node_modules/.bin/{binary}",
+        f"/workspace/.venv/bin/{binary}",
+        f"/workspace/node_modules/.bin/{binary}",
+    ]
+    check_script = " || ".join(
+        [f"[ -x {shlex.quote(c)} ]" for c in candidates]
+        + [f"command -v {shlex.quote(binary)} >/dev/null 2>&1"]
+    )
 
     try:
         res = await driver.exec_command(
             session_id=session_id,
-            command=f"which {binary} 2>/dev/null",
+            command=f"sh -c {shlex.quote(check_script)}",
             timeout_seconds=3,
         )
-        available = res.exit_code == 0 and bool(res.stdout.strip())
+        available = res.exit_code == 0
     except Exception:
         available = False
 
-    _BINARY_CACHE[key] = available
-    return available
+    _BINARY_CACHE[key] = (available, now)
+    return binary if available else None
+
+
+def _build_diagnostic_command(ext: str, file_path: str, directory: str) -> tuple[str, str] | None:
+    """Return (binary_name, safe_command_string) for a file extension."""
+    q_file = shlex.quote(file_path)
+    q_dir = shlex.quote(directory)
+
+    if ext == ".py":
+        return ("ruff", f"ruff check --select E,F,W --no-fix {q_file}")
+    if ext == ".go":
+        # Run package-aware vet in the file's directory
+        return ("go", f"go vet {q_dir}")
+    if ext == ".rs":
+        return ("cargo", "cargo check --quiet")
+    if ext in (".ts", ".tsx"):
+        # Check if tsconfig exists near the file
+        return ("tsc", f"npx tsc --noEmit {q_file}")
+    return None
 
 
 async def run_diagnostics_on_file(
@@ -61,21 +91,21 @@ async def run_diagnostics_on_file(
 
     Returns diagnostic message string if errors were found, or None if clean/skipped.
     """
-    if driver is None or not session_id:
+    if driver is None or not session_id or not file_path:
         return None
 
-    _, ext = os.path.splitext(file_path)
+    _, ext = posixpath.splitext(file_path)
     ext = ext.lower()
-    config = DIAGNOSTIC_COMMANDS.get(ext)
+    directory = posixpath.dirname(file_path) or "/workspace"
+
+    config = _build_diagnostic_command(ext, file_path, directory)
     if not config:
         return None
 
-    binary, cmd_template = config
-    if not await _has_binary(driver, session_id, binary):
+    binary, command = config
+    resolved = await _resolve_binary(driver, session_id, binary, directory)
+    if not resolved:
         return None
-
-    directory = os.path.dirname(file_path) or "/workspace"
-    command = cmd_template.format(file=file_path, dir=directory)
 
     try:
         res = await driver.exec_command(

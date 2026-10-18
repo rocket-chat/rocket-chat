@@ -97,6 +97,8 @@ class ExecutionContext:
     measured_prompt_tokens: int = 0
     # Tracks consecutive model calls with < 20% prompt cache hit rate for alert detection (G4).
     consecutive_low_cache_calls: int = 0
+    # Turn index in session execution (used for offload outputs naming and traces)
+    turn_index: int = 1
 
 
 current_execution_ctx: contextvars.ContextVar[ExecutionContext | None] = contextvars.ContextVar(

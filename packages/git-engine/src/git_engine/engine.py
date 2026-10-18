@@ -179,7 +179,14 @@ class GitEngine(GitEngineProtocol):
                     if res.status_code == 200:
                         installations = res.json()
                         if installations and isinstance(installations, list):
-                            installation_id = installations[0].get("id")
+                            if len(installations) == 1:
+                                installation_id = installations[0].get("id")
+                            elif len(installations) > 1:
+                                logger.warning(
+                                    "Multiple installations (%d) found for GitHub App %s; refusing ambiguous fallback",
+                                    len(installations),
+                                    self.settings.github_app_id,
+                                )
 
                 if not installation_id:
                     logger.warning(

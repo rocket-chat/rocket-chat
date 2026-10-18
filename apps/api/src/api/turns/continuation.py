@@ -6,9 +6,10 @@ import logging
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from agent_core.checklist import unfinished_notice
+from agent_core.checklist import OPEN_STATUSES, unfinished_notice
 
 from api.services.goals import InMemoryGoalStore, PostgresGoalStore
+from api.services.settings import effective_settings
 from specifications.interfaces.events import EventType, SessionEvent
 from specifications.interfaces.session import GoalStatus, GoalStoreProtocol, SessionGoal
 
@@ -30,6 +31,10 @@ def has_unfinished_work(ctx: TurnContext) -> bool:
     plan_md = meta.get("plan_md") or ""
     if "- [ ]" in plan_md or "[ ]" in plan_md:
         return True
+    checklist = meta.get("checklist")
+    if isinstance(checklist, list):
+        if any(isinstance(t, dict) and t.get("status") in OPEN_STATUSES for t in checklist):
+            return True
     return unfinished_notice(ctx.session.conversation_history) is not None
 
 
@@ -49,6 +54,11 @@ async def check_and_schedule_continuation(ctx: TurnContext) -> bool:
     goal_store = get_goal_store(ctx.req.db_mgr)
     goal = await goal_store.get_goal(ctx.session_id, ctx.session.tenant_org_id)
     if goal is None:
+        budgets = await effective_settings(ctx.req.db_mgr, ctx.session.tenant_org_id, "budgets")
+        sess_cap = float(budgets.get("session_budget_usd", 0.0) or 0.0)
+        max_cost = sess_cap if sess_cap > 0 else None
+        max_tokens = int(budgets.get("max_tokens", 0) or 0) or None
+        max_wall_time = int(budgets.get("max_wall_time_seconds", 0) or 0) or None
         goal = SessionGoal(
             id=f"goal_{uuid.uuid4().hex[:16]}",
             session_id=ctx.session_id,
@@ -56,6 +66,9 @@ async def check_and_schedule_continuation(ctx: TurnContext) -> bool:
             description=ctx.session.title or "Complete session tasks",
             status=GoalStatus.ACTIVE,
             max_continuations=10,
+            max_cost_usd=max_cost,
+            max_total_tokens=max_tokens,
+            max_wall_time_seconds=max_wall_time,
         )
         await goal_store.create_goal(goal)
 
@@ -108,6 +121,7 @@ async def check_and_schedule_continuation(ctx: TurnContext) -> bool:
         concurrency_gate=ctx.req.concurrency_gate,
         session_locks=ctx.req.session_locks,
         synthetic_prompt=True,
+        overlay=ctx.req.overlay,
     )
     return True
 

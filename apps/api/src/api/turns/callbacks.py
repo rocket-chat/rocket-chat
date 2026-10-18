@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, TypedDict
@@ -40,9 +42,23 @@ from specifications.interfaces.session import (
 logger = logging.getLogger(__name__)
 
 
-def _schedule_time_wake(ctx: TurnContext, delay: float) -> None:
+def _schedule_time_wake(ctx: TurnContext, delay: float, wait_id: str = "") -> None:
     async def _wake() -> None:
         await asyncio.sleep(delay)
+        if wait_id and ctx.req.event_bus:
+            await ctx.req.event_bus.publish(
+                SessionEvent(
+                    session_id=ctx.session_id,
+                    event_type=EventType.WAIT_COMPLETED,
+                    payload={
+                        "wait_id": wait_id,
+                        "wait_type": "time",
+                        "target": str(delay),
+                        "status": "completed",
+                        "summary": f"Timer delay of {delay}s expired.",
+                    },
+                )
+            )
         from api.turns.tasks import _spawn_background_turn
 
         _spawn_background_turn(
@@ -59,6 +75,7 @@ def _schedule_time_wake(ctx: TurnContext, delay: float) -> None:
             concurrency_gate=ctx.req.concurrency_gate,
             session_locks=ctx.req.session_locks,
             synthetic_prompt=True,
+            overlay=ctx.req.overlay,
         )
 
     task = asyncio.create_task(_wake())
@@ -66,29 +83,61 @@ def _schedule_time_wake(ctx: TurnContext, delay: float) -> None:
     task.add_done_callback(_background_tasks.discard)
 
 
-def _schedule_process_wake(ctx: TurnContext, identifier: str, timeout_seconds: int | None) -> None:
+def _schedule_process_wake(
+    ctx: TurnContext, identifier: str, timeout_seconds: int | None, wait_id: str = ""
+) -> None:
     driver = ctx.req.driver
     if driver is None:
         return
 
     async def _wake() -> None:
+        from agent_core.tools.processes import get_process, is_valid_id
+
+        if not is_valid_id(identifier):
+            logger.warning(
+                "Refusing to schedule process wake for invalid process id: %s", identifier
+            )
+            return
+
         max_wait = float(timeout_seconds) if timeout_seconds else 600.0
         start = asyncio.get_running_loop().time()
+        exited = False
         while (asyncio.get_running_loop().time() - start) < max_wait:
             await asyncio.sleep(2.0)
             try:
-                res = await driver.exec_command(
-                    ctx.session_id, f"kill -0 {identifier} 2>/dev/null", timeout_seconds=5
-                )
-                if res.exit_code != 0:
+                info = await get_process(driver, ctx.session_id, identifier)
+                if info is not None and not info.running:
+                    exited = True
                     break
-            except Exception:
+            except Exception as err:
+                logger.warning("Error inspecting process %s: %s", identifier, err)
                 break
+
+        if wait_id and ctx.req.event_bus:
+            await ctx.req.event_bus.publish(
+                SessionEvent(
+                    session_id=ctx.session_id,
+                    event_type=EventType.WAIT_COMPLETED,
+                    payload={
+                        "wait_id": wait_id,
+                        "wait_type": "process_exit",
+                        "target": identifier,
+                        "status": "completed" if exited else "timeout",
+                        "summary": (
+                            f"Background process {identifier} completed."
+                            if exited
+                            else f"Wait timeout of {int(max_wait)}s expired for process {identifier}."
+                        ),
+                    },
+                )
+            )
+
         from api.turns.tasks import _spawn_background_turn
 
+        outcome = "completed" if exited else f"timed out after {int(max_wait)}s"
         _spawn_background_turn(
             session_id=ctx.session_id,
-            prompt=f"Background process {identifier} completed. Resuming execution.",
+            prompt=f"Background process {identifier} {outcome}. Resuming execution.",
             orchestrator=ctx.req.orchestrator,
             event_bus=ctx.req.event_bus,
             driver=ctx.req.driver,
@@ -100,6 +149,7 @@ def _schedule_process_wake(ctx: TurnContext, identifier: str, timeout_seconds: i
             concurrency_gate=ctx.req.concurrency_gate,
             session_locks=ctx.req.session_locks,
             synthetic_prompt=True,
+            overlay=ctx.req.overlay,
         )
 
     task = asyncio.create_task(_wake())
@@ -193,11 +243,15 @@ def _schedule_github_wake(
     identifier: str,
     timeout_seconds: int | None,
     git_bundle: GitCredentialBundle | None = None,
+    wait_id: str = "",
 ) -> None:
     max_wait = float(timeout_seconds) if timeout_seconds else 1800.0
-    parts = identifier.split("#")
-    repo = parts[0].strip()
-    pr_num = int(parts[1].strip()) if len(parts) > 1 and parts[1].strip().isdigit() else None
+    repo, pr_num = _parse_repo_pr(
+        identifier,
+        default_repo=str(ctx.session.metadata.get("github_repo") or "")
+        if ctx.session.metadata
+        else "",
+    )
 
     async def _wake() -> None:
         poll_interval = 300.0
@@ -237,7 +291,7 @@ def _schedule_github_wake(
                             session_id=ctx.session_id,
                             event_type=EventType.WAIT_COMPLETED,
                             payload={
-                                "wait_id": f"poll_{uuid.uuid4().hex[:8]}",
+                                "wait_id": wait_id or f"poll_{uuid.uuid4().hex[:8]}",
                                 "wait_type": target,
                                 "target": identifier,
                                 "status": status,
@@ -264,6 +318,7 @@ def _schedule_github_wake(
                         concurrency_gate=ctx.req.concurrency_gate,
                         session_locks=ctx.req.session_locks,
                         synthetic_prompt=True,
+                        overlay=ctx.req.overlay,
                     )
                     return
 
@@ -284,7 +339,7 @@ def _schedule_github_wake(
                 session_id=ctx.session_id,
                 event_type=EventType.WAIT_COMPLETED,
                 payload={
-                    "wait_id": f"timeout_{uuid.uuid4().hex[:8]}",
+                    "wait_id": wait_id or f"timeout_{uuid.uuid4().hex[:8]}",
                     "wait_type": target,
                     "target": identifier,
                     "status": "timeout",
@@ -309,11 +364,28 @@ def _schedule_github_wake(
             concurrency_gate=ctx.req.concurrency_gate,
             session_locks=ctx.req.session_locks,
             synthetic_prompt=True,
+            overlay=ctx.req.overlay,
         )
 
     task = asyncio.create_task(_wake())
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
+
+
+def _parse_repo_pr(identifier: str, default_repo: str = "") -> tuple[str, int | None]:
+    clean = identifier.strip()
+    m = re.match(r"^https?://[^/]+/([^/]+/[^/]+)/pull/(\d+)", clean, re.IGNORECASE)
+    if m:
+        return m.group(1).lower(), int(m.group(2))
+    m = re.match(r"^([^#/]+/[^#/]+)#(\d+)$", clean)
+    if m:
+        return m.group(1).lower(), int(m.group(2))
+    m = re.match(r"^#?(\d+)$", clean)
+    if m:
+        return default_repo.lower(), int(m.group(1))
+    if "/" in clean and "#" not in clean:
+        return clean.lower(), None
+    return clean.lower(), None
 
 
 def _build_wait_for(
@@ -325,7 +397,29 @@ def _build_wait_for(
 ) -> Callable[[str, str, int | None], Awaitable[str]]:
     async def wait_for(target: str, identifier: str, timeout_seconds: int | None) -> str:
         wait_id = f"wait_{uuid.uuid4().hex[:12]}"
-        reason = f"{target} on {identifier}"
+        default_repo = ""
+        if ctx is not None and ctx.session.metadata:
+            default_repo = str(ctx.session.metadata.get("github_repo") or "")
+
+        repo, pr_num = "", None
+        if target in ("ci_status", "review"):
+            repo, pr_num = _parse_repo_pr(identifier, default_repo=default_repo)
+            norm_identifier = f"{repo}#{pr_num}" if pr_num is not None else repo
+            effective_timeout = max(30, min(timeout_seconds or 1800, 7200))
+        elif target == "time":
+            delay = max(
+                1.0,
+                min(
+                    float(identifier) if identifier.replace(".", "", 1).isdigit() else 30.0, 86400.0
+                ),
+            )
+            norm_identifier = str(delay)
+            effective_timeout = int(delay)
+        else:
+            norm_identifier = identifier
+            effective_timeout = max(5, min(timeout_seconds or 600, 3600))
+
+        reason = f"{target} on {norm_identifier}"
         await event_bus.publish(
             SessionEvent(
                 session_id=session_id,
@@ -333,8 +427,8 @@ def _build_wait_for(
                 payload={
                     "wait_id": wait_id,
                     "wait_type": target,
-                    "target": identifier,
-                    "timeout_seconds": timeout_seconds,
+                    "target": norm_identifier,
+                    "timeout_seconds": effective_timeout,
                     "reason": reason,
                 },
             )
@@ -343,38 +437,60 @@ def _build_wait_for(
             ctx.state.is_waiting = True
             ctx.state.wait_target = reason
             ctx.state.wait_summary = f"Waiting for {reason}. Durable wait registered; turn paused."
+            if ctx.req.db_mgr:
+                try:
+                    from api.services.waits import PostgresWaitStore, SessionWait
+
+                    await PostgresWaitStore(ctx.req.db_mgr).create_wait(
+                        SessionWait(
+                            id=wait_id,
+                            session_id=session_id,
+                            tenant_org_id=ctx.session.tenant_org_id,
+                            kind=target,
+                            target=norm_identifier,
+                            deadline=int(time.time()) + effective_timeout,
+                            status="waiting",
+                        )
+                    )
+                except Exception as err:
+                    logger.warning("Could not persist durable wait %s: %s", wait_id, err)
+
         if target in ("ci_status", "review"):
-            parts = identifier.split("#")
-            repo = parts[0].strip()
-            pr_num = (
-                int(parts[1].strip()) if len(parts) > 1 and parts[1].strip().isdigit() else None
-            )
-            branch = ctx.session.git_branch if ctx is not None else None
+            branch = ctx.session.git_branch if (ctx is not None and pr_num is None) else None
             await github_watch(repo, pr_num, branch=branch, wake=True)
             if ctx is not None:
                 _schedule_github_wake(
-                    ctx, target, identifier, timeout_seconds, git_bundle=git_bundle
+                    ctx,
+                    target,
+                    norm_identifier,
+                    effective_timeout,
+                    git_bundle=git_bundle,
+                    wait_id=wait_id,
                 )
-            effective_timeout = timeout_seconds or 1800
             return (
-                f"Waiting for {target} on {identifier} (timeout: {effective_timeout}s). Turn paused; "
+                f"Waiting for {target} on {norm_identifier} (timeout: {effective_timeout}s). Turn paused; "
                 "will automatically wake upon webhook arrival or timeout."
             )
         if target == "time":
-            delay = float(identifier) if identifier.replace(".", "", 1).isdigit() else 30.0
             if ctx is not None:
-                _schedule_time_wake(ctx, delay)
-            return f"Waiting for timer delay of {delay}s. Turn paused; will wake after delay."
+                _schedule_time_wake(ctx, float(norm_identifier), wait_id=wait_id)
+            return f"Waiting for timer delay of {norm_identifier}s. Turn paused; will wake after delay."
         if target == "process_exit":
             if ctx is not None:
-                _schedule_process_wake(ctx, identifier, timeout_seconds)
+                _schedule_process_wake(ctx, norm_identifier, effective_timeout, wait_id=wait_id)
             return (
-                f"Waiting for background process {identifier} to exit. Turn paused; "
+                f"Waiting for background process {norm_identifier} to exit. Turn paused; "
                 "will wake when process completes."
             )
-        return f"Waiting for {target} ({identifier}). Turn entering waiting state."
+        return f"Waiting for {target} ({norm_identifier}). Turn entering waiting state."
 
     return wait_for
+
+
+def _truncate_artifact_preview(text: str, max_len: int = 500) -> str:
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
 
 
 def _make_artifact_callbacks(
@@ -389,7 +505,6 @@ def _make_artifact_callbacks(
         saved = await art_store.create_artifact(artifact)
         if event_bus:
             await event_bus.publish(
-                session_id,
                 SessionEvent(
                     session_id=session_id,
                     event_type=EventType.ARTIFACT_CREATED,
@@ -399,7 +514,7 @@ def _make_artifact_callbacks(
                         "filename": saved.filename,
                         "artifact_type": saved.artifact_type,
                         "version": saved.version,
-                        "content": saved.content,
+                        "content": _truncate_artifact_preview(saved.content),
                         "metadata": saved.metadata,
                         "created_at": saved.created_at,
                     },
@@ -415,7 +530,6 @@ def _make_artifact_callbacks(
         )
         if updated and event_bus:
             await event_bus.publish(
-                session_id,
                 SessionEvent(
                     session_id=session_id,
                     event_type=EventType.ARTIFACT_UPDATED,
@@ -425,7 +539,7 @@ def _make_artifact_callbacks(
                         "filename": updated.filename,
                         "artifact_type": updated.artifact_type,
                         "version": updated.version,
-                        "content": updated.content,
+                        "content": _truncate_artifact_preview(updated.content),
                         "updated_at": updated.updated_at,
                     },
                 ),

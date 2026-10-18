@@ -263,21 +263,6 @@ class ArtifactUpdatedPayload(TypedDict):
     updated_at: int
 
 
-class TaskStartedPayload(TypedDict):
-    task_id: str
-    command: str
-    cwd: NotRequired[str | None]
-    started_at: int
-
-
-class TaskCompletedPayload(TypedDict):
-    task_id: str
-    command: str
-    exit_code: int
-    duration_ms: int
-    summary: NotRequired[str | None]
-
-
 PAYLOAD_TYPES: dict[EventType, Any] = {
     EventType.TOKEN: TokenPayload,
     EventType.REASONING_TOKEN: TokenPayload,
@@ -308,7 +293,5 @@ PAYLOAD_TYPES: dict[EventType, Any] = {
     EventType.WAIT_COMPLETED: WaitCompletedPayload,
     EventType.ARTIFACT_CREATED: ArtifactCreatedPayload,
     EventType.ARTIFACT_UPDATED: ArtifactUpdatedPayload,
-    EventType.TASK_STARTED: TaskStartedPayload,
-    EventType.TASK_COMPLETED: TaskCompletedPayload,
     EventType.ERROR: ErrorPayload,
 }
