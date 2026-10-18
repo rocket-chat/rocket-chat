@@ -24,7 +24,7 @@ export default function SettingsLayout({
       {/* Main Settings Console Body */}
       <div className="flex-1 flex overflow-hidden">
         <SettingsNav />
-        <main className="flex-1 overflow-y-auto bg-surface-base">
+        <main className="flex-1 overflow-y-auto bg-surface-base focus:outline-none" tabIndex={0} aria-label="Settings content">
           {children}
         </main>
       </div>

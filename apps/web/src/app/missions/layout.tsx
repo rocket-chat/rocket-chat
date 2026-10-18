@@ -11,7 +11,7 @@ export default function MissionsLayout({ children }: { children: React.ReactNode
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-surface-base font-sans text-foreground">
       <AppTopBar current={{ icon: <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />, label: "Missions" }} />
-      <main className="flex-1 overflow-y-auto">{children}</main>
+      <main className="flex-1 overflow-y-auto focus:outline-none" tabIndex={0} aria-label="Missions content">{children}</main>
     </div>
   );
 }
