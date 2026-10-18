@@ -1,6 +1,6 @@
 """Add reasoning_blocks to session_messages for durable Anthropic thinking signatures.
 
-Revision ID: 040_session_messages_reasoning_blocks
+Revision ID: 040_msg_reasoning_blocks
 Revises: 039_session_waits
 Create Date: 2026-10-18 01:30:00.000000
 
@@ -15,7 +15,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = "040_session_messages_reasoning_blocks"
+revision: str = "040_msg_reasoning_blocks"
 down_revision: str | None = "039_session_waits"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
