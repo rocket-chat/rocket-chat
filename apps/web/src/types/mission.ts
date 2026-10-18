@@ -22,16 +22,14 @@ export type EventType =
   | "wait_completed"
   | "artifact_created"
   | "artifact_updated"
-  | "task_started"
-  | "task_completed"
   | "error"
   | "user_message";
 
 export interface ContextCompactedPayload {
-  boundary_seq: number;
   tokens_before: number;
   tokens_after: number;
-  summary: string;
+  compacted_messages_count: number;
+  summary?: string | null;
 }
 
 export interface ContinuationScheduledPayload {
@@ -52,16 +50,20 @@ export interface GoalUpdatedPayload {
 }
 
 export interface WaitStartedPayload {
-  reason?: string;
-  condition?: string;
-  identifier?: string;
-  delay?: number;
+  wait_id: string;
+  wait_type: string;
+  target: string;
+  timeout_seconds?: number | null;
+  reason?: string | null;
 }
 
 export interface WaitCompletedPayload {
-  identifier?: string;
-  condition?: string;
-  summary?: string;
+  wait_id: string;
+  wait_type: string;
+  target: string;
+  status: string;
+  summary?: string | null;
+  payload?: Record<string, unknown>;
 }
 
 export interface ArtifactItem {

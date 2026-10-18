@@ -13,6 +13,7 @@ import type {
   SessionData,
   SubagentExecutionData,
   ToolCallData,
+  WaitStartedPayload,
 } from "../../types/mission";
 
 export interface OwnUserMessage {
@@ -130,6 +131,8 @@ export interface StreamSlice {
   setIsReasoningActive: (active: boolean) => void;
   setActiveDecision: (decision: DecisionQuestion | null) => void;
   setActiveApproval: (approval: ApprovalRequestInfo | null) => void;
+  activeWait: WaitStartedPayload | null;
+  setActiveWait: (wait: WaitStartedPayload | null) => void;
   setChecklist: (tasks: ChecklistTask[]) => void;
   addFileDiff: (diff: FileDiffItem) => void;
   setActiveDiffIndex: (idx: number) => void;

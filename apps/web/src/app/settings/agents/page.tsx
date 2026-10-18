@@ -254,6 +254,14 @@ export default function AgentsSettingsPage() {
 
   const handleSave = async () => {
     if (!canEditCurrentAgent) return;
+    if (formData.cpu_limit && !/^\d+(\.\d+)?m?$/.test(formData.cpu_limit.trim())) {
+      setSaveError("CPU limit must be a valid core count (e.g. '2' or '500m')");
+      return;
+    }
+    if (formData.memory_limit && !/^\d+(\.\d+)?(Ki|Mi|Gi|Ti|K|M|G|T)?$/i.test(formData.memory_limit.trim())) {
+      setSaveError("Memory limit must be a valid memory format (e.g. '4Gi' or '512Mi')");
+      return;
+    }
     setIsSaving(true);
     setSaveError(null);
     try {

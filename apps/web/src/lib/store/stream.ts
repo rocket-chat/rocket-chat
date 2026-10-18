@@ -13,6 +13,8 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
   isReasoningActive: false,
   activeDecision: null,
   activeApproval: null,
+  activeWait: null,
+  setActiveWait: (activeWait) => set({ activeWait }),
   checklist: [],
   fileDiffs: [],
   activeDiffIndex: 0,

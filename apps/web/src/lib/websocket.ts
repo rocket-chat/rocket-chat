@@ -71,6 +71,10 @@ interface EventPayload {
   agent_id?: string;
   agent_name?: string;
   model?: string;
+  wait_id?: string;
+  wait_type?: string;
+  target?: string;
+  timeout_seconds?: number | null;
   [field: string]: unknown;
 }
 
@@ -380,6 +384,7 @@ export class MissionWebSocket {
         }
 
         if (rawStatus === "running") {
+          store.setActiveWait(null);
           store.setIsExecuting(true);
           if (typeof payload.model === "string") {
             store.setTurnBinding({ agentName: payload.agent_name || "", model: payload.model });
@@ -390,11 +395,13 @@ export class MissionWebSocket {
           rawStatus === "completed" ||
           rawStatus === "error" ||
           rawStatus === "failed" ||
-          rawStatus === "cancelled"
+          rawStatus === "cancelled" ||
+          rawStatus === "waiting" ||
+          payload.final === true
         ) {
           store.setIsExecuting(false);
           store.setIsReasoningActive(false);
-          // A turn that ended (answered, failed or cancelled) waits for nobody any more, so a
+          // A turn that ended (answered, failed, cancelled, or waiting) waits for nobody any more, so a
           // question or approval card left on screen would answer nothing.
           store.setActiveDecision(null);
           store.setActiveApproval(null);
@@ -617,14 +624,14 @@ export class MissionWebSocket {
       }
 
       case "context_compacted": {
-        const boundary = payload.boundary_seq ?? 0;
+        const count = payload.compacted_messages_count ?? 0;
         const tokensBefore = payload.tokens_before ?? 0;
         const tokensAfter = payload.tokens_after ?? 0;
         const summary = typeof payload.summary === "string" ? payload.summary : "Working context compacted";
         store.appendFlightLog({
           id: `compacted-${Date.now()}`,
           role: "SYSTEM",
-          content: `Context Compacted: Compressed from ${Number(tokensBefore).toLocaleString()} to ${Number(tokensAfter).toLocaleString()} tokens at step ${boundary}.\n\n${summary}`,
+          content: `Context Compacted: Compressed ${count} messages from ${Number(tokensBefore).toLocaleString()} to ${Number(tokensAfter).toLocaleString()} tokens.\n\n${summary}`,
           timestamp: new Date().toLocaleTimeString(),
         });
         break;
@@ -657,7 +664,14 @@ export class MissionWebSocket {
       }
 
       case "wait_started": {
-        const reason = payload.reason || payload.condition || "Waiting for external event";
+        const reason = payload.reason || (typeof payload.target === "string" ? payload.target : "") || "Waiting for external event";
+        store.setActiveWait({
+          wait_id: typeof payload.wait_id === "string" ? payload.wait_id : `wait-${Date.now()}`,
+          wait_type: typeof payload.wait_type === "string" ? payload.wait_type : "time",
+          target: typeof payload.target === "string" ? payload.target : "",
+          timeout_seconds: typeof payload.timeout_seconds === "number" ? payload.timeout_seconds : null,
+          reason: typeof payload.reason === "string" ? payload.reason : null,
+        });
         store.appendFlightLog({
           id: `wait-${Date.now()}`,
           role: "SYSTEM",
@@ -668,6 +682,7 @@ export class MissionWebSocket {
       }
 
       case "wait_completed": {
+        store.setActiveWait(null);
         const summary = payload.summary || "External condition satisfied";
         store.appendFlightLog({
           id: `wait-done-${Date.now()}`,
