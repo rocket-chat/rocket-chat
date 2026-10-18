@@ -19,7 +19,11 @@ test("an administrator edits the built-in agent in place and resets it", async (
     expect(body.id).toBe("persona-general");
     expect(body.customized).toBe(true);
 
+    const refreshed = page.waitForResponse(
+      (res) => res.url().endsWith("/v1/agents") && res.request().method() === "GET"
+    );
     await page.reload();
+    await refreshed;
     await page.getByText("General Software Engineer").first().click();
     await expect(page.getByLabel("Description")).toHaveValue("Edited by the e2e administrator");
 
