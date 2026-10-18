@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "041_backfill_conversation_history_timestamps"
+revision: str = "041_backfill_msg_timestamps"
 down_revision: str | None = "040_msg_reasoning_blocks"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -99,10 +99,18 @@ def _backfill_session(row: Any, tables: set[str], bind: Any) -> None:
         new_history.append(m)
 
     if updated:
-        bind.execute(
-            sa.text("UPDATE sessions SET conversation_history = :hist WHERE id = :sid"),
-            {"hist": json.dumps(new_history), "sid": session_id},
-        )
+        if bind.dialect.name == "postgresql":
+            bind.execute(
+                sa.text(
+                    "UPDATE sessions SET conversation_history = CAST(:hist AS jsonb) WHERE id = :sid"
+                ),
+                {"hist": json.dumps(new_history), "sid": session_id},
+            )
+        else:
+            bind.execute(
+                sa.text("UPDATE sessions SET conversation_history = :hist WHERE id = :sid"),
+                {"hist": json.dumps(new_history), "sid": session_id},
+            )
 
 
 def upgrade() -> None:

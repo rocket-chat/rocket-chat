@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `api`, `web`: **Durable Historical Message & Tool Execution Timestamps.**
   - Fixed PostgreSQL session store serialization (`_chat_message_to_dict` / `_dict_to_chat_message`) which previously dropped `created_at` on conversation history messages, causing deserialized messages to erroneously generate current timestamps via Python's default factory whenever a session was read from the database.
-  - Added Alembic migration `041_backfill_conversation_history_timestamps` backfilling historical `created_at` timestamps on existing session conversation history and nested tool calls from immutable `session_messages` transcript records, with fallback to session creation time.
+  - Added Alembic migration `041_backfill_msg_timestamps` backfilling historical `created_at` timestamps on existing session conversation history and nested tool calls from immutable `session_messages` transcript records, with fallback to session creation time.
   - Added `created_at` timestamps to `ToolStartedPayload`, `ToolCompletedPayload`, and `tool_data` execution records, persisting exact per-tool execution times.
   - Frontend (`convertHistoryToFlightLogs`, `applyEvent`, `websocket.ts`, `stream.ts`) now accurately uses historical and event-framed `timestamp_ms` / `created_at` for messages, thoughts, tool rows, and system cards rather than overwriting historical entries with `time.now()`.
 
