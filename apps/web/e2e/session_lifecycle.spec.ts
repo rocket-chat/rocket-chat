@@ -258,6 +258,76 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     await expect(page.getByText("Here is the summary of the analyzed workspace files.")).toBeVisible();
   });
 
+  test("groups intermediate step prefaces into ActionGroup without emitting orphan answer bubbles", async ({
+    page,
+    request,
+  }) => {
+    const createRes = await request.post("http://localhost:8000/v1/sessions", {
+      data: {
+        title: "Step Preface Grouping Mission",
+      },
+    });
+    expect(createRes.ok()).toBeTruthy();
+    const sessionData = await createRes.json();
+    const sessionId = sessionData.session_id;
+
+    const prefaceText = "Inspecting CI runners and git log before rebase";
+    const toolOutput = "commit 7073dfda";
+    const finalText = "Successfully completed the rebase and verified all tests.";
+
+    // Seed session with an intermediate preface message before tool execution, followed by the final answer
+    const patchRes = await request.post(
+      `http://localhost:8000/v1/dev/sessions/${sessionId}/transcript`,
+      {
+        data: {
+          messages: [
+            { role: "user", content: "Please rebase PR #3810" },
+            { role: "assistant", content: prefaceText },
+            {
+              role: "assistant",
+              content: "Executing tool: bash_exec",
+              tool_calls: [
+                {
+                  id: "call-1",
+                  name: "bash_exec",
+                  arguments: { command: "git log -n 1" },
+                  result: toolOutput,
+                  status: "completed",
+                },
+              ],
+            },
+            { role: "assistant", content: finalText },
+          ],
+        },
+      },
+    );
+    expect(patchRes.ok()).toBeTruthy();
+
+    await page.goto(`/chat/${sessionId}`);
+    await expect(page).toHaveURL(`/chat/${sessionId}`);
+
+    // Verify ActionGroup is rendered and contains both the step intent and the tool call
+    const actionGroupToggle = page.getByTestId("action-group-toggle").first();
+    await expect(actionGroupToggle).toBeVisible({ timeout: 10000 });
+    await actionGroupToggle.click();
+
+    // Verify the step intent is rendered inside the ActionGroup
+    const steps = page.getByTestId("activity-step");
+    await expect(steps).toHaveCount(2);
+    await expect(page.getByText("Step intent")).toBeVisible();
+    await expect(steps.nth(0)).toContainText("Inspecting CI runners");
+
+    // Click the step intent to view its markdown content
+    await steps.nth(0).click();
+    await expect(page.getByText(prefaceText).first()).toBeVisible();
+
+    // Verify only the final answer is rendered as an assistant answer bubble, not the preface
+    const answerBubbles = page.locator(".group.my-4.min-w-0");
+    await expect(answerBubbles).toHaveCount(1);
+    await expect(answerBubbles.first()).toContainText(finalText);
+    await expect(answerBubbles.first()).not.toContainText(prefaceText);
+  });
+
   test("an admin sees other members' sessions only on request, and CLEAR deletes only their own", async ({ page, request }) => {
     const mine = `Mission mine ${Date.now()}`;
     const theirs = `Mission of a teammate ${Date.now()}`;

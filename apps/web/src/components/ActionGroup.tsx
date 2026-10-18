@@ -167,6 +167,36 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                 </StepRow>
               )}
 
+              {entry.content &&
+                entry.content.trim().length > 0 &&
+                !entry.toolCall &&
+                !entry.subagent &&
+                !entry.content.startsWith("Executing tool:") &&
+                !entry.content.startsWith("Invoking tool:") &&
+                !entry.content.startsWith("Delegating to subagent") && (
+                <StepRow
+                  icon={<Sparkles className="h-3.5 w-3.5 text-brand" />}
+                  title={entry.content.trim()}
+                  label={
+                    <>
+                      <span className="text-neutral-600 dark:text-neutral-400">Step intent</span>
+                      <span className="ml-2 text-neutral-500" title={entry.content.trim()}>{firstLine(entry.content)}</span>
+                    </>
+                  }
+                  meta={
+                    entry.timestamp ? (
+                      <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">
+                        {entry.timestamp}
+                      </span>
+                    ) : undefined
+                  }
+                >
+                  <div className="text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+                    <MarkdownRenderer content={entry.content} />
+                  </div>
+                </StepRow>
+              )}
+
               {entry.toolCall && (
                 <ToolRow
                   call={entry.toolCall}

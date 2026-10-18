@@ -129,6 +129,20 @@ export function summarizeGroup(entries: FlightLogEntry[]): GroupSummary {
   if (counts.web > 0) parts.push(`Browsed ${plural(counts.web, "page", "pages")}`);
   if (counts.other > 0) parts.push(`Used ${plural(counts.other, "tool", "tools")}`);
   if (subagents > 0) parts.push(`Delegated to ${plural(subagents, "specialist", "specialists")}`);
+  if (!current) {
+    const lastContentEntry = [...entries].reverse().find(
+      (e) =>
+        e.content &&
+        !e.toolCall &&
+        !e.subagent &&
+        !e.content.startsWith("Executing tool:") &&
+        !e.content.startsWith("Invoking tool:") &&
+        !e.content.startsWith("Delegating to subagent")
+    );
+    if (lastContentEntry?.content) {
+      current = clip(lastContentEntry.content.replace(/[#*_`>]/g, "").trim(), 60);
+    }
+  }
 
   return { text: parts.length > 0 ? parts.slice(0, 3).join(" · ") : "Thought it through", failed, current };
 }

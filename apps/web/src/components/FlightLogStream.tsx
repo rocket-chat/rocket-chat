@@ -45,6 +45,24 @@ interface ActionGroupData {
   isActive?: boolean;
 }
 
+const hasSubsequentToolsInTurn = (startIndex: number, logs: FlightLogEntry[]): boolean => {
+  for (let j = startIndex + 1; j < logs.length; j++) {
+    const next = logs[j];
+    if (next.role === "USER") break;
+    if (
+      next.toolCall ||
+      next.subagent ||
+      (next.content &&
+        (next.content.startsWith("Invoking tool:") ||
+          next.content.startsWith("Executing tool:") ||
+          next.content.startsWith("Delegating to subagent")))
+    ) {
+      return true;
+    }
+  }
+  return false;
+};
+
 export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   onAnswerQuestion,
   onApprove,
@@ -210,8 +228,13 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
             entry.content.startsWith("Executing tool:") ||
             entry.content.startsWith("Delegating to subagent")));
       const isPureReasoning = !!entry.reasoning && !entry.content;
+      const isStepPreface =
+        !isSubagentInvocation &&
+        !isToolInvocation &&
+        !isPureReasoning &&
+        hasSubsequentToolsInTurn(i, flightLog);
 
-      if (isSubagentInvocation || isToolInvocation || isPureReasoning) {
+      if (isSubagentInvocation || isToolInvocation || isPureReasoning || isStepPreface) {
         currentGroupEntries.push(entry);
       } else {
         if (entry.reasoning) {
