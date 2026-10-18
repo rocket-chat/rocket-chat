@@ -500,6 +500,7 @@ Automatically wakes or initializes Docker/K8s sandbox workspaces and resumes ReA
 | :--- | :--- | :--- | :--- |
 | X-Hub-Signature-256 | header | no | string |
 | X-GitHub-Event | header | no | string |
+| X-GitHub-Delivery | header | no | string |
 
 **Responses:** `200`
 
@@ -514,6 +515,82 @@ Automatically wakes or initializes Docker/K8s sandbox workspaces and resumes ReA
 | :--- | :--- | :--- | :--- |
 | X-Hub-Signature-256 | header | no | string |
 | X-GitHub-Event | header | no | string |
+| X-GitHub-Delivery | header | no | string |
+
+**Responses:** `200`
+
+## Goals & Waits
+
+### `POST /v1/sessions/{session_id}/compact`
+
+Manually compact a session's history into a durable summary checkpoint.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/compactions`
+
+List historical compaction checkpoints for a session.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/goals`
+
+Retrieve the current autonomous goal and budget caps for a session.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/sessions/{session_id}/goals/cancel`
+
+Halt an autonomous goal and its continuation chain immediately.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/waits`
+
+List active asynchronous waits (time, process, CI, or review) for a session.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/sessions/{session_id}/waits/{wait_id}/cancel`
+
+Cancel a pending wait and release any associated timers or watches.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| wait_id | path | yes | string |
 
 **Responses:** `200`
 

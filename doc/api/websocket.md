@@ -287,3 +287,15 @@ Emitted when autonomous execution reaches its maximum turn budget or encounters 
 ## `context_compacted`
 
 Emitted when context window compaction runs to prune verbose tool results or summarize intermediate turns. Payload: `{"tokens_before": 145000, "tokens_after": 52000, "compacted_messages_count": 28, "summary": "..."}`. The UI renders a compaction milestone badge in the flight log.
+
+## `wait_started`
+
+Emitted when a turn suspends execution to wait for an asynchronous condition (e.g. timer, process exit, CI run, or PR review). Payload: `{"wait_id": "wait-...", "wait_type": "time", "target": "60", "deadline": 1735689900, "status": "waiting"}`. The UI renders an active wait indicator and tracks completion.
+
+## `wait_completed`
+
+Emitted when an asynchronous wait resolves, expires, or is cancelled. Payload: `{"wait_id": "wait-...", "wait_type": "time", "target": "60", "status": "completed", "summary": "..."}`. Triggers resumption of autonomous execution.
+
+## `artifact_created` / `artifact_updated`
+
+Emitted when an agent creates or updates a workspace deliverable artifact. Payload: `{"artifact_id": "...", "filename": "...", "title": "...", "artifact_type": "...", "version": 1}`. Pushed to the Cockpit Artifacts drawer and connected Slack channels.

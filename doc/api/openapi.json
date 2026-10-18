@@ -879,6 +879,56 @@
         "title": "CheckpointResponse",
         "type": "object"
       },
+      "CompactionSummaryResponse": {
+        "properties": {
+          "boundary_seq": {
+            "title": "Boundary Seq",
+            "type": "integer"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary"
+          },
+          "tokens_after": {
+            "title": "Tokens After",
+            "type": "integer"
+          },
+          "tokens_before": {
+            "title": "Tokens Before",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "boundary_seq",
+          "summary",
+          "tokens_before",
+          "tokens_after",
+          "created_at"
+        ],
+        "title": "CompactionSummaryResponse",
+        "type": "object"
+      },
       "CreateCheckpointRequest": {
         "properties": {
           "label": {
@@ -1752,6 +1802,137 @@
           "configured"
         ],
         "title": "GitSigningStatus",
+        "type": "object"
+      },
+      "GoalResponse": {
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "consumed_cost_usd": {
+            "default": 0.0,
+            "title": "Consumed Cost Usd",
+            "type": "number"
+          },
+          "consumed_tokens": {
+            "default": 0,
+            "title": "Consumed Tokens",
+            "type": "integer"
+          },
+          "continuation_count": {
+            "default": 0,
+            "title": "Continuation Count",
+            "type": "integer"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "max_continuations": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Continuations"
+          },
+          "max_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cost Usd"
+          },
+          "max_total_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Total Tokens"
+          },
+          "max_wall_time_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Wall Time Seconds"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "stop_condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Condition"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "description",
+          "status"
+        ],
+        "title": "GoalResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -5926,6 +6107,82 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "WaitResponse": {
+        "properties": {
+          "claimed_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claimed At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "integer"
+          },
+          "deadline": {
+            "title": "Deadline",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "wake_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wake Prompt"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "kind",
+          "target",
+          "deadline",
+          "status",
+          "created_at"
+        ],
+        "title": "WaitResponse",
+        "type": "object"
+      },
       "WorkspaceBinding": {
         "properties": {
           "bound_org_id": {
@@ -6425,6 +6682,22 @@
                 }
               ],
               "title": "X-Github-Event"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-GitHub-Delivery",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Github-Delivery"
             }
           }
         ],
@@ -9942,6 +10215,98 @@
         ]
       }
     },
+    "/v1/sessions/{session_id}/compact": {
+      "post": {
+        "description": "Manually compact a session's history into a durable summary checkpoint.",
+        "operationId": "trigger_session_compaction_v1_sessions__session_id__compact_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Trigger Session Compaction V1 Sessions  Session Id  Compact Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Trigger Session Compaction",
+        "tags": [
+          "Goals & Waits"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/compactions": {
+      "get": {
+        "description": "List historical compaction checkpoints for a session.",
+        "operationId": "list_session_compactions_v1_sessions__session_id__compactions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CompactionSummaryResponse"
+                  },
+                  "title": "Response List Session Compactions V1 Sessions  Session Id  Compactions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Session Compactions",
+        "tags": [
+          "Goals & Waits"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/diffs/apply": {
       "post": {
         "description": "Apply one file's hunks of a proposed multi-file diff to the session workspace.\n\nThe caller's click is the approval; the request is still authenticated and ACL-checked\nagainst the session, and RLS scopes the workspace to the caller's organization.",
@@ -10098,6 +10463,96 @@
         "summary": "Fork Session",
         "tags": [
           "Sessions"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/goals": {
+      "get": {
+        "description": "Retrieve the current autonomous goal and budget caps for a session.",
+        "operationId": "get_session_goal_v1_sessions__session_id__goals_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Goal",
+        "tags": [
+          "Goals & Waits"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/goals/cancel": {
+      "post": {
+        "description": "Halt an autonomous goal and its continuation chain immediately.",
+        "operationId": "cancel_session_goal_v1_sessions__session_id__goals_cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Cancel Session Goal V1 Sessions  Session Id  Goals Cancel Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Session Goal",
+        "tags": [
+          "Goals & Waits"
         ]
       }
     },
@@ -10929,6 +11384,109 @@
         "summary": "Start Session Turn",
         "tags": [
           "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/waits": {
+      "get": {
+        "description": "List active asynchronous waits (time, process, CI, or review) for a session.",
+        "operationId": "list_session_waits_v1_sessions__session_id__waits_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WaitResponse"
+                  },
+                  "title": "Response List Session Waits V1 Sessions  Session Id  Waits Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Session Waits",
+        "tags": [
+          "Goals & Waits"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/waits/{wait_id}/cancel": {
+      "post": {
+        "description": "Cancel a pending wait and release any associated timers or watches.",
+        "operationId": "cancel_session_wait_v1_sessions__session_id__waits__wait_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "wait_id",
+            "required": true,
+            "schema": {
+              "title": "Wait Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Cancel Session Wait V1 Sessions  Session Id  Waits  Wait Id  Cancel Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Session Wait",
+        "tags": [
+          "Goals & Waits"
         ]
       }
     },
@@ -12477,6 +13035,22 @@
                 }
               ],
               "title": "X-Github-Event"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-GitHub-Delivery",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Github-Delivery"
             }
           }
         ],
