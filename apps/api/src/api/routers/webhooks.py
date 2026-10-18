@@ -1,7 +1,7 @@
-"""GitHub Webhook Ingestion Router with Automated Session Resume."""
-
+import collections
 import logging
 import os
+import time
 from typing import Any
 
 from agent_core.orchestrator import AsyncReActOrchestrator
@@ -32,6 +32,26 @@ from specifications.interfaces.session import (
 
 logger = logging.getLogger(__name__)
 _SYNC_TIMEOUT_SECONDS = 120
+_SEEN_DELIVERIES: collections.OrderedDict[str, float] = collections.OrderedDict()
+_MAX_SEEN_DELIVERIES = 10000
+_DELIVERY_TTL_SECONDS = 3600.0
+
+
+def _is_duplicate_delivery(delivery_id: str | None) -> bool:
+    if not delivery_id:
+        return False
+    now = time.time()
+    while (
+        _SEEN_DELIVERIES and (now - next(iter(_SEEN_DELIVERIES.values()))) > _DELIVERY_TTL_SECONDS
+    ):
+        _SEEN_DELIVERIES.popitem(last=False)
+    if delivery_id in _SEEN_DELIVERIES:
+        return True
+    _SEEN_DELIVERIES[delivery_id] = now
+    if len(_SEEN_DELIVERIES) > _MAX_SEEN_DELIVERIES:
+        _SEEN_DELIVERIES.popitem(last=False)
+    return False
+
 
 router = APIRouter(prefix="/webhooks", tags=["GitHub Webhooks"])
 
@@ -79,11 +99,16 @@ async def github_webhook_endpoint(
     request: Request,
     x_hub_signature_256: str | None = Header(None, alias="X-Hub-Signature-256"),
     x_github_event: str | None = Header(None, alias="X-GitHub-Event"),
+    x_github_delivery: str | None = Header(None, alias="X-GitHub-Delivery"),
 ) -> dict[str, Any]:
     """
     Ingests signed GitHub webhooks (issues.labeled, issue_comment.created).
     Automatically wakes or initializes Docker/K8s sandbox workspaces and resumes ReAct agent loops.
     """
+    if _is_duplicate_delivery(x_github_delivery):
+        logger.info("Dropping duplicate GitHub webhook delivery: %s", x_github_delivery)
+        return {"status": "ignored", "reason": "Duplicate webhook delivery"}
+
     raw_body = await request.body()
     headers_dict = dict(request.headers)
 

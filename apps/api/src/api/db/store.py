@@ -357,6 +357,31 @@ class TurnTraceStore:
             ).first()
             return dict(row[0]) if row and row[0] else None
 
+    async def take_pending_decision(
+        self, session_id: str, tenant_org_id: str, question_id: str
+    ) -> dict[str, Any] | None:
+        """Atomically lock, retrieve, and clear the pending decision if matching question_id."""
+        async with self.manager.session(tenant_org_id=tenant_org_id) as session:
+            result = await session.execute(
+                select(TurnTraceModel)
+                .where(
+                    TurnTraceModel.session_id == session_id,
+                    TurnTraceModel.pending_decision.is_not(None),
+                )
+                .order_by(TurnTraceModel.started_at.desc())
+                .limit(1)
+                .with_for_update()
+            )
+            model = result.scalars().first()
+            if model is None or not model.pending_decision:
+                return None
+            decision = dict(model.pending_decision)
+            if str(decision.get("question_id")) != question_id:
+                return None
+            model.pending_decision = None
+            await session.commit()
+            return decision
+
     async def record_tool_call(
         self, trace_id: str, tenant_org_id: str, tool_data: Mapping[str, Any]
     ) -> None:

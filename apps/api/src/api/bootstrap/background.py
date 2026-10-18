@@ -5,6 +5,7 @@ import logging
 import os
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Any
 
 from config_engine.crypto import CredentialCipher
 from fastapi import FastAPI
@@ -29,12 +30,14 @@ from api.services.turn_trace import (
     recover_interrupted_turns,
     session_turn_activity,
 )
+from api.services.waits import SessionWait, claim_due_waits
 from api.services.workspace_release import (
     delay_resolver,
     idle_candidates,
     release_idle_workspaces,
 )
-from api.turns.tasks import launch_mission, resume_claimed_turn
+from api.turns.tasks import _spawn_background_turn, launch_mission, resume_claimed_turn
+from specifications.interfaces.events import EventType, SessionEvent
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,7 @@ RETENTION_SWEEP_SECONDS = 3600
 MCP_REFRESH_SECONDS = 900
 MISSION_POLL_SECONDS = 30
 WORKSPACE_RELEASE_SECONDS = 3600
+WAITS_SWEEP_SECONDS = 5.0
 
 
 async def _run_periodically(
@@ -100,6 +104,9 @@ class BackgroundServices:
             self._start_missions(admin_manager)
             self._start_mcp_refresh(admin_manager)
             self._start_workspace_release(admin_manager)
+            self._start_waits_sweeper(admin_manager)
+        else:
+            self._start_waits_sweeper(None)
         self._start_sandbox_reaper(admin_manager)
 
     async def stop(self) -> None:
@@ -258,6 +265,62 @@ class BackgroundServices:
             _run_periodically(
                 "MCP refresh loop", MCP_REFRESH_SECONDS, _refresh, failure_level=logging.DEBUG
             )
+        )
+
+    def _start_waits_sweeper(self, admin_manager: DatabaseSessionManager | None) -> None:
+        async def _sweep_waits() -> None:
+            wait_store = getattr(self._app.state, "wait_store", None)
+            if not wait_store:
+                return
+            claimed = await claim_due_waits(admin_manager, wait_store)
+            for wait in claimed:
+                try:
+                    await self._wake_claimed_wait(wait, wait_store)
+                except Exception as err:
+                    logger.exception(
+                        "Failed to wake session %s for wait %s: %s", wait.session_id, wait.id, err
+                    )
+
+        self._spawn(_run_periodically("Waits sweeper", WAITS_SWEEP_SECONDS, _sweep_waits))
+
+    async def _wake_claimed_wait(self, wait: SessionWait, wait_store: Any) -> None:
+        event_bus = getattr(self._app.state, "event_bus", None)
+        orchestrator = getattr(self._app.state, "orchestrator", None)
+        store = getattr(self._app.state, "session_store", None)
+        if event_bus is None or orchestrator is None or store is None:
+            return
+
+        await event_bus.publish(
+            SessionEvent(
+                session_id=wait.session_id,
+                event_type=EventType.WAIT_COMPLETED,
+                payload={
+                    "wait_id": wait.id,
+                    "wait_type": wait.kind,
+                    "target": wait.target,
+                    "status": "completed",
+                    "summary": f"Wait {wait.id} reached deadline or completed.",
+                },
+            )
+        )
+        await wait_store.resolve_wait(
+            wait.session_id, wait.id, wait.tenant_org_id, status="completed"
+        )
+        prompt = wait.wake_prompt or f"Wait {wait.id} ({wait.kind}) expired. Resuming execution."
+        _spawn_background_turn(
+            session_id=wait.session_id,
+            prompt=prompt,
+            orchestrator=orchestrator,
+            event_bus=event_bus,
+            driver=getattr(self._app.state, "sandbox_driver", None),
+            registry=getattr(self._app.state, "tool_registry", None),
+            store=store,
+            model=None,
+            git_engine=getattr(self._app.state, "git_engine", None),
+            db_mgr=getattr(self._app.state, "db_manager", None),
+            concurrency_gate=getattr(self._app.state, "concurrency_gate", None),
+            session_locks=getattr(self._app.state, "session_locks", None),
+            synthetic_prompt=True,
         )
 
 

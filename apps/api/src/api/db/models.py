@@ -484,8 +484,8 @@ class AgentPersonaEntityModel(Base):
     icon: Mapped[str] = mapped_column(String(50), default="bot")
     sandbox_image: Mapped[str] = mapped_column(String(255), default="python:3.12-slim")
     sandbox_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    cpu_limit: Mapped[str] = mapped_column(String(50), default="2.0")
-    memory_limit: Mapped[str] = mapped_column(String(50), default="4Gi")
+    cpu_limit: Mapped[str] = mapped_column(String(50), default="")
+    memory_limit: Mapped[str] = mapped_column(String(50), default="")
     temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
     thinking_budget_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reasoning_effort: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -619,6 +619,9 @@ class SessionMessageModel(Base):
     )
     tool_call_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     reasoning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reasoning_blocks: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
@@ -747,6 +750,36 @@ class SessionArtifactModel(Base):
     )
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class SessionWaitModel(Base):
+    """Durable session wait requests (timers, background process exits, GitHub CI/reviews).
+
+    Persisted with forced Row-Level Security so wait state and scheduled resumptions
+    survive container reboots, crashes, and multi-replica leader handovers.
+    """
+
+    __tablename__ = "session_waits"
+    __table_args__ = (Index("ix_session_waits_status_deadline", "status", "deadline"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    target: Mapped[str] = mapped_column(String(255), nullable=False)
+    deadline: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="waiting")
+    wake_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=dict
+    )
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    claimed_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    completed_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
 class AttachmentModel(Base):

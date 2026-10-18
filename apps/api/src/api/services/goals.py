@@ -59,8 +59,10 @@ class InMemoryGoalStore(GoalStoreProtocol):
         cost_usd: float,
     ) -> tuple[SessionGoal | None, bool, str | None]:
         goal = await self.get_goal(session_id, tenant_org_id)
-        if goal is None or goal.status != GoalStatus.ACTIVE:
-            return goal, False, None
+        if goal is None:
+            return None, True, "No goal found"
+        if goal.status != GoalStatus.ACTIVE:
+            return goal, True, f"Goal is not active ({goal.status.value})"
         goal.consumed_tokens += tokens
         goal.consumed_cost_usd += cost_usd
         goal.updated_at = int(time.time())
@@ -70,6 +72,13 @@ class InMemoryGoalStore(GoalStoreProtocol):
         return goal, exceeded, warning
 
     def _check_budgets(self, goal: SessionGoal) -> tuple[bool, str | None]:
+        if goal.max_wall_time_seconds and goal.created_at:
+            elapsed = time.time() - goal.created_at
+            if elapsed >= goal.max_wall_time_seconds:
+                return (
+                    True,
+                    f"Wall time limit exceeded ({int(elapsed)}s/{goal.max_wall_time_seconds}s)",
+                )
         if goal.max_total_tokens and goal.consumed_tokens >= goal.max_total_tokens:
             return True, f"Token budget exceeded ({goal.consumed_tokens}/{goal.max_total_tokens})"
         if goal.max_cost_usd and goal.consumed_cost_usd >= goal.max_cost_usd:
@@ -83,9 +92,19 @@ class InMemoryGoalStore(GoalStoreProtocol):
                 f"Max continuations reached ({goal.continuation_count}/{goal.max_continuations})",
             )
         warning: str | None = None
-        if goal.max_total_tokens and goal.consumed_tokens >= 0.8 * goal.max_total_tokens:
+        if goal.max_wall_time_seconds and goal.created_at:
+            elapsed = time.time() - goal.created_at
+            if elapsed >= 0.8 * goal.max_wall_time_seconds:
+                warning = f"Wall time budget at 80% ({int(elapsed)}s/{goal.max_wall_time_seconds}s)"
+        if (
+            not warning
+            and goal.max_total_tokens
+            and goal.consumed_tokens >= 0.8 * goal.max_total_tokens
+        ):
             warning = f"Token budget at 80% ({goal.consumed_tokens}/{goal.max_total_tokens})"
-        elif goal.max_cost_usd and goal.consumed_cost_usd >= 0.8 * goal.max_cost_usd:
+        elif (
+            not warning and goal.max_cost_usd and goal.consumed_cost_usd >= 0.8 * goal.max_cost_usd
+        ):
             warning = f"Cost budget at 80% (${goal.consumed_cost_usd:.2f}/${goal.max_cost_usd:.2f})"
         return False, warning
 
@@ -155,8 +174,10 @@ class PostgresGoalStore(GoalStoreProtocol):
         cost_usd: float,
     ) -> tuple[SessionGoal | None, bool, str | None]:
         goal = await self.get_goal(session_id, tenant_org_id)
-        if goal is None or goal.status != GoalStatus.ACTIVE:
-            return goal, False, None
+        if goal is None:
+            return None, True, "No goal found"
+        if goal.status != GoalStatus.ACTIVE:
+            return goal, True, f"Goal is not active ({goal.status.value})"
         goal.consumed_tokens += tokens
         goal.consumed_cost_usd += cost_usd
         exceeded, warning = self._check_budgets(goal)
@@ -166,6 +187,13 @@ class PostgresGoalStore(GoalStoreProtocol):
         return goal, exceeded, warning
 
     def _check_budgets(self, goal: SessionGoal) -> tuple[bool, str | None]:
+        if goal.max_wall_time_seconds and goal.created_at:
+            elapsed = time.time() - goal.created_at
+            if elapsed >= goal.max_wall_time_seconds:
+                return (
+                    True,
+                    f"Wall time limit exceeded ({int(elapsed)}s/{goal.max_wall_time_seconds}s)",
+                )
         if goal.max_total_tokens and goal.consumed_tokens >= goal.max_total_tokens:
             return True, f"Token budget exceeded ({goal.consumed_tokens}/{goal.max_total_tokens})"
         if goal.max_cost_usd and goal.consumed_cost_usd >= goal.max_cost_usd:
@@ -179,8 +207,18 @@ class PostgresGoalStore(GoalStoreProtocol):
                 f"Max continuations reached ({goal.continuation_count}/{goal.max_continuations})",
             )
         warning: str | None = None
-        if goal.max_total_tokens and goal.consumed_tokens >= 0.8 * goal.max_total_tokens:
+        if goal.max_wall_time_seconds and goal.created_at:
+            elapsed = time.time() - goal.created_at
+            if elapsed >= 0.8 * goal.max_wall_time_seconds:
+                warning = f"Wall time budget at 80% ({int(elapsed)}s/{goal.max_wall_time_seconds}s)"
+        if (
+            not warning
+            and goal.max_total_tokens
+            and goal.consumed_tokens >= 0.8 * goal.max_total_tokens
+        ):
             warning = f"Token budget at 80% ({goal.consumed_tokens}/{goal.max_total_tokens})"
-        elif goal.max_cost_usd and goal.consumed_cost_usd >= 0.8 * goal.max_cost_usd:
+        elif (
+            not warning and goal.max_cost_usd and goal.consumed_cost_usd >= 0.8 * goal.max_cost_usd
+        ):
             warning = f"Cost budget at 80% (${goal.consumed_cost_usd:.2f}/${goal.max_cost_usd:.2f})"
         return False, warning

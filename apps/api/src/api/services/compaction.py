@@ -70,6 +70,9 @@ class InMemoryCompactionStore(CompactionStoreProtocol):
         records = self._checkpoints.get((org_id, session_id), [])
         return records[-1] if records else None
 
+    async def list_compactions(self, session_id: str, org_id: str) -> list[CompactionCheckpoint]:
+        return list(self._checkpoints.get((org_id, session_id), []))
+
     async def delete_compactions(self, session_id: str, org_id: str) -> None:
         self._checkpoints.pop((org_id, session_id), None)
 
@@ -126,6 +129,16 @@ class PostgresCompactionStore(CompactionStoreProtocol):
             )
             row = (await session.execute(stmt)).scalar_one_or_none()
             return _to_checkpoint(row) if row is not None else None
+
+    async def list_compactions(self, session_id: str, org_id: str) -> list[CompactionCheckpoint]:
+        async with self._db.session(tenant_org_id=org_id) as session:
+            stmt = (
+                select(SessionCompactionModel)
+                .where(SessionCompactionModel.session_id == session_id)
+                .order_by(SessionCompactionModel.boundary_seq.asc())
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            return [_to_checkpoint(r) for r in rows]
 
     async def delete_compactions(self, session_id: str, org_id: str) -> None:
         async with self._db.session(tenant_org_id=org_id) as session:

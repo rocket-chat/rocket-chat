@@ -33,6 +33,7 @@ from api.routers.git_gateway import router as git_gateway_router
 from api.routers.git_signing import router as git_signing_router
 from api.routers.github_app import router as github_app_router
 from api.routers.github_credentials import router as github_credentials_router
+from api.routers.goals import router as goals_router
 from api.routers.knowledge import router as knowledge_router
 from api.routers.mcp_oauth import router as mcp_oauth_router
 from api.routers.mcp_servers import router as mcp_servers_router
@@ -273,6 +274,7 @@ for _router in (
     session_turns_router,
     models_catalog_router,
     session_ws_router,
+    goals_router,
     knowledge_router,
     skills_router,
 ):

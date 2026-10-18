@@ -131,9 +131,10 @@ async def answer_question(
     """Submit choice or write-in to an in-stream Interactive Decision Card."""
     store: SessionStoreProtocol = request.app.state.session_store
     record = await store.get_session(session_id)
-    if record:
-        _, req_user, roles = _get_request_identity(request)
-        _check_session_access(record, req_user, roles, require_write=True)
+    if not record:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _, req_user, roles = _get_request_identity(request)
+    _check_session_access(record, req_user, roles, require_write=True)
 
     orchestrator: AsyncReActOrchestrator = request.app.state.orchestrator
     event_bus: EventBusProtocol = request.app.state.event_bus
@@ -178,8 +179,9 @@ async def submit_approval(
     store: SessionStoreProtocol = request.app.state.session_store
     org_id, req_user, roles = _get_request_identity(request)
     record = await store.get_session(session_id)
-    if record:
-        _check_session_access(record, req_user, roles, require_write=True)
+    if not record:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _check_session_access(record, req_user, roles, require_write=True)
 
     orchestrator: AsyncReActOrchestrator = request.app.state.orchestrator
     try:
@@ -210,9 +212,10 @@ async def cancel_turn(session_id: str, request: Request) -> dict[str, str]:
     """Halt current autonomous execution immediately."""
     store: SessionStoreProtocol = request.app.state.session_store
     record = await store.get_session(session_id)
-    if record:
-        _, req_user, roles = _get_request_identity(request)
-        _check_session_access(record, req_user, roles, require_write=True)
+    if not record:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _, req_user, roles = _get_request_identity(request)
+    _check_session_access(record, req_user, roles, require_write=True)
 
     orchestrator: AsyncReActOrchestrator = request.app.state.orchestrator
     await orchestrator.cancel_turn(session_id)

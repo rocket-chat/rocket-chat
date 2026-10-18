@@ -28,6 +28,7 @@ def _to_row(
         tool_calls=message.tool_calls,
         tool_call_id=message.tool_call_id,
         reasoning=message.reasoning,
+        reasoning_blocks=message.reasoning_blocks,
         created_at=now,
     )
 
@@ -39,6 +40,7 @@ def _from_row(row: SessionMessageModel) -> ChatMessage:
         tool_calls=row.tool_calls,
         tool_call_id=row.tool_call_id,
         reasoning=row.reasoning,
+        reasoning_blocks=getattr(row, "reasoning_blocks", None),
     )
 
 
@@ -50,6 +52,7 @@ def _clone(message: ChatMessage) -> ChatMessage:
         tool_calls=message.tool_calls,
         tool_call_id=message.tool_call_id,
         reasoning=message.reasoning,
+        reasoning_blocks=message.reasoning_blocks,
     )
 
 

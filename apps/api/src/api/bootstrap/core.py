@@ -27,6 +27,7 @@ from api.services.budgets import BudgetService
 from api.services.cluster import ClusterRelay, ClusterSessionLocks
 from api.services.compaction import InMemoryCompactionStore, PostgresCompactionStore
 from api.services.git_gateway import GitGateway
+from api.services.goals import InMemoryGoalStore, PostgresGoalStore
 from api.services.memory import MemoryPolicy, bind_context_memory_callbacks
 from api.services.metrics import (
     GlobalConcurrencyGate,
@@ -40,6 +41,7 @@ from api.services.redaction import RedactionPolicy, Redactor
 from api.services.settings import load_org_config
 from api.services.transcript import InMemoryTranscriptStore, PostgresTranscriptStore
 from api.services.usage import UsageLedger
+from api.services.waits import InMemoryWaitStore, PostgresWaitStore
 from specifications.interfaces.compaction import CompactionStoreProtocol
 from specifications.interfaces.events import EventBusProtocol
 from specifications.interfaces.sandbox import SandboxDriverProtocol
@@ -117,6 +119,8 @@ async def assemble_core(app: FastAPI) -> CoreServices:
     app.state.attachment_service = attachment_service
     app.state.transcript_store = transcript_store
     app.state.compaction_store = compaction_store
+    app.state.goal_store = PostgresGoalStore(db_manager) if db_manager else InMemoryGoalStore()
+    app.state.wait_store = PostgresWaitStore(db_manager) if db_manager else InMemoryWaitStore()
     if db_manager:
         app.state.db_manager = db_manager
 

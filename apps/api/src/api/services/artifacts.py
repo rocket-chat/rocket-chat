@@ -5,13 +5,15 @@ from __future__ import annotations
 import logging
 import time
 
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 
 from api.db.models import SessionArtifactModel
 from api.db.session import DatabaseSessionManager
 from specifications.interfaces.session import ArtifactStoreProtocol, SessionArtifact
 
 logger = logging.getLogger(__name__)
+
+MAX_ARTIFACT_CONTENT_BYTES = 500_000
 
 
 class InMemoryArtifactStore(ArtifactStoreProtocol):
@@ -21,6 +23,8 @@ class InMemoryArtifactStore(ArtifactStoreProtocol):
         self._artifacts: dict[tuple[str, str, str], SessionArtifact] = {}
 
     async def create_artifact(self, artifact: SessionArtifact) -> SessionArtifact:
+        if len(artifact.content) > MAX_ARTIFACT_CONTENT_BYTES:
+            artifact.content = artifact.content[:MAX_ARTIFACT_CONTENT_BYTES]
         key = (artifact.tenant_org_id, artifact.session_id, artifact.id)
         self._artifacts[key] = artifact
         return artifact
@@ -43,10 +47,15 @@ class InMemoryArtifactStore(ArtifactStoreProtocol):
         art = await self.get_artifact(session_id, artifact_id, tenant_org_id)
         if art is None:
             return None
-        art.content = content
+        art.content = content[:MAX_ARTIFACT_CONTENT_BYTES]
         art.version += 1
         art.updated_at = int(time.time())
         return art
+
+    async def delete_artifacts(self, session_id: str, tenant_org_id: str) -> None:
+        to_del = [k for k in self._artifacts if k[0] == tenant_org_id and k[1] == session_id]
+        for k in to_del:
+            self._artifacts.pop(k, None)
 
 
 class PostgresArtifactStore(ArtifactStoreProtocol):
@@ -56,6 +65,8 @@ class PostgresArtifactStore(ArtifactStoreProtocol):
         self.db_mgr = db_mgr
 
     async def create_artifact(self, artifact: SessionArtifact) -> SessionArtifact:
+        capped = artifact.content[:MAX_ARTIFACT_CONTENT_BYTES]
+        artifact.content = capped
         async with self.db_mgr.session(tenant_org_id=artifact.tenant_org_id) as session:
             model = SessionArtifactModel(
                 id=artifact.id,
@@ -65,7 +76,7 @@ class PostgresArtifactStore(ArtifactStoreProtocol):
                 filename=artifact.filename,
                 artifact_type=artifact.artifact_type,
                 version=artifact.version,
-                content=artifact.content,
+                content=capped,
                 metadata_json=artifact.metadata,
                 created_at=artifact.created_at,
                 updated_at=artifact.updated_at,
@@ -101,20 +112,35 @@ class PostgresArtifactStore(ArtifactStoreProtocol):
     async def update_artifact(
         self, session_id: str, artifact_id: str, tenant_org_id: str, content: str
     ) -> SessionArtifact | None:
+        capped = content[:MAX_ARTIFACT_CONTENT_BYTES]
+        now = int(time.time())
         async with self.db_mgr.session(tenant_org_id=tenant_org_id) as session:
-            stmt = select(SessionArtifactModel).where(
-                SessionArtifactModel.session_id == session_id,
-                SessionArtifactModel.id == artifact_id,
+            stmt = (
+                update(SessionArtifactModel)
+                .where(
+                    SessionArtifactModel.session_id == session_id,
+                    SessionArtifactModel.id == artifact_id,
+                )
+                .values(
+                    content=capped,
+                    version=SessionArtifactModel.version + 1,
+                    updated_at=now,
+                )
+                .returning(SessionArtifactModel)
             )
             res = await session.execute(stmt)
             row = res.scalar_one_or_none()
             if row is None:
                 return None
-            row.content = content
-            row.version += 1
-            row.updated_at = int(time.time())
             await session.commit()
             return self._to_artifact(row)
+
+    async def delete_artifacts(self, session_id: str, tenant_org_id: str) -> None:
+        async with self.db_mgr.session(tenant_org_id=tenant_org_id) as session:
+            await session.execute(
+                delete(SessionArtifactModel).where(SessionArtifactModel.session_id == session_id)
+            )
+            await session.commit()
 
     def _to_artifact(self, model: SessionArtifactModel) -> SessionArtifact:
         return SessionArtifact(

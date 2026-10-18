@@ -41,7 +41,7 @@ from api.services.slack_link import (
 )
 from api.services.slack_routing import classify_slack_message
 from api.services.usage import month_start
-from api.turns.gates import take_stored_question
+from api.turns.gates import _forget_pending_decisions, take_stored_question
 from api.turns.tasks import run_guarded_turn
 from specifications.interfaces.agent import TurnOverlay
 from specifications.interfaces.events import EventType, SessionEvent
@@ -241,6 +241,7 @@ def _build_assistant(
         audit_fn=callbacks.audit,
         read_file_bytes_fn=callbacks.read_sandbox_file,
         answer_stored_question_fn=callbacks.answer_stored_question,
+        clear_stored_question_fn=callbacks.clear_stored_question,
         bot=bot,
         classify_fn=classify_fn,
     )
@@ -366,6 +367,10 @@ class _SlackCallbacks:
         return decision_answer_prompt(
             str(stored.get("question_text") or "your question"), options, text
         )
+
+    async def clear_stored_question(self, session_id: str, org_id: str) -> None:
+        """Clear any pending question for this session in the database."""
+        await _forget_pending_decisions(self._core.db_manager, session_id, org_id)
 
     async def read_sandbox_file(self, session_id: str, path: str) -> bytes:
         return await read_bytes(self._core.sandbox_driver, session_id, path)
