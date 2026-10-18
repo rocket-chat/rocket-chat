@@ -1,5 +1,5 @@
 import type { StateCreator } from "zustand";
-import { matchesPendingEcho } from "./helpers";
+import { formatEventTime, matchesPendingEcho } from "./helpers";
 import type { MissionStore, StreamSlice } from "./types";
 
 export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> = (set) => ({
@@ -82,7 +82,7 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
             id: message.messageId,
             role: "USER" as const,
             content,
-            timestamp: new Date().toLocaleTimeString(),
+            timestamp: formatEventTime(),
             messageId: message.messageId,
             authorUserId: message.authorUserId ?? null,
             attachments: message.attachments,
@@ -129,7 +129,7 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
             id: message.messageId || `user-${Date.now()}-${state.flightLog.length}`,
             role: "USER" as const,
             content,
-            timestamp: new Date().toLocaleTimeString(),
+            timestamp: message.timestamp || formatEventTime(),
             messageId: message.messageId || undefined,
             authorUserId: message.authorUserId ?? null,
           },
@@ -137,7 +137,7 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
       };
     }),
   setStreamContinuous: (isStreamContinuous) => set({ isStreamContinuous }),
-  updateLastAgentLog: (delta) =>
+  updateLastAgentLog: (delta, timestamp) =>
     set((state) => {
       const logs = [...state.flightLog];
       const last = logs[logs.length - 1];
@@ -159,14 +159,14 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
             id: `agent-${Date.now()}`,
             role: "AGENT",
             content: delta,
-            timestamp: new Date().toLocaleTimeString(),
+            timestamp: timestamp || formatEventTime(),
             isReasoningActive: false,
           },
         ],
         isReasoningActive: false,
       };
     }),
-  appendReasoning: (delta) =>
+  appendReasoning: (delta, timestamp) =>
     set((state) => {
       const logs = [...state.flightLog];
       const last = logs[logs.length - 1];
@@ -193,7 +193,7 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
             role: "AGENT",
             content: "",
             reasoning: delta,
-            timestamp: new Date().toLocaleTimeString(),
+            timestamp: timestamp || formatEventTime(),
             isReasoningActive: true,
           },
         ],

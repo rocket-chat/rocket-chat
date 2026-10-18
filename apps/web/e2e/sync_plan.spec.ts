@@ -7,6 +7,11 @@ import {
   rewindCursor,
   selectUnseenEvents,
 } from "../src/lib/session-cursor";
+import {
+  convertHistoryToFlightLogs,
+  formatTimestamp,
+  formatEventTime,
+} from "../src/lib/store/helpers";
 import type { SyncFrame, TelemetryFrame } from "../src/types/mission";
 
 const event = (seq: number, type = "token"): TelemetryFrame =>
@@ -63,3 +68,52 @@ test.describe("what a sync frame asks of the tab", () => {
     expect(plan.runningTurn).toEqual(runningTurn);
   });
 });
+
+test.describe("flight log and historical timestamps", () => {
+  test("convertHistoryToFlightLogs preserves message and tool timestamps without defaulting to now", () => {
+    const historicalTime = 1700000000;
+    const toolTime = 1700000030;
+    const expectedMsgTime = formatTimestamp(historicalTime);
+    const expectedToolTime = formatTimestamp(toolTime);
+
+    const history = [
+      {
+        role: "user",
+        content: "What is the status?",
+        created_at: historicalTime,
+      },
+      {
+        role: "assistant",
+        content: "Here is the status.",
+        created_at: historicalTime + 60,
+        tool_calls: [
+          {
+            name: "bash_exec",
+            arguments: { command: "uptime" },
+            created_at: toolTime,
+          },
+        ],
+      },
+    ];
+
+    const logs = convertHistoryToFlightLogs(history, "session_test");
+    expect(logs.length).toBe(3);
+
+    expect(logs[0].timestamp).toBe(expectedMsgTime);
+    expect(logs[0].timestamp.length).toBeGreaterThan(0);
+
+    expect(logs[1].timestamp).toBe(expectedToolTime);
+    expect(logs[1].timestamp.length).toBeGreaterThan(0);
+
+    expect(logs[2].timestamp).toBe(formatTimestamp(historicalTime + 60));
+  });
+
+  test("formatEventTime formats timestampMs if present and falls back if absent", () => {
+    const epochSec = 1700000000;
+    expect(formatEventTime(epochSec)).toBe(formatTimestamp(epochSec));
+    expect(formatEventTime(epochSec * 1000)).toBe(formatTimestamp(epochSec));
+    expect(formatEventTime(null).length).toBeGreaterThan(0);
+    expect(formatEventTime(undefined).length).toBeGreaterThan(0);
+  });
+});
+

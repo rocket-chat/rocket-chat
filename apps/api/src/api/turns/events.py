@@ -226,9 +226,15 @@ class TurnEventHandlers:
                 raw_args = redaction.text
         arguments = _parse_arguments(raw_args)
         tool_name = event.payload.get("name", "")
+        now_epoch = int(time.time())
         await self._publish(
             EventType.TOOL_STARTED,
-            {"id": event.payload.get("id"), "name": tool_name, "arguments": arguments},
+            {
+                "id": event.payload.get("id"),
+                "name": tool_name,
+                "arguments": arguments,
+                "created_at": now_epoch,
+            },
         )
         # Stream status updates for telemetry HUD
         if tool_name == "bash_exec":
@@ -255,6 +261,7 @@ class TurnEventHandlers:
             "result": result_output,
             "status": event.payload.get("status", "completed"),
             "duration_ms": event.payload.get("duration_ms", 0),
+            "created_at": int(time.time()),
         }
         total_redacted = (redaction.count if redaction is not None else 0) + int(
             event.payload.get("redacted") or 0

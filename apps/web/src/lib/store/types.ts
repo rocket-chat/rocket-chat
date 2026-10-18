@@ -27,6 +27,7 @@ export interface IncomingUserMessage {
   messageId?: string | null;
   content: string;
   authorUserId?: string | null;
+  timestamp?: string;
 }
 
 export type SessionsScope = "mine" | "organization";
@@ -124,8 +125,8 @@ export interface StreamSlice {
   pendingSelfPrompts: OwnUserMessage[];
   isStreamContinuous: boolean;
   setStreamContinuous: (continuous: boolean) => void;
-  updateLastAgentLog: (delta: string) => void;
-  appendReasoning: (delta: string) => void;
+  updateLastAgentLog: (delta: string, timestamp?: string) => void;
+  appendReasoning: (delta: string, timestamp?: string) => void;
   clearReasoning: () => void;
   discardPartialTokens: () => void;
   setIsReasoningActive: (active: boolean) => void;

@@ -20,8 +20,15 @@ async def test_reasoning_and_tool_calls_survive_a_save_and_reload(tenant_rows: N
     manager = DatabaseSessionManager(os.environ["TEST_DATABASE_URL"])
     store = PostgresSessionStore(manager)
     session_id = f"rt_{uuid.uuid4().hex[:8]}"
+    created_ts = 1700001234
     tool_calls = [
-        {"id": "call-1", "name": "bash_exec", "arguments": {"command": "ls"}, "result": "ok"}
+        {
+            "id": "call-1",
+            "name": "bash_exec",
+            "arguments": {"command": "ls"},
+            "result": "ok",
+            "created_at": created_ts,
+        }
     ]
     await store.create_session(
         SessionRecord(
@@ -30,12 +37,18 @@ async def test_reasoning_and_tool_calls_survive_a_save_and_reload(tenant_rows: N
             tenant_user_id="member_user",
             title="round trip",
             conversation_history=[
-                ChatMessage(role="user", content="analyze", author_user_id="teammate_ana"),
+                ChatMessage(
+                    role="user",
+                    content="analyze",
+                    author_user_id="teammate_ana",
+                    created_at=created_ts - 10,
+                ),
                 ChatMessage(
                     role="assistant",
                     content="done",
                     reasoning="Plan: look first, then act.",
                     tool_calls=tool_calls,
+                    created_at=created_ts,
                 ),
             ],
         )
@@ -47,9 +60,13 @@ async def test_reasoning_and_tool_calls_survive_a_save_and_reload(tenant_rows: N
     assert (user.reasoning, assistant.reasoning) == (None, "Plan: look first, then act.")
     assert assistant.tool_calls == tool_calls
     assert (user.author_user_id, assistant.author_user_id) == ("teammate_ana", None)
+    assert user.created_at == created_ts - 10
+    assert assistant.created_at == created_ts
 
     assistant.reasoning = "Plan: revised."
     await store.update_session(reloaded)
     again = await store.get_session(session_id, "test_org")
     assert again is not None and again.conversation_history[1].reasoning == "Plan: revised."
+    assert again.conversation_history[0].created_at == created_ts - 10
+    assert again.conversation_history[1].created_at == created_ts
     await manager.close()

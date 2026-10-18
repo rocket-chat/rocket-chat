@@ -68,12 +68,20 @@ export function matchesPendingEcho(
   return true;
 }
 
-function formatTimestamp(ts?: number | string | null): string {
+export function formatTimestamp(ts?: number | string | null): string {
   if (!ts) return "";
   const num = typeof ts === "string" ? parseInt(ts, 10) : ts;
   if (!num || isNaN(num)) return "";
   const ms = num < 1e11 ? num * 1000 : num;
   return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+export function formatEventTime(ts?: number | string | null): string {
+  if (ts !== undefined && ts !== null) {
+    const formatted = formatTimestamp(ts);
+    if (formatted) return formatted;
+  }
+  return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 export function convertHistoryToFlightLogs(
@@ -116,12 +124,13 @@ export function convertHistoryToFlightLogs(
       }
       if (m.tool_calls && m.tool_calls.length > 0) {
         m.tool_calls.forEach((tc, tIdx) => {
+          const toolTimestamp = formatTimestamp(tc.created_at) || timestamp;
           logs.push({
             id: `msg-${sessionId}-${idx}-tool-${tIdx}`,
             role: "AGENT",
             content: `Executing tool: ${tc.name}`,
             toolCall: tc,
-            timestamp,
+            timestamp: toolTimestamp,
           });
         });
       }

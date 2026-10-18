@@ -55,6 +55,7 @@ class ToolStartedPayload(TypedDict):
     id: NotRequired[str | None]
     name: str
     arguments: dict[str, Any]
+    created_at: NotRequired[int]
 
 
 class ToolCompletedPayload(TypedDict):
@@ -65,6 +66,7 @@ class ToolCompletedPayload(TypedDict):
     status: str
     duration_ms: NotRequired[int | float]
     redacted: NotRequired[int]
+    created_at: NotRequired[int]
 
 
 class FileDiffPayload(TypedDict):

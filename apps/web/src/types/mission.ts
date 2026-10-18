@@ -102,6 +102,7 @@ export interface RunningTurnData {
     duration_ms?: number;
     redacted?: number;
     seq?: number;
+    created_at?: number;
   }>;
 }
 
@@ -215,6 +216,7 @@ export interface ToolCallData {
   stdout?: string;
   stderr?: string;
   exit_code?: number;
+  created_at?: number;
 }
 
 /**

@@ -462,12 +462,22 @@ class PostgresSessionStore(SessionStoreProtocol):
             data["reasoning"] = msg.reasoning
         if msg.author_user_id:
             data["author_user_id"] = msg.author_user_id
+        if msg.created_at is not None:
+            data["created_at"] = msg.created_at
         for key in ("agent_id", "agent_name", "model"):
             if getattr(msg, key) is not None:
                 data[key] = getattr(msg, key)
         return data
 
-    def _dict_to_chat_message(self, data: dict[str, Any]) -> ChatMessage:
+    def _dict_to_chat_message(
+        self, data: dict[str, Any], fallback_created_at: int | None = None
+    ) -> ChatMessage:
+        created_at = data.get("created_at")
+        kwargs: dict[str, Any] = {}
+        if created_at is not None:
+            kwargs["created_at"] = int(created_at)
+        elif fallback_created_at is not None:
+            kwargs["created_at"] = int(fallback_created_at)
         return ChatMessage(
             role=data.get("role", "user"),
             content=data.get("content", ""),
@@ -478,10 +488,15 @@ class PostgresSessionStore(SessionStoreProtocol):
             agent_id=data.get("agent_id"),
             agent_name=data.get("agent_name"),
             model=data.get("model"),
+            **kwargs,
         )
 
     def _model_to_record(self, model: SessionModel) -> SessionRecord:
-        history = [self._dict_to_chat_message(d) for d in (model.conversation_history or [])]
+        fallback_ts = model.created_at
+        history = [
+            self._dict_to_chat_message(d, fallback_created_at=fallback_ts)
+            for d in (model.conversation_history or [])
+        ]
         try:
             status = SandboxStatus(model.sandbox_status)
         except ValueError:

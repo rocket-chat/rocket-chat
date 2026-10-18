@@ -1,4 +1,5 @@
 import { useMissionStore } from "./store";
+import { formatEventTime } from "./store/helpers";
 import {
   ArtifactItem,
   ChecklistTask,
@@ -27,6 +28,7 @@ import { newMessageId } from "./message-id";
 interface EventPayload {
   delta?: string;
   status?: string;
+  created_at?: number;
   state?: string;
   message?: string;
   error?: string;
@@ -224,10 +226,12 @@ export class MissionWebSocket {
     if (this.isResyncingFromSnapshot) return;
     if (seq !== null && isAlreadyApplied(this.sessionId, seq)) return;
 
+    const timestampMs = typeof data.timestamp_ms === "number" ? data.timestamp_ms : undefined;
     this.applyEvent(
       String(data.event_type || ""),
       (data.payload || {}) as EventPayload,
-      String(data.session_id || "")
+      String(data.session_id || ""),
+      timestampMs
     );
     if (seq !== null) advanceCursor(this.sessionId, seq);
   }
@@ -289,11 +293,14 @@ export class MissionWebSocket {
       );
       for (const step of plan.runningTurn.steps) {
         if (step.id && existingToolIds.has(step.id)) continue;
+        const stepTs = formatEventTime(
+          step.created_at ?? (plan.runningTurn.started_at ? plan.runningTurn.started_at * 1000 : null)
+        );
         store.appendFlightLog({
           id: step.id ? `tool-${step.id}` : `tool-${Date.now()}-${Math.random()}`,
           role: "CODER",
           content: `Executing tool: ${step.name}`,
-          timestamp: "",
+          timestamp: stepTs,
           toolCall: {
             id: step.id,
             name: step.name,
@@ -301,12 +308,18 @@ export class MissionWebSocket {
             status: step.status === "error" ? "error" : "success",
             result: typeof step.result === "string" ? step.result : JSON.stringify(step.result, null, 2),
             duration_ms: step.duration_ms,
+            created_at: step.created_at,
           },
         });
       }
     }
     for (const event of selectUnseenEvents(plan.events, readCursor(this.sessionId))) {
-      this.applyEvent(event.event_type, event.payload || {}, event.session_id || this.sessionId);
+      this.applyEvent(
+        event.event_type,
+        event.payload || {},
+        event.session_id || this.sessionId,
+        event.timestamp_ms
+      );
       if (typeof event.seq === "number") advanceCursor(this.sessionId, event.seq);
     }
     if (plan.continueFrom !== null) adoptCursor(this.sessionId, plan.continueFrom);
@@ -320,7 +333,12 @@ export class MissionWebSocket {
     }
     const events = Array.isArray(frame.events) ? frame.events : [];
     for (const event of selectUnseenEvents(events, readCursor(this.sessionId))) {
-      this.applyEvent(event.event_type, event.payload || {}, event.session_id || this.sessionId);
+      this.applyEvent(
+        event.event_type,
+        event.payload || {},
+        event.session_id || this.sessionId,
+        event.timestamp_ms
+      );
       if (typeof event.seq === "number") advanceCursor(this.sessionId, event.seq);
     }
   }
@@ -359,17 +377,23 @@ export class MissionWebSocket {
     }
   }
 
-  private applyEvent(eventType: string, payload: EventPayload, frameSessionId: string): void {
+  private applyEvent(
+    eventType: string,
+    payload: EventPayload,
+    frameSessionId: string,
+    timestampMs?: number
+  ): void {
     const store = useMissionStore.getState();
+    const eventTime = formatEventTime(timestampMs);
 
     switch (eventType) {
       case "token":
-        store.updateLastAgentLog(payload.delta || "");
+        store.updateLastAgentLog(payload.delta || "", eventTime);
         store.setIsExecuting(true);
         break;
 
       case "reasoning_token":
-        store.appendReasoning(payload.delta || "");
+        store.appendReasoning(payload.delta || "", eventTime);
         store.setIsReasoningActive(true);
         store.setIsExecuting(true);
         break;
@@ -412,7 +436,7 @@ export class MissionWebSocket {
               id: `err-${Date.now()}`,
               role: "SYSTEM",
               content: `⚠️ Mission Execution Error: ${errText}`,
-              timestamp: new Date().toLocaleTimeString(),
+              timestamp: eventTime,
             });
           }
 
@@ -443,7 +467,7 @@ export class MissionWebSocket {
           id: `synthesis-${Date.now()}`,
           role: "SYSTEM",
           content: `⚡ Turn Budget Exceeded (${turns} turns) — Synthesizing final answer from gathered context...`,
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: eventTime,
         });
         break;
       }
@@ -456,7 +480,7 @@ export class MissionWebSocket {
             id: `sandbox-${Date.now()}`,
             role: "SYSTEM",
             content: `⚠️ ${reason}`,
-            timestamp: new Date().toLocaleTimeString(),
+            timestamp: eventTime,
           });
         }
         break;
@@ -469,7 +493,7 @@ export class MissionWebSocket {
           id: `github-${payload.at ?? Date.now()}-${payload.kind}`,
           role: "SYSTEM",
           content: `GitHub ${target}: ${headline}${payload.woke ? " — the agent is picking it up" : ""}`,
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: eventTime,
         });
         break;
       }
@@ -483,7 +507,7 @@ export class MissionWebSocket {
           id: `err-${Date.now()}`,
           role: "SYSTEM",
           content: `⚠️ Mission Execution Error: ${errText}`,
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: eventTime,
         });
         break;
       }
@@ -491,16 +515,23 @@ export class MissionWebSocket {
       case "tool_started": {
         const toolName = payload.name || "";
         const toolId = payload.id;
+        const toolCreatedAt =
+          typeof payload.created_at === "number"
+            ? payload.created_at
+            : timestampMs
+              ? (timestampMs < 1e11 ? timestampMs : Math.floor(timestampMs / 1000))
+              : undefined;
         store.appendFlightLog({
           id: `tool-${Date.now()}`,
           role: "CODER",
           content: `Executing tool: ${toolName}`,
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: eventTime,
           toolCall: {
             id: toolId,
             name: toolName,
             arguments: payload.arguments,
             status: "pending",
+            created_at: toolCreatedAt,
           },
         });
         break;
@@ -509,12 +540,19 @@ export class MissionWebSocket {
       case "tool_completed": {
         const toolName = payload.name || "";
         const toolId = payload.id;
+        const toolCreatedAt =
+          typeof payload.created_at === "number"
+            ? payload.created_at
+            : timestampMs
+              ? (timestampMs < 1e11 ? timestampMs : Math.floor(timestampMs / 1000))
+              : undefined;
         store.updateToolCall(toolId || toolName || "", {
           id: toolId,
           status: payload.status === "error" ? "error" : "success",
           result: typeof payload.result === "string" ? payload.result : JSON.stringify(payload.result, null, 2),
           duration_ms: payload.duration_ms,
           arguments: payload.arguments,
+          created_at: toolCreatedAt,
         });
         break;
       }
@@ -527,7 +565,7 @@ export class MissionWebSocket {
           id: `subagent-${subagentId}`,
           role: "CODER",
           content: `Delegating to subagent [${role}]: ${task}`,
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: eventTime,
           subagent: {
             subagentId,
             role,
@@ -617,7 +655,7 @@ export class MissionWebSocket {
             id: `artifact-${art.id}-${art.version || Date.now()}`,
             role: "SYSTEM",
             content: `📄 Deliverable Artifact: ${art.title} (${art.filename})`,
-            timestamp: new Date().toLocaleTimeString(),
+            timestamp: eventTime,
           });
         }
         break;
@@ -632,7 +670,7 @@ export class MissionWebSocket {
           id: `compacted-${Date.now()}`,
           role: "SYSTEM",
           content: `Context Compacted: Compressed ${count} messages from ${Number(tokensBefore).toLocaleString()} to ${Number(tokensAfter).toLocaleString()} tokens.\n\n${summary}`,
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: eventTime,
         });
         break;
       }
@@ -645,7 +683,7 @@ export class MissionWebSocket {
           id: `continuation-${Date.now()}`,
           role: "SYSTEM",
           content: `Goal Continuation (${turnIdx}/${maxTurns}): ${reason}`,
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: eventTime,
         });
         break;
       }
@@ -658,7 +696,7 @@ export class MissionWebSocket {
           id: `goal-${Date.now()}`,
           role: "SYSTEM",
           content: `Goal ${status}: Consumed ${tokens.toLocaleString()} tokens ($${cost.toFixed(4)})`,
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: eventTime,
         });
         break;
       }
@@ -676,7 +714,7 @@ export class MissionWebSocket {
           id: `wait-${Date.now()}`,
           role: "SYSTEM",
           content: `Waiting for condition: ${reason}`,
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: eventTime,
         });
         break;
       }
@@ -688,7 +726,7 @@ export class MissionWebSocket {
           id: `wait-done-${Date.now()}`,
           role: "SYSTEM",
           content: `Wait completed: ${summary}`,
-          timestamp: new Date().toLocaleTimeString(),
+          timestamp: eventTime,
         });
         break;
       }
@@ -720,6 +758,7 @@ export class MissionWebSocket {
             messageId: typeof payload.message_id === "string" ? payload.message_id : null,
             content,
             authorUserId: typeof payload.author_user_id === "string" ? payload.author_user_id : null,
+            timestamp: eventTime,
           });
         }
         break;
