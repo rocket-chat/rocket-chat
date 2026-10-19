@@ -556,6 +556,7 @@ class KnowledgeQueryResponse(BaseModel):
 
 
 class CustomSkillCreateRequest(BaseModel):
+    id: str | None = Field(default=None, description="Existing skill ID when updating")
     name: str | None = Field(
         default=None, description="Skill name; the title is used when omitted (one of the two)"
     )
