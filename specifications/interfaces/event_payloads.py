@@ -111,6 +111,7 @@ class SessionUpdatedPayload(TypedDict):
     collaborators: NotRequired[list[str]]
     is_pinned: NotRequired[bool]
     is_archived: NotRequired[bool]
+    is_processing: NotRequired[bool]
 
 
 class UserMessagePayload(TypedDict):

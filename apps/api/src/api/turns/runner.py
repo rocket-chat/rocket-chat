@@ -436,6 +436,10 @@ class TurnRunner:
             record.is_processing = True
 
         await req.store.mutate_session(session.session_id, session.tenant_org_id, _mark_processing)
+        await self._publish(
+            EventType.SESSION_UPDATED,
+            {"session_id": session.session_id, "is_processing": True},
+        )
 
         member_prefs = await effective_settings(
             req.db_mgr, session.tenant_org_id, "user_preferences", session.tenant_user_id
@@ -657,6 +661,10 @@ class TurnRunner:
             try:
                 await self.req.store.mutate_session(
                     self.req.session_id, self._org_id, _clear_processing
+                )
+                await self._publish(
+                    EventType.SESSION_UPDATED,
+                    {"session_id": self.req.session_id, "is_processing": False},
                 )
             except Exception:
                 pass
