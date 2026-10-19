@@ -1520,6 +1520,10 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
             await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
             return True
+        if assistant_text and assistant_text.strip():
+            await self._emit_status(
+                run, OrchestratorState.RUNNING, "running", assistant_text.strip()
+            )
         await self.dispatcher.execute_tool_calls(
             run.session_id,
             tool_calls,

@@ -42,7 +42,7 @@ async def test_a_review_is_read_fixed_published_and_answered(
         lambda **kwargs: real(transport=httpx.MockTransport(fake.handler), **kwargs),
     )
     script = [
-        ("github_pull_request", {"repository": "acme/app", "action": "review_threads", "number": 7}),
+        ("github_pull_request", {"repository": "acme/app", "actions": ["review_threads"], "number": 7}),
         ("git_push", {}),
         (
             "github_pull_request",

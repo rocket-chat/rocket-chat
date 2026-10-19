@@ -26,6 +26,7 @@ PullAction = Literal[
     "request_reviewers", "comment", "review", "reply_to_thread", "resolve_thread", "close",
     "reopen", "merge",
 ]  # fmt: skip
+PullActionList = list[PullAction]
 
 
 async def _write(registry: ToolRegistry, slug: str) -> GithubAccess:
@@ -57,17 +58,22 @@ def register(registry: ToolRegistry) -> None:
 def _register_pulls(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
-            "Work with a pull request (what `gh pr` does). Read: list, view, files, diff (paged "
-            "by file), checks, review_threads (with comment and thread ids). Change: edit "
-            "(title/body/base), ready, draft, request_reviewers, comment, review "
-            "(event comment|request_changes|approve), reply_to_thread (comment_id), "
-            "resolve_thread (thread_id), close, reopen, merge (needs approval). Open a pull "
-            "request with git_open_pr."
+            "Work with pull requests. Send a list of actions to run in order. "
+            "Reads: list, view, files, diff (paged by file), checks, review_threads. "
+            "Writes: edit (title/body/base), ready, draft, request_reviewers, comment, "
+            "review (event comment|request_changes|approve), reply_to_thread (comment_id), "
+            "resolve_thread (thread_id), close, reopen, merge. Open a PR with git_open_pr."
         )
     )
     async def github_pull_request(
         repository: Repository,
-        action: Annotated[PullAction, Field(description="What to do.")],
+        actions: Annotated[
+            PullActionList,
+            Field(
+                description="What to do. Multiple actions run in order (e.g. ['view','comments','checks']).",
+                min_length=1,
+            ),
+        ],
         number: Annotated[int | None, Field(description="Pull request number.")] = None,
         title: Annotated[str | None, Field(description="New title (edit).")] = None,
         body: Annotated[
@@ -92,36 +98,50 @@ def _register_pulls(registry: ToolRegistry) -> None:
             "title": title, "body": body, "base": base, "reviewers": reviewers, "event": event,
             "comment_id": comment_id, "thread_id": thread_id, "merge_method": merge_method,
         }  # fmt: skip
-        return await _guarded(_pull(registry, repository, action, number, fields, state, page))
+        return await _guarded(_pull(registry, repository, actions, number, fields, state, page))
 
 
 async def _pull(
     registry: ToolRegistry,
     repository: str,
-    action: str,
+    actions: list[str],
     number: int | None,
     fields: dict[str, Any],
     state: str,
     page: int,
 ) -> str:
     slug = parse_repository(repository).slug
-    if action == "list":
-        return await github_prs.list_pulls(await registry._github_access(slug), slug, state)
-    if number is None:
-        raise GithubError("Give the pull request number.")
-    if action in github_prs.PR_WRITE_ACTIONS:
-        return await github_prs.write_pull(
-            await _write(registry, slug), slug, number, action, fields
-        )
-    read = await registry._github_access(slug)
-    readers = {
-        "view": lambda: github_prs.view(read, slug, number),
-        "files": lambda: github_prs.files(read, slug, number),
-        "diff": lambda: github_prs.diff(read, slug, number, page),
-        "checks": lambda: github_prs.checks(read, slug, number),
-        "review_threads": lambda: github_prs.review_threads(read, slug, number),
-    }
-    return await readers[action]()
+    read_access = None
+    write_access = None
+    results: list[str] = []
+
+    for act in actions:
+        if act == "list":
+            results.append(
+                await github_prs.list_pulls(await registry._github_access(slug), slug, state)
+            )
+            continue
+        if number is None:
+            raise GithubError("Give the pull request number.")
+        if act in github_prs.PR_WRITE_ACTIONS:
+            if write_access is None:
+                write_access = await _write(registry, slug)
+            results.append(await github_prs.write_pull(write_access, slug, number, act, fields))
+        else:
+            if read_access is None:
+                read_access = await registry._github_access(slug)
+            if act == "view":
+                results.append(await github_prs.view(read_access, slug, number))
+            elif act == "files":
+                results.append(await github_prs.files(read_access, slug, number))
+            elif act == "diff":
+                results.append(await github_prs.diff(read_access, slug, number, page))
+            elif act == "checks":
+                results.append(await github_prs.checks(read_access, slug, number))
+            elif act == "review_threads":
+                results.append(await github_prs.review_threads(read_access, slug, number))
+
+    return "\n\n".join(results)
 
 
 def _register_ci(registry: ToolRegistry) -> None:
