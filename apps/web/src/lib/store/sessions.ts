@@ -136,14 +136,26 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         const data = await res.json();
         if (ticket !== latestListing) return;
         if (Array.isArray(data)) {
-          set({
-            sessions: data,
-            sessionsNextCursor: res.headers.get("X-Next-Cursor"),
-            executingSessionIds: new Set(
-              data
-                .filter((s) => s.sandbox_status === "running" || s.sandbox_status === "starting")
-                .map((s) => s.session_id)
-            ),
+          set((state) => {
+            const knownIds = new Set(state.sessions.map((s) => s.session_id));
+            const nextExecuting = new Set(state.executingSessionIds);
+            for (const s of data) {
+              if (s.sandbox_status === "running" || s.sandbox_status === "starting") {
+                if (!knownIds.has(s.session_id)) {
+                  nextExecuting.add(s.session_id);
+                }
+              }
+            }
+            for (const id of nextExecuting) {
+              if (!data.some((s) => s.session_id === id)) {
+                nextExecuting.delete(id);
+              }
+            }
+            return {
+              sessions: data,
+              sessionsNextCursor: res.headers.get("X-Next-Cursor"),
+              executingSessionIds: nextExecuting,
+            };
           });
           if (!get().session && data.length > 0) {
             set({ session: data[0] });
