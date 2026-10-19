@@ -45,6 +45,7 @@ class SessionRecord:
     # sidebar, archiving hides it from the default listing.
     is_pinned: bool = False
     is_archived: bool = False
+    is_processing: bool = False
 
 
 @dataclass(frozen=True)

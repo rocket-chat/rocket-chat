@@ -140,6 +140,7 @@ class SessionModel(Base):
     # a session at the top, archiving hides it from the default listing.
     is_pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_processing: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[int] = mapped_column(
         BigInteger, default=lambda: int(time.time()), nullable=False
     )

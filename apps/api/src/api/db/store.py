@@ -527,6 +527,7 @@ class PostgresSessionStore(SessionStoreProtocol):
             checklist=meta.get("checklist", []),
             is_pinned=bool(model.is_pinned),
             is_archived=bool(model.is_archived),
+            is_processing=bool(model.is_processing),
         )
 
     async def create_session(self, record: SessionRecord) -> None:
@@ -551,6 +552,7 @@ class PostgresSessionStore(SessionStoreProtocol):
                 updated_at=record.updated_at,
                 is_pinned=record.is_pinned,
                 is_archived=record.is_archived,
+                is_processing=record.is_processing,
             )
             session.add(model)
 
@@ -582,6 +584,7 @@ class PostgresSessionStore(SessionStoreProtocol):
         model.metadata_json = record.metadata
         model.is_pinned = record.is_pinned
         model.is_archived = record.is_archived
+        model.is_processing = record.is_processing
         model.updated_at = int(time.time())
 
     async def update_session(self, record: SessionRecord) -> None:

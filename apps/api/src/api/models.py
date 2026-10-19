@@ -178,6 +178,7 @@ class SessionResponse(BaseModel):
     git_repo: str | None = None
     git_branch: str | None = None
     is_shared: bool = False
+    is_processing: bool = False
     collaborators: list[str] = Field(default_factory=list)
     checklist: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)

@@ -432,6 +432,11 @@ class TurnRunner:
             "steps": ctx.state.executed_tools,
         }
 
+        def _mark_processing(record: SessionRecord) -> None:
+            record.is_processing = True
+
+        await req.store.mutate_session(session.session_id, session.tenant_org_id, _mark_processing)
+
         member_prefs = await effective_settings(
             req.db_mgr, session.tenant_org_id, "user_preferences", session.tenant_user_id
         )
@@ -644,6 +649,17 @@ class TurnRunner:
             await self.state.mcp_tools.aclose()
         await persist_trace(self.state, self.req.db_mgr)
         await housekeeping(self.req, self.state)
+        if self._org_id is not None:
+
+            def _clear_processing(record: SessionRecord) -> None:
+                record.is_processing = False
+
+            try:
+                await self.req.store.mutate_session(
+                    self.req.session_id, self._org_id, _clear_processing
+                )
+            except Exception:
+                pass
 
     async def _publish(self, event_type: EventType, payload: dict[str, Any]) -> None:
         await self.req.event_bus.publish(

@@ -268,9 +268,6 @@ export class MissionWebSocket {
     }
     if (frame.running_turn && frame.running_turn.status === "running") {
       store.setIsExecuting(true);
-      store.setSessionExecuting(this.sessionId, true);
-    } else {
-      store.setSessionExecuting(this.sessionId, false);
     }
     this.applySyncPlan(planSync(frame, this.resumeRequestedSeq !== null));
     // A turn paused on a person before this tab connected: show the card it is waiting on.
@@ -413,7 +410,6 @@ export class MissionWebSocket {
         if (rawStatus === "running") {
           store.setActiveWait(null);
           store.setIsExecuting(true);
-          if (frameSessionId) store.setSessionExecuting(frameSessionId, true);
           if (typeof payload.model === "string") {
             store.setTurnBinding({ agentName: payload.agent_name || "", model: payload.model });
           }
@@ -429,7 +425,6 @@ export class MissionWebSocket {
         ) {
           store.setIsExecuting(false);
           store.setIsReasoningActive(false);
-          if (frameSessionId) store.setSessionExecuting(frameSessionId, false);
           // A turn that ended (answered, failed, cancelled, or waiting) waits for nobody any more, so a
           // question or approval card left on screen would answer nothing.
           store.setActiveDecision(null);

@@ -50,7 +50,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
     isLoadingSessions,
     setIsMemoryInspectorOpen,
     setIsTurnInspectorOpen,
-    executingSessionIds,
   } = useMissionStore();
 
   const router = useRouter();
@@ -301,7 +300,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                       }`}
                     >
                       <div className="flex items-center min-w-0 flex-1 mr-1">
-                        {executingSessionIds.has(s.session_id) ? (
+                        {s.is_processing ? (
                           <Loader2 className="w-3 h-3 animate-spin text-brand shrink-0 mr-1" />
                         ) : null}
                         {s.is_pinned && (
