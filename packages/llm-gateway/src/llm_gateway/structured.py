@@ -34,6 +34,8 @@ async def _collect_text(gateway: LLMGatewayProtocol, request: ModelRequest) -> s
             raise ModelExecutionError(chunk.error)
         if chunk.text_delta:
             text += chunk.text_delta
+        elif chunk.reasoning_delta:
+            text += chunk.reasoning_delta
     return text
 
 

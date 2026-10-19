@@ -26,6 +26,7 @@ import {
   Brain,
   History,
   Users,
+  Loader2,
 } from "lucide-react";
 
 interface SessionSidebarProps {
@@ -299,6 +300,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                       }`}
                     >
                       <div className="flex items-center min-w-0 flex-1 mr-1">
+                        {s.sandbox_status === "running" || s.sandbox_status === "starting" ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-brand shrink-0 mr-1" />
+                        ) : null}
                         {s.is_pinned && (
                           <span
                             data-testid="session-pinned-indicator"

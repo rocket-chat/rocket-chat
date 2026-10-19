@@ -92,7 +92,8 @@ const DiffChips: React.FC<{ additions: number; deletions: number }> = ({ additio
 
 const firstLine = (text: string): string => {
   const line = text.replace(/[#*_`>]/g, "").split("\n").find((l) => l.trim()) ?? "";
-  return line.length > 140 ? `${line.slice(0, 139)}…` : line;
+  if (line.length <= 160) return line;
+  return `${line.slice(0, 157).trimEnd()}…`;
 };
 
 export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = false }) => {
