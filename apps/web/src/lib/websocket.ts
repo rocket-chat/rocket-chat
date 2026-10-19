@@ -410,6 +410,7 @@ export class MissionWebSocket {
         if (rawStatus === "running") {
           store.setActiveWait(null);
           store.setIsExecuting(true);
+          if (frameSessionId) store.setSessionExecuting(frameSessionId, true);
           if (typeof payload.model === "string") {
             store.setTurnBinding({ agentName: payload.agent_name || "", model: payload.model });
           }
@@ -425,6 +426,7 @@ export class MissionWebSocket {
         ) {
           store.setIsExecuting(false);
           store.setIsReasoningActive(false);
+          if (frameSessionId) store.setSessionExecuting(frameSessionId, false);
           // A turn that ended (answered, failed, cancelled, or waiting) waits for nobody any more, so a
           // question or approval card left on screen would answer nothing.
           store.setActiveDecision(null);

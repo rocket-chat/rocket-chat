@@ -67,6 +67,9 @@ export interface SessionsSlice {
     sessionId: string,
     update: { title?: string; is_pinned?: boolean; is_archived?: boolean; sandbox_status?: string }
   ) => void;
+  /** Sessions with an actively executing turn (driven by status_changed WebSocket events). */
+  executingSessionIds: Set<string>;
+  setSessionExecuting: (sessionId: string, active: boolean) => void;
 }
 
 export interface AgentsSlice {
