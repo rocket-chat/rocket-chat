@@ -744,12 +744,11 @@ export class MissionWebSocket {
       case "session_updated": {
         const targetSessionId = payload.session_id || frameSessionId;
         if (targetSessionId) {
-          // A metadata mutation (rename, pin, archive) broadcast so every other tab
-          // converges without a reload.
           store.applySessionUpdate(targetSessionId, {
             title: typeof payload.title === "string" ? payload.title : undefined,
             is_pinned: typeof payload.is_pinned === "boolean" ? payload.is_pinned : undefined,
             is_archived: typeof payload.is_archived === "boolean" ? payload.is_archived : undefined,
+            is_processing: typeof payload.is_processing === "boolean" ? payload.is_processing : undefined,
           });
         }
         break;
