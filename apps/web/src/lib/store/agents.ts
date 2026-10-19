@@ -13,7 +13,9 @@ export const createAgentsSlice: StateCreator<MissionStore, [], [], AgentsSlice> 
   inferenceMode: "agent",
   selectedModel: "openrouter/deepseek/deepseek-v4.1-flash",
   permissionMode: "",
-  selectedSandboxId: "",
+  selectedSandboxId: (() => {
+    try { return localStorage.getItem("rocket_selected_sandbox_id") || ""; } catch { return ""; }
+  })(),
   modelsLoaded: false,
   availableModels: [
     { id: "openrouter/deepseek/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", context_window: 131072, provider: "DeepSeek" },
@@ -66,7 +68,10 @@ export const createAgentsSlice: StateCreator<MissionStore, [], [], AgentsSlice> 
       }
     }
   },
-  setSelectedSandboxId: (id: string) => set({ selectedSandboxId: id }),
+  setSelectedSandboxId: (id: string) => {
+    set({ selectedSandboxId: id });
+    try { localStorage.setItem("rocket_selected_sandbox_id", id); } catch {}
+  },
   setPermissionMode: (mode: PermissionMode) => {
     const currentSession = get().session;
     set({ permissionMode: mode });

@@ -77,12 +77,31 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       pendingSelfPrompts: sessionChanged ? [] : get().pendingSelfPrompts,
       pendingAttachments: sessionChanged ? [] : get().pendingAttachments,
       attachmentError: sessionChanged ? null : get().attachmentError,
+      // Per-session ephemeral state: reset on switch
+      fileDiffs: sessionChanged ? [] : get().fileDiffs,
+      activeDiffIndex: sessionChanged ? 0 : get().activeDiffIndex,
+      terminalLogs: sessionChanged
+        ? "\x1b[38;5;208m[SYSTEM]\x1b[0m Session workspace attached.\r\n"
+        : get().terminalLogs,
       checklist: session.checklist ?? [],
       suggestedFollowup:
         session.suggested_followup ||
         ((meta.suggested_followup as string) ?? null),
+      queuedPrompt: sessionChanged ? (meta.queued_prompt as string) || null : get().queuedPrompt,
       statusMessage: "System Ready. Standing by for instructions.",
     });
+
+    // Pre-fetch the session's artifacts so the list is visible without opening the drawer.
+    if (!session.is_draft && session.session_id !== "draft" && session.session_id !== "new") {
+      fetch(`/v1/sessions/${session.session_id}/artifacts`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: unknown) => {
+          if (Array.isArray(data) && session.session_id === get().session?.session_id) {
+            set({ artifacts: data });
+          }
+        })
+        .catch(() => {});
+    }
 
     // If conversation_history was not pre-loaded on this session object, fetch it from backend
     if (!session.conversation_history) {
