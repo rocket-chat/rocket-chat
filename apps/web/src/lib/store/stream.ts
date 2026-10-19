@@ -140,17 +140,16 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
   updateLastAgentLog: (delta, timestamp) =>
     set((state) => {
       const logs = [...state.flightLog];
-      const last = logs[logs.length - 1];
-      if (last && last.role === "AGENT") {
-        // A persisted entry already holds the completed answer. A token replayed after a
-        // reconnect would append it a second time; the snapshot is the authority for it.
-        if (last.isPersisted) return state;
-        logs[logs.length - 1] = {
-          ...last,
-          content: last.content + delta,
-          isReasoningActive: false,
-        };
-        return { flightLog: logs, isReasoningActive: false };
+      for (let i = logs.length - 1; i >= 0; i--) {
+        if (logs[i].role === "AGENT") {
+          if (logs[i].isPersisted) return state;
+          logs[i] = {
+            ...logs[i],
+            content: logs[i].content + delta,
+            isReasoningActive: false,
+          };
+          return { flightLog: logs, isReasoningActive: false };
+        }
       }
       return {
         flightLog: [
@@ -169,21 +168,20 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
   appendReasoning: (delta, timestamp) =>
     set((state) => {
       const logs = [...state.flightLog];
-      const last = logs[logs.length - 1];
-      if (last && last.role === "AGENT") {
-        // Same rule as token folding: persisted reasoning is complete and must not grow
-        // again when the reconnect replay re-delivers its deltas.
-        if (last.isPersisted) return state;
-        logs[logs.length - 1] = {
-          ...last,
-          reasoning: (last.reasoning || "") + delta,
-          isReasoningActive: true,
-        };
-        return {
-          flightLog: logs,
-          reasoningStream: state.reasoningStream + delta,
-          isReasoningActive: true,
-        };
+      for (let i = logs.length - 1; i >= 0; i--) {
+        if (logs[i].role === "AGENT") {
+          if (logs[i].isPersisted) return state;
+          logs[i] = {
+            ...logs[i],
+            reasoning: (logs[i].reasoning || "") + delta,
+            isReasoningActive: true,
+          };
+          return {
+            flightLog: logs,
+            reasoningStream: state.reasoningStream + delta,
+            isReasoningActive: true,
+          };
+        }
       }
       return {
         flightLog: [
