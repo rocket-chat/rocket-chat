@@ -160,6 +160,7 @@ export interface SessionData {
   tenant_org_id: string;
   tenant_user_id: string;
   sandbox_status: string;
+  is_processing?: boolean;
   source?: "web" | "slack" | string;
   agent_id?: string;
   inference_mode?: "agent" | "direct";

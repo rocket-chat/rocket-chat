@@ -19,18 +19,6 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
   sessionsNextCursor: null,
   sessionsIncludeArchived: false,
   sessionsScope: "mine",
-  executingSessionIds: new Set<string>(),
-  setSessionExecuting: (sessionId, active) => {
-    set((state) => {
-      const next = new Set(state.executingSessionIds);
-      if (active) {
-        next.add(sessionId);
-      } else {
-        next.delete(sessionId);
-      }
-      return { executingSessionIds: next };
-    });
-  },
   setSession: (session) => {
     if (!session) {
       set({ session: null });
@@ -136,26 +124,9 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         const data = await res.json();
         if (ticket !== latestListing) return;
         if (Array.isArray(data)) {
-          set((state) => {
-            const knownIds = new Set(state.sessions.map((s) => s.session_id));
-            const nextExecuting = new Set(state.executingSessionIds);
-            for (const s of data) {
-              if (s.sandbox_status === "running" || s.sandbox_status === "starting") {
-                if (!knownIds.has(s.session_id)) {
-                  nextExecuting.add(s.session_id);
-                }
-              }
-            }
-            for (const id of nextExecuting) {
-              if (!data.some((s) => s.session_id === id)) {
-                nextExecuting.delete(id);
-              }
-            }
-            return {
-              sessions: data,
-              sessionsNextCursor: res.headers.get("X-Next-Cursor"),
-              executingSessionIds: nextExecuting,
-            };
+          set({
+            sessions: data,
+            sessionsNextCursor: res.headers.get("X-Next-Cursor"),
           });
           if (!get().session && data.length > 0) {
             set({ session: data[0] });
@@ -404,6 +375,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         ...(update.is_pinned !== undefined ? { is_pinned: update.is_pinned } : {}),
         ...(update.is_archived !== undefined ? { is_archived: update.is_archived } : {}),
         ...(update.sandbox_status !== undefined ? { sandbox_status: update.sandbox_status } : {}),
+        ...(update.is_processing !== undefined ? { is_processing: update.is_processing } : {}),
       });
       return {
         sessions: state.sessions.map((s) => (s.session_id === sessionId ? patch(s) : s)),

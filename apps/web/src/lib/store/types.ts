@@ -65,11 +65,8 @@ export interface SessionsSlice {
   /** Applies a `session_updated` broadcast to the local list so other tabs converge. */
   applySessionUpdate: (
     sessionId: string,
-    update: { title?: string; is_pinned?: boolean; is_archived?: boolean; sandbox_status?: string }
+    update: { title?: string; is_pinned?: boolean; is_archived?: boolean; sandbox_status?: string; is_processing?: boolean }
   ) => void;
-  /** Sessions with an actively executing turn (driven by status_changed WebSocket events). */
-  executingSessionIds: Set<string>;
-  setSessionExecuting: (sessionId: string, active: boolean) => void;
 }
 
 export interface AgentsSlice {

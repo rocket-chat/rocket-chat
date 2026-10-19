@@ -140,6 +140,7 @@ def _to_response(s: SessionRecord) -> SessionResponse:
         sandbox_status=s.sandbox_status.value
         if hasattr(s.sandbox_status, "value")
         else str(s.sandbox_status),
+        is_processing=s.is_processing,
         agent_id=agent_id,
         container_image=s.container_image,
         git_repo=s.git_repo,
