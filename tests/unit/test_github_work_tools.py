@@ -138,11 +138,11 @@ async def test_reads_use_the_read_credential_and_changes_the_write_one(
     registry: ToolRegistry, github: FakeGitHub
 ) -> None:
     checks = await registry.call_tool(
-        "github_pull_request", {"repository": "acme/app", "action": "checks", "number": 7}
+        "github_pull_request", {"repository": "acme/app", "actions": ["checks"], "number": 7}
     )
     commented = await registry.call_tool(
         "github_pull_request",
-        {"repository": "acme/app", "action": "comment", "number": 7, "body": "Fixed in 2f3a"},
+        {"repository": "acme/app", "actions": ["comment"], "number": 7, "body": "Fixed in 2f3a"},
     )
 
     assert "1 failing" in checks and "github_actions job_logs" in checks
@@ -154,7 +154,8 @@ async def test_reads_use_the_read_credential_and_changes_the_write_one(
 
 async def test_review_threads_reply_and_resolve(registry: ToolRegistry, github: FakeGitHub) -> None:
     threads = await registry.call_tool(
-        "github_pull_request", {"repository": "acme/app", "action": "review_threads", "number": 7}
+        "github_pull_request",
+        {"repository": "acme/app", "actions": ["review_threads"], "number": 7},
     )
     await registry.call_tool(
         "github_pull_request",
@@ -181,7 +182,8 @@ async def test_the_diff_is_read_ten_files_at_a_time(
     registry: ToolRegistry, github: FakeGitHub
 ) -> None:
     second = await registry.call_tool(
-        "github_pull_request", {"repository": "acme/app", "action": "diff", "number": 7, "page": 2}
+        "github_pull_request",
+        {"repository": "acme/app", "actions": ["diff"], "number": 7, "page": 2},
     )
 
     assert "--- f10.py" in second and "--- f9.py" not in second
@@ -268,11 +270,11 @@ async def test_the_generic_tool_reads_pages_and_writes_with_the_repositorys_cred
 @pytest.mark.parametrize(
     "mode, name, arguments, gated",
     [
-        ("auto", "github_pull_request", {"action": "view"}, False),
-        ("auto", "github_pull_request", {"action": "comment"}, False),
-        ("ask", "github_pull_request", {"action": "comment"}, True),
-        ("auto", "github_pull_request", {"action": "merge"}, True),
-        ("bypass", "github_pull_request", {"action": "merge"}, False),
+        ("auto", "github_pull_request", {"actions": ["view"]}, False),
+        ("auto", "github_pull_request", {"actions": ["comment"]}, False),
+        ("ask", "github_pull_request", {"actions": ["comment"]}, True),
+        ("auto", "github_pull_request", {"actions": ["merge"]}, True),
+        ("bypass", "github_pull_request", {"actions": ["merge"]}, False),
         ("auto", "github_api", {"method": "GET"}, False),
         ("auto_edit", "github_api", {"method": "POST"}, True),
         ("auto", "github_api", {"method": "DELETE"}, True),
@@ -304,11 +306,11 @@ async def test_plan_mode_allows_github_reads_and_blocks_changes(github: FakeGitH
     try:
         registry = ToolRegistry()
         read_out = await registry.call_tool(
-            "github_pull_request", {"repository": "acme/app", "action": "checks", "number": 7}
+            "github_pull_request", {"repository": "acme/app", "actions": ["checks"], "number": 7}
         )
         blocked = await registry.call_tool(
             "github_pull_request",
-            {"repository": "acme/app", "action": "comment", "number": 7, "body": "x"},
+            {"repository": "acme/app", "actions": ["comment"], "number": 7, "body": "x"},
         )
     finally:
         current_execution_ctx.reset(token)
@@ -331,7 +333,7 @@ async def test_without_a_write_credential_the_reason_is_given(github: FakeGitHub
     try:
         out = await ToolRegistry().call_tool(
             "github_pull_request",
-            {"repository": "acme/app", "action": "merge", "number": 7},
+            {"repository": "acme/app", "actions": ["merge"], "number": 7},
         )
     finally:
         current_execution_ctx.reset(token)
@@ -366,7 +368,7 @@ async def test_a_pull_request_is_viewed_with_the_pull_request_permission_alone(
     github.route = route  # type: ignore[method-assign]
 
     viewed = await registry.call_tool(
-        "github_pull_request", {"repository": "acme/app", "action": "view", "number": 7}
+        "github_pull_request", {"repository": "acme/app", "actions": ["view"], "number": 7}
     )
 
     assert viewed.startswith("#7 [open] Expected errors (feat/x -> main; by octocat)")
@@ -392,7 +394,7 @@ async def test_read_tools_pass_repository_to_github_access(github: FakeGitHub) -
         reg = ToolRegistry()
         await reg.call_tool(
             "github_pull_request",
-            {"repository": "acme/app", "action": "checks", "number": 7},
+            {"repository": "acme/app", "actions": ["checks"], "number": 7},
         )
         assert requested_repos == ["acme/app"]
     finally:
@@ -411,7 +413,7 @@ async def test_read_tool_forbidden_reports_actor(
 
     github.route = route  # type: ignore[method-assign]
     result = await registry.call_tool(
-        "github_pull_request", {"repository": "acme/app", "action": "checks", "number": 7}
+        "github_pull_request", {"repository": "acme/app", "actions": ["checks"], "number": 7}
     )
     assert "the App (read)" in result
     assert "the credential is missing or not allowed to do this" in result

@@ -187,16 +187,17 @@ def _register_dialogue_tools(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
             "Set the one-line status the user sees in the Cockpit or Slack loader. Call it when "
-            "you start a new phase of work (not before every tool call), in present tense and "
-            "describing what you are doing now. It is not a progress report: never use it to "
-            "claim you are nearly done."
+            "you start a new phase of work (not before every tool call), describing what you are "
+            "doing now. It is not a progress report: never use it to claim you are nearly done. "
+            "Your step text (the message before tool calls) is already shown to the user — you do "
+            "not need to call this when you include a description in your reply."
         )
     )
     async def update_status(
         message: Annotated[
             str,
             Field(
-                description="Short human-readable status message describing your current action in present-continuous tense."
+                description="Short human-readable status message describing your current action."
             ),
         ],
     ) -> str:
