@@ -139,6 +139,11 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
           set({
             sessions: data,
             sessionsNextCursor: res.headers.get("X-Next-Cursor"),
+            executingSessionIds: new Set(
+              data
+                .filter((s) => s.sandbox_status === "running" || s.sandbox_status === "starting")
+                .map((s) => s.session_id)
+            ),
           });
           if (!get().session && data.length > 0) {
             set({ session: data[0] });
