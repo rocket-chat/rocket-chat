@@ -19,6 +19,18 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
   sessionsNextCursor: null,
   sessionsIncludeArchived: false,
   sessionsScope: "mine",
+  executingSessionIds: new Set<string>(),
+  setSessionExecuting: (sessionId, active) => {
+    set((state) => {
+      const next = new Set(state.executingSessionIds);
+      if (active) {
+        next.add(sessionId);
+      } else {
+        next.delete(sessionId);
+      }
+      return { executingSessionIds: next };
+    });
+  },
   setSession: (session) => {
     if (!session) {
       set({ session: null });
