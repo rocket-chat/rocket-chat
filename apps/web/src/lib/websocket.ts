@@ -413,7 +413,7 @@ export class MissionWebSocket {
           if (typeof payload.model === "string") {
             store.setTurnBinding({ agentName: payload.agent_name || "", model: payload.model });
           }
-        } else if (rawStatus === "retrying") {
+        } else if (rawStatus === "retrying" || rawStatus === "ready") {
           store.setIsExecuting(true);
         } else if (
           rawStatus === "completed" ||
@@ -481,6 +481,10 @@ export class MissionWebSocket {
             role: "SYSTEM",
             content: `⚠️ ${reason}`,
             timestamp: eventTime,
+          });
+        } else if (payload.state) {
+          store.applySessionUpdate(frameSessionId ?? "", {
+            sandbox_status: payload.state,
           });
         }
         break;

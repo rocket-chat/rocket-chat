@@ -374,6 +374,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         ...(update.title !== undefined ? { title: update.title } : {}),
         ...(update.is_pinned !== undefined ? { is_pinned: update.is_pinned } : {}),
         ...(update.is_archived !== undefined ? { is_archived: update.is_archived } : {}),
+        ...(update.sandbox_status !== undefined ? { sandbox_status: update.sandbox_status } : {}),
       });
       return {
         sessions: state.sessions.map((s) => (s.session_id === sessionId ? patch(s) : s)),

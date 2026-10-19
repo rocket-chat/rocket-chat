@@ -125,6 +125,10 @@ Tools never emit unbounded output into the session: results are clamped head-and
 ### F. Security and tenancy invariants
 Summarised here, specified in `dev/security-and-tenancy.md`: new tables get a migration, `FORCE` row-level security and an RLS test; code outside an HTTP request binds the tenant context before using the database; secrets enter encrypted, leave as fingerprints and never reach the model or the logs; server-side fetches the agent can influence use the SSRF-safe client; enforcement lives in the tool registry, database or driver, never only in a prompt; sessions always start **blank** (the agent clones what it needs).
 
+### G. Long-running sessions
+
+Complex software-engineering turns legitimately run 20+ minutes and 50+ tool calls. Never add hard caps on turn duration, tool count, or ReAct steps; fix the visibility of progress (status events, sidebar indicators) rather than shortening the work.
+
 ---
 
 ## 4. Technology standards

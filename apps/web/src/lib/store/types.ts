@@ -65,7 +65,7 @@ export interface SessionsSlice {
   /** Applies a `session_updated` broadcast to the local list so other tabs converge. */
   applySessionUpdate: (
     sessionId: string,
-    update: { title?: string; is_pinned?: boolean; is_archived?: boolean }
+    update: { title?: string; is_pinned?: boolean; is_archived?: boolean; sandbox_status?: string }
   ) => void;
 }
 
