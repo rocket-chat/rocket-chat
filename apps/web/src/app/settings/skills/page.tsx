@@ -16,6 +16,7 @@ import {
   ChevronDown,
   ChevronRight,
   BookOpen,
+  Pencil,
 } from "lucide-react";
 import { useSession } from "../../../components/AuthProvider";
 import {
@@ -34,6 +35,7 @@ export default function SkillsSettingsPage() {
 
   // Form state
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
   const [formScope, setFormScope] = useState<"user" | "org">("user");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -67,11 +69,22 @@ export default function SkillsSettingsPage() {
   const orgSkills = skills.filter((s) => s.scope === "org" && s.user_id == null);
 
   const handleOpenAddForm = (scope: "user" | "org") => {
+    setEditingSkillId(null);
     setFormScope(scope);
     setTitle("");
     setDescription("");
     setBody("");
     setShowAddForm(true);
+  };
+
+  const handleOpenEditForm = (skill: CustomSkillConfig) => {
+    setEditingSkillId(skill.id);
+    setFormScope((skill.scope as "user" | "org") || "user");
+    setTitle(skill.title || skill.name || "");
+    setDescription(skill.description || "");
+    setBody(skill.body || "");
+    setShowAddForm(true);
+    setExpandedSkillId(skill.id);
   };
 
   const handleSaveSkill = async () => {
@@ -81,12 +94,15 @@ export default function SkillsSettingsPage() {
     }
 
     try {
-      const payload = {
+      const payload: Record<string, unknown> = {
         title: title.trim(),
         description: description.trim() || undefined,
         body: body.trim(),
         scope: formScope,
       };
+      if (editingSkillId) {
+        payload.id = editingSkillId;
+      }
 
       const res = await fetch("/v1/skills", {
         method: "POST",
@@ -100,9 +116,18 @@ export default function SkillsSettingsPage() {
       }
 
       const created: CustomSkillConfig = await res.json();
-      setSkills((prev) => [...prev, created]);
+      if (editingSkillId) {
+        setSkills((prev) => prev.map((s) => (s.id === editingSkillId ? created : s)));
+      } else {
+        setSkills((prev) => [...prev, created]);
+      }
       setShowAddForm(false);
-      setSuccessBanner(`Created skill '${created.title || created.name}' (${formScope} scope)`);
+      setEditingSkillId(null);
+      setSuccessBanner(
+        editingSkillId
+          ? `Updated skill '${created.title || created.name}' (${formScope} scope)`
+          : `Created skill '${created.title || created.name}' (${formScope} scope)`,
+      );
       setTimeout(() => setSuccessBanner(null), 4000);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error saving skill";
@@ -187,7 +212,16 @@ export default function SkillsSettingsPage() {
 
           <div className="flex items-center gap-2 shrink-0">
             {canManage && (
-              <button
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleOpenEditForm(skill)}
+                  className="p-1.5 rounded-lg hover:bg-surface-elevated text-neutral-500 hover:text-brand transition-colors cursor-pointer"
+                  title="Edit skill"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button
                 type="button"
                 onClick={() => handleDeleteSkill(skill.id, skillTitle)}
                 className="p-1.5 rounded-lg hover:bg-rose-950/40 text-neutral-500 hover:text-rose-400 transition-colors cursor-pointer"
@@ -195,6 +229,7 @@ export default function SkillsSettingsPage() {
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
+              </>
             )}
             <button
               type="button"
@@ -250,7 +285,7 @@ export default function SkillsSettingsPage() {
           <div className="flex items-center justify-between border-b border-border/60 pb-2">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-brand">
-                CREATE NEW SKILL
+                {editingSkillId ? "EDIT SKILL" : "CREATE NEW SKILL"}
               </span>
               <span className="px-1.5 py-0.5 rounded-lg text-[9px] bg-brand/10 text-brand border border-brand/20">
                 {formScope === "org" ? "Organization Scope" : "Personal Scope"}
@@ -258,7 +293,7 @@ export default function SkillsSettingsPage() {
             </div>
             <button
               type="button"
-              onClick={() => setShowAddForm(false)}
+onClick={() => { setShowAddForm(false); setEditingSkillId(null); }}
               className="text-neutral-400 hover:text-white text-xs cursor-pointer"
             >
               ✕ CANCEL

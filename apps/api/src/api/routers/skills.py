@@ -128,17 +128,24 @@ async def create_or_update_custom_skill(
 
     if db_mgr:
         async with db_mgr.session() as session:
-            stmt = select(CustomSkillModel).where(
-                CustomSkillModel.org_id == org_id,
-                CustomSkillModel.name == skill_title,
-                CustomSkillModel.scope == req.scope,
-                CustomSkillModel.user_id == target_user_id,
-            )
+            if req.id:
+                stmt = select(CustomSkillModel).where(
+                    CustomSkillModel.id == req.id,
+                    CustomSkillModel.org_id == org_id,
+                )
+            else:
+                stmt = select(CustomSkillModel).where(
+                    CustomSkillModel.org_id == org_id,
+                    CustomSkillModel.name == skill_title,
+                    CustomSkillModel.scope == req.scope,
+                    CustomSkillModel.user_id == target_user_id,
+                )
             res = await session.execute(stmt)
             existing = res.scalar_one_or_none()
             if existing:
                 existing.description = req.description
                 existing.body = skill_body
+                existing.name = skill_title
                 existing.is_active = req.is_active
                 existing.updated_at = now
                 target = existing
