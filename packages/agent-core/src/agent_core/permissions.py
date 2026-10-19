@@ -70,7 +70,6 @@ READ_TOOLS: frozenset[str] = frozenset(
         "view_image",
         "think",
         "update_task_checklist",
-        "update_status",
         "ask_question",
         "session_rename",
         "enter_plan_mode",

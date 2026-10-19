@@ -112,7 +112,6 @@ class ToolRegistry:
             "browser_inspect",
             "view_image",
             "update_task_checklist",
-            "update_status",
             "ask_question",
             "session_rename",
             "create_artifact",

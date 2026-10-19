@@ -21,7 +21,6 @@ def test_tool_registry_definitions() -> None:
     assert "file_write" in tool_names
     assert "apply_patch" in tool_names
     assert "session_rename" in tool_names
-    assert "update_status" in tool_names
 
 
 @pytest.mark.asyncio
@@ -117,6 +116,9 @@ async def test_session_rename_callback() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skip(
+    reason="update_status deprecated — model step text is now auto-derived as STATUS_CHANGED"
+)
 async def test_update_status_tool() -> None:
     import asyncio
 
