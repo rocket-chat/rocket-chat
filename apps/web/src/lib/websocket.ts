@@ -268,6 +268,9 @@ export class MissionWebSocket {
     }
     if (frame.running_turn && frame.running_turn.status === "running") {
       store.setIsExecuting(true);
+      store.setSessionExecuting(this.sessionId, true);
+    } else {
+      store.setSessionExecuting(this.sessionId, false);
     }
     this.applySyncPlan(planSync(frame, this.resumeRequestedSeq !== null));
     // A turn paused on a person before this tab connected: show the card it is waiting on.
