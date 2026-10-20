@@ -27,7 +27,7 @@ test.describe("what a sync frame asks of the tab", () => {
 
     // A second connection resumes from the cursor a first one advanced to 8, then the
     // snapshot (which has no answer yet) replaces the transcript.
-    const plan = planSync(frame, true);
+    const plan = planSync(frame);
 
     expect(plan.rewindCursorTo).toBe(0);
     expect(plan.events.map((e) => e.seq)).toEqual([1, 2, 3]);
@@ -49,10 +49,9 @@ test.describe("what a sync frame asks of the tab", () => {
     expect(selectUnseenEvents([event(1), event(2), event(3)], readCursor(id)).map((e) => e.seq)).toEqual([3]);
   });
 
-  test("an idle session's snapshot is complete: a resuming tab keeps its cursor", () => {
+  test("an idle session's snapshot is complete through last_seq, for resuming and fresh tabs alike", () => {
     const frame = { type: "sync", last_seq: 12, catch_up: null } as SyncFrame;
-    expect(planSync(frame, true)).toEqual({ rewindCursorTo: null, events: [], continueFrom: null, runningTurn: null });
-    expect(planSync(frame, false)).toEqual({ rewindCursorTo: null, events: [], continueFrom: 12, runningTurn: null });
+    expect(planSync(frame)).toEqual({ rewindCursorTo: null, events: [], continueFrom: 12, runningTurn: null });
   });
 
   test("running_turn data is passed through to the plan", () => {
@@ -64,7 +63,7 @@ test.describe("what a sync frame asks of the tab", () => {
       steps: [{ name: "bash_exec", status: "completed", result: "ok" }],
     };
     const frame = { type: "sync", last_seq: 5, catch_up: null, running_turn: runningTurn } as SyncFrame;
-    const plan = planSync(frame, false);
+    const plan = planSync(frame);
     expect(plan.runningTurn).toEqual(runningTurn);
   });
 });
