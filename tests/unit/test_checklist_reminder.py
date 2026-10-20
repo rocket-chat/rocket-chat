@@ -97,7 +97,7 @@ def test_a_checklist_left_untouched_for_a_while_is_flagged_periodically() -> Non
     base = [_update(OPEN)]
 
     assert stale_notice(base + _steps(STALE_AFTER_STEPS - 1)) is None
-    assert "8 steps" in (stale_notice(base + _steps(STALE_AFTER_STEPS)) or "")
+    assert f"{STALE_AFTER_STEPS} steps" in (stale_notice(base + _steps(STALE_AFTER_STEPS)) or "")
     assert stale_notice(base + _steps(STALE_AFTER_STEPS + 1)) is None
     assert stale_notice(base + _steps(2 * STALE_AFTER_STEPS)) is not None
 

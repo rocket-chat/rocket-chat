@@ -91,14 +91,14 @@
             "anyOf": [
               {
                 "maximum": 500.0,
-                "minimum": 1.0,
+                "minimum": 0.0,
                 "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Maximum reasoning steps per turn for this agent; empty inherits the organization's limit, and a value above it is refused",
+            "description": "Maximum reasoning steps per turn for this agent (0: no limit); empty inherits the organization's limit, and a value above it is refused",
             "title": "Max Turns"
           },
           "memory_limit": {
@@ -1203,6 +1203,18 @@
             "description": "Skill purpose summary",
             "title": "Description",
             "type": "string"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Existing skill ID when updating",
+            "title": "Id"
           },
           "is_active": {
             "default": true,
@@ -4112,6 +4124,11 @@
             "title": "Is Pinned",
             "type": "boolean"
           },
+          "is_processing": {
+            "default": false,
+            "title": "Is Processing",
+            "type": "boolean"
+          },
           "is_shared": {
             "default": false,
             "title": "Is Shared",
@@ -4250,6 +4267,11 @@
               }
             ],
             "title": "Git Repo"
+          },
+          "is_processing": {
+            "default": false,
+            "title": "Is Processing",
+            "type": "boolean"
           },
           "is_shared": {
             "default": false,

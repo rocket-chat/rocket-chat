@@ -17,7 +17,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 
 from agent_core.context import current_execution_ctx
-from agent_core.repeats import repeated_failure_note
+from agent_core.repeats import repeat_note
 from agent_core.tool_slot import ToolSlot, current_tool_slot
 from agent_core.tools.offload import DEFAULT_OFFLOAD_THRESHOLD, offload_tool_output
 from agent_core.tools.registry import ToolRegistry
@@ -329,6 +329,6 @@ class ToolDispatcher:
             earlier = list(messages)
             for tc in ordered:
                 content = outputs.get(tc["id"], INTERRUPTED_TOOL_RESULT)
-                if note := repeated_failure_note(earlier, tc["name"], tc["arguments"], content):
+                if note := repeat_note(earlier, tc["name"], tc["arguments"], content):
                     content = f"{content}\n\n{note}"
                 messages.append(ChatMessage(role="tool", content=content, tool_call_id=tc["id"]))

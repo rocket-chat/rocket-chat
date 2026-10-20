@@ -8,43 +8,10 @@ export const createComposerSlice: StateCreator<MissionStore, [], [], ComposerSli
   composerSeed: null,
   seedComposer: (text) => set({ composerSeed: { text, nonce: Date.now() } }),
   clearComposerSeed: () => set({ composerSeed: null }),
-  queuedPrompt: null,
   pendingAttachments: [],
   attachmentError: null,
   suggestedFollowup: null,
   setSuggestedFollowup: (suggestedFollowup) => set({ suggestedFollowup }),
-  setQueuedPrompt: (queuedPrompt) => {
-    set({ queuedPrompt });
-    const session = get().session;
-    const sessionId = session?.session_id;
-    if (sessionId && !session.is_draft && sessionId !== "draft" && sessionId !== "new") {
-      fetch(`/v1/sessions/${sessionId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ metadata: { queued_prompt: queuedPrompt ?? null } }),
-        signal: AbortSignal.timeout(8000),
-      }).catch(() => {
-        // The queue is best-effort on the server; the in-memory intent still dispatches.
-      });
-    }
-  },
-  popQueuedPrompt: () => {
-    const p = get().queuedPrompt;
-    if (p) {
-      set({ queuedPrompt: null });
-      const session = get().session;
-      const sessionId = session?.session_id;
-      if (sessionId && !session.is_draft && sessionId !== "draft" && sessionId !== "new") {
-        fetch(`/v1/sessions/${sessionId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ metadata: { queued_prompt: null } }),
-          signal: AbortSignal.timeout(8000),
-        }).catch(() => {});
-      }
-    }
-    return p;
-  },
   uploadAttachment: async (file: File) => {
     const session = get().session;
     const sessionId = session?.session_id;

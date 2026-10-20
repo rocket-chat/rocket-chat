@@ -817,16 +817,18 @@ export default function AgentsSettingsPage() {
           <Field
             label="Max steps per turn"
             hint={
-              orgMaxTurns !== null
-                ? `Leave empty to use the organization's limit (${orgMaxTurns}); at most ${orgMaxTurns}.`
-                : "Leave empty to use the organization's limit."
+              orgMaxTurns === 0
+                ? "Leave empty for no limit (the organization sets none); 0 also means no limit."
+                : orgMaxTurns !== null
+                  ? `Leave empty to use the organization's limit (${orgMaxTurns}); at most ${orgMaxTurns}.`
+                  : "Leave empty to use the organization's limit."
             }
           >
             {(control) => (
               <Input {...control}
                 type="number"
-                min={1}
-                max={orgMaxTurns ?? undefined}
+                min={orgMaxTurns === 0 ? 0 : 1}
+                max={orgMaxTurns ? orgMaxTurns : undefined}
                 disabled={!canEditCurrentAgent}
                 value={formData.max_turns ?? ""}
                 onChange={(e) =>
@@ -835,7 +837,13 @@ export default function AgentsSettingsPage() {
                     max_turns: e.target.value === "" ? null : Number(e.target.value),
                   })
                 }
-                placeholder={orgMaxTurns !== null ? String(orgMaxTurns) : "Organization limit"}
+                placeholder={
+                  orgMaxTurns === 0
+                    ? "No limit"
+                    : orgMaxTurns !== null
+                      ? String(orgMaxTurns)
+                      : "Organization limit"
+                }
                 className="max-w-[10rem]"
               />
             )}

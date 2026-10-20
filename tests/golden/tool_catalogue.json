@@ -128,22 +128,6 @@
     }
   },
   {
-    "description": "Set the one-line status the user sees in the Cockpit or Slack loader. Call it when you start a new phase of work (not before every tool call), in present tense and describing what you are doing now. It is not a progress report: never use it to claim you are nearly done.",
-    "name": "update_status",
-    "parameters": {
-      "properties": {
-        "message": {
-          "description": "Short human-readable status message describing your current action in present-continuous tense.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "message"
-      ],
-      "type": "object"
-    }
-  },
-  {
     "description": "Record an explicit reasoning checkpoint (scratchpad) before the next action. The checkpoint is surfaced to the user as a reasoning event.",
     "name": "think",
     "parameters": {
@@ -160,7 +144,7 @@
     }
   },
   {
-    "description": "Create or update the task checklist the user follows. Every call REPLACES the whole list, so always send all tasks. Use it for work with three or more steps: create it first, keep exactly one task in_progress, and mark each task completed as soon as it is done, not later. Before your final answer no task may stay pending or in_progress: mark finished work completed and abandoned work failed. Send an empty list to clear it when it no longer helps.",
+    "description": "Create or update the task checklist the user follows. Every call REPLACES the whole list, so always send all tasks. Use it for work with three or more steps: create it first, keep exactly one task in_progress, and mark each task completed as soon as it is done, not later. Before your final answer no task may stay pending or in_progress: mark finished work completed and abandoned work failed. Send an empty list to clear it when it no longer helps. Call it only when a task's status changes, never on every step.",
     "name": "update_task_checklist",
     "parameters": {
       "properties": {
@@ -526,7 +510,7 @@
     }
   },
   {
-    "description": "Make another cloned repository the active one: git, test and build tools, bash_exec and relative file paths use it when you name no folder, in this turn and later ones.",
+    "description": "Make another cloned repository the active one: git, test and build tools and relative file paths use it when you name no folder, in this turn and later ones. Not needed to run a command elsewhere: `bash_exec` takes its folder as `cwd`, and the other tools take `path`.",
     "name": "set_active_repository",
     "parameters": {
       "properties": {
@@ -750,32 +734,36 @@
     }
   },
   {
-    "description": "Work with a pull request (what `gh pr` does). Read: list, view, files, diff (paged by file), checks, review_threads (with comment and thread ids). Change: edit (title/body/base), ready, draft, request_reviewers, comment, review (event comment|request_changes|approve), reply_to_thread (comment_id), resolve_thread (thread_id), close, reopen, merge (needs approval). Open a pull request with git_open_pr.",
+    "description": "Work with pull requests. Send a list of actions to run in order. Reads: list, view, files, diff (paged by file), checks, review_threads. Writes: edit (title/body/base), ready, draft, request_reviewers, comment, review (event comment|request_changes|approve), reply_to_thread (comment_id), resolve_thread (thread_id), close, reopen, merge. Open a PR with git_open_pr.",
     "name": "github_pull_request",
     "parameters": {
       "properties": {
-        "action": {
-          "description": "What to do.",
-          "enum": [
-            "list",
-            "view",
-            "files",
-            "diff",
-            "checks",
-            "review_threads",
-            "edit",
-            "ready",
-            "draft",
-            "request_reviewers",
-            "comment",
-            "review",
-            "reply_to_thread",
-            "resolve_thread",
-            "close",
-            "reopen",
-            "merge"
-          ],
-          "type": "string"
+        "actions": {
+          "description": "What to do. Multiple actions run in order (e.g. ['view','comments','checks']).",
+          "items": {
+            "enum": [
+              "list",
+              "view",
+              "files",
+              "diff",
+              "checks",
+              "review_threads",
+              "edit",
+              "ready",
+              "draft",
+              "request_reviewers",
+              "comment",
+              "review",
+              "reply_to_thread",
+              "resolve_thread",
+              "close",
+              "reopen",
+              "merge"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array"
         },
         "base": {
           "description": "New base branch (edit).",
@@ -831,7 +819,7 @@
       },
       "required": [
         "repository",
-        "action"
+        "actions"
       ],
       "type": "object"
     }
@@ -1226,16 +1214,16 @@
     }
   },
   {
-    "description": "Execute a shell command inside the sandbox (/bin/sh by default; write POSIX-compliant syntax or invoke bash explicitly if using bashisms). Each call is a fresh shell: `cd` and exported variables do not carry over, so pass `cwd` instead of `cd`.",
+    "description": "Execute a shell command inside the sandbox (/bin/sh by default; write POSIX-compliant syntax or invoke bash explicitly if using bashisms). Each call is a fresh shell: `cd` and exported variables do not carry over. Always say where it runs with `cwd`; never start the command with `cd`.",
     "name": "bash_exec",
     "parameters": {
       "properties": {
         "command": {
-          "description": "The shell command to execute.",
+          "description": "The shell command to execute, without `cd`.",
           "type": "string"
         },
         "cwd": {
-          "description": "Folder to run in, absolute or relative to /workspace. Default: the session's active repository, else /workspace.",
+          "description": "Folder to run in, e.g. /workspace/api (absolute, or relative to /workspace).",
           "type": "string"
         },
         "timeout_seconds": {
@@ -1244,7 +1232,8 @@
         }
       },
       "required": [
-        "command"
+        "command",
+        "cwd"
       ],
       "type": "object"
     }

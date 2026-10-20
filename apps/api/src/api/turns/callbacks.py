@@ -157,6 +157,33 @@ def _schedule_process_wake(
     task.add_done_callback(_background_tasks.discard)
 
 
+# Right after a push GitHub takes a few seconds to create a commit's checks.
+NO_CHECKS_GRACE_SECONDS = 15.0
+NO_CHECKS_ATTEMPTS = 4
+
+
+async def _ci_already_settled(
+    ctx: TurnContext, git_bundle: GitCredentialBundle | None, repo: str, pr_num: int
+) -> str | None:
+    """What to tell the agent instead of waiting, when CI has already finished or never runs.
+
+    A wait on finished CI only woke the session at its timeout (30 minutes and more), and a
+    wait on a pull request with no CI at all could never end any other way.
+    """
+    for attempt in range(NO_CHECKS_ATTEMPTS):
+        status, summary, settled = await _check_github_ci_poll(ctx, git_bundle, repo, pr_num)
+        if settled:
+            return f"{summary} No wait was registered: act on this result now."
+        if status != "none":
+            return None
+        if attempt < NO_CHECKS_ATTEMPTS - 1:
+            await asyncio.sleep(NO_CHECKS_GRACE_SECONDS)
+    return (
+        f"{summary} No wait was registered: read the pull request's state "
+        "(`github_pull_request`) and decide what to do instead of waiting for CI."
+    )
+
+
 async def _check_github_ci_poll(
     ctx: TurnContext,
     git_bundle: GitCredentialBundle | None,
@@ -202,6 +229,19 @@ async def _check_github_ci_poll(
         total = len(check_runs) + len(statuses)
         if total > 0 and not in_progress:
             return "completed", f"All {total} CI check(s) passed on {repo}#{pr_num}.", True
+        if total == 0:
+            behind = pull.get("mergeable_state") == "behind"
+            return (
+                "none",
+                f"No CI check or status is reported on {repo}#{pr_num} (head {head_sha[:8]})"
+                + (
+                    ": the branch is behind its base, and this repository's CI may only run on "
+                    "an up-to-date branch."
+                    if behind
+                    else ": CI may not run for this repository, branch or set of paths."
+                ),
+                False,
+            )
 
         return "in_progress", "", False
     except Exception as exc:
@@ -388,6 +428,21 @@ def _parse_repo_pr(identifier: str, default_repo: str = "") -> tuple[str, int | 
     return clean.lower(), None
 
 
+def _normalize_wait(
+    target: str, identifier: str, timeout_seconds: int | None, default_repo: str
+) -> tuple[str, int | None, str, int]:
+    """The repository and pull request (for GitHub waits), the normalized target and timeout."""
+    if target in ("ci_status", "review"):
+        repo, pr_num = _parse_repo_pr(identifier, default_repo=default_repo)
+        normalized = f"{repo}#{pr_num}" if pr_num is not None else repo
+        return repo, pr_num, normalized, max(30, min(timeout_seconds or 1800, 7200))
+    if target == "time":
+        seconds = float(identifier) if identifier.replace(".", "", 1).isdigit() else 30.0
+        delay = max(1.0, min(seconds, 86400.0))
+        return "", None, str(delay), int(delay)
+    return "", None, identifier, max(5, min(timeout_seconds or 600, 3600))
+
+
 def _build_wait_for(
     session_id: str,
     event_bus: Any,
@@ -401,24 +456,13 @@ def _build_wait_for(
         if ctx is not None and ctx.session.metadata:
             default_repo = str(ctx.session.metadata.get("github_repo") or "")
 
-        repo, pr_num = "", None
-        if target in ("ci_status", "review"):
-            repo, pr_num = _parse_repo_pr(identifier, default_repo=default_repo)
-            norm_identifier = f"{repo}#{pr_num}" if pr_num is not None else repo
-            effective_timeout = max(30, min(timeout_seconds or 1800, 7200))
-        elif target == "time":
-            delay = max(
-                1.0,
-                min(
-                    float(identifier) if identifier.replace(".", "", 1).isdigit() else 30.0, 86400.0
-                ),
-            )
-            norm_identifier = str(delay)
-            effective_timeout = int(delay)
-        else:
-            norm_identifier = identifier
-            effective_timeout = max(5, min(timeout_seconds or 600, 3600))
+        repo, pr_num, norm_identifier, effective_timeout = _normalize_wait(
+            target, identifier, timeout_seconds, default_repo
+        )
 
+        if target == "ci_status" and pr_num is not None and ctx is not None:
+            if settled := await _ci_already_settled(ctx, git_bundle, repo, pr_num):
+                return settled
         reason = f"{target} on {norm_identifier}"
         await event_bus.publish(
             SessionEvent(

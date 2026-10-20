@@ -118,7 +118,7 @@ persona carries the stored id, which can differ from the proposed one.
 | temperature | number | no | Sampling temperature override |
 | thinking_budget_tokens | integer | no | Extended thinking budget tokens override |
 | reasoning_effort | string | no | Reasoning effort tier override ('low', 'medium', 'high') |
-| max_turns | integer | no | Maximum reasoning steps per turn for this agent; empty inherits the organization's limit, and a value above it is refused |
+| max_turns | integer | no | Maximum reasoning steps per turn for this agent (0: no limit); empty inherits the organization's limit, and a value above it is refused |
 | tool_loading | `all` / `on_demand` / `auto` | no | Which allowed tools every step carries: all, on_demand (the platform's tools and active_tools; the others are loaded when needed) or auto; empty inherits the organization's setting |
 | active_tools | list of string | no | Tools always loaded, by name or pattern (mcp__signoz*__*search*); with on_demand, only these and the loading tools are, when set |
 | default_permission_mode | string | no | Default permission mode ('plan', 'ask', 'auto_edit', 'auto', 'bypass'); empty inherits |
@@ -1543,6 +1543,7 @@ Create or update a custom prompt skill with scoping.
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
+| id | string | no | Existing skill ID when updating |
 | name | string | no | Skill name; the title is used when omitted (one of the two) |
 | title | string | no | Display title; the name when omitted |
 | description | string | no | Skill purpose summary |

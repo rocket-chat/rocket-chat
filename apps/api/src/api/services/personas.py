@@ -22,6 +22,7 @@ from api.db.models import AgentPersonaEntityModel
 from api.models import AgentPersonaModel, ToolLoadingMode
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.turn_limits import organization_max_turns
+from specifications.interfaces.agent import NO_STEP_LIMIT
 
 # The default agent's prompt, also used when a session's agent has none. Model-agnostic: the
 # environment (sandbox, tools, git) is described by the platform's own system prompt sections.
@@ -408,7 +409,9 @@ async def _validate_step_limit(db_mgr: Any, org_id: str, persona: AgentPersonaMo
     if persona.max_turns is None:
         return
     ceiling = await organization_max_turns(db_mgr, org_id)
-    if persona.max_turns > ceiling:
+    if ceiling != NO_STEP_LIMIT and (
+        persona.max_turns == NO_STEP_LIMIT or persona.max_turns > ceiling
+    ):
         raise PersonaError(
             422, f"Max steps per turn cannot exceed the organization's limit of {ceiling}."
         )

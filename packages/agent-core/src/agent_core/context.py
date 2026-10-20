@@ -19,6 +19,7 @@ import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from fnmatch import fnmatch
+from typing import Any
 
 import litellm
 from llm_gateway.tokens import request_tokens
@@ -63,6 +64,8 @@ class ExecutionContext:
     plan_mode: bool = False
     # Set once the workspace has been snapshotted for this turn, before its first change.
     checkpointed: bool = False
+    # The checklist as the agent last sent it this turn, so an unchanged re-send is a no-op.
+    checklist: list[dict[str, Any]] | None = None
     # Enforced tool scope for constrained callers (e.g. the unauthenticated Slack path).
     # None means no restriction; a frozenset is an allowlist the registry enforces server-side.
     allowed_tools: frozenset[str] | None = None
@@ -413,9 +416,17 @@ class ContextManager:
         force_compaction: bool = False,
         working_plan: str | None = None,
         progress_md: str | None = None,
+        target_tokens: int = 0,
     ) -> CompactionResult:
-        """Runs progressive Tier 2 & Tier 3 hygiene checks against model context limits."""
+        """Runs progressive Tier 2 & Tier 3 hygiene checks against model context limits.
+
+        ``target_tokens`` caps the window the thresholds apply to: a model with a 1M window
+        otherwise works for hundreds of steps at half a million tokens per request, each step
+        slower and costlier, and loses track of its own progress well before the window ends.
+        """
         limit = self.get_model_context_limit(model, overrides)
+        if target_tokens > 0:
+            limit = min(limit, target_tokens)
         counted = self.count_tokens(model, messages, tools)
         tokens = max(counted, measured_tokens)
         tokens_before = tokens
@@ -502,21 +513,32 @@ def _compose(
     return merged
 
 
-def render_transcript(messages: list[ChatMessage], max_chars: int = 24_000) -> str:
-    """Plain-text rendering of messages for a summarizer prompt (bounded)."""
+def _render_call(call: dict[str, Any]) -> str:
+    function = call.get("function", {})
+    name = str(function.get("name", "?"))
+    arguments = " ".join(str(function.get("arguments", "")).split())
+    limit = 1500 if name == "update_task_checklist" else 300
+    return f"{name}({arguments[:limit]}{'...' if len(arguments) > limit else ''})"
+
+
+def render_transcript(messages: list[ChatMessage], max_chars: int = 120_000) -> str:
+    """Plain-text rendering of messages for a summarizer prompt (bounded).
+
+    Each call keeps its arguments (which file, which command, which pull request), since the
+    summary is all that survives of them. Over the bound the middle of the rendering is cut,
+    not its start: the first steps hold the decisions everything after builds on.
+    """
     lines: list[str] = []
     for message in messages:
-        if message.tool_calls:
-            names = ", ".join(
-                str(call.get("function", {}).get("name", "?")) for call in message.tool_calls
-            )
-            lines.append(f"assistant called tools: {names}")
-            for call in message.tool_calls:
-                function = call.get("function", {})
-                if function.get("name") == "update_task_checklist":
-                    lines.append(f"checklist: {str(function.get('arguments', ''))[:1500]}")
+        if message.reasoning and message.role == "assistant":
+            lines.append(f"assistant thought: {' '.join(message.reasoning.split())[:400]}")
         if message.content:
             snippet = " ".join(message.content.split())[:600]
             lines.append(f"{message.role}: {snippet}")
+        for call in message.tool_calls or []:
+            lines.append(f"assistant called {_render_call(call)}")
     text = "\n".join(lines)
-    return text[-max_chars:] if len(text) > max_chars else text
+    if len(text) <= max_chars:
+        return text
+    half = max_chars // 2
+    return f"{text[:half]}\n[... {len(text) - max_chars} characters omitted ...]\n{text[-half:]}"

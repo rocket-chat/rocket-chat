@@ -14,6 +14,7 @@ from collections.abc import Iterator
 
 import pytest
 from agent_core.context import ExecutionContext, current_execution_ctx
+from agent_core.tools.builtin.commands import fold_leading_cd
 from agent_core.tools.registry import ToolRegistry
 from git_engine.config import GitEngineSettings
 from git_engine.engine import GitEngine
@@ -201,7 +202,7 @@ async def test_git_tools_refuse_to_guess_between_two_clones(
     assert chosen.startswith("[/workspace/gadgets]")
 
 
-async def test_the_active_repository_is_the_default_and_bash_runs_there(
+async def test_the_active_repository_is_the_default_and_bash_runs_where_it_is_told(
     workspace: Workspace, turn: ExecutionContext
 ) -> None:
     workspace.clone("widgets")
@@ -210,7 +211,9 @@ async def test_the_active_repository_is_the_default_and_bash_runs_there(
     registry = ToolRegistry(driver=workspace.driver, session_id="s1")  # type: ignore[arg-type]
 
     status = await registry.call_tool("git_status", {})
-    here = await registry.call_tool("bash_exec", {"command": "basename $(pwd)"})
+    here = await registry.call_tool(
+        "bash_exec", {"command": "basename $(pwd)", "cwd": "/workspace/gadgets"}
+    )
     elsewhere = await registry.call_tool(
         "bash_exec", {"command": "basename $(pwd)", "cwd": "widgets"}
     )
@@ -219,12 +222,23 @@ async def test_the_active_repository_is_the_default_and_bash_runs_there(
     assert here.strip() == "gadgets" and elsewhere.strip() == "widgets"
 
 
-async def test_bash_runs_in_the_workspace_without_an_active_repository(
+async def test_bash_needs_a_folder_and_a_leading_cd_becomes_that_folder(
     workspace: Workspace, turn: ExecutionContext
 ) -> None:
+    """Agents wrote `cd <repo> && ...` into every command: the folder is a required argument,
+    and a leading `cd` still written is run as that folder instead."""
+    workspace.clone("widgets")
     registry = ToolRegistry(driver=workspace.driver, session_id="s1")  # type: ignore[arg-type]
 
-    assert (await registry.call_tool("bash_exec", {"command": "pwd"})).strip() == "/workspace"
+    with pytest.raises(Exception, match="cwd"):
+        await registry.call_tool("bash_exec", {"command": "pwd"})
+    folded = await registry.call_tool(
+        "bash_exec", {"command": "cd widgets && pwd", "cwd": "/workspace"}
+    )
+
+    assert folded.strip() == "/workspace/widgets"
+    assert fold_leading_cd("cd /x/y && make test", "/workspace") == ("make test", "/x/y")
+    assert fold_leading_cd('cd "$HOME" && ls', "/workspace") == ('cd "$HOME" && ls', "/workspace")
 
 
 async def test_the_first_clone_becomes_the_active_repository(

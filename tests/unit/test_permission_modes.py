@@ -159,7 +159,9 @@ def _tool_result(events: list[AgentEvent]) -> str:
 
 
 async def test_ask_mode_gates_a_command_and_runs_it_once_approved() -> None:
-    events, driver = await _run_turn("ask", "bash_exec", {"command": "echo hi"}, approve=True)
+    events, driver = await _run_turn(
+        "ask", "bash_exec", {"command": "echo hi", "cwd": "/workspace"}, approve=True
+    )
     (gate,) = _gates(events)
     assert (gate["action_type"], gate["risk_level"]) == ("bash_exec", "medium")
     assert "echo hi" in gate["command_or_path"]

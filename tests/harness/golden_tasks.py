@@ -66,7 +66,9 @@ class GoldenStubGateway(DeterministicStubGateway):
             return (
                 "Golden reasoning: running the test suite in the sandbox.",
                 "",
-                _tool_call("call_golden_shell", "bash_exec", {"command": "pytest"}),
+                _tool_call(
+                    "call_golden_shell", "bash_exec", {"command": "pytest", "cwd": "/workspace"}
+                ),
             )
         if WRITE_MARKER in prompt:
             return (

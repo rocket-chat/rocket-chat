@@ -66,8 +66,8 @@ def _register_clone(registry: "ToolRegistry") -> None:
         message = outcome.message
         if outcome.folder and registry.remember_active_repository(outcome.folder):
             message += (
-                f"\n{outcome.folder} is now the active repository: git, test and build tools and "
-                "bash_exec use it when you name no folder."
+                f"\n{outcome.folder} is now the active repository: git, test and build tools "
+                "use it when you name no folder."
             )
         cloned = registry._turn_callback("repository_cloned")
         if outcome.folder and cloned:
@@ -77,9 +77,10 @@ def _register_clone(registry: "ToolRegistry") -> None:
 
     @registry._tool(
         description=(
-            "Make another cloned repository the active one: git, test and build tools, "
-            "bash_exec and relative file paths use it when you name no folder, in this turn "
-            "and later ones."
+            "Make another cloned repository the active one: git, test and build tools and "
+            "relative file paths use it when you name no folder, in this turn and later ones. "
+            "Not needed to run a command elsewhere: `bash_exec` takes its folder as `cwd`, and "
+            "the other tools take `path`."
         )
     )
     async def set_active_repository(

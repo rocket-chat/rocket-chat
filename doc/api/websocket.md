@@ -221,6 +221,14 @@ only**: the model receives image blocks or inlined text on this dispatch,
 and the bytes are never re-sent on later turns, which keeps the provider's cached prefix
 stable.
 
+**While a turn is running**, a `turn` frame without attachments does not wait for it to end:
+the running turn reads the message at its next step, as part of the conversation, and the
+server broadcasts it as `user_message` (with the frame's `message_id`) at that moment. The
+session history then reads in the order the agent saw it: the work before the message, the
+message, the work after it. A message that arrives as the turn finishes, one with attachments,
+or one sent while the turn runs on another replica, starts the next turn instead (after the
+running one).
+
 ### B. Answering a Decision Gate
 Handled by the `answer_question` frame; the payload fields mirror the pending
 `decision_required` event:
@@ -240,7 +248,7 @@ Halts model reasoning and background tool execution immediately:
   "type": "cancel"
 }
 ```
-The server aborts active tool tasks, emits `status_changed` with status `"cancelled"`, and stands by for queued or subsequent user prompts.
+The server aborts active tool tasks, emits `status_changed` with status `"cancelled"`, and stands by for the next message (a message sent during the turn that it had not read yet starts the next turn).
 
 ### D. Submitting an Approval Decision
 Resolves a pending `approval_required` gate:

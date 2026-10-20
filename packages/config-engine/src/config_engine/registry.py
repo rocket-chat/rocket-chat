@@ -130,8 +130,10 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             100,
             "org",
             _TURN_LIMITS,
-            "Maximum reasoning steps per turn. It is the default for agents, and the ceiling for an agent that sets its own limit.",
-            minimum=1,
+            "Maximum reasoning steps per turn (0: no limit, the turn runs until the agent answers, "
+            "is cancelled or reaches a cost cap). It is the default for agents, and the ceiling "
+            "for an agent that sets its own limit.",
+            minimum=0,
             maximum=500,
         ),
         _spec(
@@ -204,6 +206,28 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Context-window size in tokens per model name or pattern (e.g. "
             '{"my-provider/*": 32000}), for models whose size is not known to the platform; '
             "drives when long conversations are compacted.",
+        ),
+        _spec(
+            "context_target_tokens",
+            "int",
+            200_000,
+            "org",
+            _TURN,
+            "Working context size in tokens: long conversations are pruned and compacted to stay "
+            "under it even when the model's window is larger (requests stay fast and focused). "
+            "0 uses the model's whole window.",
+            minimum=0,
+            maximum=10_000_000,
+        ),
+        _spec(
+            "provider_preferences",
+            "dict",
+            {},
+            "org",
+            _TURN,
+            "OpenRouter provider preferences per model name or pattern, e.g. "
+            '{"openrouter/deepseek/*": {"order": ["deepseek"], "allow_fallbacks": false}}. '
+            "Pinning a model to one provider keeps its prompt cache warm across requests.",
         ),
         _spec(
             "fallback_models",

@@ -19,6 +19,8 @@ Which models members may use and which are forbidden, the default model, fallbac
 
 **Token Usage & Spend** shows spend by member, model and session. Under *Budgets* set a monthly limit for the organization, one per member and one per session, and the percentage at which to warn; a turn that would exceed a limit is stopped with a clear message instead of billing past it. A policy decides whether members may use their own provider key (**bring your own key**). Slack turns have their own share of spend and rate limits.
 
+Spend is what the provider billed when it reports it (OpenRouter does, for every call), otherwise the model's published price; through OpenRouter the figures therefore match its activity page. Two model settings help long sessions: **working context size** (`context_target_tokens`, 200,000 tokens by default) keeps conversations compacted below it even on models with a larger window, and **provider preferences** (`provider_preferences`) pin an OpenRouter model to a provider so its prompt cache stays warm, for example `{"openrouter/deepseek/*": {"order": ["deepseek"], "allow_fallbacks": false}}`.
+
 ## Governance & memory
 
 * **Approval policy**: for each risk level, require a human, approve automatically, or deny. This sits on top of each session's permission mode, and an organization can forbid *bypass* mode entirely.

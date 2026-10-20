@@ -23,7 +23,7 @@ class _SecretLeakingDriver(FakeSandboxDriver):
 async def test_secrets_in_tool_output_never_enter_storage_events_or_prompts() -> None:
     driver = _SecretLeakingDriver()
     script = [
-        ("bash_exec", {"command": "cat .env"}),
+        ("bash_exec", {"command": "cat .env", "cwd": "/workspace"}),
         ("file_list", {"directory": "/workspace"}),
     ]
 

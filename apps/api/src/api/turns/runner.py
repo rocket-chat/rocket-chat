@@ -239,7 +239,9 @@ class TurnRunner:
         governance = GovernancePolicy.from_settings(settings)
 
         binding, model, reason = await self._plan(session, governance, trace)
-        state.synthesis_turns = binding.max_turns or DEFAULT_MAX_TURNS
+        state.synthesis_turns = (
+            binding.max_turns if binding.max_turns is not None else DEFAULT_MAX_TURNS
+        )
         return TurnContext(
             req=req,
             state=state,
@@ -251,7 +253,7 @@ class TurnRunner:
             audit=AuditService(req.db_mgr),
             effective_model=model,
             routing_reason=reason,
-            effective_max_turns=binding.max_turns or DEFAULT_MAX_TURNS,
+            effective_max_turns=state.synthesis_turns,
         )
 
     async def _load_session(self) -> SessionRecord:

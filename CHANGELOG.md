@@ -10,17 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `orchestrator`:
-- `sandboxes`:
-- `api`:
-- `web`:
-- `settings`:
-- `git`:
-- `helm`:
+- `orchestrator`, `api`, `web`: **Talk to a running agent.** A message sent while a turn runs reaches it at its next step instead of waiting for the turn (which may run for an hour) to end; the history keeps the order the agent saw it, and a message that arrives as the turn ends starts the next turn. Replaces the composer's single queued prompt, which a second message overwrote.
+- `orchestrator`: A call repeated with an unchanged result is told so in its result (the same pull request was read 28 times in one turn); arguments are compared with their keys sorted.
+- `settings`: `models.context_target_tokens` (200,000 by default): long conversations are pruned and compacted below it even on models with a larger window. `models.provider_preferences`: OpenRouter provider preferences per model pattern, to keep a model on one provider and its prompt cache warm.
+- `settings`, `api`, `web`: A step limit of `0` (organization or agent) runs a turn until the agent answers, is cancelled or reaches a cost cap, without a "converge now" notice or forced synthesis.
 
 ### Changed
+- `orchestrator`: Loop detection never pauses an autonomous turn: repeated failures and edit/revert loops are notes to the agent in every mode but `ask`. The checklist stall detector is removed (re-sending an unchanged checklist counted as "no progress" and its warning asked for another update), an unchanged checklist re-send is a no-op, and the stale-checklist reminder comes every 20 steps without asking for an update "with your next tool call".
+- `orchestrator`: `bash_exec` requires `cwd`, and a leading `cd <folder> &&` runs as that folder; the cockpit shows the command and where it ran.
+- `orchestrator`: The active repository's `AGENTS.md` moves from the cached system prompt to the per-turn context: switching repository no longer re-sends the whole history uncached on the next turn.
+- `orchestrator`: `.rocket/PLAN.md` and `PROGRESS.md` are read at turn start (and after a step that writes them) and given once with the turn's context, instead of four sandbox reads and an uncached copy at the end of every request.
+- `orchestrator`: Compaction summaries see every call with its arguments and both ends of a long history (they saw tool names and the last 24,000 characters).
+- `api`: `wait_for ci_status` reads the pull request's checks first and answers at once when CI has finished or no check appears (a branch behind its base, no CI), instead of waiting up to two hours.
 
 ### Fixed
+- `orchestrator`: Wake, continuation and resume prompts were re-sent as the newest message on every step, so the agent restarted the same first step over and over (one turn sent the same two calls 64 times); they are stored once where the turn starts.
+- `llm-gateway`: Model costs were priced from a rate card that billed every DeepSeek model at DeepSeek V3 rates, about a tenth of DeepSeek V4 Pro's; the cost OpenRouter bills is now requested and recorded, else LiteLLM's price for the underlying model. Zero-retention no longer drops the other provider options of a request.
+- `api`: Streamed thoughts and answers lost chunks: the coalescer's timer cancelled its own flush mid-publish. Thoughts showed sentences with words missing.
 
 ### Security
 

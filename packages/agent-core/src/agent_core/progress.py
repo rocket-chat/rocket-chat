@@ -3,7 +3,6 @@
 Detects:
 1. Repeated command failures (exit codes >= 3, identical command failing).
 2. File edit/revert oscillations (A -> B -> A).
-3. Stalled checklist progress with active steps.
 
 Triggers:
 - Level 1: System nudge injected into the next prompt note.
@@ -15,12 +14,9 @@ from __future__ import annotations
 import hashlib
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any
 
 NUDGE_FAIL_THRESHOLD = 3
 DECISION_FAIL_THRESHOLD = 5
-NUDGE_STALL_STEPS = 25
-DECISION_STALL_STEPS = 75
 
 
 @dataclass
@@ -39,8 +35,6 @@ class ProgressTracker:
         self._command_history: list[tuple[str, int]] = []
         self._file_hashes: dict[str, list[str]] = defaultdict(list)
         self._oscillation_counts: dict[str, int] = defaultdict(int)
-        self._last_checklist_hash: str | None = None
-        self._steps_without_checklist_progress: int = 0
 
     def record_command(self, command: str, exit_code: int) -> LoopDetectionResult | None:
         """Record command execution and evaluate failure loops."""
@@ -124,67 +118,3 @@ class ProgressTracker:
             )
 
         return None
-
-    def _check_stalled(self) -> LoopDetectionResult | None:
-        stalled = self._steps_without_checklist_progress
-        if stalled >= DECISION_STALL_STEPS:
-            return LoopDetectionResult(
-                level=2,
-                reason=f"Checklist progress stalled for {stalled} consecutive steps.",
-                suggested_nudge="",
-                question_text=(
-                    f"Task execution has continued for {stalled} steps without updating any checklist task. "
-                    "Would you like to give guidance or continue?"
-                ),
-                options=[
-                    "Continue running",
-                    "Update checklist and refocus on next pending item",
-                    "Abort current turn",
-                ],
-            )
-
-        if stalled >= NUDGE_STALL_STEPS:
-            return LoopDetectionResult(
-                level=1,
-                reason=f"Checklist progress stalled for {stalled} steps.",
-                suggested_nudge=(
-                    f"[Stall Warning: {stalled} steps have completed without updating any checklist item. "
-                    "Review your checklist status with `update_checklist` and ensure progress towards the active goal.]"
-                ),
-            )
-
-        return None
-
-    def record_step(self, has_active_checklist: bool = True) -> LoopDetectionResult | None:
-        """Advance turn step counter and detect checklist stagnation."""
-        if not has_active_checklist:
-            return None
-        self._steps_without_checklist_progress += 1
-        return self._check_stalled()
-
-    def record_checklist_state(
-        self, checklist_tasks: list[dict[str, Any]] | None
-    ) -> LoopDetectionResult | None:
-        """Track checklist progress and notice stagnation."""
-        if not checklist_tasks:
-            return None
-
-        # Compute hash of tasks and statuses
-        state_repr = "-".join(f"{t.get('id', '')}:{t.get('status', '')}" for t in checklist_tasks)
-        curr_hash = hashlib.sha256(state_repr.encode("utf-8")).hexdigest()[:16]
-
-        has_unfinished = any(
-            t.get("status") not in ("completed", "cancelled") for t in checklist_tasks
-        )
-        if not has_unfinished:
-            self._steps_without_checklist_progress = 0
-            self._last_checklist_hash = curr_hash
-            return None
-
-        if self._last_checklist_hash == curr_hash:
-            self._steps_without_checklist_progress += 1
-        else:
-            self._steps_without_checklist_progress = 0
-            self._last_checklist_hash = curr_hash
-
-        return self._check_stalled()

@@ -1,6 +1,8 @@
 """Running commands: shell, tests, lint, type checks, builds, packages, a browser and image viewing."""
 
 import logging
+import posixpath
+import re
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import Field
@@ -60,33 +62,53 @@ async def _maybe_auto_checkpoint(
             pass
 
 
+# A plain folder after a leading `cd`: no variables, globs, quotes or other shell syntax.
+_LEADING_CD = re.compile(r"^\s*cd\s+([A-Za-z0-9_./@+-]+)\s*&&\s*(?=\S)")
+
+
+def fold_leading_cd(command: str, workdir: str) -> tuple[str, str]:
+    """``cd <folder> && rest`` as ``rest`` run in that folder.
+
+    Models keep writing the folder into every command although ``cwd`` says it; the command is
+    the same, and the session reads as the work instead of as navigation.
+    """
+    match = _LEADING_CD.match(command)
+    if match is None:
+        return command, workdir
+    folder = match.group(1)
+    target = folder if folder.startswith("/") else posixpath.normpath(f"{workdir}/{folder}")
+    return command[match.end() :], target
+
+
 def _register_shell_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
             "Execute a shell command inside the sandbox (/bin/sh by default; write POSIX-compliant "
             "syntax or invoke bash explicitly if using bashisms). Each call is a fresh shell: "
-            "`cd` and exported variables do not carry over, so pass `cwd` instead of `cd`."
+            "`cd` and exported variables do not carry over. Always say where it runs with `cwd`; "
+            "never start the command with `cd`."
         )
     )
     async def bash_exec(
-        command: Annotated[str, Field(description="The shell command to execute.")],
+        command: Annotated[str, Field(description="The shell command to execute, without `cd`.")],
+        cwd: Annotated[
+            str,
+            Field(
+                description="Folder to run in, e.g. /workspace/api (absolute, or relative to "
+                "/workspace)."
+            ),
+        ],
         timeout_seconds: Annotated[
             int, Field(description="Execution timeout in seconds (default: 120).")
         ] = 120,
-        cwd: Annotated[
-            str | None,
-            Field(
-                description="Folder to run in, absolute or relative to /workspace. Default: the "
-                "session's active repository, else /workspace."
-            ),
-        ] = None,
     ) -> str:
         target = registry._sandbox_target("bash_exec")
         if not target:
             return "Error: Sandbox not initialized for bash_exec"
         driver, session_id = target
         await registry._ensure_sandbox(session_id)
-        workdir = workspace_path(cwd) if cwd else await registry.shell_dir(session_id)
+        workdir = workspace_path(cwd) if cwd.strip() else await registry.shell_dir(session_id)
+        command, workdir = fold_leading_cd(command, workdir)
         await _maybe_auto_checkpoint(driver, session_id, command, workdir)
         before = await workspace_changes.snapshot(driver, session_id, workdir)
         output = await tier2.bash_exec(driver, session_id, command, timeout_seconds, workdir)

@@ -10,7 +10,7 @@ from turn_harness import run_turn
 from specifications.interfaces.sandbox import ExecResult
 
 SECRET = "sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ012345"
-ECHO = ("bash_exec", {"command": "echo hello"})
+ECHO = ("bash_exec", {"command": "echo hello", "cwd": "/workspace"})
 
 
 def _ok(stdout: str, code: int = 0) -> ExecResult:

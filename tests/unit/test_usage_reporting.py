@@ -156,3 +156,35 @@ def test_an_estimated_call_is_never_free() -> None:
         50,
         10,
     )
+
+
+async def test_the_cost_the_provider_billed_is_what_is_recorded_and_streamed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """OpenRouter reports what it billed: the ledger and the turn telemetry must use that, not
+    a rate card (a DeepSeek V4 Pro call was recorded at DeepSeek V3 prices, a tenth of its cost)."""
+    usage = SimpleNamespace(prompt_tokens=300_000, completion_tokens=400, total_tokens=300_400,
+                            cache_read_input_tokens=290_000, cache_creation_input_tokens=None,
+                            prompt_tokens_details=None, cost=0.0731)  # fmt: skip
+
+    event, seen = await _billed(monkeypatch, [_chunk("ok", "stop", usage)])
+
+    assert event.cost_usd == pytest.approx(0.0731)
+    assert seen[-1].cost_usd == pytest.approx(0.0731)
+
+
+def test_a_gateway_model_name_is_priced_from_the_underlying_model() -> None:
+    gateway = LiteLLMGateway()
+    listed = gateway._cost_usd("deepseek/deepseek-v4-pro", 1_000_000, 100_000, 0, 0)
+
+    assert gateway._cost_usd("openrouter/deepseek/deepseek-v4-pro", 1_000_000, 100_000, 0, 0) == (
+        listed
+    )
+    kwargs = gateway._completion_kwargs(
+        "openrouter/deepseek/deepseek-v4-pro",
+        ModelRequest(
+            model="openrouter/deepseek/deepseek-v4-pro",
+            messages=[ChatMessage(role="user", content="hi")],
+        ),
+    )
+    assert kwargs["extra_body"]["usage"] == {"include": True}

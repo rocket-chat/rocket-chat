@@ -13,6 +13,7 @@ from api.turns.prompt import _organization_guidance
 from api.turns.shared import _turn_service
 
 from specifications.interfaces.llm import BudgetExceededError, ModelScope, UsageEvent
+from tests.turn_harness import run_turn
 
 
 async def _plan(org: str, **kwargs: Any) -> Any:
@@ -290,3 +291,18 @@ async def test_the_default_turn_budget_is_the_same_everywhere_it_is_stated() -> 
 
     assert REGISTRY["general"]["max_turns"].default == DEFAULT_MAX_TURNS == 100
     assert (await _plan("wire_default_budget")).max_turns == DEFAULT_MAX_TURNS
+
+
+@pytest.mark.setting("general.max_turns")
+async def test_without_a_step_limit_a_long_turn_runs_to_its_answer_without_wrapping_up() -> None:
+    org = "wire_no_step_limit"
+    await save_org_config(None, org, "general", {"max_turns": 0}, [])
+    script = [("list_dir", {"path": f"dir{i}"}) for i in range(130)]
+
+    outcome = await run_turn(org, script=script, final_text="Finished all 130 steps.")
+
+    react = [r for r in outcome.model.requests if r.tools]
+    assert len(react) == 131
+    sent = " ".join(m.content or "" for r in react for m in r.messages)
+    assert "Budget notice" not in sent and "converging" not in sent
+    assert outcome.session.conversation_history[-1].content == "Finished all 130 steps."

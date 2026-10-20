@@ -5,7 +5,7 @@ import { useMissionStore } from "../lib/store";
 import { newMessageId } from "../lib/message-id";
 import { loadDraft, saveDraft } from "../lib/draft";
 import { useAuth } from "./AuthProvider";
-import { Server, GitBranch, Rocket, ChevronDown, Check, Bot, Zap, Shield, Bug, Book, Search, Square, ListPlus, X, Paperclip, FileText, AlertTriangle } from "lucide-react";
+import { Server, GitBranch, Rocket, ChevronDown, Check, Bot, Zap, Shield, Bug, Book, Search, Square, MessageSquarePlus, X, Paperclip, FileText, AlertTriangle } from "lucide-react";
 import { AgentPersonaConfig, ModelOption } from "../types/mission";
 import { PermissionModePicker } from "./PermissionModePicker";
 import { SandboxPicker } from "./SandboxPicker";
@@ -107,8 +107,6 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     selectDirectModel,
     suggestedFollowup,
     setSuggestedFollowup,
-    queuedPrompt,
-    setQueuedPrompt,
     pendingAttachments,
     attachmentError,
     uploadAttachment,
@@ -172,12 +170,6 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     const trimmed = prompt.trim();
     if (!trimmed && pendingAttachments.length === 0) return;
 
-    if (isExecuting) {
-      setQueuedPrompt(trimmed);
-      setPrompt("");
-      return;
-    }
-
     // Never dispatch while a file is still uploading: the turn would start without it.
     if (pendingAttachments.some((a) => a.status === "uploading")) {
       setStatusMessage("Waiting for attachments to finish uploading...");
@@ -187,21 +179,24 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     const readyAttachments = pendingAttachments.filter((a) => a.status === "ready");
     const attachmentIds = readyAttachments.map((a) => a.attachmentId);
 
-    // Trigger cool rocket lift-off on the first user message of a session
-    const hasUserMessages = flightLog.some((e) => e.role === "USER");
-    const isFirstUserMessage = !hasUserMessages;
-    if (isFirstUserMessage) {
-      setIsLaunchingRocket(true);
-      setTimeout(() => setIsLaunchingRocket(false), 1400);
+    // While a turn runs, the message goes to it at its next step (the server starts it as the
+    // next turn when it cannot): the running turn's state is left as it is.
+    if (!isExecuting) {
+      // Trigger cool rocket lift-off on the first user message of a session
+      const hasUserMessages = flightLog.some((e) => e.role === "USER");
+      if (!hasUserMessages) {
+        setIsLaunchingRocket(true);
+        setTimeout(() => setIsLaunchingRocket(false), 1400);
+      }
+
+      // Trigger thrust pulse on send button
+      setIsThrustPulsing(true);
+      setTimeout(() => setIsThrustPulsing(false), 300);
+
+      clearReasoning();
+      setIsExecuting(true);
+      setStatusMessage("Transmitting instructions to agent sandbox...");
     }
-
-    // Trigger thrust pulse on send button
-    setIsThrustPulsing(true);
-    setTimeout(() => setIsThrustPulsing(false), 300);
-
-    clearReasoning();
-    setIsExecuting(true);
-    setStatusMessage("Transmitting instructions to agent sandbox...");
 
     const messageId = newMessageId();
     appendOwnUserMessage({
@@ -228,7 +223,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
       return;
     }
 
-    // Enter or ⌘⏎ / Ctrl⏎ to run or queue
+    // Enter or ⌘⏎ / Ctrl⏎ to run, or to send to the running turn
     if (e.key === "Enter") {
       if (!e.shiftKey) {
         e.preventDefault();
@@ -351,26 +346,6 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
           </div>
         )}
 
-        {/* Queued Prompt Banner */}
-        {queuedPrompt && (
-          <div className="flex items-center justify-between gap-2 px-3 py-1.5 mb-2 rounded-xl bg-primary/10 border border-primary/25 text-xs text-primary font-mono">
-            <div className="flex items-center gap-2 truncate">
-              <span className="font-semibold uppercase tracking-wider text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded">
-                Queued Next
-              </span>
-              <span className="truncate text-foreground/90 font-sans">{queuedPrompt}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setQueuedPrompt(null)}
-              className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
-              title="Cancel queued prompt"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
         {/* Text Input Area & Ghost Autocomplete Overlay */}
         <div className="relative">
           <SlashCommandMenu
@@ -393,7 +368,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
               loading
                 ? "Opening the conversation…"
                 : isExecuting
-                ? "Agent is running... Type your next instruction to queue it (Enter to queue)"
+                ? "Agent is running… Send a message and it reads it at its next step"
                 : suggestedFollowup
                 ? ""
                 : "Describe what you want done… (Enter to run, Shift+Enter for a new line)"
@@ -603,7 +578,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
             )}
           </div>
 
-          {/* Execution Controls: Stop, Queue, Run */}
+          {/* Execution Controls: Stop, Send to the running turn, Run */}
           <div className="flex items-center gap-1.5">
             {isExecuting && (
               <button
@@ -623,16 +598,16 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                 type="button"
                 onClick={handleIgnite}
                 disabled={!prompt.trim()}
-                data-testid="queue-button"
+                data-testid="steer-button"
                 className={`relative px-3.5 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 ${
                   !prompt.trim()
                     ? "bg-overlay text-muted-foreground cursor-not-allowed opacity-50"
                     : "bg-primary hover:bg-primary-hover text-white cursor-pointer"
                 }`}
-                title="Queue this prompt to run immediately after current turn"
+                title="Send this message to the running agent; it reads it at its next step"
               >
-                <ListPlus className="w-3.5 h-3.5" />
-                <span>Queue</span>
+                <MessageSquarePlus className="w-3.5 h-3.5" />
+                <span>Send</span>
               </button>
             ) : (
               <button
