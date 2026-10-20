@@ -3,6 +3,7 @@ Interface definitions for Sandbox Driver Subsystem.
 Defines the contract for pluggable execution environments (K8s & Docker).
 """
 
+import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -86,6 +87,28 @@ class FileStat:
     is_dir: bool
     size_bytes: int
     modified_at: int
+
+
+# Layers of a session's command environment, lowest precedence first: the sandbox type's
+# variables (set by an administrator), then the ones the agent set with ``env_set``.
+SESSION_ENV_SANDBOX_TYPE = "sandbox_type"
+SESSION_ENV_AGENT = "agent"
+SESSION_ENV_LAYERS: tuple[str, ...] = (SESSION_ENV_SANDBOX_TYPE, SESSION_ENV_AGENT)
+MAX_SESSION_ENV_VARS = 50
+MAX_SESSION_ENV_VALUE_CHARS = 8192
+_ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+# Variables the platform or the shell owns: neither layer may shadow them.
+_RESERVED_ENV = frozenset({"PATH", "HOME", "SHELL", "USER", "PWD", "HOSTNAME"})
+_RESERVED_ENV_PREFIXES = ("GIT_", "ROCKET_", "LD_")
+
+
+def session_env_name_problem(name: str) -> str | None:
+    """Why ``name`` cannot be a session variable, or None when it can."""
+    if not _ENV_NAME.match(name):
+        return f"'{name}' is not a valid variable name (letters, digits and _)."
+    if name in _RESERVED_ENV or name.startswith(_RESERVED_ENV_PREFIXES):
+        return f"{name} is set by the platform and cannot be changed."
+    return None
 
 
 class SandboxDriverProtocol(ABC):
@@ -209,6 +232,16 @@ class SandboxDriverProtocol(ABC):
 
         Used for short-lived credentials; the default is a no-op for drivers that cannot
         honour it.
+        """
+
+    def set_session_env_layer(  # noqa: B027
+        self, session_id: str, layer: str, env: dict[str, str]
+    ) -> None:
+        """Set one layer of the session's command environment (see ``SESSION_ENV_LAYERS``).
+
+        Layers are merged in their listed order, the platform's own environment
+        (``set_session_env``) last, so neither the sandbox type nor the agent can replace the
+        credentials the platform supplies. The default is a no-op.
         """
 
     async def open_pty(self, session_id: str, cols: int = 80, rows: int = 24) -> "PtyChannel":

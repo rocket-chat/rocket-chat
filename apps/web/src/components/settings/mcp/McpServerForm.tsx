@@ -28,6 +28,8 @@ interface McpServerFormProps {
 
 const AUTH_OPTIONS = ["none", "api_key", "custom_headers", "oauth2"];
 
+type SignIn = "automatic" | "needs_client";
+
 /** The authentication mode the form opens with: a stored server's own, else none. */
 function initialAuthType(editing?: McpServerConfig): string {
   if (!editing) return "none";
@@ -54,7 +56,11 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
     error?: string | null;
     tools_count?: number;
     tools?: McpToolSchema[];
+    sign_in?: SignIn | null;
   } | null>(null);
+  // The server asks for an account: "automatic" needs nothing set up, "needs_client" an OAuth
+  // app created on the provider (its fields are under Advanced).
+  const [signIn, setSignIn] = useState<SignIn | null>(null);
 
   // Server Form Fields
   const [serverName, setServerName] = useState(editing?.name ?? "");
@@ -96,6 +102,8 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
   );
   const [installCommand, setInstallCommand] = useState(editing?.install_command ?? "");
   const isCommand = transport === "stdio";
+  // Saving opens the sign-in when the server is OAuth and this account is not connected yet.
+  const signsIn = !isCommand && authType === "oauth2" && editing?.oauth_status !== "connected";
   const [newHeaderKey, setNewHeaderKey] = useState("");
   const [newHeaderVal, setNewHeaderVal] = useState("");
   const [newHeaderSecret, setNewHeaderSecret] = useState(false);
@@ -175,6 +183,29 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
     setOauthScopes("");
   };
 
+  /** A server that asks for an account is an OAuth server: nothing else to choose. */
+  const adoptSignIn = (offered: SignIn | null | undefined) => {
+    if (!offered) return;
+    setSignIn(offered);
+    setAuthType("oauth2");
+  };
+
+  /** As soon as an address is entered, ask the server whether it signs people in. */
+  const detectSignIn = async () => {
+    if (isCommand || editing || !/^https?:\/\//.test(endpoint.trim())) return;
+    if (authType !== "none" && authType !== "oauth2") return;
+    try {
+      const res = await fetch("/v1/mcp/servers/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ transport, endpoint_or_command: endpoint.trim(), scope: formScope, auth: { auth_type: "none" } }),
+      });
+      if (res.ok) adoptSignIn((await res.json()).sign_in);
+    } catch {
+      // Detection is a convenience: the server can still be set up by hand.
+    }
+  };
+
   const handleValidateConnection = async () => {
     if (!endpoint) {
       setValidationResult({ valid: false, message: "Please provide an endpoint URL or command" });
@@ -202,6 +233,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
         setValidationResult({ valid: false, message: data.detail || "Validation failed" });
       } else {
         setValidationResult(data);
+        adoptSignIn(data.sign_in);
       }
     } catch (err) {
       setValidationResult({
@@ -220,6 +252,9 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
     }
 
     setFormError(null);
+    // Opened now, while the click still counts as the person's gesture (a tab opened after the
+    // save would be blocked as a pop-up), and pointed at the sign-in once the server exists.
+    const signInTab = signsIn ? window.open("", "_blank") : null;
     try {
       const payload: Record<string, unknown> = {
         id: editing?.id,
@@ -243,6 +278,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
       }
 
       const created: McpServerConfig = await res.json();
+      if (signInTab) signInTab.location.href = `/v1/mcp/servers/${created.id}/oauth/authorize`;
       onSaved(
         created,
         editing
@@ -250,6 +286,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
           : `Registered MCP server '${created.name}' (${formScope} scope)`
       );
     } catch (err: unknown) {
+      signInTab?.close();
       const msg = err instanceof Error ? err.message : "Error saving MCP server";
       setFormError(msg);
     }
@@ -363,6 +400,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                           : "https://api.internal.service/mcp"
                       }
                       value={endpoint}
+                      onBlur={detectSignIn}
                       onChange={(e) => {
                         setEndpoint(e.target.value);
                         // A new address means a new authorization server: let it be discovered again.
@@ -458,22 +496,48 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                 )}
 
                 {!isCommand && authType === "oauth2" && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-lg bg-surface-card border border-border">
-                    <p className="sm:col-span-2 text-[10px] text-muted-foreground">
-                      Leave the URLs and client ID empty to discover them from the server itself
-                      (OAuth metadata and dynamic client registration).
+                  <div className="space-y-3 p-3 rounded-lg bg-surface-card border border-border">
+                    <p data-testid="mcp-sign-in-summary" className="text-xs text-foreground">
+                      {signIn === "needs_client"
+                        ? "This server signs you in with your account, but its provider does not let applications register themselves: create an OAuth app there and enter it under Advanced."
+                        : "This server signs you in with your account. Nothing to set up: save it and sign in in the tab that opens."}
                     </p>
                     {formScope === "org" && (
-                      <label className="sm:col-span-2 flex items-center gap-2 text-[11px] text-neutral-300">
-                        <input
-                          type="checkbox"
-                          data-testid="mcp-oauth-member-mode"
-                          checked={oauthMode === "member"}
-                          onChange={(e) => setOauthMode(e.target.checked ? "member" : "org")}
-                        />
-                        Each member connects their own account (instead of one shared account)
-                      </label>
+                      <fieldset className="space-y-1.5">
+                        <legend className="text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1">Who signs in</legend>
+                        <label className="flex items-center gap-2 text-xs text-foreground">
+                          <input
+                            type="radio"
+                            name="mcp-oauth-mode"
+                            data-testid="mcp-oauth-member-mode"
+                            checked={oauthMode === "member"}
+                            onChange={() => setOauthMode("member")}
+                          />
+                          Each member with their own account
+                        </label>
+                        <label className="flex items-center gap-2 text-xs text-foreground">
+                          <input
+                            type="radio"
+                            name="mcp-oauth-mode"
+                            data-testid="mcp-oauth-shared-mode"
+                            checked={oauthMode === "org"}
+                            onChange={() => setOauthMode("org")}
+                          />
+                          One shared account for the organization (you sign in now)
+                        </label>
+                      </fieldset>
                     )}
+                    <Disclosure
+                      summary="Advanced: an OAuth app created on the provider"
+                      testId="mcp-oauth-advanced"
+                      defaultOpen={signIn === "needs_client" || !!(oauthClientId || oauthAuthUrl)}
+                    >
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <p className="sm:col-span-2 text-[10px] text-muted-foreground">
+                      Only for a provider that does not let applications register themselves. Its
+                      callback URL is{" "}
+                      <code className="font-mono">{`${typeof window === "undefined" ? "" : window.location.origin}/v1/mcp/oauth/callback`}</code>.
+                    </p>
                     <div>
                       <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1">
                         Authorization URL
@@ -534,6 +598,8 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                         className="w-full px-2.5 py-1 rounded-lg border border-border bg-surface text-xs"
                       />
                     </div>
+                    </div>
+                    </Disclosure>
                   </div>
                 )}
 
@@ -653,7 +719,11 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                     )}
                     <div>
                       <div className="font-semibold">
-                        {validationResult.valid ? "Connection Verified" : "Validation Failed"}
+                        {validationResult.valid
+                          ? "Connection Verified"
+                          : validationResult.sign_in
+                            ? "Sign-in required"
+                            : "Validation Failed"}
                       </div>
                       <div className="text-[11px] opacity-90 mt-0.5">
                         {validationResult.message ||
@@ -697,7 +767,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                     className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-semibold transition-all cursor-pointer shadow-sm"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>Probe &amp; connect server</span>
+                    <span data-testid="mcp-save-label">{signsIn ? (editing ? "Save & sign in" : "Add & sign in") : "Probe & connect server"}</span>
                   </button>
                 </div>
               </div>

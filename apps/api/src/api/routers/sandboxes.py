@@ -13,9 +13,20 @@ from api.services.sandbox_catalogue import (
     CatalogueError,
     SandboxCatalogue,
     SandboxEntry,
+    env_view,
 )
 
 router = APIRouter(prefix="/v1", tags=["Sandboxes"])
+
+
+class SandboxEnvVar(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    value: str | None = Field(
+        None,
+        max_length=8192,
+        description="The value; never returned for a secret, and left empty to keep a secret",
+    )
+    secret: bool = Field(False, description="Write-only: stored encrypted, never shown again")
 
 
 class SandboxView(BaseModel):
@@ -31,6 +42,10 @@ class SandboxView(BaseModel):
     disk_size: str = Field("", description="Workspace volume size (e.g. 50Gi); empty inherits")
     release_after_days: int | None = Field(
         None, description="Days an idle session keeps its workspace; empty inherits"
+    )
+    env: list[SandboxEnvVar] = Field(
+        default_factory=list,
+        description="Variables set for every command (administrators only; secrets masked)",
     )
 
 
@@ -55,6 +70,7 @@ class SandboxBody(BaseModel):
     memory_limit: str = Field(default="", max_length=16)
     disk_size: str = Field(default="", max_length=16)
     release_after_days: int | None = None
+    env: list[SandboxEnvVar] = Field(default_factory=list, max_length=50)
 
 
 class SandboxPatch(BaseModel):
@@ -68,14 +84,17 @@ class SandboxPatch(BaseModel):
     memory_limit: str | None = Field(default=None, max_length=16)
     disk_size: str | None = Field(default=None, max_length=16)
     release_after_days: int | None = None
+    env: list[SandboxEnvVar] | None = Field(default=None, max_length=50)
 
 
 def catalogue_for(request: Request) -> SandboxCatalogue:
     return SandboxCatalogue(getattr(request.app.state, "db_manager", None))
 
 
-def _view(entry: SandboxEntry) -> SandboxView:
-    return SandboxView(**{k: getattr(entry, k) for k in SandboxView.model_fields})
+def _view(entry: SandboxEntry, *, admin: bool = True) -> SandboxView:
+    fields = {k: getattr(entry, k) for k in SandboxView.model_fields if k != "env"}
+    env = [SandboxEnvVar(**v) for v in env_view(entry)] if admin else []
+    return SandboxView(**fields, env=env)
 
 
 async def _audit(request: Request, org_id: str, user_id: str, action: str, entry_id: str) -> None:
@@ -90,9 +109,12 @@ async def _audit(request: Request, org_id: str, user_id: str, action: str, entry
 
 @router.get("/sandboxes", response_model=SandboxCatalogueView)
 async def list_sandboxes(request: Request) -> SandboxCatalogueView:
-    org_id, _, _ = _get_request_identity(request)
+    org_id, _, roles = _get_request_identity(request)
+    admin = any(role in ("admin", "owner") for role in roles)
     entries = await catalogue_for(request).entries(org_id)
-    return SandboxCatalogueView(sandboxes=[_view(e) for e in entries], capabilities=CAPABILITIES)
+    return SandboxCatalogueView(
+        sandboxes=[_view(e, admin=admin) for e in entries], capabilities=CAPABILITIES
+    )
 
 
 @router.get("/admin/sandboxes/profiles", response_model=list[SandboxProfileView])

@@ -323,6 +323,11 @@ class ValidateMcpServerResponse(BaseModel):
     status: str
     tools: list[McpToolItem] = Field(default_factory=list)
     error: str | None = None
+    sign_in: str | None = Field(
+        default=None,
+        description="The server asks for an account: 'automatic' (sign in after saving, nothing "
+        "to set up) or 'needs_client' (the provider needs an OAuth app created by hand)",
+    )
 
 
 class McpRunnerStatus(BaseModel):

@@ -38,6 +38,8 @@ EXEMPT_PREFIXES = (
     "/v1/preview/",
     # The git gateway authenticates sandbox git with the session's gateway capability header.
     "/v1/git/",
+    # Read by an MCP server's authorization server when our client ID is this document's URL.
+    "/v1/mcp/oauth/client-metadata.json",
     # A public session link is its own capability: a signed, expiring, revocable token.
     "/v1/shared/",
 )

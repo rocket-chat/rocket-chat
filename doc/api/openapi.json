@@ -3697,6 +3697,14 @@
             "title": "Disk Size",
             "type": "string"
           },
+          "env": {
+            "items": {
+              "$ref": "#/components/schemas/SandboxEnvVar"
+            },
+            "maxItems": 50,
+            "title": "Env",
+            "type": "array"
+          },
           "image": {
             "maxLength": 255,
             "minLength": 1,
@@ -3770,6 +3778,40 @@
         "title": "SandboxCatalogueView",
         "type": "object"
       },
+      "SandboxEnvVar": {
+        "properties": {
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "secret": {
+            "default": false,
+            "description": "Write-only: stored encrypted, never shown again",
+            "title": "Secret",
+            "type": "boolean"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "maxLength": 8192,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The value; never returned for a secret, and left empty to keep a secret",
+            "title": "Value"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "SandboxEnvVar",
+        "type": "object"
+      },
       "SandboxPatch": {
         "properties": {
           "capabilities": {
@@ -3821,6 +3863,21 @@
               }
             ],
             "title": "Disk Size"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SandboxEnvVar"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Env"
           },
           "image": {
             "anyOf": [
@@ -3940,6 +3997,14 @@
             "description": "Workspace volume size (e.g. 50Gi); empty inherits",
             "title": "Disk Size",
             "type": "string"
+          },
+          "env": {
+            "description": "Variables set for every command (administrators only; secrets masked)",
+            "items": {
+              "$ref": "#/components/schemas/SandboxEnvVar"
+            },
+            "title": "Env",
+            "type": "array"
           },
           "id": {
             "title": "Id",
@@ -6088,6 +6153,18 @@
               }
             ],
             "title": "Error"
+          },
+          "sign_in": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The server asks for an account: 'automatic' (sign in after saving, nothing to set up) or 'needs_client' (the provider needs an OAuth app created by hand)",
+            "title": "Sign In"
           },
           "status": {
             "title": "Status",
@@ -8597,6 +8674,30 @@
           }
         },
         "summary": "Mcp Oauth Callback",
+        "tags": [
+          "MCP"
+        ]
+      }
+    },
+    "/v1/mcp/oauth/client-metadata.json": {
+      "get": {
+        "description": "Rocket Chat's OAuth client metadata, for authorization servers that accept a URL as the\nclient ID (no registration on the provider's side). Public: it holds no secret.",
+        "operationId": "mcp_oauth_client_metadata_v1_mcp_oauth_client_metadata_json_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Mcp Oauth Client Metadata V1 Mcp Oauth Client Metadata Json Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Mcp Oauth Client Metadata",
         "tags": [
           "MCP"
         ]

@@ -364,7 +364,7 @@ export interface McpServerConfig {
   guidance?: string;
   auth_type?: string;
   auth_config?: Record<string, unknown>;
-  status: "connected" | "probing" | "error" | "offline";
+  status: "connected" | "probing" | "error" | "offline" | "needs_sign_in";
   tools_count: number;
   last_probed?: string;
   is_builtin?: boolean;

@@ -90,6 +90,8 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
                 className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-lg text-[9px] ${
                   server.status === "connected"
                     ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                    : server.status === "needs_sign_in"
+                    ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30"
                     : server.status === "error"
                     ? "bg-rose-500/10 text-rose-400 border border-rose-500/20"
                     : "bg-neutral-500/10 text-neutral-400 border border-neutral-500/20"
@@ -100,7 +102,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
                     server.status === "connected" ? "bg-emerald-400" : "bg-neutral-400"
                   }`}
                 />
-                {server.status}
+                {server.status === "needs_sign_in" ? "sign-in required" : server.status}
               </span>
             </div>
             <p className="text-[10px] text-muted-foreground truncate mt-0.5">
@@ -118,12 +120,14 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
               title="Authenticate via OAuth 2.1 PKCE"
             >
               <ExternalLink className="w-3 h-3" />
-              <span>
+              <span data-testid="mcp-sign-in-button">
                 {server.oauth_mode === "member"
                   ? server.oauth_status === "connected"
-                    ? "REConnect my account"
-                    : "Connect my account"
-                  : "OAUTH CONNECT"}
+                    ? "Reconnect my account"
+                    : "Sign in with my account"
+                  : server.oauth_status === "connected" && server.status !== "needs_sign_in"
+                    ? "Reconnect"
+                    : "Sign in"}
               </span>
             </button>
           )}

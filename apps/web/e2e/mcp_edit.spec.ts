@@ -91,7 +91,10 @@ test.describe("Editing remote MCP servers", () => {
       );
 
       await page.getByLabel("Scopes (Space Separated)").fill("read write");
-      await page.getByRole("button", { name: /Probe & connect server/i }).click();
+      // Not signed in yet: saving also opens the sign-in, in a tab of its own.
+      const signIn = page.context().waitForEvent("page");
+      await page.getByRole("button", { name: /Save & sign in/i }).click();
+      await (await signIn).close();
       await expect(page.getByTestId("mcp-server-modal")).toBeHidden({ timeout: 30000 });
 
       const after = await storedServer(page, name);

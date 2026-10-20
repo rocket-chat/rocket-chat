@@ -1214,7 +1214,7 @@
     }
   },
   {
-    "description": "Execute a shell command inside the sandbox (/bin/sh by default; write POSIX-compliant syntax or invoke bash explicitly if using bashisms). Each call is a fresh shell: `cd` and exported variables do not carry over. Always say where it runs with `cwd`; never start the command with `cd`.",
+    "description": "Execute a shell command inside the sandbox, in bash (sh only in an image without bash). Each call is a fresh shell: `cd` and `export` do not carry over. Always say where it runs with `cwd`; never start the command with `cd`. For variables every command needs, use `env_set` once instead of exporting them each time.",
     "name": "bash_exec",
     "parameters": {
       "properties": {
@@ -1406,6 +1406,51 @@
       "required": [
         "path"
       ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Set an environment variable for every later command of this session (bash_exec, tests, builds, background processes), in this and later turns. Use it instead of exporting the same variable in each command, e.g. GOPRIVATE or NODE_OPTIONS.",
+    "name": "env_set",
+    "parameters": {
+      "properties": {
+        "name": {
+          "description": "Variable name, e.g. GOPRIVATE.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value, e.g. github.com/acme/*.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Remove a variable you set with env_set.",
+    "name": "env_unset",
+    "parameters": {
+      "properties": {
+        "name": {
+          "description": "Variable name, e.g. GOPRIVATE.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "List the variables set for every command: the ones you set with env_set (with their values) and the sandbox type's (names only).",
+    "name": "env_list",
+    "parameters": {
+      "properties": {},
       "type": "object"
     }
   },

@@ -316,6 +316,12 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     await expect(steps).toHaveCount(2);
     await expect(page.getByText("Step intent")).toBeVisible();
     await expect(steps.nth(0)).toContainText("Inspecting CI runners");
+    // The kind and the start of the text are separate lines, so they never read as one sentence.
+    const preview = steps.nth(0).getByTestId("step-preview");
+    await expect(preview).toContainText("Inspecting CI runners");
+    const titleBox = await steps.nth(0).getByText("Step intent").boundingBox();
+    const previewBox = await preview.boundingBox();
+    expect(previewBox!.y).toBeGreaterThan(titleBox!.y);
 
     // Click the step intent to view its markdown content
     await steps.nth(0).click();

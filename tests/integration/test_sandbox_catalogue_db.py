@@ -51,3 +51,29 @@ def test_an_entry_is_invisible_to_another_organization() -> None:
         theirs = [s["name"] for s in client.get("/v1/sandboxes", headers=other).json()["sandboxes"]]
         client.delete(f"/v1/admin/sandboxes/{created.json()['id']}", headers=HEADERS)
     assert name in mine and name not in theirs
+
+
+def test_variables_round_trip_with_the_secret_sealed() -> None:
+    name = f"env-{uuid.uuid4().hex[:6]}"
+    body = {
+        "name": name,
+        "image": "registry.example/env:1",
+        "env": [
+            {"name": "GOPRIVATE", "value": "github.com/acme/*"},
+            {"name": "NPM_TOKEN", "value": "npm_s3cret", "secret": True},
+        ],
+    }
+    with TestClient(app) as client:
+        created = client.post("/v1/admin/sandboxes", json=body, headers=HEADERS)
+        assert created.status_code == 200, created.text
+        box_id = created.json()["id"]
+
+        async def stored() -> list[dict[str, object]]:
+            current_tenant_org_id.set("test_org")
+            entries = await SandboxCatalogue(app.state.db_manager).entries("test_org")
+            return next(e for e in entries if e.id == box_id).env
+
+        env = client.portal.call(stored)
+        client.delete(f"/v1/admin/sandboxes/{box_id}", headers=HEADERS)
+    assert env[0] == {"name": "GOPRIVATE", "value": "github.com/acme/*", "secret": False}
+    assert env[1]["secret"] is True and env[1]["value"] != "npm_s3cret"

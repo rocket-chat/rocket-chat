@@ -25,6 +25,7 @@ from api.services.metrics import (
     record_quota_rejection,
 )
 from api.services.session_support import _new_message_id
+from api.services.waits import get_wait_store, settle_waits
 from api.turns.context import TurnSelection
 from api.turns.gates import _forget_pending_decisions
 from api.turns.shared import _api_rate_limiter
@@ -219,6 +220,14 @@ async def cancel_turn(session_id: str, request: Request) -> dict[str, str]:
 
     orchestrator: AsyncReActOrchestrator = request.app.state.orchestrator
     await orchestrator.cancel_turn(session_id)
+    # Stopping means stopping: a pending wait would otherwise restart the work at its deadline.
+    await settle_waits(
+        getattr(request.app.state, "wait_store", None)
+        or get_wait_store(getattr(request.app.state, "db_manager", None)),
+        session_id,
+        record.tenant_org_id,
+        status="cancelled",
+    )
     event_bus: EventBusProtocol | None = getattr(request.app.state, "event_bus", None)
     if event_bus:
         await event_bus.publish(

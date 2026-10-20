@@ -253,6 +253,9 @@ class TurnCallbacks:
     # Called with (session id, tool names) when the agent loads deferred tools, so later turns
     # send them too.
     tools_loaded: Callable[[str, list[str]], Awaitable[None]] | None = None
+    # Called with (session id, every variable the agent set) after ``env_set``/``env_unset``,
+    # so later turns' commands get them too.
+    agent_env_changed: Callable[[str, dict[str, str]], Awaitable[None]] | None = None
     # Follow a pull request or branch: (repo, pull request, branch, wake) -> a note for the agent.
     github_watch: Callable[[str, int | None, str | None, bool], Awaitable[str]] | None = None
     # Stop following: (repo, pull request, branch) -> a note for the agent.
@@ -477,6 +480,10 @@ class TurnPolicy:
     # The session's active repository folder (``/workspace/<name>``): where git, test and build
     # tools act when the agent names no folder. Empty until the session clones one.
     active_repository: str = ""
+    # Names of the variables the sandbox type sets (values stay on the platform), and the
+    # variables the agent set with ``env_set`` in earlier turns of the session.
+    sandbox_env_names: tuple[str, ...] = ()
+    agent_env: Mapping[str, str] = field(default_factory=dict)
     tool_loading: ToolLoading = field(default_factory=ToolLoading)
     output_offload_threshold: int = 6_000
     max_turn_cost_usd: float | None = None

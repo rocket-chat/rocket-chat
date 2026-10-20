@@ -103,7 +103,9 @@ def test_a_members_key_is_encrypted_used_for_their_turn_and_removed_with_the_ser
                     stored = str(row.tokens)
                 outputs = []
                 for user in ("mcp_env_member", "mcp_env_admin"):
-                    provider = await mcp_turn._mcp_tools_for_turn(manager, "test_org", user)
+                    provider = (
+                        await mcp_turn._mcp_tools_for_turn(manager, "test_org", user)
+                    ).provider
                     assert provider is not None
                     try:
                         mine = [d for d in provider.definitions() if "whoami" in d.name]
@@ -214,7 +216,9 @@ def test_an_edited_server_on_postgresql_still_runs_with_its_secret(
 
             async def runs_with() -> str:
                 current_tenant_org_id.set("test_org")
-                provider = await mcp_turn._mcp_tools_for_turn(manager, "test_org", "mcp_env_admin")
+                provider = (
+                    await mcp_turn._mcp_tools_for_turn(manager, "test_org", "mcp_env_admin")
+                ).provider
                 assert provider is not None
                 try:
                     mine = [d for d in provider.definitions() if "whoami" in d.name]

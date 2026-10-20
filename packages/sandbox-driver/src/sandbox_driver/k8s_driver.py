@@ -883,15 +883,9 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         """
         deadline_command = wrap_with_deadline(command, timeout_seconds)
         merged = self.merged_env(session_id, env)
-        dynamic_env = {
-            k: v
-            for k, v in merged.items()
-            if (
-                k not in DEFAULT_SANDBOX_CACHE_ENV
-                or (env and k in env)
-                or (session_id in self._env_store() and k in self._env_store()[session_id])
-            )
-        }
+        # The cache defaults are in the pod spec already; anything else, or a changed value,
+        # travels with the command.
+        dynamic_env = {k: v for k, v in merged.items() if DEFAULT_SANDBOX_CACHE_ENV.get(k) != v}
         if not dynamic_env:
             return ["/bin/sh", "-c", f"cd {shlex.quote(workdir)} && {deadline_command}"], None
         payload = "".join(

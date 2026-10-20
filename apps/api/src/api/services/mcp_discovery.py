@@ -17,6 +17,7 @@ import httpx2
 from agent_core.tools.safe_http import resolve_public_target
 from mcp.client.auth import utils as sdk
 from mcp.shared.auth import OAuthClientMetadata, OAuthMetadata, ProtectedResourceMetadata
+from mcp.shared.auth_utils import check_resource_allowed, resource_url_from_server_url
 from pydantic import AnyUrl
 
 logger = logging.getLogger(__name__)
@@ -37,12 +38,27 @@ class Discovered:
     scopes: str | None
     issuer: str | None
     pkce_s256: bool
+    # The canonical server URI tokens are requested for (RFC 8707 ``resource``).
+    resource: str | None = None
+    # The authorization server accepts a client ID that is a URL to the client's metadata.
+    client_metadata_supported: bool = False
 
 
 @dataclass(frozen=True)
 class Registered:
     client_id: str
     client_secret: str | None
+    # How the client was obtained: "registered" (RFC 7591) or "metadata_url" (a URL client ID).
+    method: str = "registered"
+
+
+def _resource_for(server_url: str, resource: ProtectedResourceMetadata | None) -> str:
+    """The server's own resource identifier when it covers this URL, else its canonical URI."""
+    canonical = resource_url_from_server_url(server_url)
+    advertised = str(resource.resource) if resource is not None and resource.resource else ""
+    if advertised and check_resource_allowed(canonical, advertised):
+        return advertised
+    return canonical
 
 
 async def _send(client: httpx2.AsyncClient, request: httpx2.Request) -> httpx2.Response:
@@ -98,6 +114,8 @@ async def discover(server_url: str, *, client: httpx2.AsyncClient | None = None)
             scopes=sdk.get_client_metadata_scopes(advertised_scope, resource, metadata),
             issuer=str(metadata.issuer) if metadata.issuer else None,
             pkce_s256=True,
+            resource=_resource_for(server_url, resource),
+            client_metadata_supported=metadata.client_id_metadata_document_supported is True,
         )
     except DiscoveryError:
         raise
@@ -155,3 +173,31 @@ async def register_client(
     if not info.client_id:
         raise DiscoveryError("The server did not return a client ID.")
     return Registered(client_id=info.client_id, client_secret=info.client_secret)
+
+
+async def establish_client(
+    discovered: Discovered,
+    redirect_uri: str,
+    *,
+    client_metadata_url: str | None = None,
+    client: httpx2.AsyncClient | None = None,
+) -> Registered:
+    """A client ID for this authorization server, with nothing set up on the provider's side.
+
+    Registration (RFC 7591) comes first: the authorization server answers it directly, while a
+    URL client ID only works if the server can fetch our metadata document, which a deployment
+    on a private network does not expose. Without either, the provider needs an OAuth app
+    created by hand, and the person is told so instead of being sent to a login that fails.
+    """
+    if discovered.registration_url:
+        return await register_client(discovered, redirect_uri, client=client)
+    if (
+        discovered.client_metadata_supported
+        and client_metadata_url
+        and sdk.is_valid_client_metadata_url(client_metadata_url)
+    ):
+        return Registered(client_id=client_metadata_url, client_secret=None, method="metadata_url")
+    raise DiscoveryError(
+        "This provider does not let applications register themselves: create an OAuth app "
+        f"there with the callback URL {redirect_uri} and enter its client ID (and secret)."
+    )

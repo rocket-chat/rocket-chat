@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 from agent_core.tool_loading import catalogue, deferred_names
+from api.services.mcp_turn import McpTurnTools
 from api.services.settings import save_org_config
 from api.services.tool_loading import LOADED_TOOLS_KEY, tool_loading_for
 from api.turns import runner
@@ -84,8 +85,8 @@ def test_the_catalogue_lists_names_by_server() -> None:
 def mcp(monkeypatch: pytest.MonkeyPatch) -> _McpServers:
     servers = _McpServers()
 
-    async def for_turn(*_: Any) -> _McpServers:
-        return servers
+    async def for_turn(*_: Any) -> McpTurnTools:
+        return McpTurnTools(servers)  # type: ignore[arg-type]
 
     monkeypatch.setattr(runner, "_mcp_tools_for_turn", for_turn)
     return servers

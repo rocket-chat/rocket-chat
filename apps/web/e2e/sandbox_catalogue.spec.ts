@@ -117,3 +117,45 @@ test("an administrator sizes a sandbox type and sets how long idle workspaces ar
     }
   }
 });
+
+test("a sandbox type's secret variable is write-only and kept when left blank", async ({ page, request }) => {
+  const name = `Go box ${Date.now()}`;
+  await page.goto("/settings/org/sandboxes");
+  await page.getByTestId("sandbox-add").click();
+  await page.getByTestId("sandbox-name").fill(name);
+  await page.getByTestId("sandbox-image").fill("registry.example.com/team/go-box:1");
+  const env = page.getByTestId("sandbox-env");
+  await env.getByTestId("sandbox-env-add").click();
+  await env.getByLabel("Variable 1 name").fill("GOPRIVATE");
+  await env.getByLabel("Variable 1 value").fill("github.com/acme/*");
+  await env.getByTestId("sandbox-env-add").click();
+  await env.getByLabel("Variable 2 name").fill("NPM_TOKEN");
+  await env.getByLabel("Variable 2 value").fill("npm_s3cret");
+  await env.getByRole("checkbox", { name: "Secret" }).nth(1).check();
+  await page.getByTestId("sandbox-save").click();
+
+  const row = page.getByTestId("sandbox-row").filter({ hasText: name });
+  try {
+    await expect(row.getByTestId("sandbox-env-count")).toHaveText("2 variables");
+    await expect(page.getByText("npm_s3cret")).toHaveCount(0);
+
+    // Editing: the secret's value is never shown, and saving without retyping keeps it.
+    await row.getByTestId("sandbox-edit").click();
+    await expect(page.getByLabel("Variable 2 value")).toHaveValue("");
+    await expect(page.getByLabel("Variable 2 value")).toHaveAttribute("placeholder", /Unchanged/);
+    await page.getByTestId("sandbox-save").click();
+    await expect(row.getByTestId("sandbox-env-count")).toHaveText("2 variables");
+
+    const listed = await (await request.get("http://localhost:8000/v1/sandboxes")).json();
+    const box = listed.sandboxes.find((b: { name: string }) => b.name === name);
+    expect(box.env).toEqual([
+      { name: "GOPRIVATE", value: "github.com/acme/*", secret: false },
+      { name: "NPM_TOKEN", value: null, secret: true },
+    ]);
+  } finally {
+    const listed = await (await request.get("http://localhost:8000/v1/sandboxes")).json();
+    for (const box of listed.sandboxes) {
+      if (box.name === name) await request.delete(`http://localhost:8000/v1/admin/sandboxes/${box.id}`);
+    }
+  }
+});

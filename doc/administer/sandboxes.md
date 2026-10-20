@@ -29,6 +29,16 @@ Each entry can also set, under **Runtime**:
 * **CPU cores, memory and workspace disk**: this type's sizing instead of the organization's (an agent's own sizing still wins).
 * **Release the workspace after (days)**: this type's own delay (see *Sleeping and cleanup*); empty uses the organization's.
 
+## Environment variables of a sandbox type
+
+An entry can set **environment variables** that every command of its sessions receives (shell commands, tests, builds, background processes), for example `GOPRIVATE=github.com/acme/*` so Go fetches private modules directly instead of through the public proxy. Tick **Secret** for a credential: its value is stored encrypted, never shown again (leave the field empty when editing to keep it) and never given to the model, which only learns the variable's name. Members do not see a type's variables.
+
+* Names are letters, digits and `_`; at most 50 variables of up to 8,192 characters each.
+* Variables the platform owns cannot be set: `PATH`, `HOME`, `SHELL`, `USER`, `PWD`, `HOSTNAME` and anything starting with `GIT_`, `ROCKET_` or `LD_`. The platform's own credentials (such as the GitHub token) always win over a type's variables.
+* A change applies from the session's next turn.
+
+The agent can set its own variables for a session with `env_set` (they last for the rest of the session, over the type's), remove them with `env_unset` and list them with `env_list`.
+
 The settings menu marks these pages **ADMIN**: what you change applies to every member.
 
 ## Capabilities

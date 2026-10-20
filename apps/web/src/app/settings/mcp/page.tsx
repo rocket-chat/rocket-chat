@@ -18,6 +18,8 @@ import {
   OrgScopeSection,
 } from "../../../components/settings/ScopedSettingsSection";
 
+const SIGN_IN_MESSAGE = "rocket-mcp-sign-in";
+
 export default function McpSettingsPage() {
   const { data: session } = useSession();
   const userRoles = (session?.user as unknown as { roles?: string[] })?.roles || [];
@@ -56,6 +58,43 @@ export default function McpSettingsPage() {
   useEffect(() => {
     fetchServers();
   }, [fetchServers]);
+
+  // A sign-in finishes in its own tab: that tab reports to the settings page that opened it and
+  // closes; reached directly (no opener), it shows the outcome itself.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("status");
+    if (!status) return;
+    const outcome = { type: SIGN_IN_MESSAGE, status, error: params.get("error") };
+    if (window.opener && window.opener !== window) {
+      window.opener.postMessage(outcome, window.location.origin);
+      window.close();
+      return;
+    }
+    window.history.replaceState(null, "", window.location.pathname);
+    showSignInOutcome(outcome.status, outcome.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- read once, on arrival
+  }, []);
+
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.data?.type !== SIGN_IN_MESSAGE) return;
+      showSignInOutcome(event.data.status, event.data.error);
+      fetchServers();
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one listener for the page's life
+  }, [fetchServers]);
+
+  const showSignInOutcome = (status: string, error: string | null) => {
+    if (status === "connected") {
+      setSuccessBanner("Signed in: the server's tools are available to your sessions.");
+      setTimeout(() => setSuccessBanner(null), 5000);
+    } else {
+      setErrorBanner(`Sign-in did not complete: ${error || "the provider refused it"}`);
+    }
+  };
 
   useEffect(() => {
     fetch("/v1/mcp/runner")
@@ -140,7 +179,8 @@ export default function McpSettingsPage() {
   };
 
   const handleOAuthAuthorize = (id: string) => {
-    window.location.href = `/v1/mcp/servers/${id}/oauth/authorize`;
+    // In a tab of its own: this page stays, and hears back when the sign-in is done.
+    window.open(`/v1/mcp/servers/${id}/oauth/authorize`, "_blank");
   };
 
   const renderCard = (server: McpServerConfig, canManage: boolean) => (

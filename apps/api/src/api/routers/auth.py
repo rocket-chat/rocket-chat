@@ -26,6 +26,7 @@ from api.auth.local import (
     WeakPassword,
 )
 from api.auth.oidc import OidcConfig, OidcError, begin_login, complete_login
+from api.auth.origin import public_origin
 from api.auth.session_manager import (
     clear_session_cookie,
     create_session_token,
@@ -107,16 +108,7 @@ def dev_login_enabled() -> bool:
 
 def _get_origin(request: Request) -> str:
     """Determine canonical public origin (scheme + host)."""
-    explicit = os.getenv("NEXTAUTH_URL") or os.getenv("APP_URL") or os.getenv("FRONTEND_URL")
-    if explicit:
-        return explicit.rstrip("/")
-
-    forwarded_proto = request.headers.get("x-forwarded-proto") or request.url.scheme
-    forwarded_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
-    if forwarded_host:
-        return f"{forwarded_proto}://{forwarded_host}".rstrip("/")
-
-    return str(request.base_url).rstrip("/")
+    return public_origin(request)
 
 
 def _with_query(path: str, key: str, value: str) -> str:
