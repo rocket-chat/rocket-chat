@@ -31,14 +31,8 @@ from api.turns.gates import _forget_pending_decisions
 from api.turns.shared import _api_rate_limiter
 from api.turns.tasks import _spawn_background_turn
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
-from specifications.interfaces.sandbox import (
-    SandboxDriverProtocol,
-    SandboxStatus,
-)
-from specifications.interfaces.session import (
-    SessionRecord,
-    SessionStoreProtocol,
-)
+from specifications.interfaces.sandbox import SandboxDriverProtocol
+from specifications.interfaces.session import SessionStoreProtocol
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Sessions & Telemetry"])
@@ -78,22 +72,12 @@ async def start_session_turn(
 
     record = await store.get_session(session_id)
     if not record:
-        if "readonly" in roles:
-            raise HTTPException(
-                status_code=403, detail="Forbidden: Read-only role cannot create sessions"
-            )
-        clean_prompt = " ".join(req.prompt.strip().split())
-        title = clean_prompt[:45].strip() + ("..." if len(clean_prompt) > 45 else "")
-        record = SessionRecord(
-            session_id=session_id,
-            tenant_org_id="default_org",
-            tenant_user_id=req_user,
-            title=title or "New Session",
-            sandbox_status=SandboxStatus.NON_EXISTENT,
+        # Sessions are created by POST /v1/sessions, which applies the caller's organization,
+        # its privacy default and the sandbox choice; a turn never creates one implicitly.
+        raise HTTPException(
+            status_code=404, detail="Session not found: create it with POST /v1/sessions first"
         )
-        await store.create_session(record)
-    else:
-        _check_session_access(record, req_user, roles, require_write=True)
+    _check_session_access(record, req_user, roles, require_write=True)
 
     message_id = _new_message_id()
     _spawn_background_turn(
@@ -161,7 +145,7 @@ async def answer_question(
         await _forget_pending_decisions(
             getattr(request.app.state, "db_manager", None),
             session_id,
-            record.tenant_org_id if record else "default_org",
+            record.tenant_org_id,
         )
     except KeyError as err:
         raise HTTPException(status_code=404, detail=str(err)) from err

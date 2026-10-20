@@ -95,6 +95,21 @@ async def test_session_crud(mock_app_state: None) -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_turn_for_an_unknown_session_is_refused_without_creating_one(
+    mock_app_state: None,
+) -> None:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(
+            "/v1/sessions/session_never_created/turns",
+            json={"prompt": "Run the test suite"},
+        )
+
+    assert res.status_code == 404
+    assert "POST /v1/sessions" in res.json()["detail"]
+    assert await app.state.session_store.get_session("session_never_created") is None
+
+
+@pytest.mark.asyncio
 async def test_session_turn_and_controls(mock_app_state: None) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         # Create session first
