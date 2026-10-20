@@ -31,9 +31,12 @@ test.describe("Session sidebar", () => {
 
     await page.goto(`/chat/${waiting}`);
     await socket.ready;
+    const sidebar = page.getByTestId("session-sidebar");
+    // The live update patches the listed session; wait for the listing so a slower
+    // first fetch cannot replace the patched row afterwards.
+    await expect(sidebar.getByTestId("session-row").filter({ hasText: "Needs an answer" })).toBeVisible();
     socket.emit("session_updated", { session_id: waiting, awaiting_input: "approval" });
 
-    const sidebar = page.getByTestId("session-sidebar");
     await expect(sidebar.getByRole("heading", { name: /^Needs you/ })).toBeVisible();
     await expect(sidebar.getByTestId("session-status").first()).toHaveAttribute("data-status", "needs_you");
     await expect(page.getByTestId("status-chip")).toHaveAttribute("data-status", "needs_you");
@@ -48,9 +51,11 @@ test.describe("Session sidebar", () => {
 
     await page.goto(`/chat/${failed}`);
     await socket.ready;
+    const sidebar = page.getByTestId("session-sidebar");
+    await expect(sidebar.getByTestId("session-row").filter({ hasText: "Broke" })).toBeVisible();
     socket.emit("session_updated", { session_id: failed, last_turn_status: "error" });
 
-    await expect(page.getByTestId("session-sidebar").getByTestId("session-status").first()).toHaveAttribute("data-status", "failed");
+    await expect(sidebar.getByTestId("session-status").first()).toHaveAttribute("data-status", "failed");
   });
 
   test("collapsing leaves a rail with the essentials, and the context menu has the row's actions", async ({ page, request }) => {

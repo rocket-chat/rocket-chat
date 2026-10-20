@@ -158,7 +158,10 @@ async def test_plan_mode_blocks_mutating_tools() -> None:
     gateway = ScriptedGateway(
         script=[
             {"name": "enter_plan_mode", "arguments": {}},
-            {"name": "bash_exec", "arguments": {"command": "rm -rf /tmp/danger"}},
+            {
+                "name": "bash_exec",
+                "arguments": {"command": "rm -rf /tmp/danger", "cwd": "/workspace"},
+            },
         ],
         final="Plan drafted.",
     )

@@ -174,7 +174,7 @@ def test_cold_restart_preserves_sessions_and_settings(monkeypatch: pytest.Monkey
         admin_res = client1.put(
             "/v1/admin/settings/user_preferences",
             json={
-                "config": {"preferred_model": "openrouter/acme/locked", "full_name": "Rocket Ops"},
+                "config": {"preferred_model": "openrouter/acme/locked"},
                 "locked_keys": ["preferred_model"],
             },
             headers=admin_headers,
