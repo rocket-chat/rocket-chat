@@ -277,7 +277,7 @@ export class MissionWebSocket {
     if (frame.running_turn && frame.running_turn.status === "running") {
       store.setIsExecuting(true);
     }
-    this.applySyncPlan(planSync(frame, this.resumeRequestedSeq !== null));
+    this.applySyncPlan(planSync(frame));
     // A turn paused on a person before this tab connected: show the card it is waiting on.
     if (frame.pending_approval) {
       this.applyEvent("approval_required", frame.pending_approval, this.sessionId);

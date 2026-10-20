@@ -22,7 +22,7 @@ export interface SyncPlan {
   runningTurn?: RunningTurnData | null;
 }
 
-export function planSync(frame: SyncFrame, resumeRequested: boolean): SyncPlan {
+export function planSync(frame: SyncFrame): SyncPlan {
   const lastSeq = typeof frame.last_seq === "number" ? frame.last_seq : null;
   const runningTurn = frame.running_turn ?? null;
   if (frame.catch_up) {
@@ -33,12 +33,13 @@ export function planSync(frame: SyncFrame, resumeRequested: boolean): SyncPlan {
       runningTurn,
     };
   }
-  // An idle session's snapshot is complete. A tab that asked to resume keeps its cursor and
-  // lets the replay fill the gap; one that did not takes the server's mark.
+  // An idle session's snapshot is complete through `last_seq`: the record holds every answer
+  // published before it. A resuming tab adopts that mark too, so the replay that follows
+  // skips events the record already covers instead of appending them a second time.
   return {
     rewindCursorTo: null,
     events: [],
-    continueFrom: resumeRequested ? null : lastSeq,
+    continueFrom: lastSeq,
     runningTurn,
   };
 }
