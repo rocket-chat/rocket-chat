@@ -25,6 +25,7 @@ async function seedSession(request: import("@playwright/test").APIRequestContext
               id: "c2",
               name: "bash_exec",
               arguments: { command: "cd /workspace/api && pytest -q", cwd: "/workspace" },
+              reasoning: "Run the tests to check nothing else broke.",
               result: "1 failed, 12 passed",
               status: "error",
             },
@@ -61,7 +62,11 @@ test.describe("Chat layout: minimal by default, detail on demand", () => {
 
     await toggle.click();
     const steps = page.getByTestId("activity-step");
-    await expect(steps).toHaveCount(3);
+    // A step's saved reasoning is shown right before the step it led to, as it streamed;
+    // the message's own reasoning (after the last step) comes last.
+    await expect(steps).toHaveCount(4);
+    await expect(steps.nth(1)).toContainText("Run the tests to check nothing else broke.");
+    await expect(steps.nth(2)).toContainText("pytest -q");
 
     const edit = steps.filter({ hasText: "src/app.py" });
     await expect(edit).toContainText("+1");

@@ -31,7 +31,7 @@ Upon connection the server rehydrates the session and emits a state sync frame:
 
 `catch_up` is `null` for an idle session. When a turn is still running (or ended while the
 session record was being read) it is `{"from_seq": 398, "events": [...]}`: the events the
-record cannot hold yet, to apply on top of `session`. `running_turn` provides the in-flight turn metadata and its completed steps (`steps` list with `id`, `name`, `arguments`, `result`, `status`, `duration_ms`, `redacted`, `seq`) so a client connecting or refreshing mid-turn renders the full flight log without waiting for the turn to complete. Events are idempotent by `seq`, and
+record cannot hold yet, to apply on top of `session`. `running_turn` provides the in-flight turn metadata and its completed steps (`steps` list with `id`, `name`, `arguments`, `result`, `status`, `duration_ms`, `redacted`, `seq`, and `reasoning`: what the model thought before the call, on the first call of each step) so a client connecting or refreshing mid-turn renders the full flight log without waiting for the turn to complete. Events are idempotent by `seq`, and
 tokens of an answer that is already stored are ignored, so overlap with the record is safe. A client that applies a `sync` with a `catch_up` must rewind its resume cursor to `from_seq` first: the snapshot replaced the transcript, so anything it had applied beyond that point has to be applied again.
 
 A turn is over when a `status_changed` event with `"final": true` arrives (completed, or error). The orchestrator also reports `completed` earlier, before the answer is stored, which is why that one does not carry the flag.

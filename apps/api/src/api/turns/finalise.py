@@ -37,7 +37,8 @@ async def record_answer(ctx: TurnContext) -> str:
         if not content:
             raise RuntimeError(state.orchestrator_error)
         state.turn_error = RuntimeError(state.orchestrator_error)
-    reasoning = "".join(state.reasoning_parts).strip()
+    # What came before each call is saved with that call; the answer keeps what followed.
+    reasoning = "".join(state.reasoning_parts[state.reasoning_attached :]).strip()
 
     def append_answer(record: SessionRecord) -> None:
         if state.had_post_failure_synthesis:

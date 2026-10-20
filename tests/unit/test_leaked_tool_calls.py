@@ -119,6 +119,13 @@ REMNANT = 'path" string="true">/workspace/backend-services-protocol'
 def test_a_parameter_remnant_is_markup_and_never_streamed() -> None:
     """It showed as the step's intent in the cockpit and opened the Slack answer."""
     assert contains_leaked_calls(REMNANT) and strip_leaked_calls(REMNANT) == ""
+    # The provider cuts the tag at different places.
+    for cut in (
+        '="path" string="true">/workspace/api',
+        'name="path" string="true">/workspace/api',
+        'parameter name="body" string="true">adds `relations.scope` to the model',
+    ):
+        assert contains_leaked_calls(cut) and strip_leaked_calls(cut) == "", cut
     assert not contains_leaked_calls('Set the path" string="true"> example in prose later')
 
     remnant_stream = LeakFilter()

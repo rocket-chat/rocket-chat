@@ -1019,14 +1019,17 @@ class SlackAssistant(
                 if allowed and "*" not in allowed
                 else profile.allowed_tools
             )
+        denied = self._denied_tools(admitted, allowed)
         return TurnOverlay(
             stable_suffix=stable,
             dynamic=dynamic,
             enabled_toolsets=frozenset({"slack"}),
             attachments=attachments,
             default_agent_id=self._agent_for(org_policy, profile),
-            tool_scope=lambda base: self._slack_whitelisted_tools(base=base, org_allowed=allowed),
-            denied_tools=self._denied_tools(admitted, allowed),
+            tool_scope=lambda base: self._slack_whitelisted_tools(
+                base=base, org_allowed=allowed, blocked=denied
+            ),
+            denied_tools=denied,
         )
 
     def _denied_tools(self, admitted: _Admitted, allowed: tuple[str, ...]) -> frozenset[str]:

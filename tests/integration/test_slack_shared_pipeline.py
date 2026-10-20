@@ -373,3 +373,36 @@ async def test_a_linked_members_own_request_is_not_held_to_the_anonymous_blockli
     assert publishing <= await _tools_for_dm(linked=True, restrict=False)
     assert not publishing & await _tools_for_dm(linked=True, restrict=True)
     assert not publishing & await _tools_for_dm(linked=False, restrict=False)
+
+
+@pytest.mark.asyncio
+async def test_an_agent_allowlist_does_not_take_back_a_linked_members_tools() -> None:
+    """The Slack bot's agent listed its tools: the blocked ones were also removed from that
+    list, so a linked member stayed blocked after the denied list was lifted."""
+    from slack_assistant.assistant import _Admitted
+
+    stack = Stack(ScriptedModel())
+    agent_tools = ["git_push", "git_open_pr", "file_read"]
+
+    async def scope(*, linked: bool, restrict: bool = False) -> set[str]:
+        admitted = _Admitted(
+            prompt="push",
+            title_text="push",
+            team_scope="T1",
+            is_dm=False,
+            session_user_id="member-alice" if linked else "guest-U1",
+            session_org_id="org",
+            rocket_user_id="member-alice" if linked else "guest-U1",
+            org_policy=SlackOrgPolicy(restrict_linked_members=restrict),
+            private=True,
+            linked=linked,
+        )
+        overlay = await stack.assistant._build_overlay(
+            channel_id="C1", thread_ts="1.1", admitted=admitted, attachment_note="", attachments=()
+        )
+        assert overlay.tool_scope is not None
+        return set(overlay.tool_scope(agent_tools) or []) - set(overlay.denied_tools or ())
+
+    assert await scope(linked=True) == set(agent_tools)
+    assert await scope(linked=True, restrict=True) == {"file_read"}
+    assert await scope(linked=False) == {"file_read"}

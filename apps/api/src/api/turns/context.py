@@ -79,6 +79,9 @@ class TurnState:
     # Reasoning already saved with the part of the turn before a message the person sent
     # during it (see ``TurnEventHandlers._user_steer``); kept for the turn's trace.
     earlier_reasoning: list[str] = field(default_factory=list)
+    # How many of ``reasoning_parts`` are saved with the tool call they led to (the rest is
+    # the reasoning after the turn's last call, saved on the answer).
+    reasoning_attached: int = 0
     had_post_failure_synthesis: bool = False
     synthesis_turns: int = 30
     trace: TurnTraceAccumulator | None = None

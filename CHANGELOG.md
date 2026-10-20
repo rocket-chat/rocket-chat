@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api`: `wait_for ci_status` reads the pull request's checks first and answers at once when CI has finished or no check appears (a branch behind its base, no CI), instead of waiting up to two hours.
 
 ### Fixed
+- `slack`: Linked members were still refused `git_push` when the bot's agent lists its tools: the blocked tools were also removed from that list. The turn's blocked set now applies to both.
+- `orchestrator`: Tool-call markup leftovers cut at other places (`name="path" string="true">…`, `parameter name="body" …`) are recognised too.
+- `api`, `web`: A reloaded session showed one block of reasoning before all of a turn's steps (or nothing visible among them); each step's reasoning is now saved with the call it led to and shown between the steps, as it streamed.
 - `slack`: A linked member's DMs and private requests were refused `git_push` and `git_open_pr` (the blocklist meant for unauthenticated callers applied to everyone) while the generic GitHub API wrote with their account. The blocklist now applies to shared threads and unlinked users only; `slack.restrict_linked_members` restores it for members. The Slack prompt no longer asks for the removed `update_status` tool.
 - `orchestrator`: Fragments of a provider's tool-call markup (`path" string="true">…`) left beside real calls showed as step intents and opened answers; they are no longer streamed or stored.
 - `orchestrator`: Wake, continuation and resume prompts were re-sent as the newest message on every step, so the agent restarted the same first step over and over (one turn sent the same two calls 64 times); they are stored once where the turn starts.

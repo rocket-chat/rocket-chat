@@ -133,6 +133,8 @@ class TurnEventHandlers:
         self._intervening_tool_called = False
         self._step_text_parts: list[str] = []
         self._tool_prefaces: list[str] = []
+        # The reasoning that led to a call, by call id, until the call completes.
+        self._step_reasoning: dict[str, str] = {}
         self._handlers: dict[str, Handler] = {
             "model_usage": self._model_usage,
             "thought": self._thought,
@@ -163,6 +165,18 @@ class TurnEventHandlers:
         handler = self._handlers.get(event.event_type)
         if handler is not None:
             await handler(event)
+
+    def _take_step_reasoning(self, call_id: str) -> None:
+        """Keep the reasoning since the last call with this one (the first call of its step).
+
+        Saved with the call, a reloaded session shows each thought between the steps it led
+        to, as they streamed, instead of one block before every call of the turn.
+        """
+        state = self.ctx.state
+        reasoning = "".join(state.reasoning_parts[state.reasoning_attached :]).strip()
+        state.reasoning_attached = len(state.reasoning_parts)
+        if reasoning and call_id:
+            self._step_reasoning[call_id] = reasoning
 
     def _commit_step_text(self) -> None:
         if self._step_text_parts:
@@ -237,6 +251,7 @@ class TurnEventHandlers:
         arguments = _parse_arguments(raw_args)
         tool_name = event.payload.get("name", "")
         now_epoch = int(time.time())
+        self._take_step_reasoning(str(event.payload.get("id") or ""))
         await self._publish(
             EventType.TOOL_STARTED,
             {
@@ -302,6 +317,8 @@ class TurnEventHandlers:
                 outcome=str(result_output).splitlines()[0],
             )
         await self._publish(EventType.TOOL_COMPLETED, tool_data)
+        if reasoning := self._step_reasoning.pop(str(tool_data.get("id") or ""), ""):
+            tool_data["reasoning"] = reasoning
         tool_data["seq"] = ctx.req.event_bus.latest_seq(ctx.session_id)
         ctx.state.executed_tools.append(tool_data)
         ctx.trace.record_tool_call(tool_data)
@@ -412,7 +429,7 @@ class TurnEventHandlers:
         so_far = ChatMessage(
             role="assistant",
             content="".join(state.assistant_parts).strip(),
-            reasoning="".join(state.reasoning_parts).strip() or None,
+            reasoning="".join(state.reasoning_parts[state.reasoning_attached :]).strip() or None,
             tool_calls=list(state.executed_tools) or None,
         )
         message = ChatMessage(role="user", content=content, author_user_id=author)
@@ -425,6 +442,7 @@ class TurnEventHandlers:
         await ctx.req.store.mutate_session(ctx.session_id, ctx.session.tenant_org_id, split_turn)
         state.earlier_reasoning.extend(state.reasoning_parts)
         state.reasoning_parts.clear()
+        state.reasoning_attached = 0
         state.assistant_parts.clear()
         # In place: the running-turn snapshot a reconnecting tab gets shares this list, and the
         # steps before the message are now in the saved history.
