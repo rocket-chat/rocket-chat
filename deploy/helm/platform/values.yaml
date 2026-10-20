@@ -57,7 +57,7 @@ auth:
 backend:
   image:
     repository: ghcr.io/rocket-chat/backend
-    tag: "0.4.0"
+    tag: "0.5.0"
     pullPolicy: IfNotPresent
   # Events, sequence numbers, approvals/answers and cancels are shared between replicas
   # through PostgreSQL (see eventBus), so a WebSocket on one pod follows a turn on another.
@@ -271,7 +271,7 @@ mcpRunner:
   enabled: true
   image:
     repository: ghcr.io/rocket-chat/mcp-runner
-    tag: "0.4.0"
+    tag: "0.5.0"
     pullPolicy: IfNotPresent
   # Secret shared with the backend. Empty generates one and keeps it across upgrades.
   token: ""
@@ -302,7 +302,7 @@ mcpRunner:
 frontend:
   image:
     repository: ghcr.io/rocket-chat/frontend
-    tag: "0.4.0"
+    tag: "0.5.0"
     pullPolicy: IfNotPresent
   replicas: 2
   service:

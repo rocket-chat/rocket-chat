@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `orchestrator`:
+- `sandboxes`:
+- `api`:
+- `web`:
+- `settings`:
+- `git`:
+- `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.5.0] - 2026-10-20
+
+### Added
 - `web`: **Settings are saved from one place.** Every form on a page reports its unsaved changes to a sticky bar with one **Save changes** and one **Discard** (no Save per section), rarely changed settings fold under **Advanced**, numbers show their unit, a changed value can be reset to its default, and **⌘K** searches pages and individual settings. The navigation is grouped into Personal, Agent capabilities and Organization with plain names; the near-empty Notifications page is gone (its setting is on the profile page).
 - `web`: **Composer status line:** supervision mode (named for what it does, with a risk dot), agent and model, and the sandbox's real state in one line; clearer Run / Send / Stop; `@` mentions of workspace files and repositories; a drop hint; shortcuts shown once, then on request.
 - `web`, `api`: **Conversation list:** grouped by Needs you / Pinned / Today / Yesterday / This week / Earlier, with status dots (working, needs you, waiting, failed), search, filters, a right-click menu and an icon rail when collapsed. The API records `awaiting_input` and `last_turn_status` in the session's metadata and publishes them in `session_updated`.
