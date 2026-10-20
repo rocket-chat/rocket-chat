@@ -41,7 +41,7 @@ export default defineConfig({
           env: {
             // Deterministic model + sandbox: no provider calls, no Docker.
             ROCKET_MODEL_STUB: "deterministic",
-            SANDBOX_DRIVER: "fake",
+            DEFAULT_SANDBOX_DRIVER: "fake",
             // In-memory session store by default: the suite needs no database and cannot
             // be affected by a developer's exported DATABASE_URL. Set E2E_DATABASE_URL (the
             // row-level-security application role) and E2E_ADMIN_DATABASE_URL to run the very

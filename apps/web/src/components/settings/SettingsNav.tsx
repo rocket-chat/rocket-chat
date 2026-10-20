@@ -3,111 +3,12 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  ShieldCheck,
-  Bot,
-  Server,
-  Code2,
-  Cpu,
-  Database,
-  GitPullRequest,
-  MessageSquare,
-  User,
-  Coins,
-  Box,
-  ArrowLeft,
-  Building2,
-  Users,
-  X,
-} from "lucide-react";
+import { ArrowLeft, Building2, X } from "lucide-react";
 
 import { useSession } from "../AuthProvider";
 import { useMissionStore } from "../../lib/store";
-
-interface NavItem {
-  href: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-  requiresAdmin?: boolean;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  {
-    href: "/settings/user/profile",
-    label: "Profile & Account",
-    icon: User,
-  },
-  {
-    href: "/settings/agents",
-    label: "Custom Agents",
-    icon: Bot,
-  },
-  {
-    href: "/settings/subagents",
-    label: "Subagents & Delegation",
-    icon: Cpu,
-  },
-  {
-    href: "/settings/mcp",
-    label: "MCP Servers",
-    icon: Server,
-  },
-  {
-    href: "/settings/skills",
-    label: "Skills & Tools",
-    icon: Code2,
-  },
-  {
-    href: "/settings/knowledge",
-    label: "Knowledge Bases",
-    icon: Database,
-  },
-  {
-    href: "/settings/github",
-    label: "Git & Version Control",
-    icon: GitPullRequest,
-  },
-  {
-    href: "/settings/slack",
-    label: "Slack & Chat Ops",
-    icon: MessageSquare,
-  },
-  {
-    href: "/settings/org/users",
-    label: "Users & Roles",
-    icon: Users,
-    requiresAdmin: true,
-  },
-  {
-    href: "/settings/org/usage",
-    label: "Token Usage & Spend",
-    icon: Coins,
-  },
-  {
-    href: "/settings/org/sandboxes",
-    label: "Sandbox Fleet & Images",
-    icon: Box,
-    requiresAdmin: true,
-  },
-  {
-    href: "/settings/org/models",
-    label: "Models & Routing",
-    icon: Cpu,
-    requiresAdmin: true,
-  },
-  {
-    href: "/settings/org/governance",
-    label: "Governance & Memory",
-    icon: ShieldCheck,
-    requiresAdmin: true,
-  },
-  {
-    href: "/settings/org",
-    label: "General",
-    icon: ShieldCheck,
-    requiresAdmin: true,
-  },
-];
+import { SettingsSearchButton } from "./SettingsSearch";
+import { NAV_SECTIONS } from "./nav-data";
 
 export const SettingsNav: React.FC = () => {
   const pathname = usePathname();
@@ -191,57 +92,53 @@ export const SettingsNav: React.FC = () => {
             </span>
           </div>
 
-          {/* Settings Navigation */}
-          <div>
-            <div className="px-2.5 pb-2 flex items-center justify-between text-[11px] font-semibold text-neutral-500 dark:text-neutral-400">
-              <span>Settings</span>
-            </div>
-            <nav className="space-y-0.5">
-              {NAV_ITEMS.map((item) => {
-                const Icon = item.icon;
-                const isActive = pathname === item.href;
-                const isLocked = item.requiresAdmin && !isAdmin;
+          <SettingsSearchButton />
 
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    onClick={handleNavClick}
-                    className={`flex items-center justify-between px-2.5 py-2 text-xs rounded-lg transition-colors group ${
-                      isActive
-                        ? "bg-surface-elevated text-foreground font-semibold border-l-2 border-brand shadow-sm"
-                        : isLocked
-                        ? "text-neutral-400 dark:text-neutral-600 hover:text-neutral-500 cursor-not-allowed opacity-75"
-                        : "text-neutral-600 hover:text-foreground hover:bg-surface-elevated/60 dark:text-neutral-400 dark:hover:text-white"
-                    }`}
-                  >
-                    <span className="flex items-center gap-2.5">
-                      <Icon
-                        className={`w-4 h-4 ${
-                          isActive
-                            ? "text-brand"
-                            : isLocked
-                            ? "text-neutral-400 dark:text-neutral-600"
-                            : "text-neutral-400 dark:text-neutral-500 group-hover:text-brand"
-                        }`}
-                      />
-                      <span>{item.label}</span>
-                    </span>
-                    {/* Marked for administrators too: what they change here applies to everyone. */}
-                    {item.requiresAdmin && (
-                      <span
-                        data-testid="nav-admin-only"
-                        title="Administrators only: applies to the whole organization"
-                        className="text-[9px] px-1.5 py-0.5 rounded-lg bg-surface-card border border-surface-border text-neutral-700 dark:text-neutral-300"
-                      >
-                        ADMIN
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.title}>
+              <div className="flex items-baseline justify-between px-2.5 pb-1.5">
+                <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-300">{section.title}</span>
+                <span className="text-[10px] text-neutral-500">{section.hint}</span>
+              </div>
+              <nav className="space-y-0.5" aria-label={section.title}>
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = pathname === item.href;
+                  const isLocked = item.requiresAdmin && !isAdmin;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      onClick={handleNavClick}
+                      aria-current={isActive ? "page" : undefined}
+                      className={`group flex items-center justify-between rounded-lg px-2.5 py-2 text-xs transition-colors ${
+                        isActive
+                          ? "border-l-2 border-brand bg-surface-elevated font-semibold text-foreground shadow-sm"
+                          : isLocked
+                            ? "cursor-not-allowed text-neutral-500 opacity-75"
+                            : "text-neutral-700 hover:bg-surface-elevated/60 hover:text-foreground dark:text-neutral-300"
+                      }`}
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <Icon className={`h-4 w-4 ${isActive ? "text-brand" : "text-neutral-500 group-hover:text-brand"}`} />
+                        <span>{item.label}</span>
                       </span>
-                    )}
-                  </Link>
-                );
-              })}
-            </nav>
-          </div>
+                      {/* Marked for administrators too: what they change here applies to everyone. */}
+                      {item.requiresAdmin && (
+                        <span
+                          data-testid="nav-admin-only"
+                          title="Administrators only: applies to the whole organization"
+                          className="rounded-lg border border-surface-border bg-surface-card px-1.5 py-0.5 text-[9px] text-neutral-700 dark:text-neutral-300"
+                        >
+                          ADMIN
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </nav>
+            </div>
+          ))}
         </div>
 
         {/* Subnav Footer Info */}

@@ -65,20 +65,20 @@ test.describe("Agent Cockpit E2E Verification", () => {
   });
 
   test("opens and navigates enterprise settings suite", async ({ page }) => {
-    const settingsButton = page.getByTitle(/Settings Console/i);
+    const settingsButton = page.getByTestId("sidebar-settings-link");
     await settingsButton.click();
 
     // Verify full-page settings suite is opened
     await expect(page).toHaveURL(/\/settings/);
 
     // Navigate to Agents tab
-    await page.getByRole("link", { name: /Custom Agents/i }).click();
+    await page.getByRole("link", { name: "Agents", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/agents/);
     await expect(page.getByText("Custom agent personas")).toBeVisible();
     await expect(page.getByText("General Software Engineer").first()).toBeVisible();
 
     // Navigate to MCP tab
-    await page.getByRole("link", { name: /MCP Servers/i }).click();
+    await page.getByRole("link", { name: "MCP servers", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/mcp/);
     await expect(page.getByRole("heading", { level: 1, name: /MCP servers/i })).toBeVisible();
 

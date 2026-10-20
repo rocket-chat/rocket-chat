@@ -42,7 +42,7 @@ Open [http://localhost:3000](http://localhost:3000) to view Mission Control.
 # Type check TypeScript
 pnpm --filter web type-check
 
-# Lint check
+# Lint check (ESLint CLI, eslint.config.mjs)
 pnpm --filter web lint
 
 # Production build

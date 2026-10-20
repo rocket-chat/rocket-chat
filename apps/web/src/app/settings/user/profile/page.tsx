@@ -54,9 +54,9 @@ export default function UserProfilePage() {
           <SchemaSettingsForm
             domain="user_preferences"
             mode="user"
-            title="Display name"
-            description="Used as your commit author name when no git name is set."
-            only={["full_name"]}
+            title="Preferences"
+            description="Your display name (the commit author name when no git name is set) and how the agent follows up."
+            only={["full_name", "suggest_next_questions"]}
           />
         </div>
       </div>

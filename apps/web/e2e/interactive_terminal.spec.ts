@@ -9,7 +9,7 @@ async function openShellTab(page: import("@playwright/test").Page) {
   const { session_id: sessionId } = await created.json();
   await page.goto(`/chat/${sessionId}`);
   await page.getByTitle(/Expand Right Panel|Show Panel/i).click();
-  await page.getByRole("button", { name: "SHELL" }).click();
+  await page.getByTestId("terminal-tab-shell").click();
 }
 
 test.describe("Interactive terminal (Shell tab)", () => {

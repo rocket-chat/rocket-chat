@@ -73,7 +73,7 @@ export default function McpSettingsPage() {
     }
     window.history.replaceState(null, "", window.location.pathname);
     showSignInOutcome(outcome.status, outcome.error);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- read once, on arrival
+     
   }, []);
 
   useEffect(() => {
@@ -84,7 +84,7 @@ export default function McpSettingsPage() {
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one listener for the page's life
+     
   }, [fetchServers]);
 
   const showSignInOutcome = (status: string, error: string | null) => {

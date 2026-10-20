@@ -25,9 +25,8 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     const newMissionBtn = page.getByTestId("new-conversation-btn");
     await expect(newMissionBtn).toBeVisible();
 
-    // Count current sessions
-    const sessionsLabel = page.getByText(/Sessions/i).first();
-    await expect(sessionsLabel).toBeVisible();
+    // The conversation list is searchable
+    await expect(page.getByTestId("session-search")).toBeVisible();
 
     // Click to create new mission
     await newMissionBtn.click();
@@ -65,7 +64,7 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     await expect(page.getByText("Settings Console").first()).toBeVisible();
 
     // Navigate to Custom Agents page
-    await page.getByRole("link", { name: /Custom Agents/i }).click();
+    await page.getByRole("link", { name: "Agents", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/agents/);
     await expect(page.getByText("Custom agent personas")).toBeVisible();
     await expect(page.getByText(/EDIT:/i).first()).toBeVisible();
@@ -76,17 +75,17 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     await expect(page.getByTestId("markdown-preview-box")).toBeVisible();
 
     // Navigate to MCP Servers page
-    await page.getByRole("link", { name: /MCP Servers/i }).click();
+    await page.getByRole("link", { name: "MCP servers", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/mcp/);
     await expect(page.getByRole("heading", { level: 1, name: /MCP servers/i })).toBeVisible();
 
     // Navigate to Custom Skills page
-    await page.getByRole("link", { name: /Skills & Tools/i }).click();
+    await page.getByRole("link", { name: "Skills", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/skills/);
     await expect(page.getByRole("heading", { name: /Skills & tools/i })).toBeVisible();
 
     // Navigate to Knowledge Bases page
-    await page.getByRole("link", { name: /Knowledge Bases/i }).click();
+    await page.getByRole("link", { name: "Knowledge bases", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/knowledge/);
     await expect(page.getByRole("heading", { name: /Knowledge bases/i })).toBeVisible();
 
@@ -182,6 +181,8 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
 
   test("toggles between light, dark, and system themes seamlessly", async ({ page }) => {
     await page.goto("/");
+    // On desktop the theme control lives in the View menu.
+    await page.getByTestId("view-menu-trigger").click();
     const themeBtn = page.getByRole("button", { name: /Toggle theme/i }).first();
     await expect(themeBtn).toBeVisible();
 

@@ -85,6 +85,7 @@ test.describe("Cockpit Turn Inspector", () => {
     await page.goto(`/chat/${sessionId}`);
     await expect(page).toHaveURL(`/chat/${sessionId}`);
 
+    await page.getByTestId("view-menu-trigger").click();
     const toggle = page.getByTestId("turn-inspector-toggle");
     await expect(toggle).toBeVisible();
     await toggle.click();

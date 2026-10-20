@@ -142,7 +142,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     const turnSlider = mainContent.locator("input[type='range']").first();
     await expect(turnSlider).toBeVisible();
     await turnSlider.fill("6");
-    await expect(mainContent.getByText("6 turns", { exact: true })).toBeVisible();
+    await expect(mainContent.getByText("6 steps", { exact: true })).toBeVisible();
 
     // Toggle a tool permission
     const bashToolCheck = mainContent.locator("label").filter({ hasText: "Bash Terminal Exec" });

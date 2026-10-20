@@ -15,7 +15,7 @@ test.describe("Personal git policy", () => {
     await expect(badge).toContainText("Org Default");
 
     await page.getByTestId("settings-field-mine-github-commit_signing_mode").selectOption("none");
-    await page.getByTestId("settings-save-mine-github").click();
+    await page.getByTestId("settings-save-all").click();
     await expect(badge).toContainText("Overridden");
 
     await badge.getByRole("button", { name: /reset/i }).click();

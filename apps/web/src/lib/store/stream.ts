@@ -2,6 +2,11 @@ import type { StateCreator } from "zustand";
 import { formatEventTime, matchesPendingEcho } from "./helpers";
 import type { MissionStore, StreamSlice } from "./types";
 
+const TERMINAL_MAX_CHARS = 400_000;
+const TERMINAL_KEEP_CHARS = 300_000;
+const LIVE_OUTPUT_TAIL_CHARS = 6_000;
+const DEDUPE_WINDOW = 200;
+
 export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> = (set) => ({
   connected: false,
   statusMessage: "System Ready. Standing by for instructions.",
@@ -17,8 +22,16 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
   setActiveWait: (activeWait) => set({ activeWait }),
   checklist: [],
   fileDiffs: [],
-  activeDiffIndex: 0,
+  goal: null,
+  processesVersion: 0,
+  bumpProcesses: () => set((state) => ({ processesVersion: state.processesVersion + 1 })),
+  setGoal: (goal) => set({ goal }),
+  selectedChangePath: null,
+  changesVersion: 0,
   terminalLogs: "\x1b[38;5;208m[SYSTEM]\x1b[0m Session workspace attached.\r\n",
+  terminalBase: 0,
+  terminalEpoch: 0,
+  liveToolOutput: {},
   tokenRate: 0,
   turnBinding: null,
   artifacts: [],
@@ -68,9 +81,12 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
       return state;
     }),
   appendFlightLog: (entry) =>
-    set((state) => ({
-      flightLog: [...state.flightLog, entry],
-    })),
+    set((state) => {
+      // The same event applied twice (a replay overlapping a snapshot) must not show twice.
+      const recent = state.flightLog.slice(-DEDUPE_WINDOW);
+      if (entry.id && recent.some((item) => item.id === entry.id)) return state;
+      return { flightLog: [...state.flightLog, entry] };
+    }),
   appendOwnUserMessage: (message) =>
     set((state) => {
       const content = message.content.trim();
@@ -212,21 +228,35 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
   setChecklist: (tasks) => set({ checklist: tasks }),
   addFileDiff: (diff) =>
     set((state) => {
-      const existingIdx = state.fileDiffs.findIndex((d) => d.path === diff.path);
-      if (existingIdx >= 0) {
-        const updated = [...state.fileDiffs];
-        updated[existingIdx] = diff;
-        return { fileDiffs: updated, activeDiffIndex: existingIdx };
-      }
-      return {
-        fileDiffs: [...state.fileDiffs, diff],
-        activeDiffIndex: state.fileDiffs.length,
-      };
+      // One entry per file: a step shows the edit that was reported for it.
+      const existing = state.fileDiffs.findIndex((d) => d.path === diff.path);
+      const fileDiffs = [...state.fileDiffs];
+      if (existing >= 0) fileDiffs[existing] = diff;
+      else fileDiffs.push(diff);
+      return { fileDiffs, changesVersion: state.changesVersion + 1 };
     }),
-  setActiveDiffIndex: (idx) => set({ activeDiffIndex: idx }),
+  selectChange: (selectedChangePath) => set({ selectedChangePath }),
+  bumpChanges: () => set((state) => ({ changesVersion: state.changesVersion + 1 })),
   appendTerminalLog: (text) =>
-    set((state) => ({
-      terminalLogs: state.terminalLogs + text,
-    })),
+    set((state) => {
+      const logs = state.terminalLogs + text;
+      if (logs.length <= TERMINAL_MAX_CHARS) return { terminalLogs: logs, terminalActivity: true };
+      // A long session prints for hours: keep the latest output, not all of it.
+      const trimmed = logs.length - TERMINAL_KEEP_CHARS;
+      return { terminalLogs: logs.slice(trimmed), terminalBase: state.terminalBase + trimmed, terminalActivity: true };
+    }),
+  appendToolOutput: (callId, text) =>
+    set((state) => {
+      if (!callId) return state;
+      const next = ((state.liveToolOutput[callId] ?? "") + text).slice(-LIVE_OUTPUT_TAIL_CHARS);
+      return { liveToolOutput: { ...state.liveToolOutput, [callId]: next } };
+    }),
+  clearToolOutput: (callId) =>
+    set((state) => {
+      if (!(callId in state.liveToolOutput)) return state;
+      const rest = { ...state.liveToolOutput };
+      delete rest[callId];
+      return { liveToolOutput: rest };
+    }),
   setTokenRate: (rate) => set({ tokenRate: rate }),
 });

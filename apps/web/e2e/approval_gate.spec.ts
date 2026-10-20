@@ -79,7 +79,7 @@ test.describe("Human approval gate", () => {
 
     await expect(card).toBeVisible();
     await expect(card).toContainText("git_revert_hard");
-    await expect(card).toContainText("critical risk");
+    await expect(card).toContainText("Irreversible");
 
     await page.getByTestId("approval-approve").click();
     await expect.poll(() => decisions.length, { timeout: 10000 }).toBeGreaterThan(0);

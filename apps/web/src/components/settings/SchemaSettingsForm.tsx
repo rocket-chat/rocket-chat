@@ -1,9 +1,11 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, Lock, Save, RotateCcw } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronRight, Lock, RotateCcw } from "lucide-react";
 import { useSession } from "../AuthProvider";
 import { InheritanceBadge, type InheritanceStatus } from "./InheritanceBadge";
+import { useSettingsFormHandle } from "./SettingsSave";
+import { humanize, settingLabel } from "../../lib/settings-labels";
 
 type Kind = "bool" | "int" | "float" | "str" | "enum" | "list" | "dict";
 type Scope = "org" | "user" | "both";
@@ -17,6 +19,10 @@ interface FieldSchema {
   choices: string[];
   minimum: number | null;
   maximum: number | null;
+  label?: string;
+  unit?: string;
+  advanced?: boolean;
+  deprecated?: boolean;
 }
 
 interface FieldIssue {
@@ -56,10 +62,6 @@ type FieldValues = Record<string, unknown>;
 
 const inputClass =
   "w-full px-3 py-2 rounded-lg bg-surface-subnav border border-surface-border text-xs text-foreground focus:outline-none focus:border-brand disabled:opacity-60 disabled:cursor-not-allowed";
-
-function humanize(key: string): string {
-  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 function toEditable(field: FieldSchema, value: unknown): unknown {
   if (field.kind === "list") return Array.isArray(value) ? (value as string[]).join("\n") : "";
@@ -117,22 +119,30 @@ export function SchemaSettingsForm({
   const [values, setValues] = useState<FieldValues>({});
   const [initial, setInitial] = useState<FieldValues>({});
   const [lockedKeys, setLockedKeys] = useState<string[]>([]);
+  const [initialLocked, setInitialLocked] = useState<string[]>([]);
+  // Organization mode: the platform default of each key, to show what was changed and reset it.
+  const [defaults, setDefaults] = useState<FieldValues>({});
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [highlight, setHighlight] = useState<string | null>(null);
   const [orgLocked, setOrgLocked] = useState<string[]>([]);
   // Member mode: whether each key follows the organization or is the member's own.
   const [fieldStatus, setFieldStatus] = useState<Record<string, InheritanceStatus>>({});
   const [issues, setIssues] = useState<FieldIssue[]>([]);
   const [banner, setBanner] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const fields = useMemo(() => {
     const writable = schema.filter((f) =>
       mode === "org" ? f.scope === "org" || f.scope === "both" : f.scope === "user" || f.scope === "both",
     );
-    const visible = writable.filter((f) => !exclude.includes(f.key));
+    // A superseded setting only shows while it still holds a stored value.
+    const visible = writable.filter(
+      (f) => !exclude.includes(f.key) && (!f.deprecated || f.key in initial),
+    );
     if (!only) return visible;
     return only.map((key) => visible.find((f) => f.key === key)).filter((f): f is FieldSchema => !!f);
-  }, [schema, mode, exclude, only]);
+  }, [schema, mode, exclude, only, initial]);
 
   const load = useCallback(async () => {
     try {
@@ -149,6 +159,8 @@ export function SchemaSettingsForm({
         const data = await res.json();
         source = data.config;
         setLockedKeys(data.locked_keys ?? []);
+        setInitialLocked(data.locked_keys ?? []);
+        setDefaults(data.system_defaults ?? {});
       } else {
         const res = await fetch(`/v1/settings/${domain}`);
         if (!res.ok) throw new Error(`settings HTTP ${res.status}`);
@@ -175,7 +187,17 @@ export function SchemaSettingsForm({
 
   const issueFor = (key: string) => issues.find((i) => i.key === key)?.message;
 
-  const save = async () => {
+  const changedKeys = useMemo(
+    () => fields.filter((f) => JSON.stringify(values[f.key]) !== JSON.stringify(initial[f.key])).map((f) => f.key),
+    [fields, values, initial],
+  );
+  const lockChanges =
+    mode === "org"
+      ? lockedKeys.filter((k) => !initialLocked.includes(k)).length + initialLocked.filter((k) => !lockedKeys.includes(k)).length
+      : 0;
+  const changes = loaded ? changedKeys.length + lockChanges : 0;
+
+  const save = async (): Promise<boolean> => {
     setSaving(true);
     setBanner(null);
     const local: FieldIssue[] = [];
@@ -191,7 +213,7 @@ export function SchemaSettingsForm({
     if (local.length) {
       setIssues(local);
       setSaving(false);
-      return;
+      return false;
     }
     try {
       let res: Response;
@@ -219,18 +241,29 @@ export function SchemaSettingsForm({
         const body = await res.json();
         setIssues(Array.isArray(body.detail) ? body.detail : []);
         setBanner({ kind: "error", text: "Some settings were rejected - see the highlighted fields." });
-        return;
+        return false;
       }
       if (!res.ok) throw new Error(`Request failed with HTTP ${res.status}`);
       setIssues([]);
       setBanner({ kind: "ok", text: `${title} saved.` });
       await load();
+      return true;
     } catch (err) {
       setBanner({ kind: "error", text: err instanceof Error ? err.message : "Save failed" });
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  const discard = () => {
+    setValues(initial);
+    setLockedKeys(initialLocked);
+    setIssues([]);
+    setBanner(null);
+  };
+
+  useSettingsFormHandle({ id: key, title, changes, save, discard });
 
   const resetField = async (key: string) => {
     const res = await fetch(`/v1/settings/${domain}/${encodeURIComponent(key)}`, { method: "DELETE" });
@@ -267,13 +300,13 @@ export function SchemaSettingsForm({
             <input
               type="checkbox"
               id={testId}
-            data-testid={testId}
+              data-testid={testId}
               checked={Boolean(value)}
               disabled={disabled}
               onChange={(e) => set(e.target.checked)}
-              className="w-4 h-4 accent-orange-500"
+              className="h-4 w-4 accent-orange-500"
             />
-            <span className="text-xs text-foreground">{value ? "Enabled" : "Disabled"}</span>
+            <span className="text-xs text-foreground">{value ? "On" : "Off"}</span>
           </label>
         );
       case "enum":
@@ -296,18 +329,25 @@ export function SchemaSettingsForm({
       case "int":
       case "float":
         return (
-          <input
-            type="number"
-            id={testId}
-            data-testid={testId}
-            value={String(value ?? "")}
-            min={field.minimum ?? undefined}
-            max={field.maximum ?? undefined}
-            step={field.kind === "int" ? 1 : "any"}
-            disabled={disabled}
-            onChange={(e) => set(e.target.value)}
-            className={inputClass}
-          />
+          <div className="relative">
+            <input
+              type="number"
+              id={testId}
+              data-testid={testId}
+              value={String(value ?? "")}
+              min={field.minimum ?? undefined}
+              max={field.maximum ?? undefined}
+              step={field.kind === "int" ? 1 : "any"}
+              disabled={disabled}
+              onChange={(e) => set(e.target.value)}
+              className={`${inputClass} ${field.unit ? "pr-20" : ""}`}
+            />
+            {field.unit && (
+              <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[11px] text-neutral-500">
+                {field.unit}
+              </span>
+            )}
+          </div>
         );
       case "list":
       case "dict":
@@ -357,106 +397,156 @@ export function SchemaSettingsForm({
     }
   };
 
+  const anchorId = (fieldKey: string) => `setting-${key}-${fieldKey}`;
+  const common = fields.filter((f) => !f.advanced);
+  const advanced = fields.filter((f) => f.advanced);
+
+  // Follow a link from the settings search: open Advanced if needed, scroll, and mark the field.
+  useEffect(() => {
+    if (!loaded) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const follow = () => {
+      const target = window.location.hash.replace(/^#/, "");
+      const match = fields.find((f) => target === anchorId(f.key));
+      if (!match) return;
+      if (match.advanced) setAdvancedOpen(true);
+      setHighlight(match.key);
+      timer = setTimeout(() => document.getElementById(target)?.scrollIntoView({ block: "center", behavior: "smooth" }), 50);
+    };
+    follow();
+    window.addEventListener("hashchange", follow);
+    return () => {
+      window.removeEventListener("hashchange", follow);
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  const renderField = (field: FieldSchema) => {
+    const issue = issueFor(field.key);
+    const memberLocked = mode === "user" && orgLocked.includes(field.key);
+    const modified = changedKeys.includes(field.key);
+    const atDefault =
+      mode === "org" && field.key in defaults && JSON.stringify(values[field.key]) === JSON.stringify(toEditable(field, defaults[field.key]));
+    return (
+      <div
+        key={field.key}
+        id={anchorId(field.key)}
+        className={`bg-surface-card rounded-xl border p-4 space-y-2 transition-shadow ${
+          issue ? "border-rose-700" : modified ? "border-brand/60" : "border-surface-border"
+        } ${highlight === field.key ? "ring-2 ring-brand" : ""} ${field.kind === "list" || field.kind === "dict" ? "md:col-span-2" : ""}`}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label htmlFor={`settings-field-${key}-${field.key}`} className="text-xs font-medium text-foreground">
+            {settingLabel(field)}
+            {field.deprecated ? " (deprecated)" : ""}
+          </label>
+          <span className="flex flex-wrap items-center gap-2">
+            {modified && <span className="text-[10px] font-medium text-brand">Edited</span>}
+            {mode === "org" && !atDefault && canEdit && field.key in defaults && (
+              <button
+                type="button"
+                data-testid={`settings-default-${key}-${field.key}`}
+                onClick={() => setValues((prev) => ({ ...prev, [field.key]: toEditable(field, defaults[field.key]) }))}
+                className="text-[10px] text-neutral-500 underline-offset-2 hover:text-foreground hover:underline"
+              >
+                Reset to default
+              </button>
+            )}
+            {memberLocked && (
+              <span className="inline-flex items-center gap-1 rounded-lg border border-brand/20 bg-brand/10 px-1.5 py-0.5 text-[10px] text-brand">
+                <Lock className="h-3 w-3" /> LOCKED BY ORG
+              </span>
+            )}
+            {mode === "user" && !memberLocked && field.scope === "both" && fieldStatus[field.key] && (
+              <span data-testid={`settings-inheritance-${key}-${field.key}`}>
+                <InheritanceBadge status={fieldStatus[field.key]} onReset={() => resetField(field.key)} />
+              </span>
+            )}
+            {mode === "org" && field.scope === "both" && canEdit && (
+              <label className="inline-flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
+                <input
+                  type="checkbox"
+                  data-testid={`settings-lock-${key}-${field.key}`}
+                  checked={lockedKeys.includes(field.key)}
+                  // The stored locks arrive with the values and would undo a click made first.
+                  disabled={!loaded}
+                  onChange={(e) =>
+                    setLockedKeys((prev) => (e.target.checked ? [...prev, field.key] : prev.filter((k) => k !== field.key)))
+                  }
+                />
+                Lock for members
+              </label>
+            )}
+          </span>
+        </div>
+        {renderControl(field)}
+        <p className="text-[11px] leading-snug text-neutral-600 dark:text-neutral-400">{field.description}</p>
+        {issue && <p className="text-[11px] text-rose-500">{issue}</p>}
+      </div>
+    );
+  };
+
   return (
     <section className="space-y-4" data-testid={`settings-form-${key}`}>
-      <div className="pb-2 border-b border-surface-border">
-        <h2 className="text-base font-display font-semibold text-foreground">{title}</h2>
-        {description && <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">{description}</p>}
+      <div className="flex flex-wrap items-end justify-between gap-2 border-b border-surface-border pb-2">
+        <div>
+          <h2 className="font-display text-base font-semibold text-foreground">{title}</h2>
+          {description && <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">{description}</p>}
+        </div>
+        {mode === "user" && loaded && canEdit && (
+          <button
+            type="button"
+            onClick={reset}
+            className="inline-flex items-center gap-1.5 text-xs text-neutral-500 hover:text-foreground dark:text-neutral-400"
+          >
+            <RotateCcw className="h-3.5 w-3.5" /> Reset my overrides
+          </button>
+        )}
       </div>
 
       {!canEdit && (
-        <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-amber-300 text-xs">
-          <Lock className="w-4 h-4 shrink-0" />
+        <div className="flex items-center gap-2 rounded-xl border border-amber-800/40 bg-amber-950/30 p-3 text-xs text-amber-300">
+          <Lock className="h-4 w-4 shrink-0" />
           <span>Read-only: these organization policies require an Administrator or Owner role.</span>
         </div>
       )}
 
       {banner && (
         <div
-          role="status"
-          className={`flex items-center gap-2 p-3 rounded-xl border text-xs ${
+          // Success is announced by the page's save bar; a rejection is announced here.
+          role={banner.kind === "error" ? "status" : undefined}
+          className={`flex items-center gap-2 rounded-xl border p-3 text-xs ${
             banner.kind === "ok"
-              ? "bg-emerald-950/60 border-emerald-800/60 text-emerald-400"
-              : "bg-rose-950/60 border-rose-800/60 text-rose-400"
+              ? "border-emerald-800/60 bg-emerald-950/60 text-emerald-400"
+              : "border-rose-800/60 bg-rose-950/60 text-rose-400"
           }`}
         >
-          {banner.kind === "ok" ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+          {banner.kind === "ok" ? <CheckCircle2 className="h-4 w-4" /> : <AlertCircle className="h-4 w-4" />}
           <span>{banner.text}</span>
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {fields.map((field) => {
-          const issue = issueFor(field.key);
-          const memberLocked = mode === "user" && orgLocked.includes(field.key);
-          return (
-            <div
-              key={field.key}
-              className={`bg-surface-card rounded-xl border p-4 space-y-2 ${
-                issue ? "border-rose-700" : "border-surface-border"
-              } ${field.kind === "list" || field.kind === "dict" ? "md:col-span-2" : ""}`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <label htmlFor={`settings-field-${key}-${field.key}`} className="text-xs font-medium text-foreground">{humanize(field.key)}</label>
-                {memberLocked && (
-                  <span className="inline-flex items-center gap-1 text-[10px] text-brand bg-brand/10 px-1.5 py-0.5 rounded-lg border border-brand/20">
-                    <Lock className="w-3 h-3" /> LOCKED BY ORG
-                  </span>
-                )}
-                {mode === "user" && !memberLocked && field.scope === "both" && fieldStatus[field.key] && (
-                  <span data-testid={`settings-inheritance-${key}-${field.key}`}>
-                    <InheritanceBadge
-                      status={fieldStatus[field.key]}
-                      onReset={() => resetField(field.key)}
-                    />
-                  </span>
-                )}
-                {mode === "org" && field.scope === "both" && canEdit && (
-                  <label className="inline-flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
-                    <input
-                      type="checkbox"
-                      data-testid={`settings-lock-${key}-${field.key}`}
-                      checked={lockedKeys.includes(field.key)}
-                      // The stored locks arrive with the values and would undo a click made first.
-                      disabled={!loaded}
-                      onChange={(e) =>
-                        setLockedKeys((prev) =>
-                          e.target.checked ? [...prev, field.key] : prev.filter((k) => k !== field.key),
-                        )
-                      }
-                    />
-                    Lock for members
-                  </label>
-                )}
-              </div>
-              {renderControl(field)}
-              <p className="text-[11px] text-neutral-500 dark:text-neutral-400 leading-snug">{field.description}</p>
-              {issue && <p className="text-[11px] text-rose-400">{issue}</p>}
-            </div>
-          );
-        })}
-      </div>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">{common.map(renderField)}</div>
 
-      {loaded && canEdit && (
-        <div className="flex items-center gap-3">
+      {advanced.length > 0 && (
+        <div className="rounded-xl border border-surface-border">
           <button
             type="button"
-            data-testid={`settings-save-${key}`}
-            onClick={save}
-            disabled={saving}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-xs font-semibold hover:opacity-90 disabled:opacity-60"
+            data-testid={`settings-advanced-${key}`}
+            aria-expanded={advancedOpen || advanced.some((f) => issueFor(f.key))}
+            onClick={() => setAdvancedOpen((open) => !open)}
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs font-medium text-neutral-700 hover:text-foreground dark:text-neutral-300"
           >
-            <Save className="w-3.5 h-3.5" />
-            {saving ? "Saving..." : "Save"}
+            <ChevronRight className={`h-4 w-4 transition-transform ${advancedOpen || advanced.some((f) => issueFor(f.key)) ? "rotate-90" : ""}`} aria-hidden="true" />
+            Advanced
+            <span className="text-neutral-500">
+              ({advanced.length}
+              {advanced.some((f) => changedKeys.includes(f.key)) ? ", edited" : ""})
+            </span>
           </button>
-          {mode === "user" && (
-            <button
-              type="button"
-              onClick={reset}
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-border text-xs text-neutral-500 dark:text-neutral-400 hover:text-foreground"
-            >
-              <RotateCcw className="w-3.5 h-3.5" /> Reset to organization defaults
-            </button>
+          {(advancedOpen || advanced.some((f) => issueFor(f.key))) && (
+            <div className="grid grid-cols-1 gap-4 border-t border-surface-border p-4 md:grid-cols-2">{advanced.map(renderField)}</div>
           )}
         </div>
       )}

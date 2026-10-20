@@ -20,7 +20,7 @@
   --elevated: #f1f5f9;
   --overlay: #e2e8f0;
   --muted: #64748b;
-  --muted-foreground: #64748b;
+  --muted-foreground: #475569;
   --border: #e2e8f0;
   --border-line: rgba(0, 0, 0, 0.08);
 
@@ -60,7 +60,7 @@
   --elevated: #181d2a;
   --overlay: #202534;
   --muted: #71717a;
-  --muted-foreground: #9ca3af;
+  --muted-foreground: #a8adb7;
   --border: #202534;
   --border-line: rgba(255, 255, 255, 0.08);
 
@@ -267,6 +267,7 @@ body {
   :where(:root:not(.dark)) .text-neutral-400 { color: #595959; }
   :where(:root:not(.dark)) .text-neutral-300 { color: #595959; }
   :where(:root:not(.dark)) .text-emerald-400 { color: #047857; }
+  :where(.dark) .text-neutral-500 { color: #a3a3a3; }
   :where(:root:not(.dark)) .bg-cyan.text-slate-950 { color: #ffffff; }
   .dark .bg-brand.text-white { color: #1a0a03; }
   .dark .bg-primary.text-white { color: #1a0a03; }

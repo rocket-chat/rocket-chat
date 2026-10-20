@@ -2,6 +2,7 @@ import React from "react";
 import { AppTopBar } from "../../components/AppTopBar";
 import { SettingsNav } from "../../components/settings/SettingsNav";
 import { SettingsMobileToggle } from "../../components/settings/SettingsMobileToggle";
+import { SettingsShell } from "../../components/settings/SettingsShell";
 import { Settings } from "lucide-react";
 
 export const metadata = {
@@ -24,9 +25,7 @@ export default function SettingsLayout({
       {/* Main Settings Console Body */}
       <div className="flex-1 flex overflow-hidden">
         <SettingsNav />
-        <main className="flex-1 overflow-y-auto bg-surface-base focus:outline-none" tabIndex={0} aria-label="Settings content">
-          {children}
-        </main>
+        <SettingsShell>{children}</SettingsShell>
       </div>
     </div>
   );

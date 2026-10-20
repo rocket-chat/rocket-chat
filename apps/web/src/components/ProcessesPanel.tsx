@@ -15,7 +15,11 @@ interface ProcessView {
   exit_code: number | null;
 }
 
-const POLL_MS = 3000;
+// The list follows process_started / process_exited events. The server notices a process that
+// ended on its own only when the list is read, so while one runs it is read now and then too.
+const LIST_CHECK_MS = 15000;
+// A running process's open log is re-read while it prints.
+const LOG_POLL_MS = 3000;
 
 const TONE: Record<ProcessView["state"], BadgeTone> = {
   running: "success",
@@ -35,6 +39,7 @@ export const ProcessesPanel: React.FC<{ onOpenPreview: (port: number) => void }>
   onOpenPreview,
 }) => {
   const session = useMissionStore((s) => s.session);
+  const processesVersion = useMissionStore((s) => s.processesVersion);
   const sessionId = session && !session.is_draft ? session.session_id : null;
   const [processes, setProcesses] = useState<ProcessView[] | null>(null);
   const [sandboxRunning, setSandboxRunning] = useState(true);
@@ -57,9 +62,16 @@ export const ProcessesPanel: React.FC<{ onOpenPreview: (port: number) => void }>
 
   useEffect(() => {
     void load();
-    const timer = setInterval(load, POLL_MS);
+  }, [load, processesVersion]);
+
+  const anyRunning = processes?.some((p) => p.state === "running") ?? false;
+  useEffect(() => {
+    if (!anyRunning) return;
+    const timer = setInterval(load, LIST_CHECK_MS);
     return () => clearInterval(timer);
-  }, [load]);
+  }, [anyRunning, load]);
+
+  const openIsRunning = processes?.some((p) => p.process_id === openLog && p.state === "running") ?? false;
 
   useEffect(() => {
     if (!sessionId || !openLog) return;
@@ -75,12 +87,13 @@ export const ProcessesPanel: React.FC<{ onOpenPreview: (port: number) => void }>
       if (!cancelled) setLog(body.output);
     };
     void readLog();
-    const timer = setInterval(readLog, POLL_MS);
+    // Only a running process still prints; an ended one is read once more when it ends.
+    const timer = openIsRunning ? setInterval(readLog, LOG_POLL_MS) : undefined;
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
     };
-  }, [sessionId, openLog]);
+  }, [sessionId, openLog, openIsRunning, processesVersion]);
 
   const stop = async (processId: string) => {
     setError(null);
