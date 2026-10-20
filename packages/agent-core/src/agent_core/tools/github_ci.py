@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from agent_core.tools.clamp import clamp_output
@@ -13,6 +14,15 @@ ACTIONS_WRITE = frozenset({"rerun_failed", "cancel", "dispatch_workflow"})
 RELEASES_READ = frozenset({"list", "view"})
 RELEASES_WRITE = frozenset({"create", "edit"})
 LOG_TAIL_LINES = 300
+MAX_FAILURE_LINES = 120
+FAILURE_CONTEXT_LINES = 3
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# What test runners and Actions print where something failed (go test, goblin, pytest, jest,
+# cargo, the runner itself); the tail alone misses a failure printed before the summary.
+_FAILURE = re.compile(
+    r"--- FAIL|(?:^|\s)FAIL(?:\s|$)|panic:|##\[error\]|Error Trace|\d+ tests? failed|[✗✘]|"
+    r"\bFAILED\b|\bfailures?:|AssertionError|error\[E\d+\]"
+)
 
 
 def _run_line(run: dict[str, Any]) -> str:
@@ -33,7 +43,13 @@ async def runs(access: GithubAccess, slug: str, branch: str | None) -> str:
 
 
 async def run_view(access: GithubAccess, slug: str, run_id: int) -> str:
-    run = await request(access, "GET", f"/repos/{slug}/actions/runs/{run_id}")
+    try:
+        run = await request(access, "GET", f"/repos/{slug}/actions/runs/{run_id}")
+    except GithubError as err:
+        raise GithubError(
+            f"{err} A check run ID (from a pull request's checks) is a job ID, not a workflow "
+            "run ID: read it with job_logs, or list the branch's runs with runs."
+        ) from err
     jobs = await request(
         access, "GET", f"/repos/{slug}/actions/runs/{run_id}/jobs", params={"per_page": 100}
     )
@@ -47,13 +63,39 @@ async def run_view(access: GithubAccess, slug: str, run_id: int) -> str:
     return "\n".join(lines)
 
 
+def failure_excerpt(lines: list[str]) -> list[str]:
+    """The lines that report a failure, with a little context, from anywhere in the log."""
+    keep: set[int] = set()
+    for index, line in enumerate(lines):
+        if _FAILURE.search(line):
+            start = max(0, index - FAILURE_CONTEXT_LINES)
+            keep.update(range(start, min(len(lines), index + FAILURE_CONTEXT_LINES + 1)))
+    excerpt: list[str] = []
+    previous = -2
+    for index in sorted(keep)[:MAX_FAILURE_LINES]:
+        if index != previous + 1 and excerpt:
+            excerpt.append("…")
+        excerpt.append(lines[index])
+        previous = index
+    return excerpt
+
+
 async def job_logs(access: GithubAccess, slug: str, job_id: int) -> str:
-    """A job's log, its end first: a failure is explained at the end of its log."""
+    """Where a job's log reports failures, then its end (where the outcome is summarised)."""
     text = await request(access, "GET", f"/repos/{slug}/actions/jobs/{job_id}/logs", accept="*/*")
-    lines = str(text or "").splitlines()
-    tail = lines[-LOG_TAIL_LINES:]
-    head = f"[last {len(tail)} of {len(lines)} log lines of job {job_id}]\n"
-    return head + clamp_output("\n".join(tail))
+    lines = _ANSI.sub("", str(text or "")).splitlines()
+    tail_start = max(0, len(lines) - LOG_TAIL_LINES)
+    failures = failure_excerpt(lines[:tail_start])
+    parts = []
+    if failures:
+        parts.append(
+            f"[failures reported earlier in the log of job {job_id}]\n" + "\n".join(failures)
+        )
+    parts.append(
+        f"[last {len(lines) - tail_start} of {len(lines)} log lines of job {job_id}]\n"
+        + "\n".join(lines[tail_start:])
+    )
+    return clamp_output("\n\n".join(parts))
 
 
 async def write_run(access: GithubAccess, slug: str, action: str, fields: dict[str, Any]) -> str:

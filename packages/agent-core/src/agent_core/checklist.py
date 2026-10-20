@@ -87,6 +87,7 @@ EDIT_TOOLS = frozenset(
     {"file_write", "file_edit", "file_replace", "apply_patch", "apply_diff_file", "replace_symbol"}
 )
 VERIFY_TOOLS = frozenset({"run_tests", "lint", "typecheck", "build"})
+PUBLISH_FOR_CI_TOOLS = frozenset({"git_push", "git_open_pr"})
 # Shell commands that test, build or check a project: as good a verification as the tools.
 _VERIFY_COMMAND = re.compile(
     r"\b(?:go\s+(?:test|build|vet)|golangci-lint|make|mage|pytest|tox|nox|ruff|mypy|tsc|"
@@ -114,10 +115,17 @@ def _verifies(name: str, arguments: dict[str, Any]) -> bool:
         return True
     if name in ("bash_exec", "process_start"):
         return bool(_VERIFY_COMMAND.search(str(arguments.get("command", ""))))
-    # Waiting for CI or reading a pull request's checks is verification by the project's own CI.
+    # Published work is checked by the project's own CI, which the session then follows; so is
+    # waiting for CI or reading a pull request's checks.
+    if name in PUBLISH_FOR_CI_TOOLS:
+        return True
     if name == "wait_for":
         return arguments.get("target") == "ci_status"
-    return name == "github_pull_request" and arguments.get("action") == "checks"
+    if name != "github_pull_request":
+        return False
+    actions = arguments.get("actions")
+    requested = actions if isinstance(actions, list) else [arguments.get("action")]
+    return "checks" in requested
 
 
 def verification_gate_notice(conversation: Sequence[ChatMessage]) -> str | None:
@@ -139,9 +147,9 @@ def verification_gate_notice(conversation: Sequence[ChatMessage]) -> str | None:
                     return None
                 return (
                     "Verification gate: you changed files in this turn and nothing has checked "
-                    "them since (tests, a build, a linter or CI). If the project can be checked "
-                    "here, run that check now. If you already verified another way, or it cannot "
-                    "be checked in this sandbox, do not try further: give your final answer and "
-                    "say in one line what was and was not verified."
+                    "them since (tests, a build, a linter or CI). Only if the project has a test "
+                    "or build command that already works in this sandbox, run it once. Do not "
+                    "install toolchains or set up a build to verify: if no such command works, "
+                    "give your final answer now and say in one line what was not verified."
                 )
     return None
