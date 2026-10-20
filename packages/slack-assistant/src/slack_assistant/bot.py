@@ -153,6 +153,9 @@ class SlackBot:
     # as a direct message (the ephemeral reply disappears when Slack is reloaded).
     private_reaction: str = "white_check_mark"
     private_dm_result: bool = False
+    # Private mode: questions, approvals, errors and the result go to the requester's DMs
+    # (with a link to the thread) instead of ephemeral messages a reload makes disappear.
+    private_dm_updates: bool = False
     # Overrides of the organization's Slack policy (the ``slack`` settings), key by key.
     policy: Mapping[str, Any] = field(default_factory=dict)
     command: str = DEFAULT_COMMAND

@@ -21,7 +21,7 @@ from slack_bolt.request.async_request import AsyncBoltRequest
 from slack_bolt.response import BoltResponse as AsyncBoltResponse
 
 from slack_assistant.admission import SlackAdmissionMixin
-from slack_assistant.block_kit import SHARE_ACTION_ID
+from slack_assistant.block_kit import SHARE_ACTION_ID, with_session_and_origin
 from slack_assistant.bot import SlackBot
 from slack_assistant.config import SlackAssistantSettings
 from slack_assistant.entrypoints import SlackEntrypointsMixin
@@ -84,6 +84,13 @@ class _Admitted:
     rocket_org_id: str = ""
     # Private response mode: only the requester sees the work and the answer.
     private: bool = False
+    # The requester is a member who linked their Slack account (not a guest).
+    linked: bool = False
+
+    @property
+    def runs_as_member(self) -> bool:
+        """The session acts as the linked requester (a DM or their private request)."""
+        return self.linked and self.session_user_id == self.rocket_user_id
 
 
 class SlackAssistant(
@@ -561,12 +568,22 @@ class SlackAssistant(
             slack_user_id=user_id,
             route=routing.route,
         )
+        direct = (
+            admitted.private and bool(user_id) and bool(self.bot and self.bot.private_dm_updates)
+        )
+        private_say = self._ephemeral_say(channel_id, user_id or "")
         view = TurnView(
             session_id=session_id,
             channel_id=channel_id,
             thread_ts=thread_ts,
             requester_slack_id=user_id,
-            say_fn=self._ephemeral_say(channel_id, user_id or "") if admitted.private else say_fn,
+            say_fn=(
+                await self._direct_say(user_id or "", channel_id, thread_ts, session_id)
+                if direct
+                else private_say
+                if admitted.private
+                else say_fn
+            ),
             status_fn=None if admitted.private else status_fn,
             outcome=TurnOutcome(),
             link_url=self._session_link(admitted.org_policy, session_id),
@@ -577,9 +594,10 @@ class SlackAssistant(
             await self._acknowledge_privately(
                 channel_id=channel_id,
                 message_ts=message_ts,
-                say=view.say_fn,
+                say=private_say,
                 thread_ts=thread_ts,
                 link_url=view.link_url,
+                direct=direct,
             )
         attachment_note, attachments = await self._attachments_for(
             files, admitted, view, ephemeral_fn
@@ -640,7 +658,7 @@ class SlackAssistant(
             logger.info("Ignoring message in disallowed Slack channel type %s", channel_type)
             return None
 
-        rocket_user_id, rocket_org_id = await self._resolve_identity(
+        rocket_user_id, rocket_org_id, linked = await self._resolve_member(
             user_id, workspace_org, org_policy, resolved_team_id
         )
         if user_id:
@@ -689,6 +707,7 @@ class SlackAssistant(
             team_id=resolved_team_id,
             workspace_org=workspace_org,
             rocket_org_id=rocket_org_id,
+            linked=linked,
         )
 
     async def _attachments_for(
@@ -769,9 +788,37 @@ class SlackAssistant(
                 thread_ts=view.thread_ts,
                 requester=view.requester_slack_id or "",
                 link_url=view.link_url,
+                sent_directly=bool(self.bot and self.bot.private_dm_updates),
             )
             return
         await self._post_result(view, admitted.org_policy)
+
+    async def _direct_say(
+        self, user_id: str, channel_id: str, thread_ts: str, session_id: str
+    ) -> Callable[..., Awaitable[Any]]:
+        """A ``say`` to the requester's direct messages, for a private request.
+
+        Ephemeral messages disappear when Slack reloads and notify nobody, so a question an
+        hour into a private run went unseen while the turn waited on it. Each message says
+        which request it is about and links to its thread.
+        """
+        client = self.app.client
+        permalink = await self._thread_permalink(channel_id, thread_ts)
+        request = f"<{permalink}|your request>" if permalink else "your request"
+        origin = f"About {request} in <#{channel_id}>"
+
+        async def say(**kwargs: Any) -> Any:
+            kwargs.pop("thread_ts", None)
+            blocks = kwargs.get("blocks") or [
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": str(kwargs.get("text", ""))[:2900]},
+                }
+            ]
+            kwargs["blocks"] = with_session_and_origin(blocks, session_id, origin)
+            return await client.chat_postMessage(channel=user_id, **kwargs)
+
+        return say
 
     async def _thread_permalink(self, channel_id: str, thread_ts: str) -> str:
         """The thread's link in Slack, for "Open in Slack" in the web app."""
@@ -852,14 +899,27 @@ class SlackAssistant(
         org_policy: SlackOrgPolicy,
         team_id: str = "",
     ) -> tuple[str, str]:
-        """The Rocket member behind a Slack user, or the anonymous workspace identity.
+        """The Rocket member behind a Slack user, or the anonymous workspace identity."""
+        member_id, org_id, _ = await self._resolve_member(
+            slack_user_id, workspace_org, org_policy, team_id
+        )
+        return member_id, org_id
+
+    async def _resolve_member(
+        self,
+        slack_user_id: str | None,
+        workspace_org: str,
+        org_policy: SlackOrgPolicy,
+        team_id: str = "",
+    ) -> tuple[str, str, bool]:
+        """The Rocket member behind a Slack user and whether they are linked (else a guest).
 
         Only a pairing the member confirmed from their authenticated session, or (when the
         organization enables it) a match on the member's e-mail inside this workspace's own
         organization, links the two - never an e-mail typed in Slack.
         """
         if not slack_user_id:
-            return "slack_user", workspace_org
+            return "slack_user", workspace_org, False
         resolved = None
         if self.resolve_user_fn is not None:
             resolved = await self.resolve_user_fn(slack_user_id, None, workspace_org)
@@ -869,10 +929,10 @@ class SlackAssistant(
                 if email:
                     resolved = await self.resolve_user_fn(slack_user_id, email, workspace_org)
         if not resolved:
-            return await self._guest(workspace_org, team_id, slack_user_id), workspace_org
+            return await self._guest(workspace_org, team_id, slack_user_id), workspace_org, False
         member_id, member_org = resolved
         self._user_pairings[slack_user_id] = member_id
-        return member_id, member_org
+        return member_id, member_org, True
 
     async def _ensure_session_record(
         self,
@@ -920,10 +980,7 @@ class SlackAssistant(
         is_dm, org_policy = admitted.is_dm, admitted.org_policy
         stable = (
             f"You are responding inside a Slack thread (channel '{channel_id}', thread "
-            f"'{thread_ts}'). Before any actionable work call `update_status` with a concise "
-            "present-continuous summary (e.g. 'Cloning repository', 'Running test suite') - "
-            "Slack shows it as the status line under the thread. "
-            "Each user message is prefixed '[Speaker: <name> (<@id>)]'; attribute statements "
+            f"'{thread_ts}'). Each user message is prefixed '[Speaker: <name> (<@id>)]'; attribute statements "
             "to the right person. "
             "Your final answer is delivered to the person by the platform: just write it. Never "
             "use `slack_send_message` or `slack_send_dm` to reply in this conversation; use them "
@@ -969,8 +1026,19 @@ class SlackAssistant(
             attachments=attachments,
             default_agent_id=self._agent_for(org_policy, profile),
             tool_scope=lambda base: self._slack_whitelisted_tools(base=base, org_allowed=allowed),
-            denied_tools=self._slack_tool_selection(allowed)[1],
+            denied_tools=self._denied_tools(admitted, allowed),
         )
+
+    def _denied_tools(self, admitted: _Admitted, allowed: tuple[str, ...]) -> frozenset[str]:
+        """The tools blocked for this turn: none when it acts as a linked member.
+
+        The blocklist guards against anyone in the workspace reaching publishing tools through
+        the bot. A linked member's DM or private request runs with their own account and
+        credentials, as in the web cockpit, unless the organization restricts members too.
+        """
+        if admitted.runs_as_member and not admitted.org_policy.restrict_linked_members:
+            return frozenset()
+        return self._slack_tool_selection(allowed)[1]
 
     def _agent_for(self, org_policy: SlackOrgPolicy, profile: ChannelProfile | None) -> str | None:
         """The channel's agent, else the routed or bot's agent, else the organization's."""

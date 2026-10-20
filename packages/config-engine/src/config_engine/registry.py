@@ -642,6 +642,17 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "every Slack thread links to its session there. Empty falls back to ROCKET_PUBLIC_URL.",
         ),
         _spec(
+            "restrict_linked_members",
+            "bool",
+            False,
+            "org",
+            "packages/slack-assistant/src/slack_assistant/policy.py",
+            "Also block the deployment's restricted tools (by default `git_push`, `git_open_pr` and "
+            "`git_revert`) for members who linked their Slack account, in their DMs and private "
+            "requests. Off, those requests run with the member's own access, as in the web app; "
+            "shared channel threads and unlinked users are always restricted.",
+        ),
+        _spec(
             "live_progress",
             "bool",
             True,

@@ -4491,6 +4491,12 @@
             "title": "Private Dm Result",
             "type": "boolean"
           },
+          "private_dm_updates": {
+            "default": false,
+            "description": "Private requests: send questions, approvals, errors and the result by direct message, with a link to the thread",
+            "title": "Private Dm Updates",
+            "type": "boolean"
+          },
           "private_reaction": {
             "default": "white_check_mark",
             "title": "Private Reaction",
@@ -4650,6 +4656,12 @@
           "private_dm_result": {
             "default": false,
             "title": "Private Dm Result",
+            "type": "boolean"
+          },
+          "private_dm_updates": {
+            "default": false,
+            "description": "Private requests: send questions, approvals, errors and the result by direct message, with a link to the thread",
+            "title": "Private Dm Updates",
             "type": "boolean"
           },
           "private_reaction": {
@@ -4822,6 +4834,17 @@
               }
             ],
             "title": "Private Dm Result"
+          },
+          "private_dm_updates": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Private Dm Updates"
           },
           "private_reaction": {
             "anyOf": [

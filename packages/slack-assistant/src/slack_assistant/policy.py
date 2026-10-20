@@ -66,6 +66,8 @@ class SlackOrgPolicy:
     live_progress: bool = True
     long_output_to_file: bool = True
     long_output_chars: int = 3500
+    # Apply the deployment's blocked tools to linked members' own requests too.
+    restrict_linked_members: bool = False
     channel_profiles: Mapping[str, ChannelProfile] = field(default_factory=dict)
 
     def profile_for(self, channel_id: str) -> ChannelProfile | None:
@@ -90,5 +92,6 @@ class SlackOrgPolicy:
             live_progress=bool(source.get("live_progress", True)),
             long_output_to_file=bool(source.get("long_output_to_file", True)),
             long_output_chars=int(source.get("long_output_chars") or 3500),
+            restrict_linked_members=bool(source.get("restrict_linked_members", False)),
             channel_profiles=_profiles(source.get("channel_profiles")),
         )

@@ -8,6 +8,8 @@ test("administrator views slack bots, opens editor and configures routing", asyn
 
   await expect(page.getByRole("heading", { name: /Slack & chat ops/i })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Slack bots" })).toBeVisible();
+  // Whether linked members' own requests keep the restricted tools is an organization setting.
+  await expect(page.getByText("Restrict Linked Members")).toBeVisible();
 
   await page.getByTestId("new-bot-button").click();
   await expect(page.getByTestId("slack-bot-editor")).toBeVisible();
@@ -22,6 +24,11 @@ test("administrator views slack bots, opens editor and configures routing", asyn
   await page.getByRole("tab", { name: "Behaviour" }).click();
   await page.getByTestId("bot-response-mode-select").selectOption("private");
   await expect(page.getByText("Acknowledgement Reaction")).toBeVisible();
+  // Private requests can report by direct message instead of messages a reload removes.
+  const dmUpdates = page.getByTestId("private-dm-updates");
+  await expect(dmUpdates).not.toBeChecked();
+  await dmUpdates.check();
+  await expect(dmUpdates).toBeChecked();
 
   // Brain Tab
   await page.getByRole("tab", { name: "Brain" }).click();

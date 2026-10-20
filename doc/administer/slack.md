@@ -113,7 +113,7 @@ An organization can run several bots in the same Slack workspace (e.g. `@RocketD
 ### Response modes per bot
 
 * **Thread mode:** The bot responds publicly in the Slack thread, streaming each step into its reply, then the answer, where everyone in the channel can see them.
-* **Private session mode:** The bot marks the request with a reaction (default `white_check_mark`) and posts an ephemeral reply visible only to the requester containing an **Open session** link. The turn runs privately in Rocket Chat. On completion, an ephemeral summary is sent with a **Share in thread** button that allows the requester to post the final answer publicly.
+* **Private session mode:** The bot marks the request with a reaction (default `white_check_mark`) and posts an ephemeral reply visible only to the requester containing an **Open session** link. The turn runs privately in Rocket Chat. On completion, an ephemeral summary is sent with a **Share in thread** button that allows the requester to post the final answer publicly. Ephemeral messages disappear when Slack reloads and send no notification, so a bot can instead send a private request's questions, approvals, errors and result **by direct message** (*Behaviour → Send questions, approvals, errors and the result by direct message*): each message links back to the original thread, the buttons work from the DM, and the thread keeps only the reaction and a short "I'll message you directly" note.
 
 ### Brain: One Agent or Router
 
@@ -133,6 +133,7 @@ An organization can run several bots in the same Slack workspace (e.g. `@RocketD
 | `dm_policy` | Who the agent may direct-message: nobody, linked members only, or everyone. |
 | `outbound_channels` | Channels the agent may post in or react in. Empty limits it to the conversation it was invoked from. Scheduled missions may only report to these. |
 | `allowed_tools` | Which tools the Slack path may use. `*` means every tool, including the tools of the MCP servers the agent can reach, except the deployment's blocked list (`SLACK_BLOCKED_TOOLS`). A list names the tools exactly, so MCP tools must be listed by name (`mcp__<server>__<tool>`). |
+| `restrict_linked_members` | Off by default: a member who linked their Slack account uses their own access in DMs and private requests, as in the web app. On: the deployment's blocked tools (`SLACK_BLOCKED_TOOLS`) apply to them too. Shared channel threads and unlinked users are always restricted. |
 | `auto_link_by_verified_email` | Link Slack users to members by their verified e-mail. |
 | `web_base_url` | The public address of Rocket Chat, for "Open in Rocket Chat" links (falls back to `ROCKET_PUBLIC_URL`). |
 | `live_progress` | Show the step the turn is on in its reply (one card, updated in place), then write a one-line summary and the answer into the same message. Switched off, only Slack's status line shows progress and the answer is posted when the turn ends. Either way, the person who asked can stop a turn with Slack's stop button under the thread (the app must subscribe to `agent_session_stopped`) or the bot's command (`/<command> stop`). |
@@ -167,7 +168,7 @@ Guests have the `readonly` role, no password and no linked accounts, so they can
 
 ### Safety limits (deployment-wide)
 
-Environment variables bound what an unlinked Slack user can cost or break: `SLACK_USER_TURNS_PER_MINUTE`, `SLACK_CHANNEL_TURNS_PER_MINUTE`, `SLACK_MAX_ATTACHMENTS_PER_TURN`, `SLACK_MAX_CONSECUTIVE_FAILURES` / `SLACK_FAILURE_COOLDOWN_SECONDS` (a circuit breaker), `SLACK_ALLOWED_TOOLS` / `SLACK_BLOCKED_TOOLS` (by default `git_revert`, `git_open_pr` and `git_push` are blocked on the unauthenticated path), and `SLACK_HEALTH_CHECK_SECONDS` (below). The settings reference lists every key.
+Environment variables bound what an unlinked Slack user can cost or break: `SLACK_USER_TURNS_PER_MINUTE`, `SLACK_CHANNEL_TURNS_PER_MINUTE`, `SLACK_MAX_ATTACHMENTS_PER_TURN`, `SLACK_MAX_CONSECUTIVE_FAILURES` / `SLACK_FAILURE_COOLDOWN_SECONDS` (a circuit breaker), `SLACK_ALLOWED_TOOLS` / `SLACK_BLOCKED_TOOLS` (by default `git_revert`, `git_open_pr` and `git_push` are blocked on the unauthenticated path: shared channel threads and Slack users who have not linked their account. A linked member's DM or private request runs with their own account and the same tools as the web app, unless the organization turns on `restrict_linked_members`), and `SLACK_HEALTH_CHECK_SECONDS` (below). The settings reference lists every key.
 
 ---
 

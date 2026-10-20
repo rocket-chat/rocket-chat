@@ -64,6 +64,7 @@ class SlackBotRecord:
     listen_channels: list[str] = field(default_factory=list)
     private_reaction: str = "white_check_mark"
     private_dm_result: bool = False
+    private_dm_updates: bool = False
     router: dict[str, Any] | None = None
     policy: dict[str, Any] = field(default_factory=dict)
     created_by: str | None = None
@@ -100,6 +101,7 @@ EDITABLE = frozenset(
         "listen_channels",
         "private_reaction",
         "private_dm_result",
+        "private_dm_updates",
         "router",
         "policy",
     }
@@ -166,6 +168,7 @@ def runtime_bot(record: SlackBotRecord, tokens: SlackTokens) -> SlackBot:
         listen_channels=frozenset(record.listen_channels),
         private_reaction=record.private_reaction,
         private_dm_result=record.private_dm_result,
+        private_dm_updates=record.private_dm_updates,
         policy=dict(record.policy),
         command=slash_command_of(record),
     )

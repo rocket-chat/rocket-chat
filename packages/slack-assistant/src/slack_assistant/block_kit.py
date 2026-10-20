@@ -412,6 +412,23 @@ def build_home_view(
 
 
 SHARE_ACTION_ID = "share_private_answer"
+# The block id of a gate's buttons sent by direct message: a click there cannot name the
+# session through its channel and thread, so the buttons carry it.
+SESSION_BLOCK_PREFIX = "rocket-session:"
+
+
+def with_session_and_origin(
+    blocks: list[dict[str, Any]], session_id: str, origin: str
+) -> list[dict[str, Any]]:
+    """``blocks`` for a direct message: the buttons name their session, and a last line says
+    which request they are about."""
+    tagged = [
+        {**block, "block_id": f"{SESSION_BLOCK_PREFIX}{session_id}"[:255]}
+        if block.get("type") == "actions" and "block_id" not in block
+        else block
+        for block in blocks
+    ]
+    return [*tagged, {"type": "context", "elements": [{"type": "mrkdwn", "text": origin}]}]
 
 
 def build_private_blocks(

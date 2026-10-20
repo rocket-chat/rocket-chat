@@ -1558,8 +1558,14 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 f"Turn cost limit (${cost_cap:.2f}) reached.",
             )
             return True
-        assistant_text = reply.text
         tool_calls, cut = split_truncated(reply.tool_calls, reply.finish_reason)
+        # Beside real calls, call markup in the text is a provider's leftover, not something
+        # the model said: kept, it showed as a step's intent and reached the answer.
+        assistant_text = (
+            strip_leaked_calls(reply.text)
+            if tool_calls and contains_leaked_calls(reply.text)
+            else reply.text
+        )
         if cut:
             logger.warning("A reply in %s was cut off at the token limit", run.session_id)
             run.next_notes.append(truncation_notice(cut))

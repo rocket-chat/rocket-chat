@@ -99,6 +99,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | `dm_policy` | Organization | `none` / `paired` / `all` | `paired` | Who the agent may direct-message. |
 | `outbound_channels` | Organization | list | empty | Channel ids the agent may post or react in; empty limits it to the conversation it was invoked from. |
 | `web_base_url` | Organization | str | empty | Public address of the Rocket Chat web app (for example https://rocket.example.com); every Slack thread links to its session there. Empty falls back to ROCKET_PUBLIC_URL. |
+| `restrict_linked_members` | Organization | bool | `False` | Also block the deployment's restricted tools (by default `git_push`, `git_open_pr` and `git_revert`) for members who linked their Slack account, in their DMs and private requests. Off, those requests run with the member's own access, as in the web app; shared channel threads and unlinked users are always restricted. |
 | `live_progress` | Organization | bool | `True` | Stream each tool call into the reply as a step while a turn runs, then write the answer into the same message; off, the answer is posted when the turn ends. |
 | `long_output_to_file` | Organization | bool | `True` | Attach long answers and large diffs as Slack files instead of splitting them into many messages. |
 | `long_output_chars` | Organization | min 500, max 20000 | `3500` | Answers longer than this many characters are summarised in the thread and attached in full as a file. |
