@@ -119,7 +119,10 @@ async def test_autonomous_tool_calling_and_reasoning_extraction(
                     tc.type = "function"
                     tc.function.name = "bash_exec"
                     tc.function.arguments = json.dumps(
-                        {"command": "echo 'Sample Slide Show' > /workspace/title.txt"}
+                        {
+                            "command": "echo 'Sample Slide Show' > /workspace/title.txt",
+                            "cwd": "/workspace",
+                        }
                     )
                     ch2.delta.tool_calls = [tc]
                     ch2.finish_reason = "tool_calls"

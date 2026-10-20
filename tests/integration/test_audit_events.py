@@ -176,7 +176,7 @@ async def test_tool_call_leaves_audit_row_and_trace_is_redacted(db_manager: Any)
                     "risk_level": "critical",
                 },
             },
-            {"name": "bash_exec", "arguments": {"command": "echo token"}},
+            {"name": "bash_exec", "arguments": {"command": "echo token", "cwd": "/workspace"}},
         ]
     )
     driver = FakeSandboxDriver()

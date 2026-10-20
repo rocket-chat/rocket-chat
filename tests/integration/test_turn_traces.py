@@ -202,7 +202,7 @@ async def test_completed_turn_persists_exactly_one_trace(db_manager: Any) -> Non
                     "risk_level": "critical",
                 },
             },
-            {"name": "bash_exec", "arguments": {"command": "echo trace"}},
+            {"name": "bash_exec", "arguments": {"command": "echo trace", "cwd": "/workspace"}},
         ]
     )
     driver = FakeSandboxDriver()
