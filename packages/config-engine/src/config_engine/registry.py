@@ -802,6 +802,18 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Risk levels to auto-approve or deny: {auto_approve: [...], deny: [...]}.",
         ),
         _spec(
+            "question_timeout_seconds",
+            "int",
+            None,
+            "org",
+            "apps/api/src/api/services/audit.py",
+            "How long a question the agent asks (ask_question) waits for an answer. Past it, the "
+            "question closes unanswered and the agent continues with its recommended option or "
+            "its best judgement, stating the assumption. Empty waits until someone answers; set "
+            "it for sessions nobody watches, such as ones driven through the API.",
+            minimum=1,
+        ),
+        _spec(
             "provider_allowlist",
             "list",
             [],

@@ -308,14 +308,18 @@ class GovernancePolicy:
     model_data: ModelDataGovernance = field(default_factory=ModelDataGovernance)
     retention: RetentionPolicy = field(default_factory=RetentionPolicy)
     egress: EgressPolicy = field(default_factory=EgressPolicy)
+    # ``None`` keeps a question open until someone answers it.
+    question_timeout_seconds: int | None = None
 
     @classmethod
     def from_settings(cls, settings: Mapping[str, Any] | None) -> GovernancePolicy:
+        timeout = (settings or {}).get("question_timeout_seconds")
         return cls(
             approval=ApprovalPolicy.from_settings(settings),
             model_data=ModelDataGovernance.from_settings(settings),
             retention=RetentionPolicy.from_settings(settings),
             egress=EgressPolicy.from_settings(settings),
+            question_timeout_seconds=int(timeout) if timeout else None,
         )
 
 

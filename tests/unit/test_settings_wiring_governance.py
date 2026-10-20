@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from api.services.settings import save_org_config
 from api.turns.shared import _turn_service
@@ -57,6 +59,46 @@ async def test_the_bypass_mode_is_honoured_only_where_the_organization_allows_it
 
     await _governance("wire_bypass_on", allow_bypass_permissions=True)
     assert await mode("wire_bypass_on") == "bypass"
+
+
+ASK = (
+    "ask_question",
+    {
+        "question": "Which environment?",
+        "options": ["beta", "qa"],
+        "default_recommended_option": "beta",
+    },
+)
+
+
+@pytest.mark.setting("governance.question_timeout_seconds")
+async def test_an_unanswered_question_closes_after_the_timeout_and_the_turn_finishes() -> None:
+    org = "wire_question_timeout"
+    await _governance(org, question_timeout_seconds=1)
+
+    outcome = await asyncio.wait_for(run_turn(org, script=[ASK]), timeout=20)
+
+    asked, closed = outcome.events_of("decision_required"), outcome.events_of("decision_submitted")
+    assert len(asked) == len(closed) == 1
+    assert closed[0].payload["question_id"] == asked[0].payload["question_id"]
+    assert closed[0].payload["selected_options"] == []
+    tool_results = [
+        m.content for r in outcome.model.requests for m in r.messages if m.role == "tool"
+    ]
+    assert any(
+        "Nobody answered within 1 seconds" in str(r) and "recommended option (beta)" in str(r)
+        for r in tool_results
+    )
+    assert outcome.session.conversation_history[-1].content == "All done."
+
+
+async def test_without_a_timeout_a_question_waits_for_its_answer() -> None:
+    turn = asyncio.ensure_future(run_turn("wire_question_waits", script=[ASK]))
+
+    done, _ = await asyncio.wait({turn}, timeout=1.5)
+    turn.cancel()
+
+    assert not done, "the turn must still be waiting for an answer"
 
 
 @pytest.mark.setting("governance.zero_retention")

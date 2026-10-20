@@ -14,7 +14,7 @@ from api.services.session_support import _new_message_id
 from api.services.turn_trace import record_running_tool_call
 from api.turns.attention import update_attention
 from api.turns.context import TurnContext
-from api.turns.gates import _remember_pending_decision
+from api.turns.gates import _forget_pending_decisions, _remember_pending_decision
 from specifications.interfaces.agent import AgentEvent
 from specifications.interfaces.events import EventType, SessionEvent
 from specifications.interfaces.llm import ChatMessage
@@ -131,6 +131,7 @@ class TurnEventHandlers:
     def __init__(self, ctx: TurnContext) -> None:
         self.ctx = ctx
         self._coalescer = TokenCoalescer(self._publish)
+        self._question_timers: set[asyncio.Task[None]] = set()
         self._intervening_tool_called = False
         self._step_text_parts: list[str] = []
         self._tool_prefaces: list[str] = []
@@ -216,6 +217,11 @@ class TurnEventHandlers:
     async def flush(self) -> None:
         await self._coalescer.flush()
         self._commit_step_text()
+
+    def close(self) -> None:
+        """The turn is over: a question it asked can no longer time out."""
+        for timer in self._question_timers:
+            timer.cancel()
 
     # -- helpers ------------------------------------------------------------------------
 
@@ -383,6 +389,50 @@ class TurnEventHandlers:
             await _remember_pending_decision(ctx.req.db_mgr, ctx.trace, ctx.state.open_decision)
         await self._publish(EventType.DECISION_REQUIRED, event.payload)
         await self._mark_awaiting("question")
+        timeout = ctx.governance.question_timeout_seconds
+        if timeout and event.payload.get("question_id"):
+            timer = asyncio.create_task(
+                self._close_unanswered_question(event.payload, after_seconds=timeout)
+            )
+            self._question_timers.add(timer)
+            timer.add_done_callback(self._question_timers.discard)
+
+    async def _close_unanswered_question(
+        self, question: dict[str, Any], *, after_seconds: int
+    ) -> None:
+        """Answer a question nobody answered in time, along the path a person's answer takes,
+        so the turn resumes and every client closes the card."""
+        await asyncio.sleep(after_seconds)
+        ctx = self.ctx
+        question_id = str(question["question_id"])
+        recommended = question.get("default_recommended_option")
+        fallback = (
+            f"the recommended option ({recommended})" if recommended else "your best judgement"
+        )
+        note = (
+            f"Nobody answered within {after_seconds} seconds. Do not ask again: continue with "
+            f"{fallback} and state that assumption in your answer."
+        )
+        try:
+            await ctx.req.orchestrator.submit_question_answer(
+                session_id=ctx.session_id,
+                question_id=question_id,
+                selected_options=[],
+                custom_text=note,
+            )
+        except KeyError:
+            return  # answered in the meantime
+        logger.info(
+            "Question %s of %s closed unanswered after %ss",
+            question_id,
+            ctx.session_id,
+            after_seconds,
+        )
+        await self._publish(
+            EventType.DECISION_SUBMITTED,
+            {"question_id": question_id, "selected_options": [], "custom_text": note},
+        )
+        await _forget_pending_decisions(ctx.req.db_mgr, ctx.session_id, ctx.session.tenant_org_id)
 
     async def _approval_required(self, event: AgentEvent) -> None:
         ctx = self.ctx
