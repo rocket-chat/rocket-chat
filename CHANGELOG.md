@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `settings`: `models.context_target_tokens` (200,000 by default): long conversations are pruned and compacted below it even on models with a larger window. `models.provider_preferences`: OpenRouter provider preferences per model pattern, to keep a model on one provider and its prompt cache warm.
 - `settings`, `api`, `web`: A step limit of `0` (organization or agent) runs a turn until the agent answers, is cancelled or reaches a cost cap, without a "converge now" notice or forced synthesis.
 
+- `slack`, `web`: A bot can send private requests' questions, approvals, errors and result by direct message, each linking to its thread (`private_dm_updates`); the buttons work from the DM.
+
 ### Changed
 - `orchestrator`: Loop detection never pauses an autonomous turn: repeated failures and edit/revert loops are notes to the agent in every mode but `ask`. The checklist stall detector is removed (re-sending an unchanged checklist counted as "no progress" and its warning asked for another update), an unchanged checklist re-send is a no-op, and the stale-checklist reminder comes every 20 steps without asking for an update "with your next tool call".
 - `orchestrator`: `bash_exec` requires `cwd`, and a leading `cd <folder> &&` runs as that folder; the cockpit shows the command and where it ran.
@@ -24,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api`: `wait_for ci_status` reads the pull request's checks first and answers at once when CI has finished or no check appears (a branch behind its base, no CI), instead of waiting up to two hours.
 
 ### Fixed
+- `slack`: A linked member's DMs and private requests were refused `git_push` and `git_open_pr` (the blocklist meant for unauthenticated callers applied to everyone) while the generic GitHub API wrote with their account. The blocklist now applies to shared threads and unlinked users only; `slack.restrict_linked_members` restores it for members. The Slack prompt no longer asks for the removed `update_status` tool.
+- `orchestrator`: Fragments of a provider's tool-call markup (`path" string="true">…`) left beside real calls showed as step intents and opened answers; they are no longer streamed or stored.
 - `orchestrator`: Wake, continuation and resume prompts were re-sent as the newest message on every step, so the agent restarted the same first step over and over (one turn sent the same two calls 64 times); they are stored once where the turn starts.
 - `llm-gateway`: Model costs were priced from a rate card that billed every DeepSeek model at DeepSeek V3 rates, about a tenth of DeepSeek V4 Pro's; the cost OpenRouter bills is now requested and recorded, else LiteLLM's price for the underlying model. Zero-retention no longer drops the other provider options of a request.
 - `api`: Streamed thoughts and answers lost chunks: the coalescer's timer cancelled its own flush mid-publish. Thoughts showed sentences with words missing.

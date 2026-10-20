@@ -921,6 +921,7 @@ class SlackBotModel(Base):
         String(64), nullable=False, default="white_check_mark"
     )
     private_dm_result: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    private_dm_updates: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # The router (classifier agent, routes, dismiss, fallback); NULL answers with ``agent_id``.
     router: Mapped[dict[str, Any] | None] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=True

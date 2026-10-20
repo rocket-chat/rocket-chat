@@ -1826,6 +1826,7 @@ Register a new Slack bot with its encrypted tokens and identity.
 | listen_channels | list of string | no |  |
 | private_reaction | string | no |  |
 | private_dm_result | boolean | no |  |
+| private_dm_updates | boolean | no | Private requests: send questions, approvals, errors and the result by direct message, with a link to the thread |
 | router | object | no |  |
 | policy | object | no |  |
 | enabled | boolean | no |  |
@@ -1868,6 +1869,7 @@ Update a Slack bot's configuration or rotate its tokens.
 | listen_channels | list of string | no |  |
 | private_reaction | string | no |  |
 | private_dm_result | boolean | no |  |
+| private_dm_updates | boolean | no |  |
 | router | object | no |  |
 | policy | object | no |  |
 | enabled | boolean | no |  |

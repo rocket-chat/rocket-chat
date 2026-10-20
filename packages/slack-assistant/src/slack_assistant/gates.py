@@ -6,6 +6,7 @@ from typing import Any
 
 from slack_bolt.context.say.async_say import AsyncSay
 
+from slack_assistant.block_kit import SESSION_BLOCK_PREFIX
 from slack_assistant.state import SlackAssistantState
 
 logger = logging.getLogger(__name__)
@@ -26,9 +27,14 @@ class SlackGatesMixin(SlackAssistantState):
         # clicker names the private session.
         private_for = clicker if container.get("is_ephemeral") else None
         known = self._gate_owners.get(value)
+        # Buttons sent by direct message carry their session (no thread names it there). Who
+        # may answer is still checked against the session's requester.
+        block_id = str(actions[0].get("block_id", "")) if actions else ""
         session_id = (
             known[0]
             if known is not None
+            else block_id.removeprefix(SESSION_BLOCK_PREFIX)
+            if block_id.startswith(SESSION_BLOCK_PREFIX)
             else self.get_session_id(channel_id, thread_ts, private_for=private_for)
             if thread_ts
             else ""

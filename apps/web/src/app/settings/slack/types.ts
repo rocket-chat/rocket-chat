@@ -39,6 +39,7 @@ export interface SlackBot {
   listen_channels: string[];
   private_reaction: string;
   private_dm_result: boolean;
+  private_dm_updates: boolean;
   router?: SlackRouterConfig | null;
   policy: Record<string, unknown>;
   created_at: number;

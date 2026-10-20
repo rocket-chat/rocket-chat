@@ -146,6 +146,7 @@ class SlackRoutingMixin(SlackAssistantState):
         say: Callable[..., Awaitable[Any]],
         thread_ts: str,
         link_url: str | None,
+        direct: bool = False,
     ) -> None:
         """Mark the request as taken with a reaction, and tell the requester where it runs."""
         bot = self.bot
@@ -156,7 +157,11 @@ class SlackRoutingMixin(SlackAssistantState):
                 )
             except Exception as err:
                 logger.debug("Private-mode reaction skipped: %s", err)
-        text = ":lock: Working on it privately. Only you see this."
+        text = (
+            ":lock: Working on it privately. I'll send my questions and the result to you directly."
+            if direct
+            else ":lock: Working on it privately. Only you see this."
+        )
         try:
             await say(
                 text=text, blocks=build_private_blocks(text, link_url=link_url), thread_ts=thread_ts
@@ -174,6 +179,7 @@ class SlackRoutingMixin(SlackAssistantState):
         thread_ts: str,
         requester: str,
         link_url: str | None,
+        sent_directly: bool = False,
     ) -> None:
         """The answer to its requester only, kept on the session for **Share in thread**."""
         text = answer.strip() or "Done."
@@ -184,7 +190,12 @@ class SlackRoutingMixin(SlackAssistantState):
             blocks=build_private_blocks(summary, link_url=link_url, share_value=session_id),
             thread_ts=thread_ts,
         )
-        if self.bot is not None and self.bot.private_dm_result and self._slack_api_ready:
+        if (
+            not sent_directly
+            and self.bot is not None
+            and self.bot.private_dm_result
+            and self._slack_api_ready
+        ):
             # The ephemeral reply disappears when Slack reloads; the direct message stays.
             try:
                 await self.app.client.chat_postMessage(

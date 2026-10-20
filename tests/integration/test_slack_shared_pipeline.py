@@ -337,3 +337,39 @@ async def test_an_agent_allowed_every_tool_keeps_the_slack_tools() -> None:
     names = {t.name for t in model.requests[0].tools}
     assert {"web_search", "file_read", "bash_exec"} <= names
     assert not names & {"git_push", "git_open_pr", "git_revert"}, "Slack's blocklist still applies"
+
+
+async def _tools_for_dm(*, linked: bool, restrict: bool) -> set[str]:
+    model = ScriptedModel()
+    stack = Stack(
+        model,
+        SlackOrgPolicy(default_agent_persona="persona-general", restrict_linked_members=restrict),
+    )
+
+    async def resolve(slack_user: str, email: str | None, org: str) -> tuple[str, str] | None:
+        return ("member-alice", org) if linked else None
+
+    stack.assistant.resolve_user_fn = resolve  # type: ignore[assignment]
+    await stack.assistant.process_incoming_request(
+        channel_id="D1",
+        thread_ts="1.1",
+        raw_text="push my branch",
+        say_fn=stack.say,
+        user_id="U1",
+        channel_type="im",
+        team_id="T1",
+    )
+    assert model.requests and model.requests[0].tools
+    return {t.name for t in model.requests[0].tools}
+
+
+@pytest.mark.asyncio
+@pytest.mark.setting("slack.restrict_linked_members")
+async def test_a_linked_members_own_request_is_not_held_to_the_anonymous_blocklist() -> None:
+    """The blocklist is for anyone in the workspace; a linked member's DM runs as them (they
+    were refused git_push while the generic GitHub API wrote with their account)."""
+    publishing = {"git_push", "git_open_pr"}
+
+    assert publishing <= await _tools_for_dm(linked=True, restrict=False)
+    assert not publishing & await _tools_for_dm(linked=True, restrict=True)
+    assert not publishing & await _tools_for_dm(linked=False, restrict=False)

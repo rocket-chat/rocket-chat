@@ -91,6 +91,18 @@ class ScriptedModel(LLMGatewayProtocol):
                         is_finished=True, finish_reason="tool_calls", token_usage=usage
                     )
                     return
+                if kind == "say_and_call":
+                    # Text, then a tool call, in one reply (as a model's preface to a step).
+                    yield StreamChunk(text_delta=step[1])
+                    yield StreamChunk(
+                        tool_call_delta={
+                            "index": 0,
+                            "id": f"call_{self.step_index}",
+                            "function": {"name": step[2], "arguments": json.dumps(step[3])},
+                        }
+                    )
+                    yield StreamChunk(is_finished=True, finish_reason="tool_calls")
+                    return
                 if kind == "think":
                     finish_reason = step[1]
                     reasoning_text = (

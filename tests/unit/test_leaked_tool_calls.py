@@ -110,3 +110,43 @@ async def test_repeated_plain_markup_ends_with_only_the_clear_message() -> None:
     )
     assert LEAK_GIVE_UP in shown
     assert "<tool_calls>" not in shown and "<invoke" not in shown, "no markup fragment shown"
+
+
+# What a provider left in the text after turning a DSML call into a real `git_push` call.
+REMNANT = 'path" string="true">/workspace/backend-services-protocol'
+
+
+def test_a_parameter_remnant_is_markup_and_never_streamed() -> None:
+    """It showed as the step's intent in the cockpit and opened the Slack answer."""
+    assert contains_leaked_calls(REMNANT) and strip_leaked_calls(REMNANT) == ""
+    assert not contains_leaked_calls('Set the path" string="true"> example in prose later')
+
+    remnant_stream = LeakFilter()
+    shown = "".join(
+        remnant_stream.feed(piece) for piece in (REMNANT[:7], REMNANT[7:30], REMNANT[30:])
+    )
+    assert shown + remnant_stream.finish() == ""
+
+    prose = "Let me check the CI logs before pushing the fix to the pull request branch now."
+    prose_stream = LeakFilter()
+    shown = "".join(prose_stream.feed(prose[i : i + 9]) for i in range(0, len(prose), 9))
+    assert shown + prose_stream.finish() == prose
+    short = LeakFilter()
+    assert short.feed("Done.") + short.finish() == "Done."
+
+
+async def test_a_remnant_beside_a_real_call_is_dropped_from_the_step() -> None:
+    outcome = await run_turn(
+        "org_remnant",
+        steps=[("say_and_call", REMNANT, "list_dir", {"path": "."}), ("say", "All good.")],
+    )
+
+    stored = [m for r in _react_requests(outcome) for m in r.messages if m.role == "assistant"]
+    assert stored and not any(REMNANT in (m.content or "") for m in stored)
+    tokens = "".join(
+        str(e.payload.get("delta") or "")
+        for e in outcome.events
+        if getattr(e, "event_type", None) and str(e.event_type).endswith("token")
+    )
+    assert REMNANT not in tokens
+    assert outcome.session.conversation_history[-1].content == "All good."

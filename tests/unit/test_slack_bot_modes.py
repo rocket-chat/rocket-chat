@@ -327,3 +327,49 @@ async def test_a_bot_answers_its_command_and_the_legacy_one(command: str) -> Non
 
     handled = assistant._rocket_command.await_count == 1
     assert handled is (command != "/other"), response.status
+
+
+async def test_with_dm_updates_a_private_request_reports_by_direct_message() -> None:
+    """Ephemeral messages vanish on reload and notify nobody; the requester gets DMs instead,
+    each saying which request it is about, and the result exactly once."""
+    assistant = _slack(
+        _bot(response_mode="private", private_dm_updates=True, private_dm_result=True)
+    )
+    client = assistant.app.client
+    client.chat_getPermalink = AsyncMock(return_value={"permalink": "https://slack/p100"})
+
+    say, _ = await _ask(assistant)
+
+    say.assert_not_awaited()
+    acknowledgement = client.chat_postEphemeral.await_args_list
+    assert len(acknowledgement) == 1 and "directly" in acknowledgement[0].kwargs["text"]
+    direct = client.chat_postMessage.await_args_list
+    assert len(direct) == 1 and direct[0].kwargs["channel"] == "U1"
+    assert ANSWER in direct[0].kwargs["text"]
+    origin = direct[0].kwargs["blocks"][-1]["elements"][0]["text"]
+    assert "https://slack/p100" in origin and "<#C1>" in origin
+
+
+async def test_a_gate_sent_by_direct_message_names_its_session() -> None:
+    from slack_assistant.block_kit import build_question_blocks
+
+    from specifications.interfaces.agent import InteractiveQuestion
+
+    assistant = _slack(_bot())
+    say = await assistant._direct_say("U1", "C1", "100.1", "session-private-1")
+    question = InteractiveQuestion("q-1", "Which branch?", ["main", "beta"], False, "beta")
+    await say(blocks=build_question_blocks(question), text="Which branch?", thread_ts="100.1")
+
+    sent = assistant.app.client.chat_postMessage.await_args.kwargs
+    assert sent["channel"] == "U1" and "thread_ts" not in sent
+    buttons = next(b for b in sent["blocks"] if b["type"] == "actions")
+    click = {
+        "actions": [{"value": "beta", "block_id": buttons["block_id"]}],
+        "channel": {"id": "D1"},
+        "container": {},
+        "user": {"id": "U1"},
+    }
+
+    session_id, _, _, clicker = assistant._gate_context(click)
+
+    assert (session_id, clicker) == ("session-private-1", "U1")

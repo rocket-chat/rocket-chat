@@ -44,6 +44,7 @@ export function BotEditor({ bot, agentOptions, onClose, onSaved }: BotEditorProp
   const [listenChannels, setListenChannels] = useState(bot?.listen_channels?.join(", ") || "");
   const [privateReaction, setPrivateReaction] = useState(bot?.private_reaction || "white_check_mark");
   const [privateDmResult, setPrivateDmResult] = useState(bot?.private_dm_result ?? false);
+  const [privateDmUpdates, setPrivateDmUpdates] = useState(bot?.private_dm_updates ?? false);
   const [brainType, setBrainType] = useState<"agent" | "router">(bot?.router ? "router" : "agent");
 
   // Router state
@@ -202,6 +203,7 @@ export function BotEditor({ bot, agentOptions, onClose, onSaved }: BotEditorProp
       listen_channels: channels,
       private_reaction: privateReaction.trim() || "white_check_mark",
       private_dm_result: privateDmResult,
+      private_dm_updates: privateDmUpdates,
       router: routerConfig,
       policy: policyOverrides,
     };
@@ -516,6 +518,16 @@ export function BotEditor({ bot, agentOptions, onClose, onSaved }: BotEditorProp
                       className="rounded border-border text-brand focus:ring-brand"
                     />
                     <span>Also send completion summary as a direct message (DM)</span>
+                  </label>
+                  <label className="flex items-center gap-2.5 text-xs text-foreground cursor-pointer">
+                    <input
+                      type="checkbox"
+                      data-testid="private-dm-updates"
+                      checked={privateDmUpdates}
+                      onChange={(e) => setPrivateDmUpdates(e.target.checked)}
+                      className="rounded border-border text-brand focus:ring-brand"
+                    />
+                    <span>Send questions, approvals, errors and the result by direct message, with a link to the thread</span>
                   </label>
                 </div>
               )}

@@ -377,11 +377,13 @@ def test_slack_bots_admin_endpoints(api_client: TestClient) -> None:
         # 7. Update bot
         up_res = api_client.put(
             f"/v1/admin/slack/bots/{bot_id}",
-            json={"name": "Updated Bot", "response_mode": "thread"},
+            json={"name": "Updated Bot", "response_mode": "thread", "private_dm_updates": True},
         )
         assert up_res.status_code == 200
         assert up_res.json()["name"] == "Updated Bot"
         assert up_res.json()["response_mode"] == "thread"
+        assert up_res.json()["private_dm_updates"] is True
+        assert data["private_dm_updates"] is False, "off unless the bot asks for it"
 
         # 8. Delete bot
         del_res = api_client.delete(f"/v1/admin/slack/bots/{bot_id}")
