@@ -670,7 +670,7 @@ def test_exec_output_routes_each_channel_and_reads_the_exit_status() -> None:
     output.feed(b"")
     output.feed(bytes([ws_client.ERROR_CHANNEL]) + b'{"status":"Success"}')
 
-    assert output.stdout.text() == "out more" and seen == ["out ", "more"]
+    assert output.stdout.text() == "out more" and seen == ["out ", "more", "warn"]
     assert output.stderr.text() == "warn"
     assert output.exit_code == 0
 

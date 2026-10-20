@@ -16,7 +16,7 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | `ROCKET_DEFAULT_MODEL` | string | `openrouter/deepseek/deepseek-v4.1-flash` | Default model identifier passed to LiteLLM for sessions that do not specify a model. |
 | `LOG_LEVEL` | string | `INFO` | Configurable backend log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
 | `LOG_FORMAT` | string | `console` | Logging output structure: `console` (colored human-readable) or `json` (structured machine-readable for Datadog, Loki, CloudWatch). |
-| `AGENT_MAX_TURNS` | int | `60` | Default autonomous ReAct turn limit per user prompt before triggering post-failure synthesis. |
+| `AGENT_MAX_TURNS` | int | `100` | Deployment default for the step limit of a turn (`0` = no limit). The organization's *Max steps per turn* setting and an agent's own limit take precedence. |
 | `ROCKET_FALLBACK_MODELS` | string | `""` | Comma-separated ordered fallback models used on transient provider failures. Handled natively by LiteLLM (`fallbacks`). E.g. `openrouter/openai/gpt-4o,openrouter/google/gemini-2.5-pro`. |
 | `ROCKET_MODEL_MAX_RETRIES` | int | `2` | Retry attempts for transient provider errors (rate limit, timeout, 5xx), delegated to LiteLLM (`num_retries`). |
 | `ROCKET_CODE_INDEX_MAX_SESSIONS` | int | `16` | Maximum number of per-session semantic code indexes kept in process memory (LRU). The index is derived data, so eviction is always safe. |
@@ -171,6 +171,38 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 | `GIT_BOT_EMAIL` | string | `bot@rocketchat.internal` | Author email injected into Git commits. |
 | `GIT_DEFAULT_BRANCH` | string | `main` | Default target branch for repository checkouts. |
 | `ROCKET_GIT_GATEWAY_URL` | string | `http://host.docker.internal:8000` | The API's address **as a sandbox reaches it**, for the git gateway: sandboxes hold no GitHub credential and clone and fetch through `<url>/v1/git/…`. The Docker driver maps `host.docker.internal` to the host on every engine, so the default works when the API publishes port 8000 on the host; the Helm chart sets the backend Service's in-cluster address. |
+
+### Sandbox sizing, web access, tracing and tuning
+
+| Environment Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `SANDBOX_CPU_LIMIT` | string | `500m` | Kubernetes only. CPU limit of a sandbox **when no setting sets one**: the sandbox's resources (organization, sandbox type and agent) and a placement profile always win over this variable. |
+| `SANDBOX_MEMORY_LIMIT` | string | `512Mi` | Kubernetes only. Memory limit of a sandbox under the same rule as `SANDBOX_CPU_LIMIT`. |
+| `SANDBOX_CPU_REQUEST` | string | `50m` | Kubernetes only. CPU the scheduler reserves for a sandbox (a placement profile may override it). |
+| `SANDBOX_MEMORY_REQUEST` | string | `128Mi` | Kubernetes only. Memory the scheduler reserves for a sandbox (a placement profile may override it). |
+| `CLOUD_PROVIDER` | string | *(unset)* | Cloud of the cluster (`aws`, `azure`, `gcp`), used to pick a persistent-volume storage class when none is configured. `K8S_CLOUD_PROVIDER` is the same variable. |
+| `ROCKET_EGRESS_PROXY_IMAGE` | string | `python:3.12-slim` | Docker driver only. Image of the allow-listing egress proxy started for organizations with an egress allow-list. |
+| `CORS_ALLOW_ORIGINS` | string | `http://localhost:3000` | Comma-separated origins the API accepts cross-origin browser requests from. |
+| `ADMIN_EMAILS` | string | *(unset)* | Comma-separated e-mail addresses that receive the administrator role when they sign in (`INITIAL_ADMIN_EMAIL` does the same for one address). |
+| `OPENROUTER_API_KEY` | secret | *(unset)* | The deployment's own OpenRouter key: the fallback when a member and the organization have no key of their own (see the *Whose provider keys* budget setting). |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | string | *(unset)* | Turns on OpenTelemetry tracing and names the OTLP collector. Without it tracing is off. |
+| `OTEL_SERVICE_NAME` | string | `rocket-chat-api` | Service name reported with traces. |
+| `ROCKET_TERMINAL_IDLE_SECONDS` | int | `900` | Seconds without input after which an interactive terminal session is closed. |
+| `ROCKET_MAX_CACHED_SESSIONS` | int | `256` | Sessions whose conversation the orchestrator keeps in memory (least recently used evicted first). |
+| `ALEMBIC_CONFIG` | path | *(auto)* | Path of `alembic.ini` for migrations when it is not in the working directory. |
+| `GITHUB_API_URL` | string | `https://api.github.com` | GitHub API base URL (set it for GitHub Enterprise Server). |
+| `GITHUB_APP_DEFAULT_PERMISSIONS` | string | `contents:read,pull_requests:read` | Permissions the GitHub App token requests when the organization's *app_token_permissions* setting is empty. |
+
+### Retired variable names
+
+These names still work but log a warning at start-up; use the name on the right.
+
+| Retired name | Use instead |
+| :--- | :--- |
+| `ROCKET_MAX_TURNS`, `MAX_TURNS` | `AGENT_MAX_TURNS` |
+| `SANDBOX_DRIVER` | `DEFAULT_SANDBOX_DRIVER` |
+| `DEFAULT_MODEL` | `ROCKET_DEFAULT_MODEL` |
+| `ROCKET_ENCRYPTION_KEY` | `ENCRYPTION_MASTER_KEY` |
 
 ---
 

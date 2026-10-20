@@ -9,6 +9,7 @@ from sandbox_driver.exceptions import SandboxTimeoutError
 
 from agent_core.editor import create_file_diff, replace_block
 from agent_core.tools.clamp import clamp_output
+from agent_core.tools.live_output import live_chunk
 from specifications.interfaces.agent import FileDiff
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 
@@ -32,6 +33,7 @@ async def bash_exec(
             command=command,
             workdir=workdir,
             timeout_seconds=timeout_seconds,
+            on_stdout_chunk=live_chunk(),
         )
     except SandboxTimeoutError as err:
         sections = [
@@ -613,6 +615,7 @@ async def run_tests(
         command=test_cmd,
         workdir=workdir,
         timeout_seconds=timeout_seconds,
+        on_stdout_chunk=live_chunk(),
     )
     raw = "\n".join(
         part for part in ((result.stdout or "").strip(), (result.stderr or "").strip()) if part

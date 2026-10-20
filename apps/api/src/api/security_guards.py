@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import os
 
+from config_engine.environment import env_value
+
 from api.auth.identity import is_production
 from api.auth.session_manager import DEFAULT_SESSION_SECRET
 
@@ -31,7 +33,7 @@ def production_config_problems() -> list[str]:
     elif len(session_secret) < MIN_SECRET_LENGTH:
         problems.append(f"SESSION_SECRET must be at least {MIN_SECRET_LENGTH} characters")
 
-    if not (os.getenv("ENCRYPTION_MASTER_KEY") or os.getenv("ROCKET_ENCRYPTION_KEY")):
+    if not env_value("ENCRYPTION_MASTER_KEY", "ROCKET_ENCRYPTION_KEY"):
         problems.append("ENCRYPTION_MASTER_KEY must be set; credentials cannot use a default key")
 
     for flag in ("DEV_AUTH_BYPASS", "ROCKET_DEV_LOGIN", "ALLOW_DEV_LOGIN"):

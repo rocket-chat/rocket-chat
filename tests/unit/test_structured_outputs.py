@@ -141,3 +141,33 @@ async def test_stub_honours_a_response_schema_deterministically() -> None:
     assert first.suggestion == second.suggestion
     assert first.suggestion  # never empty
     assert stub.call_count == 2
+
+
+class _ReasoningGateway(_ScriptedGateway):
+    def __init__(self, reasoning: str, answer: str) -> None:
+        super().__init__([answer])
+        self._reasoning = reasoning
+
+    async def chat_stream(self, request: ModelRequest) -> AsyncIterator[StreamChunk]:
+        self.requests.append(request)
+        yield StreamChunk(reasoning_delta=self._reasoning)
+        if self._responses[0]:
+            yield StreamChunk(text_delta=self._responses[0])
+        yield StreamChunk(is_finished=True)
+
+
+async def test_reasoning_never_corrupts_the_answer() -> None:
+    gateway = _ReasoningGateway("Thinking {about} it.", '{"suggestion": "Run tests"}')
+
+    result = await generate_structured(gateway, _request(), Suggestion)
+
+    assert result.suggestion == "Run tests"
+    assert len(gateway.requests) == 1
+
+
+async def test_reasoning_is_the_answer_when_the_model_wrote_no_text() -> None:
+    gateway = _ReasoningGateway('{"suggestion": "From reasoning"}', "")
+
+    result = await generate_structured(gateway, _request(), Suggestion)
+
+    assert result.suggestion == "From reasoning"

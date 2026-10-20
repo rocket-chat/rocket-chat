@@ -8,6 +8,7 @@ from agent_core.orchestrator import AsyncReActOrchestrator, OrchestratorState
 from agent_core.tools.registry import ToolRegistry
 from api.models import AgentPersonaModel
 from api.services.settings import reset_memory_settings, save_org_config
+from api.services.turn_limits import deployment_max_turns
 from api.turns.routing import _resolve_effective_max_turns
 from config_engine.cascading import CascadingSettingsResolver
 
@@ -28,11 +29,18 @@ async def test_default_max_turns_and_env_override(monkeypatch: pytest.MonkeyPatc
     monkeypatch.delenv("MAX_TURNS", raising=False)
     orchestrator = AsyncReActOrchestrator(gateway=gateway, registry=registry)
     assert orchestrator.max_turns == DEFAULT_MAX_TURNS
+    assert deployment_max_turns() == DEFAULT_MAX_TURNS
 
-    # Env var override
+    # The deployment's variable is read by the application, which hands it to the orchestrator
+    # (agent-core never reads the environment).
     monkeypatch.setenv("AGENT_MAX_TURNS", "45")
-    orchestrator_env = AsyncReActOrchestrator(gateway=gateway, registry=registry)
-    assert orchestrator_env.max_turns == 45
+    assert deployment_max_turns() == 45
+    assert AsyncReActOrchestrator(gateway=gateway, registry=registry).max_turns == DEFAULT_MAX_TURNS
+
+    # A retired alias still works but is not the documented name.
+    monkeypatch.delenv("AGENT_MAX_TURNS")
+    monkeypatch.setenv("MAX_TURNS", "33")
+    assert deployment_max_turns() == 33
 
 
 @pytest.mark.asyncio

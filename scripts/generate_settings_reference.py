@@ -21,6 +21,7 @@ OUTPUT = ROOT / "doc" / "administer" / "settings-reference.md"
 DOMAIN_TITLES = {
     "general": "General",
     "models": "Models",
+    "budgets": "Budgets",
     "routing": "Cost routing",
     "sandboxes": "Sandboxes",
     "github": "Git & GitHub",
@@ -83,8 +84,9 @@ def render() -> str:
             "| :-- | :-- | :-- | :-- | :-- |",
         ]
         for spec in specs.values():
+            name = f"`{spec.key}`" + (" *(deprecated)*" if spec.deprecated else "")
             lines.append(
-                f"| `{spec.key}` | {SCOPE_LABEL[spec.scope]} | {_constraint(spec)} | "
+                f"| {name} | {SCOPE_LABEL[spec.scope]} | {_constraint(spec)} | "
                 f"{_default(spec)} | {_mdx_safe(spec.description)} |"
             )
         lines.append("")

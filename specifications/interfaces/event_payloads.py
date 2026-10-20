@@ -102,6 +102,8 @@ class ApprovalRequiredPayload(TypedDict):
 
 class LogChunkPayload(TypedDict):
     text: str
+    # The tool call the text belongs to; absent for output not tied to a call.
+    tool_call_id: NotRequired[str]
 
 
 class SessionUpdatedPayload(TypedDict):
@@ -112,6 +114,10 @@ class SessionUpdatedPayload(TypedDict):
     is_pinned: NotRequired[bool]
     is_archived: NotRequired[bool]
     is_processing: NotRequired[bool]
+    # "approval" or "question" while a turn waits on a person, "" once it does not.
+    awaiting_input: NotRequired[str]
+    # How the latest turn ended: completed, waiting or error.
+    last_turn_status: NotRequired[str]
 
 
 class UserMessagePayload(TypedDict):

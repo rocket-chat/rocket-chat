@@ -25,9 +25,9 @@ from api.routers.agents import router as agents_router
 from api.routers.artifacts import router as artifacts_router
 from api.routers.attachments import router as attachments_router
 from api.routers.auth import router as auth_router
+from api.routers.changes import router as changes_router
 from api.routers.checkpoints import router as checkpoints_router
 from api.routers.dev import router as dev_router
-from api.routers.diffs import router as diffs_router
 from api.routers.fork import router as fork_router
 from api.routers.git_gateway import router as git_gateway_router
 from api.routers.git_signing import router as git_signing_router
@@ -241,11 +241,11 @@ app.include_router(admin_audit_router)
 app.include_router(admin_users_router)
 app.include_router(attachments_router)
 app.include_router(artifacts_router)
+app.include_router(changes_router)
 app.include_router(checkpoints_router)
 app.include_router(git_gateway_router)
 app.include_router(auth_router)
 app.include_router(dev_router)
-app.include_router(diffs_router)
 # The keyset listing and fork routers must precede the legacy sessions router so the
 # richer GET /v1/sessions (cursor + search) wins the route match.
 app.include_router(sessions_list_router)

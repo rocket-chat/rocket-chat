@@ -291,12 +291,12 @@
     }
   },
   {
-    "description": "Create a durable session artifact (specifications, architecture documents, migration plans, diff reports, diagrams, or JSON deliverables). Artifacts are stored in the session control plane, readable by the user in the Cockpit Artifacts drawer independently of sandbox pod lifecycles, and save LLM context window by replacing large outputs with lightweight receipts.",
+    "description": "Create a durable session artifact (specifications, architecture documents, migration plans, diff reports, diagrams, or JSON deliverables). Artifacts are stored with the session, readable by the user in the Cockpit Artifacts drawer independently of sandbox pod lifecycles, and every version is kept. The content you write travels in this call, so it stays in your context like any other tool argument.",
     "name": "create_artifact",
     "parameters": {
       "properties": {
         "artifact_type": {
-          "description": "Type of the artifact (default: 'markdown').",
+          "description": "How it is shown: markdown (default), diff (unified diff), diagram (Mermaid source), html (shown in a sandboxed frame) or json.",
           "enum": [
             "markdown",
             "diff",
@@ -328,7 +328,7 @@
     }
   },
   {
-    "description": "Update an existing session artifact with new content, incrementing its version.",
+    "description": "Update an existing session artifact, saving a new version. Send either the whole new `content`, or `edits`: exact replacements applied to the current text (cheaper for a small change to a long document).",
     "name": "update_artifact",
     "parameters": {
       "properties": {
@@ -337,13 +337,19 @@
           "type": "string"
         },
         "content": {
-          "description": "The updated text/code content.",
+          "description": "The complete new text/code content.",
           "type": "string"
+        },
+        "edits": {
+          "description": "Exact replacements to make instead of sending the whole text.",
+          "items": {
+            "$ref": "#/$defs/ArtifactEdit"
+          },
+          "type": "array"
         }
       },
       "required": [
-        "artifact_id",
-        "content"
+        "artifact_id"
       ],
       "type": "object"
     }

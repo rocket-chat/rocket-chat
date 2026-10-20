@@ -314,7 +314,7 @@ async def test_e2e_subagents_settings_rest_crud() -> None:
     assert len(subagents) >= 3
 
     qa_agent = next(s for s in subagents if s["id"] == "qa_verifier")
-    assert qa_agent["max_turns"] == 12
+    assert qa_agent["max_turns"] == 30
 
     # 2. Update QA Verifier settings
     qa_agent["max_turns"] = 5

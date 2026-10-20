@@ -11,13 +11,13 @@ Open **Settings → Organization**. Each page edits one group of settings; the c
 
 Organization name, how visible new sessions are by default (private to the creator, or shared with the organization), whether the composer suggests the next message, and the compliance tier that other defaults follow.
 
-## Models & routing
+## Models & budgets
 
 Which models members may use and which are forbidden, the default model, fallbacks, and *task-aware routing* (a cheaper model for titles, summaries and suggestions than for the main loop). Provider keys are stored encrypted, per organization or per member (**bring your own key**); a member's key is used for their sessions and never shown again. Self-hosted models (Ollama, vLLM, any OpenAI-compatible server) work the same way; see [air-gapped installs](/install/air-gapped).
 
 ## Budgets and usage
 
-**Token Usage & Spend** shows spend by member, model and session. Under *Budgets* set a monthly limit for the organization, one per member and one per session, and the percentage at which to warn; a turn that would exceed a limit is stopped with a clear message instead of billing past it. A policy decides whether members may use their own provider key (**bring your own key**). Slack turns have their own share of spend and rate limits.
+**Usage & spend** shows spend by member, model and session. Under *Budgets* set a monthly limit for the organization, one per member and one per session, and the percentage at which to warn; a turn that would exceed a limit is stopped with a clear message instead of billing past it. A policy decides whether members may use their own provider key (**bring your own key**). Slack turns have their own share of spend and rate limits.
 
 Spend is what the provider billed when it reports it (OpenRouter does, for every call), otherwise the model's published price; through OpenRouter the figures therefore match its activity page. Two model settings help long sessions: **working context size** (`context_target_tokens`, 200,000 tokens by default) keeps conversations compacted below it even on models with a larger window, and **provider preferences** (`provider_preferences`) pin an OpenRouter model to a provider so its prompt cache stays warm, for example `{"openrouter/deepseek/*": {"order": ["deepseek"], "allow_fallbacks": false}}`.
 

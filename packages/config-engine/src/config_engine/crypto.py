@@ -8,6 +8,7 @@ from hashlib import sha256
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from .environment import env_value
 from .exceptions import CredentialDecryptionError
 
 
@@ -16,9 +17,7 @@ class CredentialCipher:
 
     def __init__(self, master_key: str | bytes | None = None) -> None:
         """Initialize cipher with a 256-bit key or read from ENCRYPTION_MASTER_KEY / ROCKET_ENCRYPTION_KEY env var."""
-        raw_key = (
-            master_key or os.getenv("ENCRYPTION_MASTER_KEY") or os.getenv("ROCKET_ENCRYPTION_KEY")
-        )
+        raw_key = master_key or env_value("ENCRYPTION_MASTER_KEY", "ROCKET_ENCRYPTION_KEY")
         if not raw_key:
             if os.getenv("ENVIRONMENT", "").strip().lower() == "production":
                 raise CredentialDecryptionError(

@@ -186,6 +186,8 @@ class _ExecOutput:
                 self._on_stdout_chunk(payload)
         elif channel == ws_client.STDERR_CHANNEL:
             self.stderr.append(payload)
+            if self._on_stdout_chunk:
+                self._on_stdout_chunk(payload)
         elif channel == ws_client.ERROR_CHANNEL:
             with contextlib.suppress(Exception):
                 self.exit_code = WsApiClient.parse_error_data(payload)
@@ -1359,12 +1361,13 @@ def _sizing(
 ) -> tuple[dict[str, str], dict[str, str]]:
     """(limits, requests) of the sandbox container: the profile's sizing, else the session's
     resources and the deployment's defaults."""
+    # The session's own resources (organization, sandbox type and agent already merged) come
+    # first; the deployment's variables only fill in what none of them set.
     limits = {
-        "cpu": os.getenv(
-            "SANDBOX_CPU_LIMIT",
-            str(spec.resources.cpu_cores) if spec.resources.cpu_cores else "500m",
-        ),
-        "memory": os.getenv("SANDBOX_MEMORY_LIMIT", spec.resources.memory_limit or "512Mi"),
+        "cpu": str(spec.resources.cpu_cores)
+        if spec.resources.cpu_cores
+        else os.getenv("SANDBOX_CPU_LIMIT", "500m"),
+        "memory": spec.resources.memory_limit or os.getenv("SANDBOX_MEMORY_LIMIT", "512Mi"),
     }
     requests = {
         "cpu": os.getenv("SANDBOX_CPU_REQUEST", "50m"),

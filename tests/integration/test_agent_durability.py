@@ -314,13 +314,16 @@ def test_repair_drops_orphan_results_and_fills_missing_ones() -> None:
     assert [m.content for m in repaired if m.role == "tool"] == [INTERRUPTED_TOOL_RESULT, "only b"]
 
 
-def test_compaction_never_splits_a_tool_call_from_its_result() -> None:
+@pytest.mark.asyncio
+async def test_compaction_never_splits_a_tool_call_from_its_result() -> None:
     manager = ContextManager()
     rng = random.Random(7)
     for _ in range(40):
         transcript = _sample_transcript()
         keep = rng.randint(1, 5)
-        compacted = manager.compact_with_anchors(transcript, recent_turns_to_preserve=keep)
+        compacted = await manager.compact_with_summary(
+            transcript, None, recent_turns_to_preserve=keep
+        )
         assert_valid_pairing(compacted)
 
 

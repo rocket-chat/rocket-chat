@@ -57,15 +57,18 @@ async def check_and_schedule_continuation(ctx: TurnContext) -> bool:
         budgets = await effective_settings(ctx.req.db_mgr, ctx.session.tenant_org_id, "budgets")
         sess_cap = float(budgets.get("session_budget_usd", 0.0) or 0.0)
         max_cost = sess_cap if sess_cap > 0 else None
-        max_tokens = int(budgets.get("max_tokens", 0) or 0) or None
-        max_wall_time = int(budgets.get("max_wall_time_seconds", 0) or 0) or None
+        max_tokens = int(budgets["goal_max_total_tokens"]) or None
+        max_wall_time = int(budgets["goal_max_wall_time_minutes"]) * 60 or None
+        max_continuations = int(budgets["max_continuations"])
+        if max_continuations <= 0:
+            return False
         goal = SessionGoal(
             id=f"goal_{uuid.uuid4().hex[:16]}",
             session_id=ctx.session_id,
             tenant_org_id=ctx.session.tenant_org_id,
             description=ctx.session.title or "Complete session tasks",
             status=GoalStatus.ACTIVE,
-            max_continuations=10,
+            max_continuations=max_continuations,
             max_cost_usd=max_cost,
             max_total_tokens=max_tokens,
             max_wall_time_seconds=max_wall_time,

@@ -24,6 +24,7 @@ from specifications.interfaces.session import SessionRecord
 from tests.turn_harness import run_turn
 
 SNAPSHOT = Path(__file__).parents[1] / "golden" / "system_prompt_git.json"
+DEFAULT_PROMPT_SNAPSHOT = Path(__file__).parents[1] / "golden" / "system_prompt_default.txt"
 CREDENTIAL_MODES = ("app", "member", "public")
 SIGNING_MODES = ("github_app", "gpg_key", "none")
 
@@ -49,6 +50,14 @@ def test_the_git_guidance_matches_the_reviewed_snapshot() -> None:
     if os.getenv("UPDATE_PROMPT_SNAPSHOTS"):
         SNAPSHOT.write_text(json.dumps(current, indent=2, sort_keys=True) + "\n")
     assert current == json.loads(SNAPSHOT.read_text())
+
+
+async def test_the_default_agents_whole_prompt_matches_the_reviewed_snapshot() -> None:
+    """Every change to what the agent is told shows up in review as a change to this file."""
+    current = await _stable("org_prompt_snapshot")
+    if os.getenv("UPDATE_PROMPT_SNAPSHOTS"):
+        DEFAULT_PROMPT_SNAPSHOT.write_text(current + "\n")
+    assert current + "\n" == DEFAULT_PROMPT_SNAPSHOT.read_text()
 
 
 def test_the_git_guidance_is_true_in_every_mode() -> None:
@@ -79,7 +88,7 @@ async def test_the_stable_prompt_carries_no_per_turn_content() -> None:
 
     assert "[Workspace]" in first and "[Editing and verifying]" in first
     assert "[Long-running tasks and git hygiene]" in first
-    assert "never leave a rebase" in first
+    assert "Never leave a rebase" in first
     assert "maintain `.rocket/PLAN.md`" in first and "never re-send an" in first
     # Size budget assertion on stable platform prompt to prevent unbounded prompt inflation
     assert 2_000 < len(first) < 10_000
@@ -124,3 +133,79 @@ async def test_repository_instructions_ride_with_the_turn_not_the_cached_prefix(
     assert "Run make check." not in str(messages[0].content)
     assert any("Run make check." in (m.content or "") for m in messages[1:] if m.role == "user")
     assert str(messages[0].content) == await _stable("org_prompt_instr_none")
+
+
+READ_ONLY = prompt.PromptTools(allowed=frozenset({"file_read", "grep_search", "web_search"}))
+
+
+def _guidance_text(tools: prompt.PromptTools) -> str:
+    return "\n".join(
+        [
+            *prompt.sandbox_guidance(tools),
+            *prompt.workspace_guidance(tools),
+            *prompt.editing_guidance(tools),
+            prompt.working_style_guidance(tools),
+            prompt.long_task_guidance(tools),
+            prompt.showing_work_guidance(tools),
+        ]
+    )
+
+
+def test_a_read_only_agent_is_not_told_to_edit_run_or_publish() -> None:
+    text = _guidance_text(READ_ONLY)
+
+    for tool in ("bash_exec", "file_edit", "run_tests", "process_start", "create_artifact"):
+        assert tool not in text, tool
+    assert "web search" in text
+
+
+def test_a_tool_the_turn_denies_is_not_recommended() -> None:
+    everything = prompt.PromptTools()
+    no_artifacts = prompt.PromptTools(denied=frozenset({"create_artifact", "env_set"}))
+
+    assert "create_artifact" in _guidance_text(everything)
+    assert "create_artifact" not in _guidance_text(no_artifacts)
+    assert "env_set" not in _guidance_text(no_artifacts)
+
+
+def test_tool_patterns_in_an_agents_list_allow_matching_tools() -> None:
+    tools = prompt.PromptTools(allowed=frozenset({"file_*"}))
+
+    assert tools.can("file_read") and not tools.can("bash_exec")
+    assert tools.named("file_read", "bash_exec") == "`file_read`"
+
+
+def test_verification_checkpoint_and_delegation_are_each_said_once() -> None:
+    text = _guidance_text(prompt.PromptTools())
+
+    assert text.count("Verify what you changed") == 1
+    assert text.count("git_checkpoint") == 1
+    assert text.count("delegate_subagent") == 0, "delegation has its own section"
+    assert "Creator, noted" not in text
+
+
+async def test_a_denied_publishing_tool_is_explained_not_recommended() -> None:
+    ctx = SimpleNamespace(
+        req=SimpleNamespace(
+            overlay=SimpleNamespace(
+                tool_scope=None,
+                denied_tools=("git_push", "git_open_pr"),
+                stable_suffix="",
+                dynamic="",
+            )
+        ),
+        binding=SimpleNamespace(whitelisted_tools=["*"]),
+    )
+
+    tools = prompt.prompt_tools(ctx)  # type: ignore[arg-type]
+
+    assert not tools.has(*prompt.PUBLISH_TOOLS)
+    assert tools.has("bash_exec")
+
+
+def test_the_model_notice_is_plain_and_names_no_internals() -> None:
+    import inspect
+
+    source = inspect.getsource(prompt.build_system_prompt)
+    assert "volatile; not cacheable" not in source
+    assert "routing mode" not in source

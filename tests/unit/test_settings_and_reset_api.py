@@ -1,5 +1,6 @@
 """Unit tests for Cascading Settings API and Session Reset endpoint."""
 
+import asyncio
 import uuid
 
 import pytest
@@ -231,3 +232,25 @@ def test_usage_telemetry_endpoints(client: TestClient) -> None:
     assert user_data["tenant_user_id"] == "usage_user"
     assert user_data["total_tokens"] >= 0
     assert user_data["total_cost_usd"] >= 0.0
+
+
+def test_member_only_keys_are_not_organization_defaults(client: TestClient) -> None:
+    from api.services.settings import effective_settings, save_org_config
+
+    org = "scope_org"
+    admin = {"X-Tenant-Org-Id": org, "X-Tenant-User-Id": "scope_admin", "X-User-Role": "admin"}
+    # A value saved while the key could still be an organization default.
+    asyncio.run(save_org_config(None, org, "user_preferences", {"full_name": "Old Default"}, []))
+
+    shown = client.get("/v1/admin/settings/user_preferences", headers=admin).json()
+    effective = asyncio.run(effective_settings(None, org, "user_preferences"))
+
+    assert "full_name" not in shown["config"] and "full_name" not in shown["system_defaults"]
+    assert "git_branch_prefix" in shown["config"]
+    assert effective["full_name"] == "", "a stale organization value no longer applies"
+    saved = client.put(
+        "/v1/admin/settings/user_preferences",
+        json={"config": shown["config"], "locked_keys": []},
+        headers=admin,
+    )
+    assert saved.status_code == 200

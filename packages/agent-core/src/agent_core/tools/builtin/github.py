@@ -8,6 +8,7 @@ repository and say who acted. Which actions need a person's approval is decided 
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import Field
@@ -104,7 +105,7 @@ def _register_pulls(registry: ToolRegistry) -> None:
 async def _pull(
     registry: ToolRegistry,
     repository: str,
-    actions: list[str],
+    actions: Sequence[str],
     number: int | None,
     fields: dict[str, Any],
     state: str,

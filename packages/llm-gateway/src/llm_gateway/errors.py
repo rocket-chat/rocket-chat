@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from specifications.interfaces.llm import ModelExecutionError
+
+
+class DataGovernanceError(ModelExecutionError):
+    """The organization's data rules (zero retention, region) cannot be honoured for this provider."""
+
+
 # Non-retryable error substrings / signatures that represent user or client configuration mistakes
 _FATAL_PATTERNS = (
     "authentication",

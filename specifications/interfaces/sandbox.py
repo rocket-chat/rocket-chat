@@ -178,7 +178,9 @@ class SandboxDriverProtocol(ABC):
     ) -> ExecResult:
         """
         Executes a shell command inside the running sandbox container.
-        Captures exit code, stdout, stderr with optional live chunk streaming.
+        Captures exit code, stdout, stderr. ``on_stdout_chunk`` receives the output (stdout and
+        stderr) as it arrives, possibly from a worker thread; the result still holds each stream
+        whole.
         """
         pass
 

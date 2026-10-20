@@ -27,39 +27,30 @@ def test_every_setting_declares_an_existing_consumer_that_reads_it() -> None:
     assert not missing, "\n".join(missing)
 
 
-# Local variable names that hold a resolved settings mapping, and the domain they hold.
-_SETTINGS_VARIABLES = {
-    "models_org": "models",
-    "routing_org": "routing",
-    "org_general": "general",
-    "org_github": "github",
-    "member_prefs": "user_preferences",
-    "sandbox_cfg": "sandboxes",
-}
-_READERS = [
-    "apps/api/src/api/turns/prompt.py",
-    "apps/api/src/api/turns/finalise.py",
-    "apps/api/src/api/turns/routing.py",
-    "apps/api/src/api/turns/provisioning.py",
-    "apps/api/src/api/turns/callbacks.py",
-    "apps/api/src/api/services/sandbox_catalogue.py",
-    "apps/api/src/api/routers/session_crud.py",
-    "apps/api/src/api/routers/mcp_servers.py",
-    "apps/api/src/api/routers/models_catalog.py",
-    "apps/api/src/api/services/mcp_turn.py",
-    "apps/api/src/api/main.py",
-    "apps/api/src/api/services/turn_service.py",
-    "apps/api/src/api/services/git_credentials.py",
-]
+SOURCE_ROOTS = ("apps/api/src", "packages")
 
 
-def test_runtime_never_reads_an_undeclared_key() -> None:
-    offenders: list[str] = []
-    for relative in _READERS:
-        tree = ast.parse((ROOT / relative).read_text())
-        for node in ast.walk(tree):
-            key: str | None = None
-            variable: str | None = None
+def _settings_reads(tree: ast.AST) -> list[tuple[int, str, str]]:
+    """``(line, domain, key)`` for every read of a mapping a function got from ``effective_settings``."""
+    reads: list[tuple[int, str, str]] = []
+    for function in ast.walk(tree):
+        if not isinstance(function, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        domains: dict[str, str] = {}
+        for node in ast.walk(function):
+            call = node.value if isinstance(node, ast.Assign) else None
+            if isinstance(call, ast.Await):
+                call = call.value
+            if (
+                isinstance(call, ast.Call)
+                and getattr(call.func, "id", getattr(call.func, "attr", "")) == "effective_settings"
+                and len(call.args) >= 3
+                and isinstance(call.args[2], ast.Constant)
+                and isinstance(node, ast.Assign)
+                and isinstance(node.targets[0], ast.Name)
+            ):
+                domains[node.targets[0].id] = str(call.args[2].value)
+        for node in ast.walk(function):
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
@@ -75,18 +66,38 @@ def test_runtime_never_reads_an_undeclared_key() -> None:
                 and isinstance(node.slice, ast.Constant)
             ):
                 variable, key = node.value.id, str(node.slice.value)
-            if variable in _SETTINGS_VARIABLES and key is not None:
-                domain = _SETTINGS_VARIABLES[variable]
-                if key not in REGISTRY[domain]:
-                    offenders.append(f"{relative}:{node.lineno} reads {domain}.{key}")
+            else:
+                continue
+            if variable in domains:
+                reads.append((node.lineno, domains[variable], key))
+    return reads
+
+
+def test_runtime_never_reads_an_undeclared_key() -> None:
+    """Every mapping returned by ``effective_settings`` is followed through its function, whatever
+    the variable is called and wherever the code lives (``DeclaredSettings`` enforces the rest
+    at runtime)."""
+    offenders: list[str] = []
+    for root in SOURCE_ROOTS:
+        for path in sorted((ROOT / root).rglob("*.py")):
+            if "tests" in path.parts:
+                continue
+            for line, domain, key in _settings_reads(ast.parse(path.read_text())):
+                if domain in REGISTRY and key not in REGISTRY[domain]:
+                    offenders.append(f"{path.relative_to(ROOT)}:{line} reads {domain}.{key}")
     assert not offenders, "\n".join(offenders)
 
 
 def test_defaults_are_valid_for_their_own_specs() -> None:
     for domain in REGISTRY:
         defaults = {k: v for k, v in system_defaults(domain).items() if v is not None}
-        result = validate(domain, defaults, writer="org")
-        assert result.ok, (domain, result.errors)
+        # Member-only settings are written by the member; every other one by an administrator.
+        for writer in ("org", "user"):
+            writable = {
+                k: v for k, v in defaults.items() if REGISTRY[domain][k].scope in (writer, "both")
+            }
+            result = validate(domain, writable, writer=writer)  # type: ignore[arg-type]
+            assert result.ok, (domain, writer, result.errors)
 
 
 def test_system_defaults_are_independent_copies() -> None:
@@ -146,3 +157,35 @@ def test_optional_integers_accept_clearing() -> None:
         "session_retention_days": None
     }
     assert not validate("general", {"max_turns": None}, writer="org").ok
+
+
+async def test_effective_settings_refuse_a_key_the_registry_does_not_declare() -> None:
+    from api.services.settings import UndeclaredSettingError, effective_settings
+
+    budgets = await effective_settings(None, "org_declared", "budgets")
+
+    assert budgets["monthly_budget_usd"] == 0.0
+    assert budgets.get("session_budget_usd") == 0.0
+    with pytest.raises(UndeclaredSettingError):
+        budgets.get("max_wall_time_seconds")
+    with pytest.raises(UndeclaredSettingError):
+        budgets["max_tokens"]
+
+
+async def test_undeclared_reads_only_log_outside_the_test_suite(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    from api.services.settings import effective_settings
+
+    monkeypatch.delenv("ROCKET_STRICT_SETTINGS")
+    sandboxes = await effective_settings(None, "org_declared", "sandboxes")
+
+    assert sandboxes.get("default_profile") is None
+    assert "sandboxes.default_profile is not declared" in caplog.text
+
+
+def test_a_setting_label_is_set_only_when_the_key_would_mislead() -> None:
+    labelled = {
+        f"{d}.{k}": s.label for d, specs in REGISTRY.items() for k, s in specs.items() if s.label
+    }
+    assert labelled["general.max_turns"] == "Max steps per turn"

@@ -3,6 +3,7 @@
 import logging
 import os
 
+from config_engine.environment import env_value
 from llm_gateway.gateway import LiteLLMGateway
 from llm_gateway.stub import DeterministicStubGateway, stub_enabled
 from sandbox_driver.docker_driver import DockerSandboxDriver
@@ -22,10 +23,8 @@ def cluster_bus_enabled() -> bool:
 
 
 def build_sandbox_driver() -> SandboxDriverProtocol:
-    """The sandbox driver named by ``DEFAULT_SANDBOX_DRIVER`` / ``SANDBOX_DRIVER``."""
-    driver_type = (
-        os.getenv("DEFAULT_SANDBOX_DRIVER") or os.getenv("SANDBOX_DRIVER") or "docker"
-    ).lower()
+    """The sandbox driver named by ``DEFAULT_SANDBOX_DRIVER``."""
+    driver_type = (env_value("DEFAULT_SANDBOX_DRIVER", "SANDBOX_DRIVER") or "docker").lower()
     if driver_type == "k8s":
         logger.info("Initializing Kubernetes Sandbox Driver (Production)...")
         return K8sSandboxDriver()
@@ -45,6 +44,6 @@ def build_llm_gateway() -> LiteLLMGateway | DeterministicStubGateway:
 
 
 def default_model() -> str:
-    model = os.getenv("ROCKET_DEFAULT_MODEL") or os.getenv("DEFAULT_MODEL") or FALLBACK_MODEL
+    model = env_value("ROCKET_DEFAULT_MODEL", "DEFAULT_MODEL") or FALLBACK_MODEL
     logger.debug("Configured default model: %s", model)
     return model

@@ -97,6 +97,9 @@ class PublishResult:
     # the member's key, or credited to them); the sandbox's branch then points at the published
     # ones. Empty when the commits were pushed as they are.
     rewritten: list[tuple[str, str]] = field(default_factory=list)
+    # The repository's own default branch (from its clone), else the setting's: where a pull
+    # request goes unless the caller names another base.
+    default_branch: str = ""
 
 
 @dataclass
@@ -164,12 +167,14 @@ class GitEngineProtocol(ABC):
         session_id: str,
         title: str,
         body: str,
-        target_branch: str = "main",
+        target_branch: str | None = None,
         token: str | None = None,
         installations: Sequence[tuple[int, str]] = (),
         publish: PublishSpec | None = None,
     ) -> str:
         """Pushes the working branch and opens a Pull Request, returning its URL.
+
+        Without ``target_branch`` the pull request goes to the repository's own default branch.
 
         ``token`` (a member's own GitHub token) is used instead of the GitHub App when given.
         Raises when no credential is available or GitHub refuses: a pull request link is

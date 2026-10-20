@@ -47,6 +47,11 @@ uv run pytest tests/unit/test_agent_tools.py tests/unit/test_editor.py -v
 uv run pytest tests/integration/test_react_orchestrator.py -v
 ```
 
+## Live command output
+
+Command tools (`bash_exec`, `run_tests`, `lint`, `typecheck`, `build`, `package_manager`) hand a `live_chunk()` callback to the sandbox driver; `tools/live_output.py` batches, redacts and caps what it prints and the dispatcher turns it into `command_output` events. Tests: `uv run pytest tests/unit/test_live_output.py`.
+
 ## Environment Variables
 
 - `ROCKET_SERPAPI_API_KEY`: (Optional) Custom API key for `web_search` tool execution.
+- `ROCKET_FALLBACK_MODELS`, `ROCKET_MAX_CACHED_SESSIONS`: see `doc/install/configuration.md`. The step limit (`AGENT_MAX_TURNS`) is read by the application and passed in as `max_turns`.

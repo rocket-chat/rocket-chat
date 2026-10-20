@@ -10,6 +10,7 @@ organization's approval policy as a model-initiated request.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -110,9 +111,21 @@ _GITHUB_READ_ACTIONS: dict[str, frozenset[str]] = {
 # Changes a person must approve in every mode but bypass: they cannot be taken back.
 _CRITICAL_GITHUB_ACTIONS = frozenset({("github_pull_request", "merge")})
 ACTION_CLASSIFIED_TOOLS = frozenset({*_GITHUB_READ_ACTIONS, "github_issues", "github_api"})
+# Tools whose ``command`` runs in a shell, where a destructive command is critical.
+_SHELL_TOOLS = frozenset({"bash_exec", "process_start", "repo_foreach"})
+# Commands that wipe the workspace or the machine: no checkpoint brings them back. Deliberately
+# narrow (absolute roots only): deleting a build directory, or `.` in one, is ordinary work.
+_DESTRUCTIVE_COMMAND = re.compile(
+    r"\brm\s+(-[a-zA-Z]*\s+)*-[a-zA-Z]*[rR][a-zA-Z]*\s+(-[a-zA-Z]*\s+)*"
+    r"(/|/\*|~|~/|\$HOME|/workspace|/workspace/|/workspace/\*)(\s|;|&|\||$)"
+    r"|\bmkfs(\.\w+)?\b|\bdd\s+[^|;&]*\bof=/dev/"
+)
 
 MODES_GATING_EDITS: frozenset[str] = frozenset({"ask"})
 MODES_GATING_COMMANDS: frozenset[str] = frozenset({"ask", "auto_edit"})
+# Critical calls (irreversible: merges, deletions on GitHub, hard reverts, wiping the
+# workspace) wait for a person in every mode but bypass.
+MODES_SKIPPING_CRITICAL: frozenset[str] = frozenset({"bypass"})
 
 MAX_DESCRIPTION_CHARS = 500
 
@@ -126,7 +139,7 @@ class ApprovalNeed:
 
 def _summarise(name: str, arguments: dict[str, Any]) -> str:
     """A bounded, human-readable account of what the call is about to do."""
-    for key in ("command", "path", "title", "name", "reference", "action"):
+    for key in ("command", "path", "title", "name", "reference", "action", "actions"):
         value = arguments.get(key)
         if value:
             text = str(value)
@@ -139,17 +152,36 @@ def _summarise(name: str, arguments: dict[str, Any]) -> str:
     return text
 
 
-def _classify_github(name: str, arguments: dict[str, Any]) -> tuple[str, str]:
-    if name == "github_api":
-        if call_is_read(arguments):
-            return "read", "low"
-        return "publish", "critical" if call_is_critical(arguments) else "high"
-    action = str(arguments.get("action") or "")
+def requested_actions(arguments: dict[str, Any]) -> list[str]:
+    """The actions a call asks for: the batched ``actions`` list, or a single ``action``."""
+    actions = arguments.get("actions")
+    if isinstance(actions, list):
+        return [str(action or "") for action in actions]
+    if isinstance(actions, str) and actions:
+        return [actions]
+    return [str(arguments.get("action") or "")]
+
+
+def _classify_action(name: str, action: str) -> tuple[str, str]:
     if name == "github_issues":
         return ("read", "low") if not action else ("publish", "high")
     if action in _GITHUB_READ_ACTIONS[name]:
         return "read", "low"
     return "publish", "critical" if (name, action) in _CRITICAL_GITHUB_ACTIONS else "high"
+
+
+_RISK_ORDER = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+
+
+def _classify_github(name: str, arguments: dict[str, Any]) -> tuple[str, str]:
+    if name == "github_api":
+        if call_is_read(arguments):
+            return "read", "low"
+        return "publish", "critical" if call_is_critical(arguments) else "high"
+    # A batch is as risky as its riskiest action: one write makes it a publish, one merge
+    # makes it critical.
+    verdicts = [_classify_action(name, action) for action in requested_actions(arguments)]
+    return max(verdicts, key=lambda verdict: _RISK_ORDER[verdict[1]])
 
 
 def is_read_call(name: str, arguments: dict[str, Any]) -> bool:
@@ -169,6 +201,8 @@ def _classify(name: str, arguments: dict[str, Any]) -> tuple[str, str]:
         return "publish", "critical"
     if name in PUBLISH_TOOLS:
         return "publish", "high"
+    if name in _SHELL_TOOLS and _DESTRUCTIVE_COMMAND.search(str(arguments.get("command") or "")):
+        return "command", "critical"
     return "command", "medium"
 
 
@@ -181,7 +215,7 @@ def approval_needed(mode: str, name: str, arguments: dict[str, Any]) -> Approval
         (kind == "edit" and mode in MODES_GATING_EDITS)
         or (kind == "command" and mode in MODES_GATING_COMMANDS)
         or (kind == "publish" and mode in MODES_GATING_COMMANDS)
-        or (risk == "critical" and name in ACTION_CLASSIFIED_TOOLS and mode != "bypass")
+        or (risk == "critical" and mode not in MODES_SKIPPING_CRITICAL)
     )
     if not gated:
         return None

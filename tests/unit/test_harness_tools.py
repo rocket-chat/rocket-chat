@@ -65,14 +65,16 @@ def test_seed_messages_legacy_single_prompt_is_fully_stable() -> None:
     assert seed[0].cacheable is True
 
 
-def test_prepare_dispatch_messages_keeps_seed_out_of_conversation() -> None:
+async def test_prepare_dispatch_messages_keeps_seed_out_of_conversation() -> None:
     orchestrator = AsyncReActOrchestrator(gateway=LiteLLMGateway(), registry=ToolRegistry())
     seed_messages = AsyncReActOrchestrator._build_seed_messages(
         SystemPrompt(stable="S", dynamic="D"), None
     )
     conversation = [ChatMessage(role="user", content="hello")]
 
-    messages = orchestrator._prepare_dispatch_messages("gpt-4o", seed_messages, conversation)
+    messages = await orchestrator._prepare_dispatch_messages_async(
+        "gpt-4o", "gpt-4o", seed_messages, conversation
+    )
 
     assert [m.role for m in messages] == ["system", "user"]
     # The session conversation must never contain the system prompt itself.
@@ -142,12 +144,12 @@ class FakeGitEngine:
         session_id: str,
         title: str,
         body: str,
-        target_branch: str = "main",
+        target_branch: str | None = None,
         token: str | None = None,
         installations: tuple[tuple[int, str], ...] = (),
-        publish: object = None,
+        publish: Any = None,
     ) -> str:
-        self.prs.append((title, body, target_branch))
+        self.prs.append((title, body, target_branch or publish.default_branch))
         self.pr_tokens.append(token)
         return "https://github.com/org/repo/pull/1"
 

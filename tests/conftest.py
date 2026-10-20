@@ -29,6 +29,12 @@ os.environ.setdefault("ROCKET_TRUST_PROXY_HEADERS", "true")
 os.environ.setdefault("ROCKET_AUTO_CREATE_SCHEMA", "true")
 # Every event published on the bus is validated against its payload contract.
 os.environ.setdefault("ROCKET_VALIDATE_EVENTS", "1")
+# The application defaults to the Docker driver; unit and integration tests run on the fake
+# driver so they need no daemon. Tests of the Docker driver build it explicitly.
+os.environ.setdefault("DEFAULT_SANDBOX_DRIVER", "fake")
+# Reading a setting the registry does not declare fails the test instead of silently using the
+# code's fallback (api.services.settings.DeclaredSettings).
+os.environ.setdefault("ROCKET_STRICT_SETTINGS", "1")
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:

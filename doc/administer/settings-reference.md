@@ -30,17 +30,21 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | `allowed_models` | Organization | list | empty | fnmatch patterns of models members may use; empty allows all. |
 | `forbidden_models` | Organization | list | empty | fnmatch patterns of models that are never allowed. |
 | `custom_models` | Organization | list | empty | Extra model ids offered in the picker, e.g. a private vLLM or Ollama model (`ollama/llama3.1`, `hosted_vllm/qwen2.5-coder`); pair with an organization key that sets the endpoint's base URL. |
-| `temperature` | Organization | min 0, max 2 | `0.2` | Default sampling temperature (an agent persona may override it). |
-| `max_tokens` | Organization | min 1, max 200000 | `8192` | Default maximum completion tokens per model call. |
+| `temperature` | Organization | min 0, max 2 | `0.2` | Default sampling temperature (an agent persona may override it). Ignored when extended thinking is on for an Anthropic model: those requests take the provider's own temperature. |
+| `max_tokens` | Organization | min 1, max 200000 | `8192` | Maximum completion tokens per call for models that do not reason. A reasoning model uses its catalogue ceiling, or the matching entry of output_tokens; an agent's own limit wins over both. |
 | `output_tokens` | Organization | dict | `{}` | Maximum completion tokens per model name or pattern (e.g. \{'*': 64000, 'claude*': 64000\}), overriding the catalogue default ceiling. |
 
-## budgets (`budgets`)
+## Budgets (`budgets`)
 
 | Setting | Scope | Type / values | Default | Description |
 | :-- | :-- | :-- | :-- | :-- |
 | `monthly_budget_usd` | Organization | min 0 | `0.0` | Monthly spend cap for the whole organization in USD (0 = no cap). Spend on a member's own provider key does not count. Reaching it stops new model calls. |
 | `member_monthly_budget_usd` | Organization | min 0 | `0.0` | Monthly spend cap per member in USD (0 = no cap). |
 | `session_budget_usd` | Organization | min 0 | `0.0` | Spend cap per session in USD (0 = no cap); keeps a runaway agent loop cheap. |
+| `max_turn_cost_usd` | Organization | min 0 | `0.0` | Spend cap for one turn in USD (0 = no cap). The turn stops with an explanation when it is reached; the session and its work are kept. |
+| `goal_max_total_tokens` | Organization | min 0 | `0` | Most tokens a long task may use across its automatic continuation turns (0 = no cap). Continuation stops when it is reached. |
+| `goal_max_wall_time_minutes` | Organization | min 0, max 10080 | `0` | Longest a long task may run across its automatic continuation turns, in minutes (0 = no cap). |
+| `max_continuations` | Organization | min 0, max 100 | `10` | Automatic continuation turns allowed for one task whose plan is unfinished when a turn reaches its step limit (0 disables continuation). |
 | `warn_at_percent` | Organization | min 1, max 100 | `80` | Warn the member in the session when a cap is this far used. |
 | `byok_policy` | Organization | `platform_only` / `org_key` / `user_keys` | `user_keys` | Whose provider keys may be used: platform keys only, the organization's own key, or members' own keys (falling back to the organization's, then the platform's). |
 
@@ -50,15 +54,15 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | :-- | :-- | :-- | :-- | :-- |
 | `mode` | Organization | `frontier` / `balanced` / `economy` | `frontier` | frontier = one model for all work, balanced = cheap model for auxiliary work, economy = cheapest model everywhere. |
 | `fast_model` | Organization | str | empty | Model for auxiliary work (titles, suggestions, summaries) in balanced mode. |
-| `economy_model` | Organization | str | empty | Model used for all work in economy mode. |
+| `economy_model` | Organization | str | empty | Model used for all work in economy mode (it replaces the default model everywhere while the mode is economy). |
 
 ## Sandboxes (`sandboxes`)
 
 | Setting | Scope | Type / values | Default | Description |
 | :-- | :-- | :-- | :-- | :-- |
 | `workspace_release_days` | Organization | min 0, max 365 | `7` | Days an idle session keeps its workspace volume (the repositories it cloned) after its sandbox stopped; then the volume is deleted and the next turn starts blank. 0 keeps it as long as the session exists. A sandbox type can set its own. |
-| `default_image` | Organization | str | `ghcr.io/rocket-chat/sandbox:latest` | Seeds the sandbox catalogue the first time the organization uses it (the default entry); afterwards manage images under Settings > Organization > Sandboxes. The default is the devbox image with git, Python, Node and common dev tools. |
-| `allowed_images` | Organization | list | empty | Legacy fnmatch patterns of extra images sessions may use. Literal images seed the sandbox catalogue; prefer adding entries to the catalogue, which also declares what each image can do. |
+| `default_image` *(deprecated)* | Organization | str | `ghcr.io/rocket-chat/sandbox:latest` | Seeds the sandbox catalogue the first time the organization uses it (the default entry); afterwards manage images under Settings > Organization > Sandboxes. The default is the devbox image with git, Python, Node and common dev tools. |
+| `allowed_images` *(deprecated)* | Organization | list | empty | Legacy fnmatch patterns of extra images sessions may use. Literal images seed the sandbox catalogue; prefer adding entries to the catalogue, which also declares what each image can do. |
 | `cpu_limit` | Organization | min 0.1 | `2.0` | CPU cores per sandbox. |
 | `memory_limit` | Organization | str | `4Gi` | Memory limit per sandbox (e.g. 4Gi). |
 | `allow_terminal` | Organization | bool | `True` | Let members open an interactive shell in their session's running sandbox from the cockpit (it runs with the same limits, network rules and user as the agent). |
@@ -77,7 +81,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | `commit_signing_mode` | Org default, member override | `github_app` / `gpg_key` / `none` | `github_app` | github_app: commits are created through GitHub's API so GitHub signs them (verified, made by the GitHub App); gpg_key: members who imported a GPG key and chose to commit as themselves sign with it, everyone else gets github_app; none: unsigned. |
 | `bot_author_name` | Organization | str | `RocketChat Bot` | Name of the bot identity used for bot commits. |
 | `bot_author_email` | Organization | str | `bot@rocketchat.internal` | E-mail of the bot identity used for bot commits. |
-| `default_branch` | Organization | str | `main` | Base branch for pull requests. |
+| `default_branch` | Organization | str | `main` | Base branch for pull requests when a repository's own default branch is not known (each cloned repository's own default branch is used first). |
 | `app_token_permissions` | Organization | dict | `{'contents': 'read', 'pull_requests': 'read', 'checks': 'read', 'actions': 'read', 'statuses': 'read', 'issues': 'read'}` | Permissions requested for the GitHub App token the sandbox receives. Always lowered to read: add reads such as actions, checks or statuses to let the agent follow CI; writing goes through git_push with a token that never enters the sandbox. |
 | `app_token_target_repositories` | Organization | str | `all` | Repositories the GitHub App acts on for the agent, reading and changing: "all" or a comma-separated list. Elsewhere the member's linked account is used. |
 
@@ -93,7 +97,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 
 | Setting | Scope | Type / values | Default | Description |
 | :-- | :-- | :-- | :-- | :-- |
-| `default_agent_persona` | Organization | str | empty | Agent persona used by Slack sessions. |
+| `default_agent_persona` *(deprecated)* | Organization | str | empty | Agent persona used by Slack sessions that no bot or channel profile names; prefer choosing the agent on the bot (Settings > Slack). |
 | `allowed_channel_types` | Organization | list | `['public', 'private', 'im', 'mpim']` | Slack conversation types the assistant answers in. |
 | `auto_link_by_verified_email` | Organization | bool | `False` | Link a Slack user to a Rocket account by their verified e-mail automatically. |
 | `dm_policy` | Organization | `none` / `paired` / `all` | `paired` | Who the agent may direct-message. |
@@ -111,12 +115,12 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | Setting | Scope | Type / values | Default | Description |
 | :-- | :-- | :-- | :-- | :-- |
 | `hooks` | Organization | dict | `{}` | Commands run in the sandbox around tool calls: \{pre_tool: [\{match, command\}], post_tool: [...]\}. A failing pre_tool command blocks the call (a policy gate); a failing post_tool command is reported to the agent. match is a tool-name pattern. |
-| `allow_bypass_permissions` | Organization | bool | `False` | Let members run sessions in bypass mode, where no action waits for approval. A member or session that asks for bypass while this is off runs in ask mode. |
+| `allow_bypass_permissions` | Organization | bool | `False` | Let members run sessions in bypass mode, where nothing waits for approval, not even the irreversible actions that every other mode holds. A member or session that asks for bypass while this is off runs in ask mode. |
 | `auto_resume_turns` | Organization | bool | `True` | Resume a turn automatically when the server running it restarted mid-task (the agent is told it was interrupted and continues from the saved conversation). |
 | `approval_policy` | Organization | dict | `{}` | Risk levels to auto-approve or deny: \{auto_approve: [...], deny: [...]\}. |
 | `provider_allowlist` | Organization | list | empty | Model providers that may receive organization data; empty allows all. |
-| `zero_retention` | Organization | bool | `False` | Ask providers not to retain prompts or completions. |
-| `region` | Organization | str | empty | Pin inference to a provider region. |
+| `zero_retention` | Organization | bool | `False` | Ask providers not to retain prompts or completions. Enforced for OpenRouter models; a call to a provider that cannot honour it is refused rather than sent. |
+| `region` | Organization | str | empty | Pin inference to a provider region. Enforced for Vertex AI and Bedrock models; a call to any other provider is refused rather than sent. |
 | `egress_allowlist` | Organization | list | empty | Sandbox egress destinations: CIDR blocks, IPs, host names or *.suffix patterns; empty means unrestricted. Docker sandboxes reach only these through an allow-listing proxy (checked after DNS resolution); Kubernetes resolves host names when the sandbox starts and enforces the addresses with a NetworkPolicy. |
 | `block_internal_subnets` | Organization | bool | `False` | Block sandbox access to private and link-local ranges. |
 | `redaction_enabled` | Organization | bool | `True` | Redact secrets from tool output, traces and logs. |
@@ -143,10 +147,10 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 
 | Setting | Scope | Type / values | Default | Description |
 | :-- | :-- | :-- | :-- | :-- |
-| `permission_mode` | Org default, member override | `plan` / `ask` / `auto_edit` / `auto` / `bypass` | `auto` | How much of the agent's work waits for a person: plan (read-only), ask (approve every edit, command and publish), auto_edit (approve commands and publish), auto (the agent asks when it judges an action risky), bypass (approve everything). The organization sets the default and can lock it; otherwise members and sessions choose. |
-| `full_name` | Org default, member override | str | empty | Display name; the commit author name when no GitHub account is linked and no git name is set (a linked account's username is used otherwise). |
-| `git_author_name` | Org default, member override | str | empty | Commit author name; empty uses the linked GitHub account's username. |
-| `git_author_email` | Org default, member override | str | empty | Commit author e-mail; empty uses the linked GitHub account's primary e-mail, then its noreply address. |
+| `permission_mode` | Org default, member override | `plan` / `ask` / `auto_edit` / `auto` / `bypass` | `auto` | How much of the agent's work waits for a person: plan (read-only), ask (approve every edit, command and publish), auto_edit (approve commands and publish), auto (only irreversible actions wait: merging a pull request, deleting on GitHub, a hard revert, wiping the workspace), bypass (nothing waits). The organization sets the default and can lock it; otherwise members and sessions choose. |
+| `full_name` | Member | str | empty | Display name; the commit author name when no GitHub account is linked and no git name is set (a linked account's username is used otherwise). |
+| `git_author_name` | Member | str | empty | Commit author name; empty uses the linked GitHub account's username. |
+| `git_author_email` | Member | str | empty | Commit author e-mail; empty uses the linked GitHub account's primary e-mail, then its noreply address. |
 | `commit_as_me` | Org default, member override | bool | `False` | Commit as yourself, signed with the GPG key you imported in Git & version control. Applies only when the organization's commit signing mode is gpg_key; otherwise the organization's authorship policy decides. |
 | `git_branch_prefix` | Org default, member override | str | `feat/rocket-` | Prefix the agent uses for the branches it creates. |
 | `preferred_model` | Org default, member override | str | empty | Preferred model (below the agent, above the organization default); empty uses the organization default. |

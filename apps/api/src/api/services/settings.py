@@ -9,15 +9,19 @@ would be a quiet policy bypass, and reporting a save as successful when it was n
 
 from __future__ import annotations
 
+import logging
+import os
 import time
 import uuid
 from typing import Any
 
 from config_engine import CascadingSettingsResolver, ResolvedSettings
-from config_engine.registry import specs_for
+from config_engine.registry import specs_for, writable_keys
 from sqlalchemy import select
 
 from api.db.models import OrgSettingModel, UserSettingModel
+
+logger = logging.getLogger(__name__)
 
 _resolver = CascadingSettingsResolver()
 
@@ -165,17 +169,60 @@ async def resolve_settings(
     org_config, locked = await load_org_config(db_mgr, org_id, domain)
     overrides = await load_user_config(db_mgr, org_id, user_id, domain) if user_id else {}
     # Keys retired from the registry may linger in old rows; they must not resurface.
-    known = specs_for(domain)
-    org_config = {k: v for k, v in org_config.items() if k in known}
-    overrides = {k: v for k, v in overrides.items() if k in known}
-    locked = [k for k in locked if k in known]
+    # Nor does a value stored under a scope the key no longer has (a member-only key set as an
+    # organization default before it became member-only).
+    org_keys, member_keys = writable_keys(domain, "org"), writable_keys(domain, "user")
+    org_config = {k: v for k, v in org_config.items() if k in org_keys}
+    overrides = {k: v for k, v in overrides.items() if k in member_keys}
+    locked = [k for k in locked if k in member_keys]
     return _resolver.resolve(
         domain=domain, org_config=org_config, locked_keys=locked, user_overrides=overrides
     )
 
 
+class UndeclaredSettingError(KeyError):
+    """Runtime code read a setting the registry does not declare."""
+
+
+class DeclaredSettings(dict[str, Any]):
+    """The effective values of one domain, which only answers for keys the registry declares.
+
+    A read of anything else is a feature that can never be configured (its value is always the
+    code's fallback), so the tests (``ROCKET_STRICT_SETTINGS=1``) fail on it; in production it
+    is logged once per key instead of taking a turn down.
+    """
+
+    def __init__(self, domain: str, values: dict[str, Any]) -> None:
+        super().__init__(values)
+        self.domain = domain
+
+    def _undeclared(self, key: str) -> None:
+        if key in specs_for(self.domain):
+            return
+        message = f"{self.domain}.{key} is not declared in the settings registry"
+        if os.getenv("ROCKET_STRICT_SETTINGS") == "1":
+            raise UndeclaredSettingError(message)
+        if (self.domain, key) not in _reported_undeclared:
+            _reported_undeclared.add((self.domain, key))
+            logger.warning("%s; its value can never be configured", message)
+
+    def __getitem__(self, key: str) -> Any:
+        if key not in self:
+            self._undeclared(key)
+        return super().__getitem__(key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        if key not in self:
+            self._undeclared(key)
+        return super().get(key, default)
+
+
+_reported_undeclared: set[tuple[str, str]] = set()
+
+
 async def effective_settings(
     db_mgr: Any, org_id: str, domain: str, user_id: str | None = None
-) -> dict[str, Any]:
+) -> DeclaredSettings:
     """Just the effective values of :func:`resolve_settings`."""
-    return (await resolve_settings(db_mgr, org_id, domain, user_id)).effective
+    resolved = await resolve_settings(db_mgr, org_id, domain, user_id)
+    return DeclaredSettings(domain, resolved.effective)

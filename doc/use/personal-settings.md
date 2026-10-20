@@ -5,15 +5,19 @@ description: Your identity, models, GitHub account and notifications.
 
 # Your settings
 
-Open **Settings** (the gear in the top bar). The *Personal* group at the top of the list is yours; the *Organization* group is for administrators (see [Administer](/administer/index)). When an administrator **locks** a setting you see it as *locked by organization* and cannot change it.
+Open **Settings** from the sidebar (or the **View** menu in a session). The list has three groups: *Personal* (only affects you), *Agent capabilities* (agents, subagents, MCP servers, skills, knowledge bases) and *Organization* (administrators; see [Administer](/administer/index)). When an administrator **locks** a setting you see it as *locked by organization* and cannot change it.
+
+**Saving.** A page never has a Save button per section. Edit as many fields as you like and a bar at the bottom shows how many changes are unsaved, with one **Save changes** and one **Discard**. Rarely changed settings are folded under **Advanced**, a number shows what it counts (minutes, USD, tokens), and **Reset to default** puts a changed value back.
+
+**Finding a setting.** Press **⌘K** (Ctrl+K) in Settings, or click **Search settings**, and type what you want to change ("monthly spend", "retention"): the page opens scrolled to that setting.
 
 ![The settings console](../assets/screenshots/settings.png)
 
 ## Profile and preferences
 
 * **Display name.** Shown on your messages in shared sessions.
-* **Suggested next message.** The ghost text in the composer that you accept with **Tab**; turn it off if it distracts you.
-* **Default permission mode.** How closely the agent is supervised when you do not pick a mode for a session (*Plan*, *Ask*, *Auto-edit*, *Auto*). See [How sessions work](/use/sessions#supervision).
+* **Suggest next prompts.** The ghost text in the composer that you accept with **Tab**; turn it off if it distracts you.
+* **Default permission mode.** How closely the agent is supervised when you do not pick a mode for a session (*Read-only*, *Ask first*, *Auto-edit*, *Auto*, *No approvals*). See [How sessions work](/use/sessions#supervision).
 * **Preferred model.** The model your sessions use unless the agent or the organization decides otherwise.
 
 ## Git and GitHub

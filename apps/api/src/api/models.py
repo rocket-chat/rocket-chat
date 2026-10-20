@@ -413,7 +413,10 @@ class SubagentConfigModel(BaseModel):
     system_prompt: str
     model: str | None = None
     max_turns: int = Field(
-        12, ge=1, le=60, description="Steps the subagent may take before it must report."
+        30,
+        ge=0,
+        le=500,
+        description="Steps the subagent may take before it must report (0: until it finishes).",
     )
     whitelisted_tools: list[str] = Field(default_factory=lambda: ["*"])
     temperature: float = 0.2

@@ -87,7 +87,7 @@ async def test_the_agent_is_told_the_sandbox_starts_blank_and_how_to_find_and_ge
 async def test_asking_the_user_is_presented_as_a_blocking_last_resort() -> None:
     prompt, _ = await _system_prompt_for(_session())
 
-    assert "`ask_question` BLOCKS the whole turn" in prompt
+    assert "`ask_question` blocks the whole turn" in prompt
     assert "last resort" in prompt
     assert "state your assumption" in prompt
 

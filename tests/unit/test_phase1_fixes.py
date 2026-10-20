@@ -11,7 +11,7 @@ from agent_core.tools.lsp import _build_diagnostic_command, _resolve_binary, run
 from agent_core.tools.processes import is_valid_id
 from api.auth.context import RequestContext
 from api.routers.fork import ForkSessionRequest, RewindSessionRequest, fork_session, rewind_session
-from api.services.artifacts import MAX_ARTIFACT_CONTENT_BYTES, InMemoryArtifactStore
+from api.services.artifacts import MAX_ARTIFACT_CONTENT_CHARS, InMemoryArtifactStore
 from api.services.goals import InMemoryGoalStore
 from api.services.waits import InMemoryWaitStore, SessionWait, claim_due_waits
 from fastapi import HTTPException
@@ -154,7 +154,7 @@ async def test_h5_artifact_atomic_update_and_content_cap() -> None:
     store = InMemoryArtifactStore()
 
     # Content cap
-    huge_content = "x" * (MAX_ARTIFACT_CONTENT_BYTES + 5000)
+    huge_content = "x" * (MAX_ARTIFACT_CONTENT_CHARS + 5000)
     art = SessionArtifact(
         id="art_cap",
         session_id="s_art",
@@ -165,7 +165,7 @@ async def test_h5_artifact_atomic_update_and_content_cap() -> None:
         content=huge_content,
     )
     created = await store.create_artifact(art)
-    assert len(created.content) <= MAX_ARTIFACT_CONTENT_BYTES
+    assert len(created.content) <= MAX_ARTIFACT_CONTENT_CHARS
 
     # Atomic update increments version
     updated = await store.update_artifact("s_art", "art_cap", "org1", "Updated content")

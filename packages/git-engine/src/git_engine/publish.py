@@ -190,9 +190,12 @@ class BranchPublisher:
             await sandbox.git("git config --get remote.origin.url"), self._host
         )
         plan = await self._plan(sandbox, branch, spec)
+        default_branch = await self._default_branch(sandbox, spec.default_branch)
         via = "github_api" if spec.signing_mode == SigningMode.GITHUB_APP else "git_push"
         if not plan.commits:
-            return PublishResult(repository, branch, plan.base, via, commits=0)
+            return PublishResult(
+                repository, branch, plan.base, via, commits=0, default_branch=default_branch
+            )
         if spec.signing_mode == SigningMode.GITHUB_APP:
             await self._refuse_merges(sandbox, plan.base)
         token, notice = await self._write_token(repository, spec)
@@ -226,6 +229,7 @@ class BranchPublisher:
             commits=len(plan.commits),
             notices=notices,
             rewritten=rewritten,
+            default_branch=default_branch,
         )
 
     async def _repository_dir(self, session_id: str, spec: PublishSpec) -> str:

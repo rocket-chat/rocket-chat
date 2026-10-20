@@ -74,12 +74,13 @@ class _Engine:
         session_id: str,
         title: str,
         body: str,
-        target_branch: str = "main",
+        target_branch: str | None = None,
         token: str | None = None,
         installations: tuple[tuple[int, str], ...] = (),
-        publish: object = None,
+        publish: Any = None,
     ) -> str:
-        self.calls.append((target_branch, token))
+        # The base is the repository's own default branch; the setting is only its fallback.
+        self.calls.append((target_branch or publish.default_branch, token))
         return "https://github.com/o/r/pull/1"
 
 

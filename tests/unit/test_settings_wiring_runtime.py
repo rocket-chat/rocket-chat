@@ -226,12 +226,13 @@ class _PullRequests:
         session_id: str,
         title: str,
         body: str,
-        target: str,
+        target: str | None = None,
         token: str | None = None,
-        publish: object = None,
+        publish: Any = None,
         **_: Any,
     ) -> str:
-        self.calls.append((target, token))
+        # The base is the repository's own default branch; the setting is its fallback.
+        self.calls.append((target or publish.default_branch, token))
         return "https://github.com/o/r/pull/1"
 
 

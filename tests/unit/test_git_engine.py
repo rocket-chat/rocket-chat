@@ -444,3 +444,25 @@ async def test_webhook_for_a_repository_outside_the_allowlist_is_ignored() -> No
         {"action": "labeled", "label": {"name": "ai-fix"}, "repository": {"full_name": "evil/repo"}}
     ).encode("utf-8")
     assert await engine.handle_webhook(body, {"X-GitHub-Event": "issues"}) is None
+
+
+@pytest.mark.asyncio
+async def test_pr_goes_to_the_repositorys_own_default_branch_unless_a_base_is_named(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _patch_github(
+        monkeypatch, _FakeResponse(201, {"html_url": "https://github.com/o/r/pull/9"})
+    )
+    engine = _pr_engine(GitEngineSettings())
+
+    async def published(session_id: str, spec: PublishSpec) -> PublishResult:
+        return PublishResult(
+            "myorg/custom-repo", "feat/x", "abc", "git_push", 1, default_branch="develop"
+        )
+
+    engine.publish_branch = published  # type: ignore[method-assign]
+
+    await engine.push_and_open_pr("s", "t", "b", token="own")
+    await engine.push_and_open_pr("s", "t", "b", "release", token="own")
+
+    assert [call["json"]["base"] for call in calls] == ["develop", "release"]  # type: ignore[index]
