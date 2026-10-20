@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 from agent_core.tools.clamp import clamp_output
+from agent_core.tools.live_output import live_chunk
 from agent_core.tools.tier2 import _sh_quote
 from specifications.interfaces.sandbox import ExecResult, SandboxDriverProtocol
 
@@ -249,6 +250,10 @@ async def package_manager(
     typed_action = cast(PackageAction, action)
     command = _build_command(selected, typed_action, packages or [], dev)
     result = await driver.exec_command(
-        session_id=session_id, command=command, workdir=workdir, timeout_seconds=timeout_seconds
+        session_id=session_id,
+        command=command,
+        workdir=workdir,
+        timeout_seconds=timeout_seconds,
+        on_stdout_chunk=live_chunk(),
     )
     return _format_result(selected, typed_action, result)

@@ -326,6 +326,8 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
             if stderr_bytes:
                 chunk = stderr_bytes.decode("utf-8", errors="replace")
                 stderr_buffer.append(chunk)
+                if on_stdout_chunk:
+                    on_stdout_chunk(chunk)
 
         inspect_data = self._client.api.exec_inspect(exec_id)
         return int(inspect_data.get("ExitCode", 0))

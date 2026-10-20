@@ -753,6 +753,31 @@ class SessionArtifactModel(Base):
     updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
+class SessionArtifactVersionModel(Base):
+    """Every saved version of a session artifact, so an edit never loses what it replaced.
+
+    Forced Row-Level Security by organization, like the artifacts they belong to.
+    """
+
+    __tablename__ = "session_artifact_versions"
+    __table_args__ = (UniqueConstraint("artifact_id", "version", name="uq_artifact_version"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    artifact_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("session_artifacts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
 class SessionWaitModel(Base):
     """Durable session wait requests (timers, background process exits, GitHub CI/reviews).
 

@@ -15,7 +15,7 @@ from api.services.transcript import InMemoryTranscriptStore
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
 from specifications.interfaces.agent import SubagentConfig, SubagentTaskRequest
-from specifications.interfaces.llm import ModelRequest, StreamChunk
+from specifications.interfaces.llm import ModelRequest, StreamChunk, ToolDefinition
 from specifications.interfaces.sandbox import ExecResult
 from tests.turn_harness import run_turn
 
@@ -27,7 +27,7 @@ def test_the_built_in_roles_can_search_and_test() -> None:
     assert {"run_tests", "grep_search", "list_dir"} <= set(
         DEFAULT_SUBAGENT_CONFIGS["qa_verifier"].whitelisted_tools
     )
-    assert all(config.max_turns == 12 for config in DEFAULT_SUBAGENT_CONFIGS.values())
+    assert all(config.max_turns == 30 for config in DEFAULT_SUBAGENT_CONFIGS.values())
 
 
 async def test_a_delegate_searches_the_active_repository_and_reports() -> None:
@@ -94,7 +94,7 @@ async def test_a_delegate_that_runs_out_of_steps_still_reports() -> None:
     gateway = _AlwaysCallsTools()
     registry = _SlowRegistry()
     registry.get_tool_definitions = lambda: [  # type: ignore[method-assign]
-        type("T", (), {"name": "slow_tool"})()
+        ToolDefinition("slow_tool", "", {"type": "object"})
     ]
     dispatcher = ToolDispatcher(registry=registry, tool_timeout_seconds=1)
     runner = SubagentRunner(gateway, registry, configs=_role(2), dispatcher=dispatcher)
@@ -112,7 +112,7 @@ async def test_the_organizations_step_limit_is_what_the_delegate_gets() -> None:
     registry = _SlowRegistry()
     registry.call_tool = lambda name, arguments: asyncio.sleep(0, "ok")  # type: ignore[method-assign]
     registry.get_tool_definitions = lambda: [  # type: ignore[method-assign]
-        type("T", (), {"name": "slow_tool"})()
+        ToolDefinition("slow_tool", "", {"type": "object"})
     ]
 
     await SubagentRunner(gateway, registry, configs=_role(3)).run(

@@ -5,6 +5,7 @@ import uuid
 from typing import Any
 
 from agent_core.orchestrator import AsyncReActOrchestrator
+from agent_core.tools.offload import forget_session_offloads
 from agent_core.tools.registry import ToolRegistry
 from fastapi import (
     APIRouter,
@@ -352,6 +353,7 @@ async def _purge_session(request: Request, record: SessionRecord) -> bool:
     code_index_cache = getattr(request.app.state, "code_index_cache", None)
     if code_index_cache is not None:
         code_index_cache.invalidate(session_id)
+    forget_session_offloads(session_id)
 
     # Drop the replay history and sequence counter for the deleted session.
     event_bus = getattr(request.app.state, "event_bus", None)

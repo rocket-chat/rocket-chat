@@ -11,6 +11,7 @@ from typing import Any
 
 import litellm
 
+from llm_gateway.errors import DataGovernanceError
 from llm_gateway.pricing import estimate_cost_usd
 from llm_gateway.reasoning import ReasoningStreamFilter
 from llm_gateway.tokens import estimated_usage
@@ -130,6 +131,15 @@ def misplaced_system_messages(messages: list[ChatMessage]) -> int:
         elif started:
             count += 1
     return count
+
+
+# Self-hosted providers keep nothing and run where the organization put them.
+_SELF_HOSTED_PROVIDERS = frozenset({"ollama", "ollama_chat", "hosted_vllm", "vllm", "lm_studio"})
+_ZERO_RETENTION_PROVIDERS = frozenset({"openrouter"}) | _SELF_HOSTED_PROVIDERS
+_REGION_PROVIDERS = (
+    frozenset({"vertex_ai", "google", "gemini", "bedrock", "bedrock_converse", "aws"})
+    | _SELF_HOSTED_PROVIDERS
+)
 
 
 class LiteLLMGateway(LLMGatewayProtocol):
@@ -335,6 +345,20 @@ class LiteLLMGateway(LLMGatewayProtocol):
             return {}
 
         provider = model.split("/", 1)[0].lower() if "/" in model else model.lower()
+        # A rule the provider cannot be asked to follow is a refusal, not a metadata tag nobody
+        # reads: the call would otherwise go out, and the organization would believe it was bound.
+        if request.zero_retention and provider not in _ZERO_RETENTION_PROVIDERS:
+            raise DataGovernanceError(
+                f"Zero retention is required, but it cannot be requested from '{provider}'. "
+                "Use an OpenRouter or self-hosted model, or turn the setting off "
+                "(Settings > Governance)."
+            )
+        if request.region and provider not in _REGION_PROVIDERS:
+            raise DataGovernanceError(
+                f"A region ('{request.region}') is required, but it cannot be requested from "
+                f"'{provider}'. Use a Vertex AI, Bedrock or self-hosted model, or clear the "
+                "setting (Settings > Governance)."
+            )
         meta: dict[str, Any] = {}
         if request.zero_retention:
             meta["zero_retention"] = True

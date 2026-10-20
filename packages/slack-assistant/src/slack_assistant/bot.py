@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any
 
 from slack_assistant.policy import SlackOrgPolicy, _as_list, _profiles
@@ -179,19 +179,19 @@ class SlackBot:
 
 
 def _policy_as_settings(policy: SlackOrgPolicy) -> dict[str, Any]:
-    """A policy back as ``slack`` settings, so bot overrides merge key by key."""
-    return {
-        "dm_policy": policy.dm_policy,
-        "outbound_channels": sorted(policy.outbound_channels),
-        "allowed_channel_types": sorted(policy.allowed_channel_types),
-        "auto_link_by_verified_email": policy.auto_link_by_verified_email,
-        "allowed_tools": list(policy.allowed_tools),
-        "default_agent_persona": policy.default_agent_persona,
-        "web_base_url": policy.web_base_url,
-        "live_progress": policy.live_progress,
-        "long_output_to_file": policy.long_output_to_file,
-        "long_output_chars": policy.long_output_chars,
-        "channel_profiles": {
-            channel: profile.__dict__ for channel, profile in policy.channel_profiles.items()
-        },
-    }
+    """A policy back as ``slack`` settings, so bot overrides merge key by key.
+
+    Built from the dataclass's own fields: a hand-written list silently dropped any field added
+    later (``restrict_linked_members`` was reset to off for every bot).
+    """
+    settings: dict[str, Any] = {}
+    for item in fields(policy):
+        value = getattr(policy, item.name)
+        if item.name == "channel_profiles":
+            value = {channel: asdict(profile) for channel, profile in value.items()}
+        elif isinstance(value, frozenset | set):
+            value = sorted(value)
+        elif isinstance(value, tuple):
+            value = list(value)
+        settings[item.name] = value
+    return settings

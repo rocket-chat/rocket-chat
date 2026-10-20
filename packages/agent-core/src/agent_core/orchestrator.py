@@ -317,10 +317,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         self._gateway: LLMGatewayProtocol = gateway
         self._registry: ToolRegistry = registry
         self.default_model: str = default_model
-        env_max = (
-            os.getenv("AGENT_MAX_TURNS") or os.getenv("ROCKET_MAX_TURNS") or os.getenv("MAX_TURNS")
-        )
-        self.max_turns: int = int(env_max) if env_max and env_max.isdigit() else max_turns
+        self.max_turns: int = max_turns
         self.fallback_models: list[str] = [
             m.strip() for m in (os.getenv("ROCKET_FALLBACK_MODELS") or "").split(",") if m.strip()
         ]
@@ -985,21 +982,6 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         if not prompt.stable:
             return []
         return [ChatMessage(role="system", content=prompt.stable, cacheable=True)]
-
-    def _prepare_dispatch_messages(
-        self,
-        model: str,
-        seed_messages: list[ChatMessage],
-        conversation: list[ChatMessage],
-    ) -> list[ChatMessage]:
-        """Compose the request payload, persisting any compaction the hygiene pass applied."""
-        messages = [*seed_messages, *conversation]
-        cleaned = self.context_manager.enforce_hygiene(model, messages)
-        if cleaned != messages:
-            del conversation[:]
-            conversation.extend(cleaned[len(seed_messages) :])
-            return [*seed_messages, *conversation]
-        return messages
 
     def _make_summarizer(self, model: str) -> Summarizer:
         """A model-backed summarizer for Tier-3 context compaction (cheap `summarize` route)."""

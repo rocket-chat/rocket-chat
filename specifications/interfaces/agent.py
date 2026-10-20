@@ -36,7 +36,8 @@ class SubagentConfig:
     description: str
     system_prompt: str
     model: str | None = None
-    max_turns: int = 12
+    # Steps before the delegate must report; 0 lets it work until it has finished.
+    max_turns: int = 30
     whitelisted_tools: list[str] = field(default_factory=lambda: ["*"])
     temperature: float = 0.2
     can_ask_user: bool = False
@@ -534,7 +535,7 @@ class FileDiff:
 
 @dataclass
 class AgentEvent:
-    event_type: str  # "status", "thought", "tool_call", "plan_updated", "approval_required", "interactive_question", "file_diff"
+    event_type: str  # "status", "thought", "tool_call", "plan_updated", "approval_required", "interactive_question", "file_diff", "command_output"
     session_id: str
     payload: dict[str, Any]
 

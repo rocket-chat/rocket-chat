@@ -53,6 +53,7 @@ from api.services.turn_trace import (
     user_turn_index,
 )
 from api.telemetry import traced_turn
+from api.turns.attention import update_attention
 from api.turns.callbacks import build_turn_callbacks
 from api.turns.context import TurnContext, TurnRequest, TurnSelection, TurnState
 from api.turns.continuation import check_and_schedule_continuation
@@ -678,8 +679,21 @@ class TurnRunner:
                     EventType.SESSION_UPDATED,
                     {"session_id": self.req.session_id, "is_processing": False},
                 )
+                await update_attention(
+                    self.req.store,
+                    self.req.event_bus,
+                    self.req.session_id,
+                    self._org_id,
+                    last_turn_status=self._how_the_turn_ended(),
+                    clear_awaiting=True,
+                )
             except Exception:
                 pass
+
+    def _how_the_turn_ended(self) -> str:
+        if self.state.turn_error:
+            return "error"
+        return "waiting" if getattr(self.state, "is_waiting", False) else "completed"
 
     async def _publish(self, event_type: EventType, payload: dict[str, Any]) -> None:
         await self.req.event_bus.publish(

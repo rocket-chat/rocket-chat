@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import logging
-import os
 from typing import Any
+
+from config_engine.environment import env_value
 
 from api.services.settings import load_org_config
 from specifications.interfaces.agent import DEFAULT_MAX_TURNS
 
 logger = logging.getLogger(__name__)
+
+
+def deployment_max_turns() -> int:
+    """The deployment's default step limit: ``AGENT_MAX_TURNS``, else the platform default."""
+    env_max = env_value("AGENT_MAX_TURNS", "ROCKET_MAX_TURNS", "MAX_TURNS")
+    return int(env_max) if env_max and env_max.isdigit() else DEFAULT_MAX_TURNS
 
 
 async def organization_max_turns(db_mgr: Any, org_id: str) -> int:
@@ -24,7 +31,4 @@ async def organization_max_turns(db_mgr: Any, org_id: str) -> int:
             return int(configured)
         except (TypeError, ValueError):
             logger.warning("Ignoring invalid general.max_turns=%r for org %s", configured, org_id)
-    env_max = (
-        os.getenv("AGENT_MAX_TURNS") or os.getenv("ROCKET_MAX_TURNS") or os.getenv("MAX_TURNS")
-    )
-    return int(env_max) if env_max and env_max.isdigit() else DEFAULT_MAX_TURNS
+    return deployment_max_turns()

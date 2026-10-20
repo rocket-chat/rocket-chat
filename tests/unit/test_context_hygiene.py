@@ -94,7 +94,7 @@ def test_tier2_tool_payload_pruning() -> None:
     assert "Status: ok" in (pruned[8].content or "")
 
 
-def test_tier3_anchor_compaction_preserves_goals_and_checklists() -> None:
+async def test_tier3_anchor_compaction_preserves_goals_and_checklists() -> None:
     cm = ContextManager(recent_turns_to_preserve=1)
 
     messages = [
@@ -121,7 +121,7 @@ def test_tier3_anchor_compaction_preserves_goals_and_checklists() -> None:
         ChatMessage(role="assistant", content="Finishing step 2 now."),
     ]
 
-    compacted = cm.compact_with_anchors(messages, recent_turns_to_preserve=1)
+    compacted = await cm.compact_with_summary(messages, None, recent_turns_to_preserve=1)
 
     # Invariant 1: System prompt anchored
     assert compacted[0].role == "system"
@@ -174,7 +174,7 @@ async def test_mid_turn_compaction_of_a_long_session_keeps_the_current_request()
     assert not any("old question 0" == m.content for m in compacted)
 
 
-def test_a_step_with_eight_parallel_calls_is_never_split() -> None:
+async def test_a_step_with_eight_parallel_calls_is_never_split() -> None:
     manager = ContextManager(recent_turns_to_preserve=1)
     messages = [
         ChatMessage(role="system", content="S"),
@@ -184,10 +184,85 @@ def test_a_step_with_eight_parallel_calls_is_never_split() -> None:
         *_step(3, calls=8),
     ]
 
-    compacted = manager.compact_with_anchors(messages)
+    compacted = await manager.compact_with_summary(messages, None)
 
     tail_tools = [
         m for m in compacted if m.role == "tool" and (m.tool_call_id or "").startswith("c3")
     ]
     assert len(tail_tools) == 8
     assert compacted[-9].role == "assistant" and len(compacted[-9].tool_calls or []) == 8
+
+
+def _call(call_id: str, name: str, arguments: str) -> dict[str, object]:
+    return {"id": call_id, "type": "function", "function": {"name": name, "arguments": arguments}}
+
+
+def test_old_large_tool_arguments_are_pruned_and_stay_valid_json() -> None:
+    import json
+
+    cm = ContextManager(recent_turns_to_preserve=1)
+    big = json.dumps({"path": "src/app.py", "content": "x = 1\n" * 600})
+    small = json.dumps({"path": "a.py", "content": "ok"})
+    messages = [
+        ChatMessage(role="user", content="Go"),
+        ChatMessage(role="assistant", content="", tool_calls=[_call("c1", "file_write", big)]),
+        ChatMessage(role="tool", content="ok", tool_call_id="c1"),
+        ChatMessage(role="assistant", content="", tool_calls=[_call("c2", "file_write", small)]),
+        ChatMessage(role="tool", content="ok", tool_call_id="c2"),
+        ChatMessage(role="assistant", content="", tool_calls=[_call("c3", "file_write", big)]),
+    ]
+
+    pruned = cm.prune_tool_payloads(messages)
+
+    old = json.loads(pruned[1].tool_calls[0]["function"]["arguments"])  # type: ignore[index]
+    assert old["path"] == "src/app.py"
+    assert "chars omitted" in old["content"]
+    assert pruned[3].tool_calls == messages[3].tool_calls, "small arguments are kept"
+    assert pruned[5].tool_calls == messages[5].tool_calls, "the latest step is kept whole"
+    assert pruned[1].tool_calls[0]["id"] == "c1"  # type: ignore[index]
+
+
+def test_a_pruned_result_names_the_tool_and_where_its_full_output_is() -> None:
+    cm = ContextManager(recent_turns_to_preserve=1)
+    saved = (
+        "head\n"
+        * 60
+        + "... [10 lines omitted. Full output saved to /workspace/.rocket/outputs/2_c1.txt. "
+        "Use file_read to inspect middle sections.] ...\n"
+    )
+    messages = [
+        ChatMessage(role="user", content="Go"),
+        ChatMessage(role="assistant", content="", tool_calls=[_call("c1", "run_tests", "{}")]),
+        ChatMessage(role="tool", content=saved, tool_call_id="c1"),
+        ChatMessage(role="assistant", content="", tool_calls=[_call("c2", "bash_exec", "{}")]),
+        ChatMessage(role="tool", content="x\n" * 60, tool_call_id="c2"),
+        ChatMessage(role="assistant", content="done"),
+    ]
+
+    pruned = cm.prune_tool_payloads(messages)
+
+    assert "Tool result of run_tests" in (pruned[2].content or "")
+    assert "full output: /workspace/.rocket/outputs/2_c1.txt" in (pruned[2].content or "")
+    assert "Tool result of bash_exec" in (pruned[4].content or "")
+    assert "full output" not in (pruned[4].content or "")
+
+
+def test_pruning_keeps_the_fields_of_the_messages_it_rewrites() -> None:
+    cm = ContextManager(recent_turns_to_preserve=1)
+    messages = [
+        ChatMessage(role="user", content="Go"),
+        ChatMessage(
+            role="assistant",
+            content="",
+            reasoning="because",
+            reasoning_blocks=[{"type": "thinking", "signature": "s"}],
+            tool_calls=[_call("c1", "bash_exec", "{}")],
+        ),
+        ChatMessage(role="tool", content="x\n" * 60, tool_call_id="c1", cacheable=True),
+        ChatMessage(role="assistant", content="done"),
+    ]
+
+    pruned = cm.prune_tool_payloads(messages)
+
+    assert pruned[2].cacheable is True
+    assert pruned[1].reasoning_blocks == [{"type": "thinking", "signature": "s"}]

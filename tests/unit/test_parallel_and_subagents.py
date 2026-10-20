@@ -6,9 +6,11 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from agent_core.context import ExecutionContext, current_execution_ctx
 from agent_core.orchestrator import AsyncReActOrchestrator
 from agent_core.subagents import (
     SubagentRunner,
@@ -22,6 +24,7 @@ from specifications.interfaces.agent import (
     AgentEvent,
     SubagentConfig,
     SubagentTaskRequest,
+    TurnCallbacks,
 )
 from specifications.interfaces.llm import (
     ChatMessage,
@@ -143,6 +146,118 @@ class TestSubagentRunner:
         # Two working steps, then one tool-less call for the final report.
         assert call_count == 3
         assert result.turns_taken == 2
+
+    @pytest.mark.asyncio
+    async def test_a_subagent_without_a_step_limit_works_until_it_finishes(self) -> None:
+        """A limit of 0 never ends the work: only the model's own final answer does."""
+        mock_gateway = MagicMock()
+        registry = ToolRegistry()
+        registry.call_tool = AsyncMock(return_value="bash output")
+        calls = 0
+
+        async def _mock_stream(req: ModelRequest) -> AsyncIterator[StreamChunk]:
+            nonlocal calls
+            calls += 1
+            if calls <= 40:
+                yield StreamChunk(
+                    tool_call_delta={
+                        "index": 0,
+                        "id": f"call_{calls}",
+                        "function": {
+                            "name": "bash_exec",
+                            "arguments": json.dumps({"command": "ls"}),
+                        },
+                    },
+                    is_finished=True,
+                )
+            else:
+                yield StreamChunk(text_delta="Finished after forty steps.", is_finished=True)
+
+        mock_gateway.chat_stream = _mock_stream
+        config = SubagentConfig(
+            id="patient",
+            name="Patient",
+            role_title="Patient",
+            description="No limit",
+            system_prompt="Keep going",
+            max_turns=0,
+            whitelisted_tools=["bash_exec"],
+        )
+        runner = SubagentRunner(
+            gateway=mock_gateway, registry=registry, configs={"patient": config}
+        )
+
+        result = await runner.run(
+            SubagentTaskRequest(role="patient", task="Long task"), session_id="s-unbounded"
+        )
+
+        assert result.status == "completed"
+        assert result.turns_taken == 41
+        assert "forty steps" in result.summary
+
+    @pytest.mark.asyncio
+    async def test_a_long_subagent_conversation_is_compacted_and_still_saved_whole(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        mock_gateway = MagicMock()
+        registry = ToolRegistry()
+        registry.call_tool = AsyncMock(return_value="output line\n" * 50)
+        calls = 0
+
+        async def _mock_stream(req: ModelRequest) -> AsyncIterator[StreamChunk]:
+            nonlocal calls
+            calls += 1
+            if calls <= 12:
+                yield StreamChunk(
+                    tool_call_delta={
+                        "index": 0,
+                        "id": f"call_{calls}",
+                        "function": {
+                            "name": "bash_exec",
+                            "arguments": json.dumps({"command": "ls"}),
+                        },
+                    },
+                    is_finished=True,
+                )
+            else:
+                yield StreamChunk(text_delta="All done.", is_finished=True)
+
+        mock_gateway.chat_stream = _mock_stream
+        config = SubagentConfig(
+            id="chatty",
+            name="Chatty",
+            role_title="Chatty",
+            description="Fills its context",
+            system_prompt="Keep going",
+            max_turns=0,
+            whitelisted_tools=["bash_exec"],
+        )
+        runner = SubagentRunner(gateway=mock_gateway, registry=registry, configs={"chatty": config})
+        # A tiny window makes the delegate's own conversation exceed the thresholds.
+        monkeypatch.setattr(runner.context_manager, "get_model_context_limit", lambda *a, **k: 400)
+        saved: list[Any] = []
+
+        async def persist(record: Any) -> None:
+            saved.append(record)
+
+        ctx = ExecutionContext(
+            session_id="s-compact",
+            event_queue=asyncio.Queue(),
+            parent_model="m",
+            callbacks=TurnCallbacks(subagent_transcript_persister=persist),
+        )
+        token = current_execution_ctx.set(ctx)
+        try:
+            result = await runner.run(
+                SubagentTaskRequest(role="chatty", task="Many steps"), session_id="s-compact"
+            )
+        finally:
+            current_execution_ctx.reset(token)
+
+        assert result.status == "completed"
+        roles = [m["role"] for m in saved[0].messages]
+        assert roles.count("tool") == 12, "nothing is lost from the saved transcript"
+        assert roles.count("assistant") >= 12
 
     @pytest.mark.asyncio
     async def test_subagent_inherits_parent_model(self) -> None:
@@ -362,7 +477,7 @@ class TestSubagentRestEndpoints:
 
             sec_agent = next(s for s in subagents if s["id"] == "security_auditor")
             assert "Security" in sec_agent["name"]
-            assert sec_agent["max_turns"] == 12
+            assert sec_agent["max_turns"] == 30
 
             # 2. PUT /v1/subagents/security_auditor with updated prompt and turn cap
             sec_agent["max_turns"] = 6

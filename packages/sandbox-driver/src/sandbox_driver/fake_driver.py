@@ -1,6 +1,6 @@
 """In-memory sandbox driver for tests, CI and E2E runs.
 
-Selected with ``SANDBOX_DRIVER=fake``. It implements the full
+Selected with ``DEFAULT_SANDBOX_DRIVER=fake``. It implements the full
 ``SandboxDriverProtocol`` with a deterministic, per-session in-memory workspace and
 canned command output, so the entire agent/tool surface can be exercised without
 Docker, Kubernetes or network access.
@@ -219,9 +219,10 @@ class FakeSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         self._status[session_id] = SandboxStatus.RUNNING
 
         result = self._resolve(command, files)
-        if on_stdout_chunk and result.stdout:
-            for line in result.stdout.splitlines(keepends=True):
-                on_stdout_chunk(line)
+        if on_stdout_chunk:
+            for stream in (result.stdout, result.stderr):
+                for line in (stream or "").splitlines(keepends=True):
+                    on_stdout_chunk(line)
         return ExecResult(
             exit_code=result.exit_code,
             stdout=result.stdout,

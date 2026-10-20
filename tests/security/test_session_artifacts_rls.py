@@ -81,3 +81,12 @@ async def test_session_artifacts_tenant_isolation_postgres() -> None:
     # Tenant B is blocked by PostgreSQL row-level security
     loaded_b = await store.get_artifact(session_id, art_id, org_b)
     assert loaded_b is None
+
+    # Versions are isolated the same way
+    updated = await store.update_artifact(session_id, art_id, org_a, "Second version")
+    assert updated is not None and updated.version == 2
+    assert [v.version for v in await store.list_versions(session_id, art_id, org_a)] == [1, 2]
+    assert await store.list_versions(session_id, art_id, org_b) == []
+    assert await store.get_version(session_id, art_id, org_b, 1) is None
+    first = await store.get_version(session_id, art_id, org_a, 1)
+    assert first is not None and first.content == "Architecture design text"

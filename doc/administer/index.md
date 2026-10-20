@@ -29,4 +29,4 @@ Each setting has a platform default, can be overridden by the organization, and 
 | **Member (developer)** | Use the agent, own sessions, personal settings, personal skills and connectors. |
 | **Read-only** | Read sessions they can see; cannot start or steer work. |
 
-Members, roles and temporary passwords (for password sign-in) are managed under **Settings → Users & Roles**.
+Members, roles and temporary passwords (for password sign-in) are managed under **Settings → Users & roles**.

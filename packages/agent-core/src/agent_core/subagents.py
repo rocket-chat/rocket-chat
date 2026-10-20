@@ -17,7 +17,7 @@ from llm_gateway.pricing import estimate_cost_usd
 from llm_gateway.reasoning import merge_reasoning_blocks
 from llm_gateway.tokens import estimated_usage
 
-from agent_core.context import current_execution_ctx
+from agent_core.context import ContextManager, current_execution_ctx
 from agent_core.dispatcher import ToolDispatcher
 from agent_core.retry_policy import execute_stream_with_retry
 from agent_core.tools.registry import ToolRegistry
@@ -29,6 +29,7 @@ from agent_core.truncation import (
     truncation_notice,
 )
 from specifications.interfaces.agent import (
+    NO_STEP_LIMIT,
     AgentEvent,
     SubagentConfig,
     SubagentTaskRequest,
@@ -44,7 +45,7 @@ from specifications.interfaces.llm import (
 )
 
 # Searching a codebase takes several steps before reading: four left no room to report.
-DEFAULT_SUBAGENT_TURNS = 12
+DEFAULT_SUBAGENT_TURNS = 30
 # Inspection only: what the read-only roles, and a role nobody configured, may use.
 READ_ONLY_TOOLS = [
     "file_read", "grep_search", "glob_files", "list_dir", "code_search", "web_search", "web_fetch",
@@ -162,6 +163,7 @@ class SubagentRunner:
         # Shared with the main turn, so a delegate's calls count against the same limits.
         self.dispatcher = dispatcher or ToolDispatcher(registry=registry)
         self.configs: dict[str, SubagentConfig] = configs or dict(DEFAULT_SUBAGENT_CONFIGS)
+        self.context_manager = ContextManager()
 
     async def run(
         self,
@@ -258,6 +260,9 @@ class _SubagentExecution:
             ),
         ]
         self._turns_taken = 0
+        self._last_compaction_step: int | None = None
+        # Everything said, whole: the live conversation is pruned and compacted, this is not.
+        self._record: list[ChatMessage] = list(self._messages)
         self._tool_calls_count = 0
         self._empty_retries = 0
         self._status = "completed"
@@ -315,8 +320,9 @@ class _SubagentExecution:
             token = current_execution_ctx.set(sub_ctx)
 
         try:
-            for _turn in range(self._config.max_turns):
+            while self._has_steps_left():
                 self._turns_taken += 1
+                await self._keep_context_small()
                 try:
                     generation = await self._generate()
                 except Exception as err:
@@ -330,18 +336,17 @@ class _SubagentExecution:
                     generation.tool_calls, generation.finish_reason
                 )
                 if cut:
-                    self._messages.append(ChatMessage(role="user", content=truncation_notice(cut)))
+                    self._say(ChatMessage(role="user", content=truncation_notice(cut)))
                     if not generation.tool_calls:
                         continue
                 if not generation.tool_calls:
                     if not generation.text:
                         if self._empty_retries < MAX_EMPTY_RETRIES:
                             self._empty_retries += 1
-                            remaining = max(0, self._config.max_turns - self._turns_taken)
                             notice = empty_reply_notice(
-                                generation.finish_reason, remaining_steps=remaining
+                                generation.finish_reason, remaining_steps=self._steps_left()
                             )
-                            self._messages.append(ChatMessage(role="user", content=notice))
+                            self._say(ChatMessage(role="user", content=notice))
                             continue
                         self._status = "partial"
                         self._final_summary = empty_reply_give_up(generation.finish_reason)
@@ -354,10 +359,43 @@ class _SubagentExecution:
             if token is not None:
                 current_execution_ctx.reset(token)
 
+    def _say(self, message: ChatMessage) -> None:
+        self._messages.append(message)
+        self._record.append(message)
+
+    def _has_steps_left(self) -> bool:
+        limit = self._config.max_turns
+        return limit == NO_STEP_LIMIT or self._turns_taken < limit
+
+    def _steps_left(self) -> int | None:
+        limit = self._config.max_turns
+        return None if limit == NO_STEP_LIMIT else max(0, limit - self._turns_taken)
+
+    async def _keep_context_small(self) -> None:
+        """Prune and compact the delegate's conversation like the main agent's.
+
+        A delegate that works for dozens of steps would otherwise overflow its window; what is
+        compacted away stays in the saved transcript.
+        """
+        ctx = current_execution_ctx.get()
+        generation = ctx.policy.generation if ctx is not None else None
+        result = await self._runner.context_manager.enforce_hygiene_async(
+            self._model,
+            self._messages,
+            tools=self._tools,
+            overrides=generation.context_windows if generation else (),
+            target_tokens=generation.context_target_tokens if generation else 0,
+            step=self._turns_taken,
+            last_compaction_step=self._last_compaction_step,
+        )
+        if getattr(result, "compacted", False):
+            self._last_compaction_step = self._turns_taken
+        self._messages = list(result)
+
     async def _final_report(self) -> None:
         """The steps ran out while the delegate was still working: one tool-less call turns
         what it gathered into a report instead of returning its last half-thought."""
-        self._messages.append(ChatMessage(role="user", content=FINAL_REPORT_NOTE))
+        self._say(ChatMessage(role="user", content=FINAL_REPORT_NOTE))
         try:
             generation = await self._generate(with_tools=False)
         except Exception as err:
@@ -426,7 +464,7 @@ class _SubagentExecution:
                     "tool_calls": m.tool_calls,
                     "tool_call_id": m.tool_call_id,
                 }
-                for m in self._messages
+                for m in self._record
             ]
             record = SubagentTranscriptRecord(
                 id=f"sat_{uuid.uuid4().hex[:16]}",
@@ -591,7 +629,7 @@ class _SubagentExecution:
                 }
             )
 
-        self._messages.append(
+        self._say(
             ChatMessage(
                 role="assistant",
                 content=generation.text or None,
@@ -602,7 +640,7 @@ class _SubagentExecution:
         )
         for call in calls:
             self._tool_calls_count += 1
-            self._messages.append(
+            self._say(
                 ChatMessage(
                     role="tool",
                     content=await self._execute(call),

@@ -40,6 +40,7 @@ from api.services.model_credentials import CredentialResolver, ModelCredentialSt
 from api.services.redaction import RedactionPolicy, Redactor
 from api.services.settings import load_org_config
 from api.services.transcript import InMemoryTranscriptStore, PostgresTranscriptStore
+from api.services.turn_limits import deployment_max_turns
 from api.services.usage import UsageLedger
 from api.services.waits import InMemoryWaitStore, PostgresWaitStore
 from specifications.interfaces.compaction import CompactionStoreProtocol
@@ -90,6 +91,7 @@ async def assemble_core(app: FastAPI) -> CoreServices:
         gateway=llm_gateway,
         registry=tool_registry,
         default_model=default_model(),
+        max_turns=deployment_max_turns(),
         catalogue=default_catalogue,
     )
 

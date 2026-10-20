@@ -83,7 +83,7 @@ async def test_forced_compaction_after_resume_keeps_original_request_verbatim() 
     assert messages[anchor_idx].content == original_user_prompt
 
     # Compact with anchors
-    compacted = context_mgr.compact_with_anchors(messages)
+    compacted = await context_mgr.compact_with_summary(messages, None)
 
     # The compacted messages must retain the original user prompt as the anchor
     user_messages = [m for m in compacted if m.role == "user"]

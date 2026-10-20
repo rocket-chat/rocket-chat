@@ -29,14 +29,17 @@ class StructuredOutputError(RuntimeError):
 
 async def _collect_text(gateway: LLMGatewayProtocol, request: ModelRequest) -> str:
     text = ""
+    reasoning = ""
     async for chunk in gateway.chat_stream(request):
         if chunk.error:
             raise ModelExecutionError(chunk.error)
         if chunk.text_delta:
             text += chunk.text_delta
         elif chunk.reasoning_delta:
-            text += chunk.reasoning_delta
-    return text
+            reasoning += chunk.reasoning_delta
+    # Some reasoning models put the whole answer in the reasoning channel; interleaving it with a
+    # real answer would corrupt the JSON, so it is only the fallback.
+    return text or reasoning
 
 
 def extract_json(text: str) -> str:

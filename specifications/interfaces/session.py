@@ -260,6 +260,16 @@ class SessionArtifact:
     updated_at: int = field(default_factory=lambda: int(time.time()))
 
 
+@dataclass
+class ArtifactVersion:
+    """One saved version of an artifact (``content`` is only filled by ``get_version``)."""
+
+    version: int
+    created_at: int
+    size: int = 0
+    content: str | None = None
+
+
 class ArtifactStoreProtocol(ABC):
     """Storage protocol for durable session artifacts."""
 
@@ -288,6 +298,20 @@ class ArtifactStoreProtocol(ABC):
         pass
 
     @abstractmethod
+    async def list_versions(
+        self, session_id: str, artifact_id: str, tenant_org_id: str
+    ) -> list[ArtifactVersion]:
+        """The saved versions of an artifact, oldest first, without their content."""
+        pass
+
+    @abstractmethod
+    async def get_version(
+        self, session_id: str, artifact_id: str, tenant_org_id: str, version: int
+    ) -> ArtifactVersion | None:
+        """One saved version of an artifact with its content."""
+        pass
+
+    @abstractmethod
     async def delete_artifacts(self, session_id: str, tenant_org_id: str) -> None:
-        """Delete all artifacts for a session."""
+        """Delete all artifacts for a session (and their versions)."""
         pass

@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import threading
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -19,6 +20,7 @@ from opentelemetry.trace import Status, StatusCode
 from agent_core.context import current_execution_ctx
 from agent_core.repeats import repeat_note
 from agent_core.tool_slot import ToolSlot, current_tool_slot
+from agent_core.tools.live_output import LiveOutput, current_live_output
 from agent_core.tools.offload import DEFAULT_OFFLOAD_THRESHOLD, offload_tool_output
 from agent_core.tools.registry import ToolRegistry
 from agent_core.transcript import INTERRUPTED_TOOL_RESULT
@@ -166,6 +168,41 @@ class ToolDispatcher:
                 return await self._run_tool(session_id, name, args)
         return await self._run_tool(session_id, name, args)
 
+    @staticmethod
+    def _live_output(
+        call_id: str,
+        event_queue: asyncio.Queue[AgentEvent | None],
+        redactor: Callable[[str], Any] | None,
+    ) -> LiveOutput:
+        """The sink a tool call streams its command output to, as ``command_output`` events.
+
+        Drivers may call it from a worker thread, so events from other threads are handed to the
+        loop; from the loop's own thread they are queued at once, which keeps them ahead of the
+        call's ``tool_completed``.
+        """
+        loop = asyncio.get_running_loop()
+        loop_thread = threading.get_ident()
+        session_id = (ctx.session_id if (ctx := current_execution_ctx.get()) else "") or ""
+
+        def emit(text: str) -> None:
+            event = AgentEvent(
+                event_type="command_output",
+                session_id=session_id,
+                payload={"tool_call_id": call_id, "text": text},
+            )
+            if threading.get_ident() == loop_thread:
+                event_queue.put_nowait(event)
+            else:
+                loop.call_soon_threadsafe(event_queue.put_nowait, event)
+
+        def redact(text: str) -> str:
+            if redactor is None:
+                return text
+            result = redactor(text)
+            return result[0] if isinstance(result, tuple) else str(result)
+
+        return LiveOutput(emit, redact)
+
     async def execute_single_tool(
         self,
         session_id: str,
@@ -195,10 +232,12 @@ class ToolDispatcher:
 
         start_time = time.monotonic()
         args, argument_error = _parse_arguments(raw_args)
+        live = self._live_output(call_id, event_queue, redactor)
 
         timeout_seconds = self.tool_timeout_seconds
         timed_out = False
         # Tool arguments are deliberately not span attributes: they can carry secrets.
+        live_token = current_live_output.set(live)
         with _tracer.start_as_current_span(
             "agent.tool", attributes={"rocket.tool": tool_name, "rocket.session_id": session_id}
         ) as span:
@@ -220,6 +259,8 @@ class ToolDispatcher:
                 span.record_exception(err)
                 span.set_status(Status(StatusCode.ERROR, str(err)))
             span.set_attribute("rocket.tool_status", status)
+            current_live_output.reset(live_token)
+            live.close()
 
         duration_ms = max(1, int((time.monotonic() - start_time) * 1000))
 

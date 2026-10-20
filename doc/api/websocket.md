@@ -97,18 +97,19 @@ Announces a tool about to run, then reports its result:
 ```
 
 ### C. Live Terminal Logs (`log_chunk`)
-Streams ANSI-colored stdout and stderr chunks for the `@xterm/xterm` log viewer:
+Streams ANSI-colored stdout and stderr chunks for the `@xterm/xterm` log viewer. A command's output arrives **while it runs**, a few times a second and whole lines at a time, already redacted; `tool_call_id` names the tool call it belongs to (the same id as in `tool_started` and `tool_completed`), so a client can show it under that step. It is absent for text that belongs to no call. A call that streamed its output does not repeat it in a final chunk; its `tool_completed` carries the complete (clamped) result. Streaming for one call stops after about 200,000 characters.
 ```json
 {
   "event_type": "log_chunk",
   "payload": {
-    "text": "\u001b[32mPASSED\u001b[0m tests/unit/test_auth.py::test_token\n"
+    "text": "\u001b[32mPASSED\u001b[0m tests/unit/test_auth.py::test_token\n",
+    "tool_call_id": "call_3"
   }
 }
 ```
 
 ### D. File Diffs (`file_diff`)
-Emits side-by-side git diff payloads for the Monaco DiffEditor:
+Reports one edit the agent made to a file, with its unified diff. It is also the cue to read the session's changes again (`GET /v1/sessions/{session_id}/changes`), which compares each file with where the work started and stays correct after a reload:
 ```json
 {
   "event_type": "file_diff",
@@ -269,8 +270,13 @@ reply, which it uses to detect half-open connections:
   "type": "ping"
 }
 ```
-`turn`/`action`, `cancel`/`interrupt`/`abort`, and the `share` and `terminal_input`
-steering frames are the other accepted client messages.
+`turn`/`action`, `cancel`/`interrupt`/`abort`, `share` and `terminal_input` are the other
+accepted client messages.
+
+A `turn` frame sent while the session's turn is running **steers** it: the running turn takes
+the message at its next step as a new user message (a `user_message` event is broadcast), so the
+agent can change course without the turn being cancelled. A message that arrives after the turn
+ended, or that reaches another replica, starts the next turn.
 
 ### F. Resuming After a Reconnect
 A client that reconnects sends the last `seq` it applied to receive exactly the events it
@@ -306,4 +312,4 @@ Emitted when an asynchronous wait resolves, expires, or is cancelled. Payload: `
 
 ## `artifact_created` / `artifact_updated`
 
-Emitted when an agent creates or updates a workspace deliverable artifact. Payload: `{"artifact_id": "...", "filename": "...", "title": "...", "artifact_type": "...", "version": 1}`. Pushed to the Cockpit Artifacts drawer and connected Slack channels.
+Emitted when an agent creates or updates a deliverable artifact. Payload: `{"id": "art_...", "filename": "...", "title": "...", "artifact_type": "markdown", "version": 1, "content": "<first 500 characters>"}`; read the whole artifact, or an earlier version, with `GET /v1/sessions/{session_id}/artifacts/{id}` (`?version=N`; `GET …/versions` lists them). Pushed to the Cockpit Artifacts drawer and connected Slack channels.

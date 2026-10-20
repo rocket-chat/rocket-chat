@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import json
 import logging
 import re
 from collections.abc import Awaitable, Callable, Sequence
@@ -136,6 +137,18 @@ class CompactionResult(list[ChatMessage]):
         self.tail_count = tail_count
 
 
+@dataclass
+class _Compaction:
+    """The pieces and the result of one Tier-3 compaction."""
+
+    head: list[ChatMessage]
+    middle: list[ChatMessage]
+    tail: list[ChatMessage]
+    bridge: ChatMessage
+    summary: str | None
+    composed: list[ChatMessage]
+
+
 class ContextManager:
     """Manages token budgeting, Tier 2 tool payload pruning, and Tier 3 anchor compaction."""
 
@@ -195,7 +208,8 @@ class ContextManager:
         recent_turns_to_preserve: int | None = None,
     ) -> list[ChatMessage]:
         """
-        Tier 2 Compaction: Replace verbose tool results from older turns with compact receipts.
+        Tier 2 Compaction: Replace verbose tool results and the large arguments of older calls
+        (a file written, a patch, an artifact) with compact receipts.
         Preserves assistant thoughts, user prompts, and exact message order / tool_call_id parity.
         """
         preserve_count = (
@@ -206,29 +220,23 @@ class ContextManager:
         split_index = self._recent_start(messages, preserve_count)
         if split_index is None:
             return list(messages)
+        names = _tool_names(messages)
         pruned_messages: list[ChatMessage] = []
 
         for idx, msg in enumerate(messages):
-            if idx < split_index and msg.role == "tool" and msg.content:
+            if idx >= split_index:
+                pruned_messages.append(msg)
+            elif msg.role == "tool" and msg.content:
                 lines = msg.content.splitlines()
-                line_count = len(lines)
-                if line_count > 5 or len(msg.content) > 300:
-                    receipt = (
-                        f"[Tool result ({line_count} lines, {len(msg.content)} chars) "
-                        "pruned to preserve active reasoning context]"
-                    )
-                    pruned_messages.append(
-                        ChatMessage(
-                            role=msg.role,
-                            content=receipt,
-                            tool_call_id=msg.tool_call_id,
-                            tool_calls=msg.tool_calls,
-                            reasoning=msg.reasoning,
-                        )
-                    )
-                    continue
-
-            pruned_messages.append(msg)
+                if len(lines) > 5 or len(msg.content) > 300:
+                    receipt = _result_receipt(msg.content, names.get(msg.tool_call_id or "", ""))
+                    pruned_messages.append(replace(msg, content=receipt))
+                else:
+                    pruned_messages.append(msg)
+            elif msg.role == "assistant" and msg.tool_calls:
+                pruned_messages.append(replace(msg, tool_calls=_prune_arguments(msg.tool_calls)))
+            else:
+                pruned_messages.append(msg)
 
         return pruned_messages
 
@@ -318,49 +326,50 @@ class ContextManager:
             parts.append(f"Working Progress (.rocket/PROGRESS.md):\n{progress_md}")
         return ChatMessage(role="user", content=render_notes(parts))
 
-    def compact_with_anchors(
+    async def _compact(
         self,
         messages: list[ChatMessage],
-        recent_turns_to_preserve: int | None = None,
-        working_plan: str | None = None,
-        progress_md: str | None = None,
-    ) -> list[ChatMessage]:
-        """
-        Tier 3 Compaction: Anchor system prompt, initial user prompt, active checklist,
-        and last N turns. Middle conversational turns are replaced by a concise bridge.
-        """
+        summarize: Summarizer | None,
+        recent_turns_to_preserve: int | None,
+        working_plan: str | None,
+        progress_md: str | None,
+    ) -> _Compaction | None:
+        """The one compaction both entry points use: anchors kept, the middle summarised."""
         parts = self._partition(messages, recent_turns_to_preserve)
         if parts is None:
-            return list(messages)
+            return None
         head, middle, tail = parts
-        return _compose(head, self._bridge(middle, None, working_plan, progress_md), tail)
+        summary: str | None = None
+        if summarize is not None:
+            goal = [
+                replace(
+                    message,
+                    content=f"[The request being worked on, kept verbatim] {message.content}",
+                )
+                for message in head
+                if message.role == "user"
+            ]
+            try:
+                summary = (await summarize([*goal, *middle])).strip() or None
+            except Exception as err:
+                logger.warning("Summarising compaction failed, using the bridge only: %s", err)
+        bridge = self._bridge(middle, summary, working_plan, progress_md)
+        return _Compaction(head, middle, tail, bridge, summary, _compose(head, bridge, tail))
 
     async def compact_with_summary(
         self,
         messages: list[ChatMessage],
-        summarize: Summarizer,
+        summarize: Summarizer | None = None,
         recent_turns_to_preserve: int | None = None,
         working_plan: str | None = None,
         progress_md: str | None = None,
     ) -> list[ChatMessage]:
-        """Tier 3 with a model-written summary of the middle; falls back to the bridge."""
-        parts = self._partition(messages, recent_turns_to_preserve)
-        if parts is None:
-            return list(messages)
-        head, middle, tail = parts
-        summary: str | None = None
-        goal = [
-            replace(
-                message, content=f"[The request being worked on, kept verbatim] {message.content}"
-            )
-            for message in head
-            if message.role == "user"
-        ]
-        try:
-            summary = (await summarize([*goal, *middle])).strip() or None
-        except Exception as err:
-            logger.warning("Summarising compaction failed, using the bridge only: %s", err)
-        return _compose(head, self._bridge(middle, summary, working_plan, progress_md), tail)
+        """Tier 3: anchors kept, the middle replaced by a bridge (with a model-written summary
+        when ``summarize`` is given, and when it fails the bridge alone)."""
+        compaction = await self._compact(
+            messages, summarize, recent_turns_to_preserve, working_plan, progress_md
+        )
+        return list(messages) if compaction is None else compaction.composed
 
     def should_compact_tier3(
         self,
@@ -383,26 +392,6 @@ class ContextManager:
             if step - last_compaction_step < self.min_steps_between_compactions:
                 return False
         return True
-
-    def enforce_hygiene(
-        self,
-        model: str,
-        messages: list[ChatMessage],
-    ) -> list[ChatMessage]:
-        """Runs progressive Tier 2 & Tier 3 hygiene checks against model context limits."""
-        limit = self.get_model_context_limit(model)
-        tokens = self.count_tokens(model, messages)
-
-        # Tier 2 check (> 70%)
-        if tokens >= int(limit * self.tier2_threshold_ratio):
-            messages = self.prune_tool_payloads(messages)
-            tokens = self.count_tokens(model, messages)
-
-        # Tier 3 check (> 85%)
-        if tokens >= int(limit * self.tier3_threshold_ratio):
-            messages = self.compact_with_anchors(messages)
-
-        return messages
 
     async def enforce_hygiene_async(
         self,
@@ -441,40 +430,22 @@ class ContextManager:
 
         # Tier 3 check (> 85% or forced)
         if self.should_compact_tier3(tokens, limit, step, last_compaction_step, force_compaction):
-            parts = self._partition(messages, self.recent_turns_to_preserve)
-            if parts is not None:
-                head, middle, tail = parts
-                summary = None
-                if summarize is not None:
-                    goal = [
-                        replace(
-                            message,
-                            content=f"[The request being worked on, kept verbatim] {message.content}",
-                        )
-                        for message in head
-                        if message.role == "user"
-                    ]
-                    try:
-                        summary = (await summarize([*goal, *middle])).strip() or None
-                    except Exception as err:
-                        logger.warning("Summarising compaction failed: %s", err)
-                bridge = self._bridge(middle, summary, working_plan, progress_md)
-                composed = _compose(head, bridge, tail)
+            compaction = await self._compact(
+                messages, summarize, self.recent_turns_to_preserve, working_plan, progress_md
+            )
+            if compaction is not None:
                 lead = 0
-                while lead < len(head) and head[lead].role == "system":
+                while lead < len(compaction.head) and compaction.head[lead].role == "system":
                     lead += 1
-                conv_head = head[lead:]
-                prefix = _compose(conv_head, bridge, [])
-                tokens_after = self.count_tokens(model, composed, tools)
                 return CompactionResult(
-                    composed,
+                    compaction.composed,
                     compacted=True,
                     tokens_before=tokens_before,
-                    tokens_after=tokens_after,
-                    summary=summary,
-                    compacted_count=len(middle),
-                    compacted_prefix=prefix,
-                    tail_count=len(tail),
+                    tokens_after=self.count_tokens(model, compaction.composed, tools),
+                    summary=compaction.summary,
+                    compacted_count=len(compaction.middle),
+                    compacted_prefix=_compose(compaction.head[lead:], compaction.bridge, []),
+                    tail_count=len(compaction.tail),
                 )
 
         return CompactionResult(
@@ -483,6 +454,61 @@ class ContextManager:
             tokens_before=tokens_before,
             tokens_after=tokens,
         )
+
+
+# Tool-call arguments longer than this (a whole file, a patch, an artifact) are replaced in
+# older steps; the file or artifact itself is where the content lives.
+ARGUMENT_PRUNE_CHARS = 1_500
+_OFFLOAD_PATH = re.compile(r"Full output saved to (/workspace/\.rocket/outputs/\S+?\.txt)")
+
+
+def _tool_names(messages: Sequence[ChatMessage]) -> dict[str, str]:
+    """Tool call id -> tool name, for the receipts of the calls' results."""
+    names: dict[str, str] = {}
+    for message in messages:
+        for call in message.tool_calls or []:
+            name = (call.get("function") or {}).get("name")
+            if call.get("id") and name:
+                names[str(call["id"])] = str(name)
+    return names
+
+
+def _result_receipt(content: str, tool_name: str) -> str:
+    """What stands in for an old tool result: its size, and where the full output can be read."""
+    label = f"Tool result of {tool_name}" if tool_name else "Tool result"
+    saved = _OFFLOAD_PATH.search(content)
+    where = f"; full output: {saved.group(1)}" if saved else ""
+    return (
+        f"[{label} ({len(content.splitlines())} lines, {len(content)} chars) pruned to "
+        f"preserve active reasoning context{where}]"
+    )
+
+
+def _prune_arguments(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The calls with every long string argument replaced by its size; the JSON stays valid."""
+    pruned: list[dict[str, Any]] = []
+    for call in calls:
+        function = call.get("function") or {}
+        raw = function.get("arguments")
+        if not isinstance(raw, str) or len(raw) <= ARGUMENT_PRUNE_CHARS:
+            pruned.append(call)
+            continue
+        try:
+            arguments = json.loads(raw)
+        except ValueError:
+            pruned.append(call)
+            continue
+        if not isinstance(arguments, dict):
+            pruned.append(call)
+            continue
+        shortened = {
+            key: f"[{len(value)} chars omitted from an older step]"
+            if isinstance(value, str) and len(value) > ARGUMENT_PRUNE_CHARS // 3
+            else value
+            for key, value in arguments.items()
+        }
+        pruned.append({**call, "function": {**function, "arguments": json.dumps(shortened)}})
+    return pruned
 
 
 def _current_request(messages: list[ChatMessage]) -> int | None:

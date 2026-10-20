@@ -46,7 +46,7 @@ async def test_a_review_is_read_fixed_published_and_answered(
         ("git_push", {}),
         (
             "github_pull_request",
-            {"repository": "acme/app", "action": "reply_to_thread", "number": 7,
+            {"repository": "acme/app", "actions": ["reply_to_thread"], "number": 7,
              "comment_id": 77, "body": "Renamed in abc123."},
         ),
     ]  # fmt: skip

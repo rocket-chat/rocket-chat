@@ -61,17 +61,49 @@ Ask the agent to wait for CI or a review ("open the PR and tell me when CI is do
 
 ## Supervision
 
-The permission mode decides what waits for you:
+The permission mode, shown in the composer's status line (a green dot for the careful modes, red for none), decides what waits for you:
 
 | Mode | Behaviour |
 | :--- | :--- |
-| **Plan** | Read-only. The agent investigates and proposes a plan; nothing changes. |
-| **Ask** | Every edit, command and publish (commit, branch, pull request) needs your approval. |
+| **Read-only** | Plan only. The agent investigates and proposes a plan; nothing changes. |
+| **Ask first** | Every edit, command and publish (commit, branch, pull request) needs your approval. |
 | **Auto-edit** | Edits run freely; commands and publishing need approval. |
-| **Auto** | The agent asks when it judges an action risky. |
-| **Bypass** | Nothing waits, except what your organization denies. Only if your organization allows it; otherwise it runs as *Ask*. |
+| **Auto** | Edits, commands and publishing run freely. Irreversible actions still wait for you: merging a pull request, deleting something on GitHub, a hard revert, and a command that wipes the workspace or the machine. |
+| **No approvals** | Nothing waits, not even those irreversible actions. Only if your organization allows it; otherwise it runs as *Ask*. |
 
 Your organization can also set a policy that approves or denies by risk level, and can lock the mode. Reading files, searching, cloning and looking at an image never need approval.
+
+## The conversation list
+
+The sidebar groups conversations by **Needs you** (a turn waits for your approval or an answer, with a pulsing dot), **Pinned**, **Today**, **Yesterday**, **This week** and **Earlier**. A spinner means it is working, a blue dot that it waits for CI or a review, a red dot that its last turn failed. Search by title or repository, filter to **Shared**, **Slack** or **Archived**, and right-click a conversation for pin, archive, copy link and delete. Collapse the sidebar and a rail keeps *New conversation*, the count of conversations that need you, Missions and Settings in reach.
+
+## The composer
+
+One status line under the message reads left to right: how closely the agent is supervised, which agent and model answer, and the state of the sandbox (*starts when needed*, *ready*, *asleep, wakes on send*). Type `/` for skills and `@` for files and repositories of the workspace (`@api/src/main.py`); drop or paste files to attach them. While the agent works, **Send** reaches it at its next step and **Stop** ends the turn. The keyboard shortcuts show once by themselves, then under the keyboard icon.
+
+## Reading a session
+
+* **Needs you.** An approval or question waits just above the composer, whatever you scrolled to: **Enter** approves and **Esc** denies (only while you are not typing in the composer).
+* **Progress.** The task list stays pinned above the conversation, folded to the task in progress; a long task's budget shows in the header.
+* **Inspector.** Opens by itself the first time the agent changes a file or starts a process. Its tabs carry counts (files changed, processes running, artifacts), and the terminal stays folded until a command prints.
+* **After each turn,** a summary lists what it did, with **Review changes** and, when it opened one, **Open pull request**.
+* The **View** menu holds Deliverables, Turn history, Memory, the theme and Settings; **Share** is next to it.
+
+## Watching a command run
+
+A build, a test run or an install shows what it prints **while it runs**: the last lines appear under its step in the conversation, and the full stream is in the **Agent output** terminal. You do not wait for a ten-minute suite to finish to see it is stuck. Secrets are removed from the output as it streams, and a command that prints without end stops streaming after a while (its full output is still kept for the agent).
+
+## Steering a running turn
+
+You do not have to wait for the agent to finish. Send a message while it works and it reads it at its next step, as if you had said it between two of its actions: "skip the migration for now", "use the staging database". **Stop** ends the turn; a message changes its direction. If the turn ends before the agent reads it, the message starts the next turn.
+
+## Changes
+
+The **Changes** tab lists every file the session changed in each repository, read from the workspace, so it is complete after you reload the page or open the session on another device. Pick **Whole session** (compared with where the work branched from the default branch) or **Latest turn** (compared with the snapshot taken before the turn first changed anything). Select a file for a side-by-side view of the whole file, and **Undo this file** to put it back as it was. Changes need the sandbox to be running; while it sleeps, the tab shows what the agent reported during this visit.
+
+## Deliverables
+
+When the agent produces something meant to be read (a design, a migration plan, an investigation report, a diagram), it saves it as an **artifact**. Artifacts live with the session, not in the sandbox, so they survive a sandbox that is stopped or released. Open them from the **Artifacts** tab or the drawer in the header: Markdown is formatted, diagrams are drawn, HTML is shown in a locked-down frame that cannot run scripts, JSON is indented and diffs are coloured. Every time the agent updates an artifact a new version is saved; choose an earlier one from the version menu. **Copy** and **Download** give you the text. Anyone who can open the session can read its artifacts, and they are copied when you fork it.
 
 ## Background processes
 

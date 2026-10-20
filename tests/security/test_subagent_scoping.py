@@ -61,7 +61,7 @@ def test_one_organizations_override_does_not_change_another(client: TestClient) 
         return int(roles["researcher"]["max_turns"])
 
     assert researcher_turns(ADMIN_A) == 2
-    assert researcher_turns(ADMIN_B) == 12
+    assert researcher_turns(ADMIN_B) == 30
 
 
 def test_only_administrators_edit_roles_and_ids_are_validated(client: TestClient) -> None:
@@ -111,7 +111,7 @@ def test_delete_subagent_role_and_reset(client: TestClient) -> None:
 
     roles_reset = {r["id"]: r for r in client.get("/v1/subagents", headers=ADMIN_A).json()}
     assert roles_reset["security_auditor"]["customized"] is False
-    assert roles_reset["security_auditor"]["max_turns"] == 12
+    assert roles_reset["security_auditor"]["max_turns"] == 30
 
 
 @dataclass

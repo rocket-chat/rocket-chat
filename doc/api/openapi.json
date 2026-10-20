@@ -269,68 +269,6 @@
         "title": "AnswerQuestionRequest",
         "type": "object"
       },
-      "ApplyDiffRequest": {
-        "description": "One file's section of a multi-file unified diff, as rendered in the cockpit.",
-        "properties": {
-          "diff_content": {
-            "description": "Unified diff; only hunks for `path` are applied",
-            "minLength": 1,
-            "title": "Diff Content",
-            "type": "string"
-          },
-          "path": {
-            "description": "Workspace-relative path to apply",
-            "minLength": 1,
-            "title": "Path",
-            "type": "string"
-          }
-        },
-        "required": [
-          "path",
-          "diff_content"
-        ],
-        "title": "ApplyDiffRequest",
-        "type": "object"
-      },
-      "ApplyDiffResponse": {
-        "description": "Outcome of applying one file's diff.",
-        "properties": {
-          "additions": {
-            "default": 0,
-            "description": "Lines added by the applied patch",
-            "title": "Additions",
-            "type": "integer"
-          },
-          "deletions": {
-            "default": 0,
-            "description": "Lines removed by the applied patch",
-            "title": "Deletions",
-            "type": "integer"
-          },
-          "message": {
-            "description": "Human-readable result, including the failure cause",
-            "title": "Message",
-            "type": "string"
-          },
-          "path": {
-            "description": "The file that was patched",
-            "title": "Path",
-            "type": "string"
-          },
-          "status": {
-            "description": "'applied' on success",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status",
-          "path",
-          "message"
-        ],
-        "title": "ApplyDiffResponse",
-        "type": "object"
-      },
       "ApprovalRequestModel": {
         "description": "Payload approving or denying a decision gate.",
         "properties": {
@@ -474,6 +412,33 @@
           "updated_at"
         ],
         "title": "ArtifactSummaryResponse",
+        "type": "object"
+      },
+      "ArtifactVersionResponse": {
+        "description": "One saved version of an artifact (its content is read with ``?version=``).",
+        "properties": {
+          "created_at": {
+            "description": "When this version was saved (epoch seconds)",
+            "title": "Created At",
+            "type": "integer"
+          },
+          "size": {
+            "description": "Characters in this version",
+            "title": "Size",
+            "type": "integer"
+          },
+          "version": {
+            "description": "Version number, from 1",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "created_at",
+          "size"
+        ],
+        "title": "ArtifactVersionResponse",
         "type": "object"
       },
       "AttachmentListResponse": {
@@ -818,6 +783,78 @@
           "new_password"
         ],
         "title": "ChangePasswordRequest",
+        "type": "object"
+      },
+      "ChangedFileResponse": {
+        "properties": {
+          "additions": {
+            "description": "Lines added",
+            "title": "Additions",
+            "type": "integer"
+          },
+          "binary": {
+            "default": false,
+            "description": "Binary files have no line counts or diff",
+            "title": "Binary",
+            "type": "boolean"
+          },
+          "deletions": {
+            "description": "Lines removed",
+            "title": "Deletions",
+            "type": "integer"
+          },
+          "path": {
+            "description": "Path inside the repository",
+            "title": "Path",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "added",
+              "modified",
+              "deleted"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "status",
+          "additions",
+          "deletions"
+        ],
+        "title": "ChangedFileResponse",
+        "type": "object"
+      },
+      "ChangesResponse": {
+        "properties": {
+          "available": {
+            "description": "False when the sandbox is not running, so nothing can be read",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "repositories": {
+            "items": {
+              "$ref": "#/components/schemas/RepositoryChangesResponse"
+            },
+            "title": "Repositories",
+            "type": "array"
+          },
+          "scope": {
+            "enum": [
+              "session",
+              "turn"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "available",
+          "scope"
+        ],
+        "title": "ChangesResponse",
         "type": "object"
       },
       "CheckpointList": {
@@ -1450,6 +1487,54 @@
           "size_bytes"
         ],
         "title": "FileContent",
+        "type": "object"
+      },
+      "FileVersionsResponse": {
+        "properties": {
+          "binary": {
+            "default": false,
+            "title": "Binary",
+            "type": "boolean"
+          },
+          "modified": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Now; absent for a deleted file",
+            "title": "Modified"
+          },
+          "original": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "At the base; absent for a new file",
+            "title": "Original"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "description": "The file was cut at the size limit",
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "FileVersionsResponse",
         "type": "object"
       },
       "ForgetResponse": {
@@ -3476,6 +3561,45 @@
         "title": "PublicLinkView",
         "type": "object"
       },
+      "RepositoryChangesResponse": {
+        "properties": {
+          "base_label": {
+            "description": "What the files are compared with, in words",
+            "title": "Base Label",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ChangedFileResponse"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "description": "Repository folder in the sandbox, e.g. /workspace/api",
+            "title": "Path",
+            "type": "string"
+          },
+          "truncated": {
+            "default": false,
+            "description": "More files changed than are listed",
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path",
+          "name",
+          "base_label",
+          "files"
+        ],
+        "title": "RepositoryChangesResponse",
+        "type": "object"
+      },
       "ResetSessionsResponse": {
         "description": "Response payload after resetting and creating a clean session.",
         "properties": {
@@ -3564,6 +3688,37 @@
           }
         },
         "title": "RetentionWindows",
+        "type": "object"
+      },
+      "RevertRequest": {
+        "properties": {
+          "path": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "repository": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Repository",
+            "type": "string"
+          },
+          "scope": {
+            "default": "session",
+            "enum": [
+              "session",
+              "turn"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository",
+          "path"
+        ],
+        "title": "RevertRequest",
         "type": "object"
       },
       "RewindRequest": {
@@ -5017,10 +5172,10 @@
             "type": "string"
           },
           "max_turns": {
-            "default": 12,
-            "description": "Steps the subagent may take before it must report.",
-            "maximum": 60.0,
-            "minimum": 1.0,
+            "default": 30,
+            "description": "Steps the subagent may take before it must report (0: until it finishes).",
+            "maximum": 500.0,
+            "minimum": 0.0,
             "title": "Max Turns",
             "type": "integer"
           },
@@ -9956,7 +10111,7 @@
     },
     "/v1/sessions/{session_id}/artifacts/{artifact_id}": {
       "get": {
-        "description": "Retrieve a single artifact including its complete content.",
+        "description": "Retrieve a single artifact including its complete content (or one of its versions).",
         "operationId": "get_session_artifact_v1_sessions__session_id__artifacts__artifact_id__get",
         "parameters": [
           {
@@ -9975,6 +10130,25 @@
             "schema": {
               "title": "Artifact Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "An earlier version; omit for the current one",
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "An earlier version; omit for the current one",
+              "title": "Version"
             }
           }
         ],
@@ -10051,6 +10225,62 @@
           }
         },
         "summary": "Download or stream raw artifact content",
+        "tags": [
+          "Artifacts"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/artifacts/{artifact_id}/versions": {
+      "get": {
+        "description": "Every version the artifact has had, oldest first.",
+        "operationId": "list_artifact_versions_v1_sessions__session_id__artifacts__artifact_id__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ArtifactVersionResponse"
+                  },
+                  "title": "Response List Artifact Versions V1 Sessions  Session Id  Artifacts  Artifact Id  Versions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List the saved versions of an artifact",
         "tags": [
           "Artifacts"
         ]
@@ -10207,6 +10437,199 @@
         "summary": "Download Session Attachment",
         "tags": [
           "Attachments"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/changes": {
+      "get": {
+        "description": "Files the session changed in each repository, against where the work started.\n\n``scope=session`` compares with the point the work branched from the default branch;\n``scope=turn`` with the snapshot taken before the latest turn first changed the workspace.",
+        "operationId": "list_changes_v1_sessions__session_id__changes_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "session",
+              "enum": [
+                "session",
+                "turn"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Changes",
+        "tags": [
+          "Changes"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/changes/file": {
+      "get": {
+        "description": "A changed file at the base and as it is now, whole, for a side-by-side view.",
+        "operationId": "read_changed_file_v1_sessions__session_id__changes_file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Repository folder from the changes listing",
+            "in": "query",
+            "name": "repository",
+            "required": true,
+            "schema": {
+              "description": "Repository folder from the changes listing",
+              "title": "Repository",
+              "type": "string"
+            }
+          },
+          {
+            "description": "File path inside the repository",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "File path inside the repository",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "session",
+              "enum": [
+                "session",
+                "turn"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileVersionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Changed File",
+        "tags": [
+          "Changes"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/changes/revert": {
+      "post": {
+        "description": "Put one file back as it was at the base (or delete it when it did not exist then).",
+        "operationId": "revert_changed_file_v1_sessions__session_id__changes_revert_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevertRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Revert Changed File V1 Sessions  Session Id  Changes Revert Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revert Changed File",
+        "tags": [
+          "Changes"
         ]
       }
     },
@@ -10450,59 +10873,6 @@
         "summary": "List Session Compactions",
         "tags": [
           "Goals & Waits"
-        ]
-      }
-    },
-    "/v1/sessions/{session_id}/diffs/apply": {
-      "post": {
-        "description": "Apply one file's hunks of a proposed multi-file diff to the session workspace.\n\nThe caller's click is the approval; the request is still authenticated and ACL-checked\nagainst the session, and RLS scopes the workspace to the caller's organization.",
-        "operationId": "apply_session_diff_v1_sessions__session_id__diffs_apply_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "title": "Session Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApplyDiffRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApplyDiffResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Apply Session Diff",
-        "tags": [
-          "Diffs"
         ]
       }
     },

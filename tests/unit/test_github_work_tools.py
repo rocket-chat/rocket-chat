@@ -172,7 +172,7 @@ async def test_review_threads_reply_and_resolve(registry: ToolRegistry, github: 
         "github_pull_request",
         {
             "repository": "acme/app",
-            "action": "reply_to_thread",
+            "actions": ["reply_to_thread"],
             "number": 7,
             "comment_id": 77,
             "body": "Done",
@@ -180,7 +180,12 @@ async def test_review_threads_reply_and_resolve(registry: ToolRegistry, github: 
     )
     await registry.call_tool(
         "github_pull_request",
-        {"repository": "acme/app", "action": "resolve_thread", "number": 7, "thread_id": "PRRT_1"},
+        {
+            "repository": "acme/app",
+            "actions": ["resolve_thread"],
+            "number": 7,
+            "thread_id": "PRRT_1",
+        },
     )
 
     assert "thread PRRT_1 [open] app.py:3" in threads and "comment 77 by rev: Rename x" in threads
@@ -452,3 +457,45 @@ async def test_read_tool_forbidden_reports_actor(
     )
     assert "the App (read)" in result
     assert "the credential is missing or not allowed to do this" in result
+
+
+@pytest.mark.parametrize(
+    "mode, arguments, gated",
+    [
+        ("auto", {"actions": ["view", "merge"]}, True),
+        ("auto", {"actions": ["view", "checks"]}, False),
+        ("auto", {"actions": ["view", "comment"]}, False),
+        ("ask", {"actions": ["view", "comment"]}, True),
+        ("auto", {"action": "merge"}, True),
+        ("plan", {"actions": ["view", "checks"]}, False),
+        ("bypass", {"actions": ["merge"]}, False),
+    ],
+)
+def test_a_batch_is_as_risky_as_its_riskiest_action(
+    mode: str, arguments: dict[str, Any], gated: bool
+) -> None:
+    assert (approval_needed(mode, "github_pull_request", arguments) is not None) is gated
+
+
+@pytest.mark.parametrize(
+    "command, critical",
+    [
+        ("rm -rf /workspace", True),
+        ("cd x && rm -rf /workspace/*", True),
+        ("rm -fr /", True),
+        ("dd if=/dev/zero of=/dev/sda", True),
+        ("rm -rf build", False),
+        ("rm -r ./dist", False),
+        ("rm -rf .", False),
+        ("ls /workspace", False),
+    ],
+)
+def test_only_commands_that_wipe_the_workspace_are_critical(command: str, critical: bool) -> None:
+    need = approval_needed("auto", "bash_exec", {"command": command})
+    assert (need is not None) is critical
+    assert approval_needed("bypass", "bash_exec", {"command": command}) is None
+
+
+def test_a_hard_revert_waits_for_a_person_in_auto_mode() -> None:
+    assert approval_needed("auto", "git_revert", {"mode": "hard"}) is not None
+    assert approval_needed("auto", "git_revert", {"mode": "files"}) is None

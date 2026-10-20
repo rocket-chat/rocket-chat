@@ -170,7 +170,7 @@ Override a subagent role for this organization (admin only; other orgs are unaff
 | description | string | yes |  |
 | system_prompt | string | yes |  |
 | model | string | no |  |
-| max_turns | integer | no | Steps the subagent may take before it must report. |
+| max_turns | integer | no | Steps the subagent may take before it must report (0: until it finishes). |
 | whitelisted_tools | list of string | no |  |
 | temperature | number | no |  |
 | enabled | boolean | no |  |
@@ -208,7 +208,21 @@ Retrieve all artifacts created in this session.
 
 ### `GET /v1/sessions/{session_id}/artifacts/{artifact_id}`
 
-Retrieve a single artifact including its complete content.
+Retrieve a single artifact including its complete content (or one of its versions).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| artifact_id | path | yes | string |
+| version | query | no | integer |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/artifacts/{artifact_id}/raw`
+
+Stream raw content with appropriate Content-Type header.
 
 **Parameters**
 
@@ -219,9 +233,9 @@ Retrieve a single artifact including its complete content.
 
 **Responses:** `200`
 
-### `GET /v1/sessions/{session_id}/artifacts/{artifact_id}/raw`
+### `GET /v1/sessions/{session_id}/artifacts/{artifact_id}/versions`
 
-Stream raw content with appropriate Content-Type header.
+Every version the artifact has had, oldest first.
 
 **Parameters**
 
@@ -372,6 +386,59 @@ Initiate OAuth 2.0 / OIDC authorization code flow.
 
 **Responses:** `200`
 
+## Changes
+
+### `GET /v1/sessions/{session_id}/changes`
+
+Files the session changed in each repository, against where the work started.
+
+``scope=session`` compares with the point the work branched from the default branch;
+``scope=turn`` with the snapshot taken before the latest turn first changed the workspace.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| scope | query | no | `session` / `turn` |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/changes/file`
+
+A changed file at the base and as it is now, whole, for a side-by-side view.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| repository | query | yes | string |
+| path | query | yes | string |
+| scope | query | no | `session` / `turn` |
+
+**Responses:** `200`
+
+### `POST /v1/sessions/{session_id}/changes/revert`
+
+Put one file back as it was at the base (or delete it when it did not exist then).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| repository | string | yes |  |
+| path | string | yes |  |
+| scope | `session` / `turn` | no |  |
+
+**Responses:** `200`
+
 ## Checkpoints
 
 ### `GET /v1/sessions/{session_id}/checkpoints`
@@ -420,30 +487,6 @@ Restore the workspace to a checkpoint the platform created.
 | :--- | :--- | :--- | :--- |
 | reference | string | yes |  |
 | mode | string | no | 'files' restores tracked files; 'hard' also resets the worktree and index |
-
-**Responses:** `200`
-
-## Diffs
-
-### `POST /v1/sessions/{session_id}/diffs/apply`
-
-Apply one file's hunks of a proposed multi-file diff to the session workspace.
-
-The caller's click is the approval; the request is still authenticated and ACL-checked
-against the session, and RLS scopes the workspace to the caller's organization.
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| session_id | path | yes | string |
-
-**Request body**
-
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| path | string | yes | Workspace-relative path to apply |
-| diff_content | string | yes | Unified diff; only hunks for `path` are applied |
 
 **Responses:** `200`
 

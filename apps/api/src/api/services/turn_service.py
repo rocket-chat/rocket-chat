@@ -324,12 +324,9 @@ class TurnService:
             ),
         )
         general = await effective_settings(db_mgr, org_id, "general")
-        sandboxes = await effective_settings(db_mgr, org_id, "sandboxes")
         budgets = await effective_settings(db_mgr, org_id, "budgets")
         max_cost = float(budgets["max_turn_cost_usd"]) if budgets.get("max_turn_cost_usd") else None
-        sandbox_profile = str(
-            sandboxes.get("default_profile") or getattr(agent, "sandbox_profile", "") or "standard"
-        )
+        sandbox_profile = str(getattr(agent, "sandbox_profile", "") or "standard")
         return TurnPolicy(
             generation=generation,
             git=git,

@@ -5,6 +5,7 @@ from typing import Any
 
 from config_engine import REGISTRY, FieldError, validate_locked_keys
 from config_engine import validate as validate_setting
+from config_engine.registry import writable_keys
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -65,6 +66,10 @@ async def get_settings_schema(request: Request) -> dict[str, Any]:
                     "choices": list(spec.choices),
                     "minimum": spec.minimum,
                     "maximum": spec.maximum,
+                    "label": spec.label,
+                    "unit": spec.unit,
+                    "advanced": spec.advanced,
+                    "deprecated": spec.deprecated,
                 }
                 for spec in specs.values()
             ]
@@ -159,9 +164,12 @@ async def get_org_admin_settings(domain: str, request: Request) -> dict[str, Any
     _require_known_domain(domain)
     db_mgr = getattr(request.app.state, "db_manager", None)
     org_conf, locked_keys = await load_org_config(db_mgr, org_id, domain)
-    system_defaults = _settings_resolver.get_system_defaults(domain)
+    org_keys = writable_keys(domain, "org")
+    system_defaults = {
+        k: v for k, v in _settings_resolver.get_system_defaults(domain).items() if k in org_keys
+    }
     merged_config = dict(system_defaults)
-    merged_config.update(org_conf)
+    merged_config.update({k: v for k, v in org_conf.items() if k in org_keys})
     return {
         "domain": domain,
         "config": merged_config,

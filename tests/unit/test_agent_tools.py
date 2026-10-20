@@ -67,6 +67,7 @@ async def test_tier2_sandbox_delegation() -> None:
         command="echo hello world",
         workdir="/workspace",
         timeout_seconds=120,
+        on_stdout_chunk=None,
     )
 
     # 2. file_read

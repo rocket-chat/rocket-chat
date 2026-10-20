@@ -82,7 +82,11 @@ async def test_a_conversation_made_of_large_writes_is_compacted() -> None:
         "acme/small", messages, overrides=(("acme/small", 12_000),)
     )
 
-    assert len(compacted) < len(messages)
+    # Older writes lose their content first (pruning), and compaction follows if that is not
+    # enough: either way the request shrinks.
+    before = manager.count_tokens("acme/small", messages)
+    assert manager.count_tokens("acme/small", compacted) < before / 2
+    assert "chars omitted" in json.dumps([m.tool_calls for m in compacted if m.tool_calls])
 
 
 async def test_the_providers_measurement_is_a_floor() -> None:

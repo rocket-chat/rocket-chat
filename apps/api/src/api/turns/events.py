@@ -12,6 +12,7 @@ from typing import Any
 from api.services.metrics import record_tool_call
 from api.services.session_support import _new_message_id
 from api.services.turn_trace import record_running_tool_call
+from api.turns.attention import update_attention
 from api.turns.context import TurnContext
 from api.turns.gates import _remember_pending_decision
 from specifications.interfaces.agent import AgentEvent
@@ -135,12 +136,17 @@ class TurnEventHandlers:
         self._tool_prefaces: list[str] = []
         # The reasoning that led to a call, by call id, until the call completes.
         self._step_reasoning: dict[str, str] = {}
+        # Calls whose output already reached the terminal while they ran.
+        self._streamed_calls: set[str] = set()
+        # What the session is marked as waiting on (see ``turns/attention.py``).
+        self._awaiting: str | None = None
         self._handlers: dict[str, Handler] = {
             "model_usage": self._model_usage,
             "thought": self._thought,
             "tool_call": self._tool_call,
             "tool_completed": self._tool_completed,
             "file_diff": self._file_diff,
+            "command_output": self._command_output,
             "interactive_question": self._interactive_question,
             "approval_required": self._approval_required,
             "plan_updated": self._plan_updated,
@@ -160,11 +166,28 @@ class TurnEventHandlers:
             event.event_type == "status" and event.payload.get("state") == "paused_for_input"
         ):
             state.open_decision = None  # the turn moved on, so the question was answered
+            if self._awaiting and event.event_type != "approval_required":
+                await self._mark_awaiting(None)
         if event.event_type != "thought":
             await self._coalescer.flush()
         handler = self._handlers.get(event.event_type)
         if handler is not None:
             await handler(event)
+
+    async def _mark_awaiting(self, kind: str | None) -> None:
+        """Tell the sidebar the session waits on a person (or no longer does)."""
+        if self._awaiting == kind:
+            return
+        self._awaiting = kind
+        ctx = self.ctx
+        await update_attention(
+            ctx.req.store,
+            ctx.req.event_bus,
+            ctx.session_id,
+            ctx.session.tenant_org_id,
+            awaiting_input=kind,
+            clear_awaiting=kind is None,
+        )
 
     def _take_step_reasoning(self, call_id: str) -> None:
         """Keep the reasoning since the last call with this one (the first call of its step).
@@ -265,7 +288,11 @@ class TurnEventHandlers:
         if tool_name == "bash_exec":
             command = arguments.get("command", "")
             await self._publish(
-                EventType.LOG_CHUNK, {"text": f"\r\n\x1b[38;5;208m$ {command}\x1b[0m\r\n"}
+                EventType.LOG_CHUNK,
+                {
+                    "text": f"\r\n\x1b[38;5;208m$ {command}\x1b[0m\r\n",
+                    "tool_call_id": str(event.payload.get("id") or ""),
+                },
             )
 
     async def _tool_completed(self, event: AgentEvent) -> None:
@@ -325,10 +352,25 @@ class TurnEventHandlers:
         await record_running_tool_call(
             ctx.req.db_mgr, ctx.trace.trace_id, ctx.session.tenant_org_id, tool_data
         )
-        # Stream command output to the terminal stream for bash tools
-        if tool_name == "bash_exec" and result_output:
+        # A call that streamed its output has already shown it; the result only closes the block.
+        call_id = str(tool_data.get("id") or "")
+        if call_id in self._streamed_calls:
+            self._streamed_calls.discard(call_id)
+            await self._publish(EventType.LOG_CHUNK, {"text": "\r\n", "tool_call_id": call_id})
+        elif tool_name == "bash_exec" and result_output:
             text = result_output if isinstance(result_output, str) else str(result_output)
-            await self._publish(EventType.LOG_CHUNK, {"text": f"{text}\r\n"})
+            await self._publish(
+                EventType.LOG_CHUNK, {"text": f"{text}\r\n", "tool_call_id": call_id}
+            )
+
+    async def _command_output(self, event: AgentEvent) -> None:
+        """Output a running command printed so far (already redacted by the dispatcher)."""
+        call_id = str(event.payload.get("tool_call_id") or "")
+        self._streamed_calls.add(call_id)
+        await self._publish(
+            EventType.LOG_CHUNK,
+            {"text": str(event.payload.get("text") or ""), "tool_call_id": call_id},
+        )
 
     async def _file_diff(self, event: AgentEvent) -> None:
         self.ctx.trace.record_file_diff(event.payload)
@@ -340,6 +382,7 @@ class TurnEventHandlers:
         if ctx.req.db_mgr is not None:
             await _remember_pending_decision(ctx.req.db_mgr, ctx.trace, ctx.state.open_decision)
         await self._publish(EventType.DECISION_REQUIRED, event.payload)
+        await self._mark_awaiting("question")
 
     async def _approval_required(self, event: AgentEvent) -> None:
         ctx = self.ctx
@@ -369,6 +412,8 @@ class TurnEventHandlers:
         )
         if decision in ("auto_approve", "deny"):
             await self._answer_by_policy(event, decision, risk_level, action_type)
+        else:
+            await self._mark_awaiting("approval")
 
     async def _answer_by_policy(
         self, event: AgentEvent, decision: str, risk_level: Any, action_type: Any

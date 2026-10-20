@@ -4,7 +4,7 @@
 * every page is in the navigation and every navigation entry exists;
 * no page links into ``dev/`` (developer documentation is not part of the site);
 * none of the retired concepts or old paths survive in a page;
-* the defaults the site states match the code;
+* the defaults the site states match the code, and every environment variable the code reads is documented;
 * every page's front matter is valid YAML (the site refuses to deploy otherwise).
 
 Run it with ``uv run python scripts/check_docs.py``; ``tests/unit/test_docs_site.py`` runs it in CI.
@@ -12,6 +12,7 @@ Run it with ``uv run python scripts/check_docs.py``; ``tests/unit/test_docs_site
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 import sys
@@ -107,9 +108,12 @@ def check_defaults() -> list[str]:
     from api.services.metrics import DEFAULT_GLOBAL_CONCURRENCY_LIMIT
     from config_engine.registry import DEFAULT_SANDBOX_IMAGE
 
+    from specifications.interfaces.agent import DEFAULT_MAX_TURNS
+
     expected = {
         "ROCKET_DEFAULT_SANDBOX_IMAGE": DEFAULT_SANDBOX_IMAGE,
         "ROCKET_GLOBAL_CONCURRENCY_LIMIT": str(DEFAULT_GLOBAL_CONCURRENCY_LIMIT),
+        "AGENT_MAX_TURNS": str(DEFAULT_MAX_TURNS),
     }
     problems = []
     for variable, value in expected.items():
@@ -119,6 +123,71 @@ def check_defaults() -> list[str]:
         elif documented != value:
             problems.append(f"{variable}: the site says `{documented}`, the code says `{value}`")
     return problems
+
+
+# Variables the code reads that are not deployment configuration: the egress proxy's own
+# container environment, the shell's, a platform convention, or switches of the test suite.
+NOT_DEPLOYMENT_CONFIGURATION = frozenset(
+    {
+        "PATH",
+        "PORT",
+        "NODE_ENV",
+        "EGRESS_ALLOW",
+        "EGRESS_BLOCK_INTERNAL",
+        "EGRESS_PINNED",
+        "ROCKET_STRICT_SETTINGS",
+        "ROCKET_VALIDATE_EVENTS",
+        "TEST_DATABASE_URL",
+    }
+)
+_ENV_READERS = {"getenv", "env_value"}
+
+
+def _environment_names(source: Path) -> set[str]:
+    """Names a source file reads with ``os.getenv``, ``os.environ`` or ``env_value``."""
+    names: set[str] = set()
+    for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.Call):
+            func = node.func
+            reader = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+            is_environ_get = (
+                reader == "get"
+                and isinstance(func, ast.Attribute)
+                and ast.unparse(func.value) == "os.environ"
+            )
+            if reader in _ENV_READERS or is_environ_get:
+                names |= {
+                    arg.value
+                    for arg in node.args
+                    if isinstance(arg, ast.Constant)
+                    and isinstance(arg.value, str)
+                    and re.fullmatch(r"[A-Z][A-Z0-9_]+", arg.value)
+                }
+        elif (
+            isinstance(node, ast.Subscript)
+            and ast.unparse(node.value) == "os.environ"
+            and isinstance(node.slice, ast.Constant)
+            and isinstance(node.slice.value, str)
+        ):
+            names.add(node.slice.value)
+    return names
+
+
+def check_environment_variables() -> list[str]:
+    """Every environment variable the code reads is in install/configuration.md."""
+    documented = (DOC / "install" / "configuration.md").read_text(encoding="utf-8")
+    read: dict[str, Path] = {}
+    for root in ("apps/api/src", "packages"):
+        for source in sorted((ROOT / root).rglob("*.py")):
+            if "tests" in source.parts:
+                continue
+            for name in _environment_names(source):
+                read.setdefault(name, source)
+    return [
+        f"install/configuration.md does not document {name} (read in {source.relative_to(ROOT)})"
+        for name, source in sorted(read.items())
+        if name not in NOT_DEPLOYMENT_CONFIGURATION and f"`{name}`" not in documented
+    ]
 
 
 def check_front_matter() -> list[str]:
@@ -142,6 +211,7 @@ def main() -> int:
         *check_no_links_into_dev(),
         *check_retired_phrases(),
         *check_defaults(),
+        *check_environment_variables(),
         *check_front_matter(),
     ]
     for problem in problems:

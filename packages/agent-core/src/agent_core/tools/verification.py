@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from agent_core.tools.clamp import clamp_output
+from agent_core.tools.live_output import live_chunk
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 
 CheckKind = Literal["lint", "typecheck", "build"]
@@ -144,6 +145,7 @@ async def run_check(
         command=check_command,
         workdir=workdir,
         timeout_seconds=timeout_seconds,
+        on_stdout_chunk=live_chunk(),
     )
     raw = "\n".join(
         part for part in ((result.stdout or "").strip(), (result.stderr or "").strip()) if part

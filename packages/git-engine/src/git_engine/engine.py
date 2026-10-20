@@ -293,7 +293,7 @@ class GitEngine(GitEngineProtocol):
         session_id: str,
         title: str,
         body: str,
-        target_branch: str = "main",
+        target_branch: str | None = None,
         token: str | None = None,
         installations: Sequence[tuple[int, str]] = (),
         publish: PublishSpec | None = None,
@@ -305,9 +305,10 @@ class GitEngine(GitEngineProtocol):
         URL is never invented.
         """
         spec = publish or PublishSpec(
-            token=token, installations=tuple(installations), default_branch=target_branch
+            token=token, installations=tuple(installations), default_branch=target_branch or "main"
         )
         published = await self.publish_branch(session_id, spec)
+        base = target_branch or published.default_branch or spec.default_branch
         owner_repo, current_branch = published.repository, published.branch
 
         resolved_token = token or await self.get_github_access_token(
@@ -334,7 +335,7 @@ class GitEngine(GitEngineProtocol):
                     "title": title,
                     "body": body,
                     "head": current_branch,
-                    "base": target_branch,
+                    "base": base,
                 },
             )
         if resp.status_code not in (200, 201):

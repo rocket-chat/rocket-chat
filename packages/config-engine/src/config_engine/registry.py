@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 # The devbox image (git, Python, Node, uv, gh, ripgrep, build tools; runs as an unprivileged
@@ -45,6 +45,14 @@ class SettingSpec:
     minimum: float | None = None
     maximum: float | None = None
     secret: bool = False
+    # Shown in forms instead of the key's capitalised name when that would mislead.
+    label: str = ""
+    # What the number counts ("minutes", "USD"), shown beside the input.
+    unit: str = ""
+    # Rarely changed: forms fold these under "Advanced".
+    advanced: bool = False
+    # Superseded: still honoured, hidden from forms unless set, and flagged in the reference.
+    deprecated: bool = False
 
 
 @dataclass(frozen=True)
@@ -94,6 +102,7 @@ _GIT_CREDS = "apps/api/src/api/services/git_credentials.py"
 _GIT_IDENTITY = "apps/api/src/api/services/github_identity.py"
 _GIT_SIGNING = "apps/api/src/api/services/git_signing.py"
 _BUDGETS = "apps/api/src/api/services/budgets.py"
+_TURN_CONTINUATION = "apps/api/src/api/turns/continuation.py"
 _DISPATCHER = "packages/agent-core/src/agent_core/dispatcher.py"
 
 _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
@@ -133,6 +142,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Maximum reasoning steps per turn (0: no limit, the turn runs until the agent answers, "
             "is cancelled or reaches a cost cap). It is the default for agents, and the ceiling "
             "for an agent that sets its own limit.",
+            label="Max steps per turn",
             minimum=0,
             maximum=500,
         ),
@@ -269,7 +279,9 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             0.2,
             "org",
             _TURN,
-            "Default sampling temperature (an agent persona may override it).",
+            "Default sampling temperature (an agent persona may override it). Ignored when "
+            "extended thinking is on for an Anthropic model: those requests take the provider's "
+            "own temperature.",
             minimum=0,
             maximum=2,
         ),
@@ -279,7 +291,9 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             8192,
             "org",
             _TURN,
-            "Default maximum completion tokens per model call.",
+            "Maximum completion tokens per call for models that do not reason. A reasoning "
+            "model uses its catalogue ceiling, or the matching entry of output_tokens; an "
+            "agent's own limit wins over both.",
             minimum=1,
             maximum=200_000,
         ),
@@ -321,6 +335,48 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             _BUDGETS,
             "Spend cap per session in USD (0 = no cap); keeps a runaway agent loop cheap.",
             minimum=0,
+        ),
+        _spec(
+            "max_turn_cost_usd",
+            "float",
+            0.0,
+            "org",
+            _TURN,
+            "Spend cap for one turn in USD (0 = no cap). The turn stops with an explanation "
+            "when it is reached; the session and its work are kept.",
+            minimum=0,
+        ),
+        _spec(
+            "goal_max_total_tokens",
+            "int",
+            0,
+            "org",
+            _TURN_CONTINUATION,
+            "Most tokens a long task may use across its automatic continuation turns "
+            "(0 = no cap). Continuation stops when it is reached.",
+            minimum=0,
+        ),
+        _spec(
+            "goal_max_wall_time_minutes",
+            "int",
+            0,
+            "org",
+            _TURN_CONTINUATION,
+            "Longest a long task may run across its automatic continuation turns, in minutes "
+            "(0 = no cap).",
+            minimum=0,
+            maximum=10080,
+        ),
+        _spec(
+            "max_continuations",
+            "int",
+            10,
+            "org",
+            _TURN_CONTINUATION,
+            "Automatic continuation turns allowed for one task whose plan is unfinished when a "
+            "turn reaches its step limit (0 disables continuation).",
+            minimum=0,
+            maximum=100,
         ),
         _spec(
             "warn_at_percent",
@@ -368,7 +424,8 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "",
             "org",
             "packages/config-engine/src/config_engine/cascading.py",
-            "Model used for all work in economy mode.",
+            "Model used for all work in economy mode (it replaces the default model everywhere "
+            "while the mode is economy).",
         ),
     ),
     "sandboxes": (
@@ -393,6 +450,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Seeds the sandbox catalogue the first time the organization uses it (the default "
             "entry); afterwards manage images under Settings > Organization > Sandboxes. The "
             "default is the devbox image with git, Python, Node and common dev tools.",
+            deprecated=True,
         ),
         _spec(
             "allowed_images",
@@ -403,6 +461,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Legacy fnmatch patterns of extra images sessions may use. Literal images seed the "
             "sandbox catalogue; prefer adding entries to the catalogue, which also declares what "
             "each image can do.",
+            deprecated=True,
         ),
         _spec(
             "cpu_limit", "float", 2.0, "org", _PROVISIONING, "CPU cores per sandbox.", minimum=0.1
@@ -533,7 +592,8 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "main",
             "org",
             "apps/api/src/api/services/turn_service.py",
-            "Base branch for pull requests.",
+            "Base branch for pull requests when a repository's own default branch is not known "
+            "(each cloned repository's own default branch is used first).",
         ),
         _spec(
             "app_token_permissions",
@@ -597,7 +657,9 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "",
             "org",
             "packages/slack-assistant/src/slack_assistant/policy.py",
-            "Agent persona used by Slack sessions.",
+            "Agent persona used by Slack sessions that no bot or channel profile names; prefer "
+            "choosing the agent on the bot (Settings > Slack).",
+            deprecated=True,
         ),
         _spec(
             "allowed_channel_types",
@@ -718,8 +780,9 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             False,
             "org",
             _TURN,
-            "Let members run sessions in bypass mode, where no action waits for approval. A "
-            "member or session that asks for bypass while this is off runs in ask mode.",
+            "Let members run sessions in bypass mode, where nothing waits for approval, not even "
+            "the irreversible actions that every other mode holds. A member or session that asks "
+            "for bypass while this is off runs in ask mode.",
         ),
         _spec(
             "auto_resume_turns",
@@ -752,7 +815,8 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             False,
             "org",
             "apps/api/src/api/services/audit.py",
-            "Ask providers not to retain prompts or completions.",
+            "Ask providers not to retain prompts or completions. Enforced for OpenRouter models; "
+            "a call to a provider that cannot honour it is refused rather than sent.",
         ),
         _spec(
             "region",
@@ -760,7 +824,8 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "",
             "org",
             "apps/api/src/api/services/audit.py",
-            "Pin inference to a provider region.",
+            "Pin inference to a provider region. Enforced for Vertex AI and Bedrock models; a "
+            "call to any other provider is refused rather than sent.",
         ),
         _spec(
             "egress_allowlist",
@@ -881,16 +946,17 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "both",
             _TURN,
             "How much of the agent's work waits for a person: plan (read-only), ask (approve every "
-            "edit, command and publish), auto_edit (approve commands and publish), auto (the agent "
-            "asks when it judges an action risky), bypass (approve everything). The organization "
-            "sets the default and can lock it; otherwise members and sessions choose.",
+            "edit, command and publish), auto_edit (approve commands and publish), auto (only "
+            "irreversible actions wait: merging a pull request, deleting on GitHub, a hard revert, "
+            "wiping the workspace), bypass (nothing waits). The organization sets the default and "
+            "can lock it; otherwise members and sessions choose.",
             choices=("plan", "ask", "auto_edit", "auto", "bypass"),
         ),
         _spec(
             "full_name",
             "str",
             "",
-            "both",
+            "user",
             _GIT_IDENTITY,
             "Display name; the commit author name when no GitHub account is linked and no git "
             "name is set (a linked account's username is used otherwise).",
@@ -899,7 +965,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "git_author_name",
             "str",
             "",
-            "both",
+            "user",
             _GIT_IDENTITY,
             "Commit author name; empty uses the linked GitHub account's username.",
         ),
@@ -907,7 +973,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "git_author_email",
             "str",
             "",
-            "both",
+            "user",
             _GIT_IDENTITY,
             "Commit author e-mail; empty uses the linked GitHub account's primary e-mail, then its "
             "noreply address.",
@@ -948,12 +1014,125 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "both",
             _TURN_FINALISE,
             "Suggest a probable next prompt after each turn.",
+            label="Suggest next prompts",
         ),
     ),
 }
 
+# Presentation only: which settings a form folds under "Advanced", and what a number counts.
+_ADVANCED: dict[str, frozenset[str]] = {
+    "general": frozenset({"output_offload_threshold", "tool_loading", "tool_loading_threshold"}),
+    "models": frozenset(
+        {
+            "context_windows",
+            "context_target_tokens",
+            "provider_preferences",
+            "fallback_models",
+            "custom_models",
+            "output_tokens",
+            "max_tokens",
+            "temperature",
+        }
+    ),
+    "budgets": frozenset(
+        {
+            "warn_at_percent",
+            "goal_max_total_tokens",
+            "goal_max_wall_time_minutes",
+            "max_continuations",
+        }
+    ),
+    "sandboxes": frozenset(
+        {
+            "allowed_images",
+            "default_image",
+            "workspace_release_days",
+            "max_background_processes",
+            "process_keepalive_minutes",
+            "run_repo_setup",
+            "require_non_root",
+            "max_running_sandboxes",
+        }
+    ),
+    "github": frozenset(
+        {
+            "app_token_permissions",
+            "app_token_target_repositories",
+            "bot_author_name",
+            "bot_author_email",
+            "default_branch",
+        }
+    ),
+    "slack": frozenset(
+        {
+            "channel_profiles",
+            "allowed_tools",
+            "long_output_chars",
+            "web_base_url",
+            "outbound_channels",
+            "long_output_to_file",
+        }
+    ),
+    "governance": frozenset(
+        {
+            "hooks",
+            "approval_policy",
+            "redaction_patterns",
+            "egress_allowlist",
+            "block_internal_subnets",
+            "session_retention_days",
+            "trace_retention_days",
+            "memory_retention_days",
+            "attachment_retention_days",
+            "audit_retention_days",
+            "auto_resume_turns",
+            "pii_redaction_enabled",
+        }
+    ),
+    "memory": frozenset(
+        {"dedupe_similarity", "decay_half_life_days", "kind_allowlist", "scope_allowlist"}
+    ),
+    "user_preferences": frozenset({"commit_as_me", "git_branch_prefix"}),
+}
+_UNITS: dict[str, str] = {
+    "max_turns": "steps",
+    "output_offload_threshold": "characters",
+    "tool_loading_threshold": "tools",
+    "context_target_tokens": "tokens",
+    "max_tokens": "tokens",
+    "monthly_budget_usd": "USD",
+    "member_monthly_budget_usd": "USD",
+    "session_budget_usd": "USD",
+    "max_turn_cost_usd": "USD",
+    "warn_at_percent": "%",
+    "goal_max_total_tokens": "tokens",
+    "goal_max_wall_time_minutes": "minutes",
+    "workspace_release_days": "days",
+    "process_keepalive_minutes": "minutes",
+    "cpu_limit": "cores",
+    "long_output_chars": "characters",
+    "session_retention_days": "days",
+    "trace_retention_days": "days",
+    "memory_retention_days": "days",
+    "attachment_retention_days": "days",
+    "audit_retention_days": "days",
+    "top_k": "memories",
+    "decay_half_life_days": "days",
+    "max_user_servers": "servers",
+    "max_background_processes": "processes",
+    "max_running_sandboxes": "sandboxes",
+}
+
 REGISTRY: dict[str, dict[str, SettingSpec]] = {
-    domain: {spec.key: spec for spec in specs} for domain, specs in _DOMAINS.items()
+    domain: {
+        spec.key: replace(
+            spec,
+            advanced=spec.key in _ADVANCED.get(domain, frozenset()),
+            unit=_UNITS.get(spec.key, ""),
+        )
+        for spec in specs
+    }
+    for domain, specs in _DOMAINS.items()
 }
 
 
@@ -963,6 +1142,11 @@ def domains() -> list[str]:
 
 def specs_for(domain: str) -> dict[str, SettingSpec]:
     return REGISTRY.get(domain, {})
+
+
+def writable_keys(domain: str, writer: Literal["org", "user"]) -> set[str]:
+    """The keys of ``domain`` that ``writer`` may set (a member-only key is not an org default)."""
+    return {key for key, spec in specs_for(domain).items() if spec.scope in (writer, "both")}
 
 
 def system_defaults(domain: str) -> dict[str, Any]:
