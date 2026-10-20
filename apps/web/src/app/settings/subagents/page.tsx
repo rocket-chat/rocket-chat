@@ -40,7 +40,7 @@ const DEFAULT_SUBAGENTS: SubagentConfig[] = [
     system_prompt:
       "You are a dedicated Security Auditor subagent. Inspect source files and configuration for vulnerabilities (OWASP Top 10, SQL injection, RLS bypasses, secret leakage). Synthesize your findings concisely with specific line references and suggested remediations.",
     model: null,
-    max_turns: 12,
+    max_turns: 30,
     whitelisted_tools: READ_ONLY_TOOLS,
     temperature: 0.2,
     enabled: true,
@@ -55,7 +55,7 @@ const DEFAULT_SUBAGENTS: SubagentConfig[] = [
     system_prompt:
       "You are a QA & Test Verifier subagent. Run the tests (run_tests, or bash_exec for anything it does not cover), inspect the failures in the code, and report exactly which tests passed and which failed, with the assertion and the likely cause.",
     model: null,
-    max_turns: 12,
+    max_turns: 30,
     whitelisted_tools: ["run_tests", "bash_exec", "file_read", "grep_search", "list_dir"],
     temperature: 0.2,
     enabled: true,
@@ -70,7 +70,7 @@ const DEFAULT_SUBAGENTS: SubagentConfig[] = [
     system_prompt:
       "You are a Codebase & Web Researcher subagent. Search technical documentation and read files to answer specific architectural or implementation questions without altering files.",
     model: null,
-    max_turns: 12,
+    max_turns: 30,
     whitelisted_tools: READ_ONLY_TOOLS,
     temperature: 0.2,
     enabled: true,
@@ -301,7 +301,7 @@ export default function SubagentsSettingsPage() {
       description: "Dedicated subagent for scoped investigations and tasks.",
       system_prompt: `You are a specialized ${id} subagent. Complete the requested task thoroughly, synthesize findings, and report results concisely.`,
       model: null,
-      max_turns: 12,
+      max_turns: 30,
       whitelisted_tools: ["*"],
       temperature: 0.2,
       enabled: true,
@@ -463,7 +463,7 @@ export default function SubagentsSettingsPage() {
                       {sub.description}
                     </p>
                     <div className="flex items-center gap-2 mt-2 text-[10px] text-neutral-500">
-                      <span>Max {sub.max_turns} turns</span>
+                      <span>{sub.max_turns === 0 ? "No step limit" : `Max ${sub.max_turns} steps`}</span>
                       <span>•</span>
                       <span>
                         {sub.whitelisted_tools.includes("*")
@@ -631,23 +631,23 @@ export default function SubagentsSettingsPage() {
               <div className="p-4 rounded-xl border border-surface-border bg-surface-base/60 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-neutral-400">
-                    Turn Limit Cap
+                    Step limit
                   </span>
                   <span className="text-xs font-bold text-brand">
-                    {formData.max_turns} turns
+                    {formData.max_turns === 0 ? "until done" : `${formData.max_turns} steps`}
                   </span>
                 </div>
                 <input
                   type="range"
-                  min={1}
-                  max={60}
+                  min={0}
+                  max={100}
                   step={1}
                   value={formData.max_turns}
                   onChange={(e) => setFormData({ ...formData, max_turns: parseInt(e.target.value) })}
                   className="w-full accent-brand cursor-pointer"
                 />
                 <p className="text-[10px] text-neutral-500">
-                  Maximum execution loops before synthesizing findings back to the main agent.
+                  Steps before the subagent must report back to the main agent (0: until it has finished).
                 </p>
               </div>
 

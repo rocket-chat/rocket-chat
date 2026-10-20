@@ -79,10 +79,19 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       attachmentError: sessionChanged ? null : get().attachmentError,
       // Per-session ephemeral state: reset on switch
       fileDiffs: sessionChanged ? [] : get().fileDiffs,
-      activeDiffIndex: sessionChanged ? 0 : get().activeDiffIndex,
+      goal: sessionChanged ? null : get().goal,
+      selectedChangePath: sessionChanged ? null : get().selectedChangePath,
+      changesVersion: sessionChanged ? get().changesVersion + 1 : get().changesVersion,
       terminalLogs: sessionChanged
         ? "\x1b[38;5;208m[SYSTEM]\x1b[0m Session workspace attached.\r\n"
         : get().terminalLogs,
+      terminalBase: sessionChanged ? 0 : get().terminalBase,
+      terminalActivity: sessionChanged ? false : get().terminalActivity,
+      terminalOpen: sessionChanged ? null : get().terminalOpen,
+      inspectorAutoOpened: sessionChanged ? false : get().inspectorAutoOpened,
+      runningProcesses: sessionChanged ? 0 : get().runningProcesses,
+      terminalEpoch: sessionChanged ? get().terminalEpoch + 1 : get().terminalEpoch,
+      liveToolOutput: sessionChanged ? {} : get().liveToolOutput,
       checklist: session.checklist ?? [],
       suggestedFollowup:
         session.suggested_followup ||
@@ -206,6 +215,13 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       session: draft,
       flightLog: [],
       terminalLogs: "[AVIONICS] Ready for prompt dispatch.\r\n",
+      terminalBase: 0,
+      terminalActivity: false,
+      terminalOpen: null,
+      inspectorAutoOpened: false,
+      runningProcesses: 0,
+      terminalEpoch: get().terminalEpoch + 1,
+      liveToolOutput: {},
       fileDiffs: [],
       reasoningStream: "",
       isReasoningActive: false,
@@ -265,6 +281,13 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
             { messageId: promptMessageId, content: cleanPrompt, authorUserId: null },
           ],
           terminalLogs: `\x1b[38;5;208m[AVIONICS]\x1b[0m Session initialized for ${newSession.session_id}.\r\n`,
+          terminalBase: 0,
+          terminalActivity: false,
+          terminalOpen: null,
+          inspectorAutoOpened: false,
+          runningProcesses: 0,
+          terminalEpoch: get().terminalEpoch + 1,
+          liveToolOutput: {},
           fileDiffs: [],
           isExecuting: true,
           statusMessage: "Executing mission turn...",
@@ -303,6 +326,13 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
           session: newSession,
           flightLog: [],
           terminalLogs: `\x1b[38;5;208m[AVIONICS]\x1b[0m Workspace initialized for ${newSession.session_id}.\r\n`,
+          terminalBase: 0,
+          terminalActivity: false,
+          terminalOpen: null,
+          inspectorAutoOpened: false,
+          runningProcesses: 0,
+          terminalEpoch: get().terminalEpoch + 1,
+          liveToolOutput: {},
           fileDiffs: [],
         }));
         return newSession;
@@ -323,6 +353,13 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         session: fallback,
         flightLog: [],
         terminalLogs: `\x1b[38;5;208m[AVIONICS]\x1b[0m Workspace initialized for ${fallback.session_id}.\r\n`,
+        terminalBase: 0,
+        terminalActivity: false,
+        terminalOpen: null,
+        inspectorAutoOpened: false,
+        runningProcesses: 0,
+        terminalEpoch: get().terminalEpoch + 1,
+        liveToolOutput: {},
         fileDiffs: [],
       }));
       return fallback;
@@ -394,6 +431,15 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         ...(update.is_archived !== undefined ? { is_archived: update.is_archived } : {}),
         ...(update.sandbox_status !== undefined ? { sandbox_status: update.sandbox_status } : {}),
         ...(update.is_processing !== undefined ? { is_processing: update.is_processing } : {}),
+        ...(update.awaiting_input !== undefined || update.last_turn_status !== undefined
+          ? {
+              metadata: {
+                ...(session.metadata ?? {}),
+                ...(update.awaiting_input !== undefined ? { awaiting_input: update.awaiting_input || undefined } : {}),
+                ...(update.last_turn_status !== undefined ? { last_turn_status: update.last_turn_status } : {}),
+              },
+            }
+          : {}),
       });
       return {
         sessions: state.sessions.map((s) => (s.session_id === sessionId ? patch(s) : s)),

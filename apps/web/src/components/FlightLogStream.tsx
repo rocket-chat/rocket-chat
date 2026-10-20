@@ -1,5 +1,6 @@
 "use client";
 
+import { useShallow } from "zustand/react/shallow";
 import React, { useRef, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMissionStore } from "../lib/store";
@@ -10,6 +11,7 @@ import { ActionGroup } from "./ActionGroup";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { TaskChecklist } from "./TaskChecklist";
+import { TurnSummaryCard } from "./TurnSummaryCard";
 import { FlightLogEntry, TurnBinding } from "../types/mission";
 import { RocketChatIcon } from "./RocketChatLogo";
 import { CockpitEmptyState } from "./CockpitEmptyState";
@@ -78,7 +80,9 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     isStreamContinuous,
     session,
     fetchSessions,
-  } = useMissionStore();
+  } = useMissionStore(
+    useShallow((state) => ({ flightLog: state.flightLog, activeDecision: state.activeDecision, activeApproval: state.activeApproval, isExecuting: state.isExecuting, statusMessage: state.statusMessage, turnBinding: state.turnBinding, isStreamContinuous: state.isStreamContinuous, session: state.session, fetchSessions: state.fetchSessions }))
+  );
 
   const router = useRouter();
   const { data: authSession } = useSession();
@@ -581,6 +585,11 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
         )}
       </div>
 
+      {/* Progress stays in view while the conversation scrolls */}
+      <div className="shrink-0 px-4 pt-3 sm:px-6 empty:hidden">
+        <TaskChecklist />
+      </div>
+
       <div
         ref={streamRef}
         onScroll={handleScroll}
@@ -588,8 +597,6 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
         data-stream-continuous={isStreamContinuous}
         className="continuous-flight-stream flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [&>*]:shrink-0 px-4 sm:px-6 py-6 space-y-6 font-sans select-text max-w-3xl mx-auto w-full"
       >
-        <TaskChecklist />
-
         {flightLog.length === 0 && !isExecuting && <CockpitEmptyState />}
 
         {isVirtualized ? (
@@ -637,6 +644,13 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
         </div>
       )}
 
+      <TurnSummaryCard />
+
+    </div>
+    {/* Questions and approvals wait here, above the composer, whatever the stream is scrolled to */}
+    {(activeDecision || activeApproval) && (
+      <div data-testid="gate-dock" className="max-h-[50vh] shrink-0 space-y-3 overflow-y-auto border-t border-amber-500/40 bg-surface-base px-4 py-3 sm:px-6">
+        <div className="mx-auto w-full max-w-3xl space-y-3">
       {/* Decision Card */}
       {activeDecision && (
         <DecisionCard
@@ -655,8 +669,9 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
           onReject={(actionId) => onReject?.(actionId)}
         />
       )}
-
-    </div>
+        </div>
+      </div>
+    )}
     {showJumpToLatest && (
       <button
         type="button"

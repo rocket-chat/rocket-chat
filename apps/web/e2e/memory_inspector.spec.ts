@@ -61,6 +61,7 @@ test.describe("Cockpit Memory Inspector", () => {
     await page.goto(`/chat/${sessionId}`);
     await expect(page).toHaveURL(`/chat/${sessionId}`);
 
+    await page.getByTestId("view-menu-trigger").click();
     const trigger = page.getByTestId("memory-inspector-trigger");
     await expect(trigger).toBeVisible();
     await trigger.click();

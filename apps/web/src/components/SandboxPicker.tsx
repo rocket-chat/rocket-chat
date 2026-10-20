@@ -17,7 +17,7 @@ interface Sandbox {
  * than one; a session keeps the sandbox it started with. Leaving it on the first option uses
  * the agent's sandbox type, else the organization's default.
  */
-export const SandboxPicker: React.FC<{ disabled?: boolean }> = ({ disabled }) => {
+export const SandboxPicker: React.FC<{ disabled?: boolean; bare?: boolean }> = ({ disabled, bare }) => {
   const selected = useMissionStore((s) => s.selectedSandboxId);
   const select = useMissionStore((s) => s.setSelectedSandboxId);
   // A direct-model turn runs no agent, so only an agent's own sandbox type replaces the default.
@@ -52,7 +52,9 @@ export const SandboxPicker: React.FC<{ disabled?: boolean }> = ({ disabled }) =>
 
   return (
     <label
-      className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-surface border border-border text-muted-foreground focus-within:border-primary/60"
+      className={`flex items-center gap-1.5 px-2.5 py-1.5 text-muted-foreground ${
+        bare ? "focus-within:bg-elevated" : "rounded-lg bg-surface border border-border focus-within:border-primary/60"
+      }`}
       title={hint}
     >
       <Box className="w-3.5 h-3.5" aria-hidden="true" />

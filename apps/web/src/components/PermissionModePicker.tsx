@@ -18,7 +18,7 @@ export interface PermissionModeOption {
 export const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
   {
     value: "plan",
-    label: "Plan",
+    label: "Read-only",
     hint: "Read-only: The agent inspects code and creates plans without modifying files or running commands.",
     edits: "Blocked",
     commands: "Blocked",
@@ -27,7 +27,7 @@ export const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
   },
   {
     value: "ask",
-    label: "Ask",
+    label: "Ask first",
     hint: "Strict supervision: Every file edit, shell command, and git publish requires your explicit approval.",
     edits: "Requires Approval",
     commands: "Requires Approval",
@@ -46,16 +46,16 @@ export const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
   {
     value: "auto",
     label: "Auto",
-    hint: "Balanced autonomy: Edits and standard commands run freely; only critical/irreversible actions pause for approval.",
+    hint: "Edits, commands and publishing run freely; irreversible actions (merging, deleting on GitHub, a hard revert, wiping the workspace) still wait for you.",
     edits: "Autonomous",
     commands: "Autonomous",
     publishing: "Critical Gated",
-    summary: "Standard workflow: smooth development with protection for irreversible actions.",
+    summary: "Smooth development; only irreversible actions pause.",
   },
   {
     value: "bypass",
-    label: "Bypass",
-    hint: "Full autonomy: Nothing waits for approval. Requires 'Allow bypass permissions' enabled in Admin Governance.",
+    label: "No approvals",
+    hint: "Nothing waits for approval, not even irreversible actions. Needs 'Allow bypass permissions' in Settings > Security & data.",
     edits: "Autonomous",
     commands: "Autonomous",
     publishing: "Autonomous",
@@ -63,8 +63,17 @@ export const PERMISSION_MODE_OPTIONS: PermissionModeOption[] = [
   },
 ];
 
+// How much can happen without you, from careful (green) to unattended (red).
+const MODE_DOT: Record<string, string> = {
+  plan: "bg-emerald-500",
+  ask: "bg-emerald-500",
+  auto_edit: "bg-amber-500",
+  auto: "bg-orange-500",
+  bypass: "bg-rose-500",
+};
+
 /** Lets the member choose how closely this session's work is supervised. */
-export const PermissionModePicker: React.FC<{ disabled?: boolean }> = ({ disabled }) => {
+export const PermissionModePicker: React.FC<{ disabled?: boolean; bare?: boolean }> = ({ disabled, bare }) => {
   const permissionMode = useMissionStore((s) => s.permissionMode);
   const setPermissionMode = useMissionStore((s) => s.setPermissionMode);
   const selected = PERMISSION_MODE_OPTIONS.find((o) => o.value === permissionMode);
@@ -86,10 +95,13 @@ export const PermissionModePicker: React.FC<{ disabled?: boolean }> = ({ disable
   return (
     <div className="relative inline-flex items-center">
       <label
-        className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-surface border border-border text-muted-foreground focus-within:border-primary/60 transition-colors"
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-muted-foreground transition-colors ${
+          bare ? "rounded-l-xl focus-within:bg-elevated" : "rounded-lg bg-surface border border-border focus-within:border-primary/60"
+        }`}
         title={selected ? `${selected.label}: ${selected.hint}` : "Supervision follows your organization's default."}
       >
         <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" />
+        <span className={`h-1.5 w-1.5 rounded-full ${MODE_DOT[permissionMode] ?? "bg-neutral-400"}`} aria-hidden="true" />
         <span className="sr-only">Permission mode</span>
         <select
           data-testid="permission-mode"
@@ -100,7 +112,7 @@ export const PermissionModePicker: React.FC<{ disabled?: boolean }> = ({ disable
           className="bg-transparent text-xs text-foreground focus:outline-none cursor-pointer"
         >
           <option value="" title="Supervision follows organization default">
-            Default
+            Org default
           </option>
           {PERMISSION_MODE_OPTIONS.map((option) => (
             <option key={option.value} value={option.value} title={option.hint}>
@@ -175,7 +187,7 @@ export const PermissionModePicker: React.FC<{ disabled?: boolean }> = ({ disable
           </div>
 
           <div className="mt-2.5 pt-2 border-t border-border text-[10px] text-muted-foreground leading-normal">
-            💡 <strong>Bypass mode</strong> executes without approvals. Note: It requires <code className="text-foreground">Allow bypass permissions</code> to be enabled in Admin Settings &gt; Governance.
+            💡 <strong>No approvals</strong> runs everything unattended. It needs <code className="text-foreground">Allow bypass permissions</code> enabled in Settings &gt; Security &amp; data.
           </div>
         </div>
       )}

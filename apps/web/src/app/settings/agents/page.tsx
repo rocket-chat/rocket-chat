@@ -1,5 +1,6 @@
 "use client";
 
+import { useShallow } from "zustand/react/shallow";
 import { Button } from "../../../components/ui/Button";
 import { PageHeader } from "../../../components/ui/PageHeader";
 
@@ -79,7 +80,9 @@ export default function AgentsSettingsPage() {
     activeAgent,
     selectAgent,
     fetchAgents,
-  } = useMissionStore();
+  } = useMissionStore(
+    useShallow((state) => ({ availableAgents: state.availableAgents, setAvailableAgents: state.setAvailableAgents, activeAgent: state.activeAgent, selectAgent: state.selectAgent, fetchAgents: state.fetchAgents }))
+  );
 
   const [mcpServers, setMcpServers] = useState<McpServerConfig[]>([]);
   const [skillsList, setSkillsList] = useState<CustomSkillConfig[]>([]);

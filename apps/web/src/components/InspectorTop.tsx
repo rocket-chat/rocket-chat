@@ -1,54 +1,83 @@
 "use client";
 
 import React, { useState } from "react";
-import { MonacoDiffViewer } from "./MonacoDiffViewer";
+import { useShallow } from "zustand/react/shallow";
+import { useMissionStore } from "../lib/store";
+import type { InspectorTab } from "../lib/store/types";
+import { ChangesPanel } from "./ChangesPanel";
 import { PreviewPanel } from "./PreviewPanel";
 import { ProcessesPanel } from "./ProcessesPanel";
 import { SubagentsPanel } from "./SubagentsPanel";
 import { WorkspaceBrowser } from "./WorkspaceBrowser";
 import { ArtifactsPanel } from "./ArtifactsDrawer";
 
-type Tab = "changes" | "files" | "processes" | "subagents" | "artifacts" | "preview";
+const TABS: { id: InspectorTab; label: string }[] = [
+  { id: "changes", label: "Changes" },
+  { id: "files", label: "Files" },
+  { id: "processes", label: "Processes" },
+  { id: "subagents", label: "Subagents" },
+  { id: "artifacts", label: "Artifacts" },
+  { id: "preview", label: "Preview" },
+];
 
-/** The inspector's upper half: the agent's proposed changes, or the live workspace. */
-export const InspectorTop: React.FC<{
-  onApprove?: (actionId: string) => void;
-  onReject?: (actionId: string) => void;
-}> = ({ onApprove, onReject }) => {
-  const [tab, setTab] = useState<Tab>("changes");
+/** The inspector's upper half: what the session changed, or the live workspace. */
+export const InspectorTop: React.FC = () => {
+  const { tab, setTab, changed, running, artifacts } = useMissionStore(
+    useShallow((state) => ({
+      tab: state.inspectorTab,
+      setTab: state.setInspectorTab,
+      changed: state.fileDiffs.length,
+      running: state.runningProcesses,
+      artifacts: state.artifacts.length,
+    })),
+  );
   const [previewRequest, setPreviewRequest] = useState<{ port: number; nonce: number } | null>(null);
   const openPreview = (port: number) => {
     setPreviewRequest({ port, nonce: Date.now() });
     setTab("preview");
   };
-  const tabClass = (name: Tab) =>
-    `px-3 py-1 text-[11px] font-mono uppercase tracking-wide cursor-pointer ${
-      tab === name ? "bg-cyan/15 text-cyan" : "text-muted-foreground hover:text-foreground"
+  const count: Partial<Record<InspectorTab, { value: number; label: string }>> = {
+    changes: { value: changed, label: "files changed" },
+    processes: { value: running, label: "running" },
+    artifacts: { value: artifacts, label: "artifacts" },
+  };
+  const tabClass = (name: InspectorTab) =>
+    `relative flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-medium cursor-pointer border-b-2 transition-colors ${
+      tab === name
+        ? "border-brand text-foreground"
+        : "border-transparent text-neutral-600 hover:text-foreground dark:text-neutral-300"
     }`;
   return (
     <div className="h-full flex flex-col min-h-0">
-      <div role="tablist" aria-label="Inspector" className="flex border-b border-border shrink-0">
-        <button role="tab" aria-selected={tab === "changes"} data-testid="tab-changes" type="button" className={tabClass("changes")} onClick={() => setTab("changes")}>
-          Changes
-        </button>
-        <button role="tab" aria-selected={tab === "files"} data-testid="tab-files" type="button" className={tabClass("files")} onClick={() => setTab("files")}>
-          Files
-        </button>
-        <button role="tab" aria-selected={tab === "processes"} data-testid="tab-processes" type="button" className={tabClass("processes")} onClick={() => setTab("processes")}>
-          Processes
-        </button>
-        <button role="tab" aria-selected={tab === "subagents"} data-testid="tab-subagents" type="button" className={tabClass("subagents")} onClick={() => setTab("subagents")}>
-          Subagents
-        </button>
-        <button role="tab" aria-selected={tab === "artifacts"} data-testid="tab-artifacts" type="button" className={tabClass("artifacts")} onClick={() => setTab("artifacts")}>
-          Artifacts
-        </button>
-        <button role="tab" aria-selected={tab === "preview"} data-testid="tab-preview" type="button" className={tabClass("preview")} onClick={() => setTab("preview")}>
-          Preview
-        </button>
+      <div role="tablist" aria-label="Inspector" className="flex shrink-0 overflow-x-auto border-b border-border">
+        {TABS.map(({ id, label }) => {
+          const badge = count[id];
+          return (
+            <button
+              key={id}
+              role="tab"
+              aria-selected={tab === id}
+              data-testid={`tab-${id}`}
+              type="button"
+              className={tabClass(id)}
+              onClick={() => setTab(id)}
+            >
+              {label}
+              {badge && badge.value > 0 && (
+                <span
+                  data-testid={`tab-${id}-count`}
+                  title={`${badge.value} ${badge.label}`}
+                  className="rounded-full bg-brand/15 px-1.5 text-[10px] font-semibold text-brand"
+                >
+                  {badge.value}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
       <div className="flex-1 min-h-0">
-        {tab === "changes" && <MonacoDiffViewer onApprove={onApprove} onReject={onReject} />}
+        {tab === "changes" && <ChangesPanel />}
         {tab === "files" && <WorkspaceBrowser />}
         {tab === "processes" && <ProcessesPanel onOpenPreview={openPreview} />}
         {tab === "subagents" && <SubagentsPanel />}

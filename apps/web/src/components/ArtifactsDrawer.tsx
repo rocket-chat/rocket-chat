@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { useMissionStore } from "../lib/store";
-import { MarkdownRenderer } from "./MarkdownRenderer";
+import { ArtifactBody } from "./ArtifactBody";
 import {
   FileText,
   Download,
@@ -22,6 +22,9 @@ export const ArtifactsPanel: React.FC = () => {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedContent, setSelectedContent] = useState<string | null>(null);
+  const [versions, setVersions] = useState<{ version: number; created_at: number; size: number }[]>([]);
+  // The version being read; null is the current one.
+  const [shownVersion, setShownVersion] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -55,10 +58,14 @@ export const ArtifactsPanel: React.FC = () => {
     }
   }, [storeArtifacts, selectedId]);
 
-  const loadDetail = useCallback(async (artId: string) => {
+  const activeArtifact = storeArtifacts.find((a) => a.id === selectedId);
+  const currentVersion = activeArtifact?.version;
+
+  const loadDetail = useCallback(async (artId: string, version: number | null) => {
     if (!sessionId) return;
     try {
-      const res = await fetch(`/v1/sessions/${sessionId}/artifacts/${artId}`, {
+      const query = version === null ? "" : `?version=${version}`;
+      const res = await fetch(`/v1/sessions/${sessionId}/artifacts/${artId}${query}`, {
         signal: AbortSignal.timeout(8000),
       });
       if (res.ok) {
@@ -70,15 +77,34 @@ export const ArtifactsPanel: React.FC = () => {
     }
   }, [sessionId]);
 
+  // Another artifact starts at its latest version.
+  useEffect(() => {
+    setShownVersion(null);
+  }, [selectedId]);
+
+  // Read again when the agent saves a new version of the one being shown.
   useEffect(() => {
     if (selectedId) {
-      loadDetail(selectedId);
+      void loadDetail(selectedId, shownVersion);
     } else {
       setSelectedContent(null);
     }
-  }, [selectedId, loadDetail]);
+  }, [selectedId, shownVersion, currentVersion, loadDetail]);
 
-  const activeArtifact = storeArtifacts.find((a) => a.id === selectedId);
+  useEffect(() => {
+    if (!selectedId || !sessionId) {
+      setVersions([]);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/v1/sessions/${sessionId}/artifacts/${selectedId}/versions`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => !cancelled && setVersions(Array.isArray(data) ? data : []))
+      .catch(() => !cancelled && setVersions([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, sessionId, currentVersion]);
 
   const handleCopy = () => {
     if (selectedContent) {
@@ -90,7 +116,8 @@ export const ArtifactsPanel: React.FC = () => {
 
   const handleDownload = () => {
     if (!activeArtifact || !selectedContent) return;
-    const blob = new Blob([selectedContent], { type: "text/plain;charset=utf-8" });
+    const mime = activeArtifact.artifact_type === "html" ? "text/html" : activeArtifact.artifact_type === "json" ? "application/json" : "text/plain";
+    const blob = new Blob([selectedContent], { type: `${mime};charset=utf-8` });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
@@ -174,7 +201,27 @@ export const ArtifactsPanel: React.FC = () => {
                   <span>•</span>
                   <span className="capitalize">{activeArtifact.artifact_type}</span>
                   <span>•</span>
-                  <span>v{activeArtifact.version}</span>
+                  {versions.length > 1 ? (
+                    <select
+                      aria-label="Artifact version"
+                      data-testid="artifact-version"
+                      value={shownVersion ?? activeArtifact.version}
+                      onChange={(e) => {
+                        const chosen = Number(e.target.value);
+                        setShownVersion(chosen === activeArtifact.version ? null : chosen);
+                      }}
+                      className="rounded border border-border bg-surface-card px-1 text-[10px]"
+                    >
+                      {[...versions].reverse().map((v) => (
+                        <option key={v.version} value={v.version}>
+                          v{v.version}
+                          {v.version === activeArtifact.version ? " (current)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span>v{activeArtifact.version}</span>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-1.5 shrink-0">
@@ -200,9 +247,7 @@ export const ArtifactsPanel: React.FC = () => {
             {/* Document Render Body */}
             <div className="flex-1 overflow-y-auto p-4">
               {selectedContent ? (
-                <div className="prose prose-sm dark:prose-invert max-w-none rounded-lg border border-border bg-surface-card p-4 shadow-sm">
-                  <MarkdownRenderer content={selectedContent} />
-                </div>
+                <ArtifactBody type={activeArtifact.artifact_type} content={selectedContent} />
               ) : (
                 <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
                   Loading content...

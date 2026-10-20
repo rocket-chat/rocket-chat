@@ -1,12 +1,15 @@
 "use client";
 
+import { useShallow } from "zustand/react/shallow";
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useMissionStore } from "../lib/store";
 
 export default function MissionControlPage() {
   const router = useRouter();
-  const { session, initDraftSession } = useMissionStore();
+  const { session, initDraftSession } = useMissionStore(
+    useShallow((state) => ({ session: state.session, initDraftSession: state.initDraftSession }))
+  );
 
   useEffect(() => {
     // 1. If store already has active persisted session, navigate immediately

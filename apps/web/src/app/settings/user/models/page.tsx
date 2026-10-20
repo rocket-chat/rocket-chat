@@ -1,5 +1,6 @@
 "use client";
 
+import { useShallow } from "zustand/react/shallow";
 import React, { useState, useEffect } from "react";
 import { Save, CheckCircle2, AlertCircle } from "lucide-react";
 import { useMissionStore } from "@/lib/store";
@@ -8,7 +9,9 @@ import { Field } from "@/components/ui/Field";
 import { ModelPicker } from "@/components/ui/ModelPicker";
 
 export default function UserModelsSettingsPage() {
-  const { fetchModels } = useMissionStore();
+  const { fetchModels } = useMissionStore(
+    useShallow((state) => ({ fetchModels: state.fetchModels }))
+  );
   const [modelPrefs, setModelPrefs] = useState({
     preferred_model: "",
   });

@@ -1,25 +1,49 @@
 "use client";
 
+import { useShallow } from "zustand/react/shallow";
 import React, { useState } from "react";
 import Link from "next/link";
 import { useMissionStore } from "../lib/store";
-import { ThemeToggle } from "./Theme/ThemeToggle";
+import { ViewMenu } from "./ViewMenu";
 import { UserHeaderCapsule } from "./UserHeaderCapsule";
-import { IconButton, iconButtonClass } from "./ui/IconButton";
+import { IconButton } from "./ui/IconButton";
 import { ShareDialog } from "./ShareDialog";
 import {
   Zap,
-  Settings2,
   PanelRightClose,
   PanelRightOpen,
   PanelLeftOpen,
-  History,
-  Brain,
   Share2,
   MessageSquare,
-  FileText,
 } from "lucide-react";
 import { slackThreadLink } from "../lib/slack";
+import { statusOf, STATUS_LABEL, type SessionStatus } from "../lib/session-groups";
+
+/** The one status vocabulary, shared with the sidebar: working, needs you, waiting, failed, ready. */
+const StatusChip: React.FC<{ status: SessionStatus; tokenRate: number }> = ({ status, tokenRate }) => {
+  const tone: Record<SessionStatus, string> = {
+    working: "border-brand/30 text-brand",
+    needs_you: "border-amber-500/50 text-amber-700 dark:text-amber-300",
+    waiting: "border-sky-500/40 text-sky-700 dark:text-sky-300",
+    failed: "border-rose-500/50 text-rose-700 dark:text-rose-300",
+    idle: "border-surface-border text-neutral-700 dark:text-neutral-300",
+  };
+  return (
+    <div data-testid="status-chip" data-status={status} className={`flex items-center gap-1.5 rounded-md border bg-surface-card px-2.5 py-1 text-[11px] ${tone[status]}`}>
+      {status === "working" ? (
+        <Zap className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
+      ) : (
+        <span className={`h-1.5 w-1.5 rounded-full ${status === "idle" ? "bg-emerald-500" : status === "needs_you" ? "bg-amber-500" : status === "failed" ? "bg-rose-500" : "bg-sky-500"}`} aria-hidden="true" />
+      )}
+      <span>{status === "idle" ? "Ready" : status === "working" ? "Working" : STATUS_LABEL[status]}</span>
+      {status === "working" && tokenRate > 0 && <span className="hidden text-neutral-500 sm:inline">· {tokenRate} tok/s</span>}
+    </div>
+  );
+};
+
+function formatTokens(tokens: number): string {
+  return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k tokens` : `${tokens} tokens`;
+}
 
 export const FlightTelemetryHeader: React.FC = () => {
   const {
@@ -39,8 +63,12 @@ export const FlightTelemetryHeader: React.FC = () => {
     setIsArtifactsDrawerOpen,
     isLeftSidebarOpen,
     setIsLeftSidebarOpen,
-  } = useMissionStore();
+    goal,
+  } = useMissionStore(
+    useShallow((state) => ({ session: state.session, activeAgent: state.activeAgent, selectedModel: state.selectedModel, inferenceMode: state.inferenceMode, tokenRate: state.tokenRate, isExecuting: state.isExecuting, isRightPanelOpen: state.isRightPanelOpen, setIsRightPanelOpen: state.setIsRightPanelOpen, isTurnInspectorOpen: state.isTurnInspectorOpen, setIsTurnInspectorOpen: state.setIsTurnInspectorOpen, isMemoryInspectorOpen: state.isMemoryInspectorOpen, setIsMemoryInspectorOpen: state.setIsMemoryInspectorOpen, isArtifactsDrawerOpen: state.isArtifactsDrawerOpen, setIsArtifactsDrawerOpen: state.setIsArtifactsDrawerOpen, isLeftSidebarOpen: state.isLeftSidebarOpen, setIsLeftSidebarOpen: state.setIsLeftSidebarOpen, goal: state.goal }))
+  );
   const slackLink = slackThreadLink(session?.metadata);
+  const artifactCount = useMissionStore((state) => state.artifacts.length);
 
   const [isShareOpen, setIsShareOpen] = useState(false);
 
@@ -96,54 +124,49 @@ export const FlightTelemetryHeader: React.FC = () => {
 
       {/* Right: run state, then view controls, then account */}
       <div className="flex items-center gap-2 text-xs">
-        {isExecuting ? (
-          <div className="flex items-center gap-1.5 rounded-md border border-brand/30 bg-surface-card px-2.5 py-1 text-[11px] text-brand">
-            <Zap className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
-            <span>Working</span>
-            {tokenRate > 0 && <span className="hidden text-neutral-500 sm:inline">· {tokenRate} tok/s</span>}
-          </div>
-        ) : (
-          <div className="flex items-center gap-1.5 rounded-md border border-surface-border bg-surface-card px-2.5 py-1 text-[11px] text-neutral-600 dark:text-neutral-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
-            <span>Ready</span>
+        <StatusChip
+          status={session ? (isExecuting && statusOf(session) !== "needs_you" ? "working" : statusOf(session)) : isExecuting ? "working" : "idle"}
+          tokenRate={tokenRate}
+        />
+
+        {goal && goal.status === "active" && (
+          <div
+            data-testid="goal-chip"
+            title="Budget used by this long task across its continuation turns"
+            className="hidden items-center gap-1.5 rounded-md border border-surface-border bg-surface-card px-2.5 py-1 text-[11px] text-neutral-600 dark:text-neutral-400 md:flex"
+          >
+            <span>Long task</span>
+            <span className="font-mono">{formatTokens(goal.consumedTokens)}</span>
+            <span className="font-mono">${goal.consumedCostUsd.toFixed(2)}</span>
+            {goal.maxContinuations > 0 && (
+              <span className="font-mono">
+                {goal.continuationCount}/{goal.maxContinuations}
+              </span>
+            )}
           </div>
         )}
 
         <div className="mx-0.5 hidden h-4 w-px bg-surface-border sm:block" />
 
-        <div className="hidden items-center gap-1.5 sm:flex">
-          <ThemeToggle />
-          {session?.session_id && (
-            <IconButton data-testid="share-trigger" label="Share this session" onClick={() => setIsShareOpen(true)}>
-              <Share2 className="h-4 w-4" />
-            </IconButton>
-          )}
-          <IconButton
-            data-testid="memory-inspector-trigger"
-            label="Open memory inspector"
-            pressed={isMemoryInspectorOpen}
-            aria-expanded={isMemoryInspectorOpen}
-            onClick={() => setIsMemoryInspectorOpen(!isMemoryInspectorOpen)}
+        {session?.session_id && (
+          <button
+            type="button"
+            data-testid="share-trigger"
+            onClick={() => setIsShareOpen(true)}
+            title="Share this session"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-surface-border bg-surface-card px-2.5 text-xs text-foreground transition-colors hover:bg-surface-elevated"
           >
-            <Brain className="h-4 w-4" />
-          </IconButton>
-          <IconButton
-            data-testid="artifacts-drawer-toggle"
-            label="Session Deliverables & Artifacts"
-            pressed={isArtifactsDrawerOpen}
-            onClick={() => setIsArtifactsDrawerOpen(!isArtifactsDrawerOpen)}
-          >
-            <FileText className="h-4 w-4 text-orange-500" />
-          </IconButton>
-          <IconButton
-            data-testid="turn-inspector-toggle"
-            label="Turn Inspector"
-            pressed={isTurnInspectorOpen}
-            onClick={() => setIsTurnInspectorOpen(!isTurnInspectorOpen)}
-          >
-            <History className="h-4 w-4" />
-          </IconButton>
-        </div>
+            <Share2 className="h-4 w-4" aria-hidden="true" />
+            <span className="hidden sm:inline">Share</span>
+          </button>
+        )}
+
+        <ViewMenu
+          artifactCount={artifactCount}
+          onMemory={() => setIsMemoryInspectorOpen(!isMemoryInspectorOpen)}
+          onTurns={() => setIsTurnInspectorOpen(!isTurnInspectorOpen)}
+          onArtifacts={() => setIsArtifactsDrawerOpen(!isArtifactsDrawerOpen)}
+        />
 
         <IconButton
           data-testid="right-panel-toggle"
@@ -157,10 +180,6 @@ export const FlightTelemetryHeader: React.FC = () => {
         <div className="mx-0.5 hidden h-4 w-px bg-surface-border sm:block" />
 
         <UserHeaderCapsule />
-
-        <Link href="/settings/github" title="Settings Console" aria-label="Settings Console" className={iconButtonClass(false, "hidden sm:inline-flex")}>
-          <Settings2 className="h-4 w-4" />
-        </Link>
       </div>
       {isShareOpen && session?.session_id && (
         <ShareDialog sessionId={session.session_id} onClose={() => setIsShareOpen(false)} />

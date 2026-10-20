@@ -39,6 +39,13 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
   const initDraftSession = useMissionStore((s) => s.initDraftSession);
   const createSessionWithPrompt = useMissionStore((s) => s.createSessionWithPrompt);
 
+  const terminalOpen = useMissionStore((s) => s.terminalOpen);
+  const terminalActivity = useMissionStore((s) => s.terminalActivity);
+  const setTerminalOpen = useMissionStore((s) => s.setTerminalOpen);
+  // Shown once something has printed (or when asked for): an empty terminal is wasted room.
+  const terminalExpanded = terminalOpen ?? terminalActivity;
+  const toggleTerminal = () => setTerminalOpen(!terminalExpanded);
+
   const [isMobile, setIsMobile] = React.useState(false);
 
   const setIsLeftSidebarOpen = useMissionStore((s) => s.setIsLeftSidebarOpen);
@@ -204,10 +211,8 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                 <div className="fixed inset-0 z-50 bg-void flex flex-col animate-in fade-in duration-200">
                   <div className="h-12 px-4 border-b border-surface-border flex items-center justify-between bg-surface-sidebar">
                     <div className="flex items-center gap-2">
-                      <span className="font-semibold text-xs tracking-wide uppercase font-mono text-brand">
-                        Inspector Deck
-                      </span>
-                      <span className="text-xs text-neutral-400">Diffs & Terminal</span>
+                      <span className="text-sm font-semibold text-foreground">Inspector</span>
+                      <span className="text-xs text-neutral-500">Changes, files, processes</span>
                     </div>
                     <button
                       type="button"
@@ -219,11 +224,11 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                     </button>
                   </div>
                   <div className="flex-1 flex flex-col overflow-hidden">
-                    <div className="h-3/5 overflow-hidden border-b border-surface-border">
-                      <InspectorTop onApprove={handleApprove} onReject={handleReject} />
+                    <div className="min-h-0 flex-1 overflow-hidden border-b border-surface-border">
+                      <InspectorTop />
                     </div>
-                    <div className="h-2/5 overflow-hidden bg-void">
-                      <StreamingTerminal />
+                    <div className={`overflow-hidden bg-void ${terminalExpanded ? "h-2/5" : "h-8"}`}>
+                      <StreamingTerminal collapsed={!terminalExpanded} onToggle={toggleTerminal} />
                     </div>
                   </div>
                 </div>
@@ -266,14 +271,12 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                   collapsible={true}
                   className="flex flex-col h-full overflow-hidden bg-void"
                 >
-                  {/* Top half: Monaco Diff Viewer */}
-                  <div className="h-3/5 overflow-hidden">
-                    <InspectorTop onApprove={handleApprove} onReject={handleReject} />
+                  {/* Top: the inspector tabs; bottom: the terminal, folded to its title until used */}
+                  <div className="min-h-0 flex-1 overflow-hidden">
+                    <InspectorTop />
                   </div>
-
-                  {/* Bottom half: Streaming Terminal */}
-                  <div className="h-2/5 overflow-hidden border-t border-border">
-                    <StreamingTerminal />
+                  <div className={`overflow-hidden border-t border-border ${terminalExpanded ? "h-2/5" : "h-8"}`}>
+                    <StreamingTerminal collapsed={!terminalExpanded} onToggle={toggleTerminal} />
                   </div>
                 </Panel>
               )}

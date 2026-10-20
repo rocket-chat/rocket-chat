@@ -46,6 +46,14 @@ interface EventPayload {
   thought?: string;
   summary?: string;
   text?: string;
+  tool_call_id?: string;
+  awaiting_input?: string;
+  last_turn_status?: string;
+  is_processing?: boolean;
+  consumed_tokens?: number;
+  consumed_cost_usd?: number;
+  continuation_count?: number;
+  max_continuations?: number;
   path?: string;
   diff_content?: string;
   additions?: number;
@@ -230,7 +238,8 @@ export class MissionWebSocket {
       String(data.event_type || ""),
       (data.payload || {}) as EventPayload,
       String(data.session_id || ""),
-      timestampMs
+      timestampMs,
+      seq ?? undefined
     );
     if (seq !== null) advanceCursor(this.sessionId, seq);
   }
@@ -327,7 +336,8 @@ export class MissionWebSocket {
         event.event_type,
         event.payload || {},
         event.session_id || this.sessionId,
-        event.timestamp_ms
+        event.timestamp_ms,
+        typeof event.seq === "number" ? event.seq : undefined
       );
       if (typeof event.seq === "number") advanceCursor(this.sessionId, event.seq);
     }
@@ -346,7 +356,8 @@ export class MissionWebSocket {
         event.event_type,
         event.payload || {},
         event.session_id || this.sessionId,
-        event.timestamp_ms
+        event.timestamp_ms,
+        typeof event.seq === "number" ? event.seq : undefined
       );
       if (typeof event.seq === "number") advanceCursor(this.sessionId, event.seq);
     }
@@ -390,10 +401,14 @@ export class MissionWebSocket {
     eventType: string,
     payload: EventPayload,
     frameSessionId: string,
-    timestampMs?: number
+    timestampMs?: number,
+    seq?: number
   ): void {
     const store = useMissionStore.getState();
     const eventTime = formatEventTime(timestampMs);
+    // Entries the conversation derives from an event are named by its sequence number, so a
+    // replayed or re-synced event lands on the entry it made the first time.
+    const eventKey = seq ?? Date.now();
 
     switch (eventType) {
       case "token":
@@ -442,7 +457,7 @@ export class MissionWebSocket {
           if (rawStatus === "error" || rawStatus === "failed" || payload.error) {
             const errText = payload.error || payload.message || "Unknown execution error";
             store.appendFlightLog({
-              id: `err-${Date.now()}`,
+              id: `err-${eventKey}`,
               role: "SYSTEM",
               content: `⚠️ Mission Execution Error: ${errText}`,
               timestamp: eventTime,
@@ -458,7 +473,7 @@ export class MissionWebSocket {
         const reason = payload.reason || "Turn limit reached";
         store.setStatusMessage(`Synthesizing findings: ${reason}`);
         store.appendFlightLog({
-          id: `synthesis-${Date.now()}`,
+          id: `synthesis-${eventKey}`,
           role: "SYSTEM",
           content: `⚡ Turn Budget Exceeded (${turns} turns) — Synthesizing final answer from gathered context...`,
           timestamp: eventTime,
@@ -471,7 +486,7 @@ export class MissionWebSocket {
           const reason = payload.message || "The sandbox could not start.";
           store.setStatusMessage(reason);
           store.appendFlightLog({
-            id: `sandbox-${Date.now()}`,
+            id: `sandbox-${eventKey}`,
             role: "SYSTEM",
             content: `⚠️ ${reason}`,
             timestamp: eventTime,
@@ -502,7 +517,7 @@ export class MissionWebSocket {
         store.setIsExecuting(false);
         store.setIsReasoningActive(false);
         store.appendFlightLog({
-          id: `err-${Date.now()}`,
+          id: `err-${eventKey}`,
           role: "SYSTEM",
           content: `⚠️ Mission Execution Error: ${errText}`,
           timestamp: eventTime,
@@ -520,7 +535,7 @@ export class MissionWebSocket {
               ? (timestampMs < 1e11 ? timestampMs : Math.floor(timestampMs / 1000))
               : undefined;
         store.appendFlightLog({
-          id: `tool-${Date.now()}`,
+          id: toolId ? `tool-${toolId}` : `tool-${eventKey}`,
           role: "CODER",
           content: `Executing tool: ${toolName}`,
           timestamp: eventTime,
@@ -544,6 +559,7 @@ export class MissionWebSocket {
             : timestampMs
               ? (timestampMs < 1e11 ? timestampMs : Math.floor(timestampMs / 1000))
               : undefined;
+        if (toolId) store.clearToolOutput(toolId);
         store.updateToolCall(toolId || toolName || "", {
           id: toolId,
           status: payload.status === "error" ? "error" : "success",
@@ -556,7 +572,7 @@ export class MissionWebSocket {
       }
 
       case "subagent_started": {
-        const subagentId = payload.subagent_id || `subagent-${Date.now()}`;
+        const subagentId = payload.subagent_id || `subagent-${eventKey}`;
         const role = payload.role || "specialist";
         const task = payload.task || "";
         store.appendFlightLog({
@@ -599,6 +615,9 @@ export class MissionWebSocket {
 
       case "log_chunk":
         store.appendTerminalLog(payload.text || "");
+        if (typeof payload.tool_call_id === "string" && payload.tool_call_id) {
+          store.appendToolOutput(payload.tool_call_id, payload.text || "");
+        }
         break;
 
       case "file_diff": {
@@ -610,6 +629,7 @@ export class MissionWebSocket {
           is_new_file: payload.is_new_file || false,
         };
         store.addFileDiff(diffItem);
+        store.autoOpenInspector("changes");
         break;
       }
 
@@ -652,7 +672,7 @@ export class MissionWebSocket {
           store.appendFlightLog({
             id: `artifact-${art.id}-${art.version || Date.now()}`,
             role: "SYSTEM",
-            content: `📄 Deliverable Artifact: ${art.title} (${art.filename})`,
+            content: `Deliverable: ${art.title} (${art.filename})`,
             timestamp: eventTime,
           });
         }
@@ -665,7 +685,7 @@ export class MissionWebSocket {
         const tokensAfter = payload.tokens_after ?? 0;
         const summary = typeof payload.summary === "string" ? payload.summary : "Working context compacted";
         store.appendFlightLog({
-          id: `compacted-${Date.now()}`,
+          id: `compacted-${eventKey}`,
           role: "SYSTEM",
           content: `Context Compacted: Compressed ${count} messages from ${Number(tokensBefore).toLocaleString()} to ${Number(tokensAfter).toLocaleString()} tokens.\n\n${summary}`,
           timestamp: eventTime,
@@ -678,7 +698,7 @@ export class MissionWebSocket {
         const maxTurns = payload.max_continuations ?? 10;
         const reason = payload.reason || "Turn step limit reached with unfinished tasks";
         store.appendFlightLog({
-          id: `continuation-${Date.now()}`,
+          id: `continuation-${eventKey}`,
           role: "SYSTEM",
           content: `Goal Continuation (${turnIdx}/${maxTurns}): ${reason}`,
           timestamp: eventTime,
@@ -686,15 +706,25 @@ export class MissionWebSocket {
         break;
       }
 
+      case "process_started":
+        store.bumpProcesses();
+        store.adjustRunningProcesses(1);
+        store.autoOpenInspector("processes");
+        break;
+
+      case "process_exited":
+        store.bumpProcesses();
+        store.adjustRunningProcesses(-1);
+        break;
+
       case "goal_updated": {
-        const status = payload.status || "active";
-        const tokens = typeof payload.consumed_tokens === "number" ? payload.consumed_tokens : 0;
-        const cost = typeof payload.consumed_cost_usd === "number" ? payload.consumed_cost_usd : 0;
-        store.appendFlightLog({
-          id: `goal-${Date.now()}`,
-          role: "SYSTEM",
-          content: `Goal ${status}: Consumed ${tokens.toLocaleString()} tokens ($${cost.toFixed(4)})`,
-          timestamp: eventTime,
+        // Shown as a chip in the header: a budget readout, not something to scroll past.
+        store.setGoal({
+          status: payload.status || "active",
+          consumedTokens: typeof payload.consumed_tokens === "number" ? payload.consumed_tokens : 0,
+          consumedCostUsd: typeof payload.consumed_cost_usd === "number" ? payload.consumed_cost_usd : 0,
+          continuationCount: typeof payload.continuation_count === "number" ? payload.continuation_count : 0,
+          maxContinuations: typeof payload.max_continuations === "number" ? payload.max_continuations : 0,
         });
         break;
       }
@@ -702,14 +732,14 @@ export class MissionWebSocket {
       case "wait_started": {
         const reason = payload.reason || (typeof payload.target === "string" ? payload.target : "") || "Waiting for external event";
         store.setActiveWait({
-          wait_id: typeof payload.wait_id === "string" ? payload.wait_id : `wait-${Date.now()}`,
+          wait_id: typeof payload.wait_id === "string" ? payload.wait_id : `wait-${eventKey}`,
           wait_type: typeof payload.wait_type === "string" ? payload.wait_type : "time",
           target: typeof payload.target === "string" ? payload.target : "",
           timeout_seconds: typeof payload.timeout_seconds === "number" ? payload.timeout_seconds : null,
           reason: typeof payload.reason === "string" ? payload.reason : null,
         });
         store.appendFlightLog({
-          id: `wait-${Date.now()}`,
+          id: `wait-${eventKey}`,
           role: "SYSTEM",
           content: `Waiting for condition: ${reason}`,
           timestamp: eventTime,
@@ -721,7 +751,7 @@ export class MissionWebSocket {
         store.setActiveWait(null);
         const summary = payload.summary || "External condition satisfied";
         store.appendFlightLog({
-          id: `wait-done-${Date.now()}`,
+          id: `wait-done-${eventKey}`,
           role: "SYSTEM",
           content: `Wait completed: ${summary}`,
           timestamp: eventTime,
@@ -743,6 +773,8 @@ export class MissionWebSocket {
             is_pinned: typeof payload.is_pinned === "boolean" ? payload.is_pinned : undefined,
             is_archived: typeof payload.is_archived === "boolean" ? payload.is_archived : undefined,
             is_processing: typeof payload.is_processing === "boolean" ? payload.is_processing : undefined,
+            awaiting_input: typeof payload.awaiting_input === "string" ? payload.awaiting_input : undefined,
+            last_turn_status: typeof payload.last_turn_status === "string" ? payload.last_turn_status : undefined,
           });
         }
         break;

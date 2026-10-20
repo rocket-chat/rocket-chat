@@ -1,15 +1,19 @@
 "use client";
 
+import { useShallow } from "zustand/react/shallow";
 import React, { useState, useRef, useEffect } from "react";
 import { useMissionStore } from "../lib/store";
 import { newMessageId } from "../lib/message-id";
 import { loadDraft, saveDraft } from "../lib/draft";
 import { useAuth } from "./AuthProvider";
-import { Server, GitBranch, Rocket, ChevronDown, Check, Bot, Zap, Shield, Bug, Book, Search, Square, MessageSquarePlus, X, Paperclip, FileText, AlertTriangle } from "lucide-react";
+import { GitBranch, Rocket, ChevronDown, Check, Bot, Zap, Shield, Bug, Book, Search, Square, MessageSquarePlus, X, Paperclip, FileText, AlertTriangle } from "lucide-react";
 import { AgentPersonaConfig, ModelOption } from "../types/mission";
 import { PermissionModePicker } from "./PermissionModePicker";
 import { SandboxPicker } from "./SandboxPicker";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import { MentionMenu } from "./composer/MentionMenu";
+import { ComposerHints } from "./composer/ComposerHints";
+import { mentionAt, useMentions, type MentionItem } from "./composer/useMentions";
 
 interface IgnitionConsoleProps {
   onIgnite: (
@@ -36,6 +40,25 @@ const getAgentIcon = (iconName?: string) => {
     default:
       return <Bot className="w-3.5 h-3.5 text-primary" />;
   }
+};
+
+/** Whether the workspace is awake: what the next message will do to it. */
+const SandboxState: React.FC<{ status?: string; isDraft: boolean }> = ({ status, isDraft }) => {
+  const running = status === "running";
+  const asleep = status === "hibernated" || status === "stopped" || status === "paused";
+  const label = isDraft || !status || status === "non_existent"
+    ? "Sandbox starts when needed"
+    : running
+      ? "Sandbox ready"
+      : asleep
+        ? "Sandbox asleep, wakes on send"
+        : `Sandbox ${status.replace(/_/g, " ")}`;
+  return (
+    <span data-testid="sandbox-state" className="hidden items-center gap-1.5 px-2.5 py-1.5 text-[11px] text-muted-foreground sm:flex">
+      <span className={`h-1.5 w-1.5 rounded-full ${running ? "bg-emerald-500" : asleep ? "bg-amber-500" : "bg-neutral-400"}`} aria-hidden="true" />
+      {label}
+    </span>
+  );
 };
 
 export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
@@ -85,6 +108,8 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
   const [isLaunchingRocket, setIsLaunchingRocket] = useState<boolean>(false);
   const [isThrustPulsing, setIsThrustPulsing] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
+  const [caret, setCaret] = useState<number>(0);
+  const [mentionIndex, setMentionIndex] = useState<number>(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -112,8 +137,28 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     uploadAttachment,
     removeAttachment,
     clearAttachments,
-  } = useMissionStore();
+  } = useMissionStore(
+    useShallow((state) => ({ flightLog: state.flightLog, isExecuting: state.isExecuting, appendOwnUserMessage: state.appendOwnUserMessage, session: state.session, clearReasoning: state.clearReasoning, setIsExecuting: state.setIsExecuting, setStatusMessage: state.setStatusMessage, selectedModel: state.selectedModel, availableModels: state.availableModels, setAvailableModels: state.setAvailableModels, activeAgent: state.activeAgent, availableAgents: state.availableAgents, inferenceMode: state.inferenceMode, selectAgent: state.selectAgent, selectDirectModel: state.selectDirectModel, suggestedFollowup: state.suggestedFollowup, setSuggestedFollowup: state.setSuggestedFollowup, pendingAttachments: state.pendingAttachments, attachmentError: state.attachmentError, uploadAttachment: state.uploadAttachment, removeAttachment: state.removeAttachment, clearAttachments: state.clearAttachments }))
+  );
   const { user } = useAuth();
+  const realSessionId = session && !session.is_draft && session.session_id !== "draft" ? session.session_id : null;
+  const mentionToken = mentionAt(prompt, caret);
+  const mentionItems = useMentions(realSessionId, mentionToken);
+  const mentionOpen = mentionToken !== null && mentionItems.length > 0;
+
+  const pickMention = (item: MentionItem) => {
+    if (!mentionToken) return;
+    const insert = `@${item.path}${item.isDir ? "/" : " "}`;
+    const next = prompt.slice(0, mentionToken.start) + insert + prompt.slice(caret);
+    setPrompt(next);
+    const position = mentionToken.start + insert.length;
+    setCaret(position);
+    setMentionIndex(0);
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+      textareaRef.current?.setSelectionRange(position, position);
+    });
+  };
 
 
   // Discover models from backend API on mount
@@ -223,6 +268,29 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
       return;
     }
 
+    if (mentionOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionIndex((i) => Math.min(i + 1, mentionItems.length - 1));
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionIndex((i) => Math.max(i - 1, 0));
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        pickMention(mentionItems[Math.min(mentionIndex, mentionItems.length - 1)]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setCaret(0);
+        return;
+      }
+    }
+
     // Enter or ⌘⏎ / Ctrl⏎ to run, or to send to the running turn
     if (e.key === "Enter") {
       if (!e.shiftKey) {
@@ -289,6 +357,11 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
         onDragLeave={() => setIsDragging(false)}
         onDrop={handleDrop}
       >
+        {isDragging && (
+          <p data-testid="drop-hint" className="mb-2 rounded-lg border border-dashed border-brand px-3 py-2 text-center text-xs text-brand">
+            Drop files to attach them to your next message
+          </p>
+        )}
         {/* Attachment staging row */}
         {(pendingAttachments.length > 0 || attachmentError) && (
           <div data-testid="attachment-tray" className="mb-2 flex flex-wrap gap-2">
@@ -348,6 +421,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
 
         {/* Text Input Area & Ghost Autocomplete Overlay */}
         <div className="relative">
+          <MentionMenu items={mentionItems} active={mentionIndex} onPick={pickMention} />
           <SlashCommandMenu
             input={prompt}
             onPick={(completion) => {
@@ -361,17 +435,22 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
             readOnly={loading}
             aria-busy={loading}
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={(e) => {
+              setPrompt(e.target.value);
+              setCaret(e.target.selectionStart ?? e.target.value.length);
+              setMentionIndex(0);
+            }}
+            onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             placeholder={
               loading
                 ? "Opening the conversation…"
                 : isExecuting
-                ? "Agent is running… Send a message and it reads it at its next step"
+                ? "Send a message: the agent reads it at its next step"
                 : suggestedFollowup
                 ? ""
-                : "Describe what you want done… (Enter to run, Shift+Enter for a new line)"
+                : "What should we work on?"
             }
             rows={2}
             className="w-full resize-none bg-transparent text-sm font-sans text-foreground placeholder:text-neutral-500 focus:outline-none leading-relaxed p-1 relative z-10"
@@ -413,10 +492,11 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
               title="Attach a screenshot or log file (or drag / paste)"
             >
               <Paperclip className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline text-xs">Attach</span>
+              <span className="sr-only">Attach</span>
             </button>
-            <PermissionModePicker disabled={isExecuting} />
-            {!session || session.is_draft ? <SandboxPicker disabled={isExecuting} /> : null}
+            {/* One status line, read left to right: how closely it is supervised, who works, where. */}
+            <div className="flex min-w-0 flex-wrap items-center divide-x divide-border rounded-xl border border-border bg-surface">
+            <PermissionModePicker disabled={isExecuting} bare />
             <div className="relative" ref={dropdownRef}>
               <button
                 type="button"
@@ -424,7 +504,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                 aria-label="Agent or model for your next message"
                 aria-expanded={isModeDropdownOpen}
                 onClick={() => setIsModeDropdownOpen(!isModeDropdownOpen)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface hover:bg-elevated border border-border text-foreground hover:border-primary/40 transition-colors cursor-pointer select-none"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-foreground hover:bg-elevated transition-colors cursor-pointer select-none first:rounded-l-xl"
                 title="Agent or model for your next message"
               >
                 {inferenceMode === "agent" ? (
@@ -563,30 +643,29 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
               )}
             </div>
 
-            {/* Sandbox Runtime Indicator */}
-            <span className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-surface border border-border text-muted-foreground text-[11px] font-mono">
-              <Server className="w-3 h-3 text-status-live" />
-              <span>Sandbox Ready</span>
-            </span>
+            {!session || session.is_draft ? <SandboxPicker disabled={isExecuting} bare /> : null}
+            <SandboxState status={session?.sandbox_status} isDraft={!session || !!session.is_draft} />
 
             {/* Git Branch Badge (Displayed ONLY when a Git repository/branch is bound to the session) */}
             {session?.git_branch && (
-              <span className="hidden md:flex items-center gap-1 px-2 py-1 rounded-md bg-surface border border-border text-muted-foreground text-[11px] font-mono">
+              <span className="hidden md:flex items-center gap-1 px-2.5 py-1.5 text-muted-foreground text-[11px] font-mono">
                 <GitBranch className="w-3 h-3 text-muted-foreground" />
                 <span>{session.git_branch}</span>
               </span>
             )}
+            </div>
           </div>
 
           {/* Execution Controls: Stop, Send to the running turn, Run */}
           <div className="flex items-center gap-1.5">
+            <ComposerHints />
             {isExecuting && (
               <button
                 type="button"
                 onClick={onCancel}
                 data-testid="stop-button"
-                className="relative px-3 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 bg-rose-600/90 hover:bg-rose-600 text-white cursor-pointer"
-                title="Interrupt ongoing execution"
+                className="relative px-3 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-all active:scale-95 border border-rose-500/60 text-rose-600 hover:bg-rose-500/10 dark:text-rose-400 cursor-pointer"
+                title="Stop the agent now"
               >
                 <Square className="w-3 h-3 fill-current" />
                 <span>Stop</span>
@@ -601,10 +680,10 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                 data-testid="steer-button"
                 className={`relative px-3.5 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 ${
                   !prompt.trim()
-                    ? "bg-overlay text-muted-foreground cursor-not-allowed opacity-50"
+                    ? "border border-border text-muted-foreground cursor-not-allowed"
                     : "bg-primary hover:bg-primary-hover text-white cursor-pointer"
                 }`}
-                title="Send this message to the running agent; it reads it at its next step"
+                title="Send this to the running agent: it reads it at its next step"
               >
                 <MessageSquarePlus className="w-3.5 h-3.5" />
                 <span>Send</span>
@@ -618,7 +697,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                   isThrustPulsing ? "animate-thrust-pulse" : ""
                 } ${
                   !prompt.trim() && pendingAttachments.length === 0
-                    ? "bg-overlay text-muted-foreground cursor-not-allowed opacity-60"
+                    ? "border border-border bg-surface text-muted-foreground cursor-not-allowed"
                     : "bg-primary hover:bg-primary-hover text-white cursor-pointer rocket-thrust-glow"
                 }`}
               >

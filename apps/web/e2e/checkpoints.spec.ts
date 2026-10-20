@@ -34,6 +34,7 @@ test("lists checkpoints and rewinds after a confirmation", async ({ page, reques
   );
 
   await page.goto(`/chat/${sessionId}`);
+  await page.getByTestId("view-menu-trigger").click();
   await page.getByTestId("turn-inspector-toggle").click();
   const items = page.getByTestId("checkpoint-item");
   await expect(items).toHaveCount(2);

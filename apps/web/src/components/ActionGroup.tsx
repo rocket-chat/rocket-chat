@@ -26,6 +26,7 @@ import {
   summarizeGroup,
 } from "../lib/activity";
 import { ToolExecutionCard } from "./ToolExecutionCard";
+import { LiveToolOutput } from "./LiveToolOutput";
 import { SubagentExecutionCard } from "./SubagentExecutionCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { Badge } from "./ui/Badge";
@@ -109,15 +110,16 @@ const TitledPreview: React.FC<{ title: string; text: string }> = ({ title, text 
 export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const fileDiffs = useMissionStore((state) => state.fileDiffs);
-  const setActiveDiffIndex = useMissionStore((state) => state.setActiveDiffIndex);
+  const selectChange = useMissionStore((state) => state.selectChange);
   const setIsRightPanelOpen = useMissionStore((state) => state.setIsRightPanelOpen);
 
   const summary = summarizeGroup(entries);
+  // What the command running now has printed shows under the group even while it is collapsed.
+  const runningCall = [...entries].reverse().find((entry) => entry.toolCall && isPending(entry.toolCall))?.toolCall;
 
   const openInInspector = (path: string | undefined) => {
-    const index = fileDiffs.findIndex((diff) => diff.path === path);
-    if (index < 0) return;
-    setActiveDiffIndex(index);
+    if (!path || !fileDiffs.some((diff) => diff.path === path)) return;
+    selectChange(path);
     setIsRightPanelOpen(true);
   };
 
@@ -149,6 +151,8 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
         )}
         {summary.failed > 0 && <Badge tone="danger">{summary.failed} failed</Badge>}
       </button>
+
+      {isActive && <LiveToolOutput callId={runningCall?.id} />}
 
       {isOpen && (
         <ul className="mt-1 ml-1 space-y-0.5">

@@ -16,6 +16,14 @@ import type {
   WaitStartedPayload,
 } from "../../types/mission";
 
+export interface GoalSummary {
+  status: string;
+  consumedTokens: number;
+  consumedCostUsd: number;
+  continuationCount: number;
+  maxContinuations: number;
+}
+
 export interface OwnUserMessage {
   messageId: string;
   content: string;
@@ -65,7 +73,16 @@ export interface SessionsSlice {
   /** Applies a `session_updated` broadcast to the local list so other tabs converge. */
   applySessionUpdate: (
     sessionId: string,
-    update: { title?: string; is_pinned?: boolean; is_archived?: boolean; sandbox_status?: string; is_processing?: boolean }
+    update: {
+      title?: string;
+      is_pinned?: boolean;
+      is_archived?: boolean;
+      sandbox_status?: string;
+      is_processing?: boolean;
+      /** "approval" or "question" while a turn waits on a person, "" when it does not. */
+      awaiting_input?: string;
+      last_turn_status?: string;
+    }
   ) => void;
 }
 
@@ -105,8 +122,23 @@ export interface StreamSlice {
   activeApproval: ApprovalRequestInfo | null;
   checklist: ChecklistTask[];
   fileDiffs: FileDiffItem[];
-  activeDiffIndex: number;
+  /** Which changed file the Changes view should show (set from a step in the conversation). */
+  selectedChangePath: string | null;
+  /** The long task's budget so far (null when no task has needed continuation turns). */
+  goal: GoalSummary | null;
+  setGoal: (goal: GoalSummary | null) => void;
+  /** Increases when a background process starts or ends, so the Processes tab reads its list. */
+  processesVersion: number;
+  bumpProcesses: () => void;
+  /** Increases whenever the agent reports a change, telling the Changes view to read again. */
+  changesVersion: number;
   terminalLogs: string;
+  /** Characters trimmed from the front of terminalLogs so far (it keeps only the latest). */
+  terminalBase: number;
+  /** Changes whenever the terminal is reset, so the view clears instead of appending. */
+  terminalEpoch: number;
+  /** What running tool calls have printed so far, by call id (the tail only). */
+  liveToolOutput: Record<string, string>;
   tokenRate: number;
   /** The agent and model of the turn running now (from its "running" status). */
   turnBinding: TurnBinding | null;
@@ -136,8 +168,11 @@ export interface StreamSlice {
   setActiveWait: (wait: WaitStartedPayload | null) => void;
   setChecklist: (tasks: ChecklistTask[]) => void;
   addFileDiff: (diff: FileDiffItem) => void;
-  setActiveDiffIndex: (idx: number) => void;
+  selectChange: (path: string | null) => void;
+  bumpChanges: () => void;
   appendTerminalLog: (text: string) => void;
+  appendToolOutput: (callId: string, text: string) => void;
+  clearToolOutput: (callId: string) => void;
   setTokenRate: (rate: number) => void;
   updateToolCall: (nameOrId: string, data: Partial<ToolCallData>) => void;
   updateSubagent: (subagentId: string, data: Partial<SubagentExecutionData>) => void;
@@ -175,7 +210,24 @@ export interface LayoutSlice {
   setIsTurnInspectorOpen: (open: boolean) => void;
   setIsMemoryInspectorOpen: (open: boolean) => void;
   setIsArtifactsDrawerOpen: (open: boolean) => void;
+  /** The inspector's current tab, so the app can bring up the one that matters. */
+  inspectorTab: InspectorTab;
+  setInspectorTab: (tab: InspectorTab) => void;
+  /** Whether the app already opened the inspector by itself for this session (it does so once). */
+  inspectorAutoOpened: boolean;
+  /** Opens the inspector on `tab` the first time something worth seeing happens (wide screens only). */
+  autoOpenInspector: (tab: InspectorTab) => void;
+  /** The agent-output terminal: null follows whether anything was printed. */
+  terminalOpen: boolean | null;
+  setTerminalOpen: (open: boolean | null) => void;
+  /** Whether a command has printed in this session. */
+  terminalActivity: boolean;
+  /** Background processes running now, from process_started / process_exited. */
+  runningProcesses: number;
+  adjustRunningProcesses: (delta: number) => void;
 }
+
+export type InspectorTab = "changes" | "files" | "processes" | "subagents" | "artifacts" | "preview";
 
 export type MissionStore = SessionsSlice &
   AgentsSlice &

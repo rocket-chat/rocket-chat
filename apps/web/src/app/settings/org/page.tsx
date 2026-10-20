@@ -36,7 +36,6 @@ export default function Page() {
             mode="org"
             title="Member defaults"
             description="Defaults for personal settings. Lock a setting to stop members from overriding it."
-            exclude={["full_name", "git_author_name", "git_author_email"]}
           />
         </div>
       </div>
