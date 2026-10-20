@@ -188,4 +188,25 @@ def test_the_reminder_lets_the_agent_finish_when_it_cannot_verify() -> None:
         ChatMessage(role="assistant", content="Done."),
     ]
     notice = verification_gate_notice(conversation)
-    assert notice is not None and "do not try further" in notice
+    assert notice is not None and "Do not install toolchains" in notice
+
+
+def test_published_work_and_a_checks_read_count_as_verification() -> None:
+    # slack_2ff369f1_…: edits, git_push, git_open_pr, github_pull_request(actions=["checks"]),
+    # "Done", then sent back to install Go and buf to check the change locally.
+    for name, arguments in (
+        ("git_push", '{"path": "/workspace/proto"}'),
+        ("git_open_pr", '{"path": "/workspace/proto", "target_branch": "beta"}'),
+        ("github_pull_request", '{"actions": ["checks"], "number": 3820}'),
+    ):
+        conversation = [
+            ChatMessage(role="user", content="Implement it and open a PR"),
+            _call("c1", "file_edit", '{"path": "pb/cross-models.proto"}'),
+            ChatMessage(role="tool", content="ok", tool_call_id="c1"),
+            _call("c2", name, arguments),
+            ChatMessage(role="tool", content="ok", tool_call_id="c2"),
+            _call("c3", "update_task_checklist", _DONE),
+            ChatMessage(role="tool", content="updated", tool_call_id="c3"),
+            ChatMessage(role="assistant", content="Done — 2 PRs opened."),
+        ]
+        assert verification_gate_notice(conversation) is None, name

@@ -84,6 +84,17 @@ class FakeGitHub:
                 {"id": 6, "name": "lint", "conclusion": "success"},
             ]
             return httpx.Response(200, json={"check_runs": runs})
+        if path == "/repos/acme/app/actions/jobs/10/logs":
+            # A goblin failure printed long before the summary, in colour (as in CI).
+            log = "\n".join(
+                ["2026-10-20T15:04:01Z \x1b[31m  ✗ should apply the discount\x1b[0m",
+                 "2026-10-20T15:04:01Z     expected 90 to equal 100",
+                 *[f"2026-10-20T15:04:02Z line {n}" for n in range(1000)],
+                 "2026-10-20T15:04:04Z FAIL", "2026-10-20T15:04:04Z coverage: 15.5%"]
+            )  # fmt: skip
+            return httpx.Response(200, text=log, headers={"content-type": "text/plain"})
+        if path == "/repos/acme/app/actions/runs/118702728467":
+            return httpx.Response(404, json={"message": "Not Found"})
         if path == "/repos/acme/app/actions/jobs/9/logs":
             log = "\n".join(f"line {n}" for n in range(1000)) + "\nError: assertion failed"
             return httpx.Response(200, text=log, headers={"content-type": "text/plain"})
@@ -197,6 +208,30 @@ async def test_a_jobs_log_is_read_from_its_end(registry: ToolRegistry, github: F
 
     assert logs.startswith("[last 300 of 1001 log lines of job 9]")
     assert "Error: assertion failed" in logs and "line 10\n" not in logs
+
+
+async def test_a_failure_printed_before_the_end_of_a_log_is_shown(
+    registry: ToolRegistry, github: FakeGitHub
+) -> None:
+    # slack_2ff369f1_…: the last 300 of 3000 lines showed "FAIL" but not which test failed.
+    logs = await registry.call_tool(
+        "github_actions", {"repository": "acme/app", "action": "job_logs", "job_id": 10}
+    )
+
+    assert logs.startswith("[failures reported earlier in the log of job 10]")
+    assert "✗ should apply the discount" in logs and "expected 90 to equal 100" in logs
+    assert "\x1b[" not in logs and "line 500" not in logs
+
+
+async def test_a_check_run_id_given_as_a_run_id_is_explained(
+    registry: ToolRegistry, github: FakeGitHub
+) -> None:
+    viewed = await registry.call_tool(
+        "github_actions",
+        {"repository": "acme/app", "action": "run_view", "run_id": 118702728467},
+    )
+
+    assert "is a job ID" in viewed and "job_logs" in viewed
 
 
 async def test_issues_can_be_opened_and_commented(

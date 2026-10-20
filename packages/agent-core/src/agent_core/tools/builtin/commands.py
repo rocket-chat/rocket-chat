@@ -80,6 +80,24 @@ def fold_leading_cd(command: str, workdir: str) -> tuple[str, str]:
     return command[match.end() :], target
 
 
+# A shell sleep long enough to be a wait, not a pause before the next command.
+_LONG_SLEEP = re.compile(r"(?:^|[;&|(]|\bthen|\bdo)\s*sleep\s+(\d+)\s*(?:[;&|)]|$)", re.MULTILINE)
+LONG_SLEEP_SECONDS = 30
+LONG_SLEEP_REFUSAL = (
+    "Not run: `sleep {seconds}` holds the turn open while nothing happens. To wait for CI, a "
+    "review, a background process or a time, use `wait_for`: the turn pauses and resumes when "
+    "it is done. A pull request this session follows wakes it by itself when its CI finishes, "
+    "so if `wait_for` is not available to you, give your answer now instead of waiting."
+)
+
+
+def long_sleep_in(command: str) -> int | None:
+    """The seconds of a ``sleep`` long enough to be a wait, or None."""
+    waits = [int(m.group(1)) for m in _LONG_SLEEP.finditer(command)]
+    longest = max(waits, default=0)
+    return longest if longest >= LONG_SLEEP_SECONDS else None
+
+
 def _register_shell_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
@@ -109,6 +127,8 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
         await registry._ensure_sandbox(session_id)
         workdir = workspace_path(cwd) if cwd.strip() else await registry.shell_dir(session_id)
         command, workdir = fold_leading_cd(command, workdir)
+        if (seconds := long_sleep_in(command)) is not None:
+            return LONG_SLEEP_REFUSAL.format(seconds=seconds)
         await _maybe_auto_checkpoint(driver, session_id, command, workdir)
         before = await workspace_changes.snapshot(driver, session_id, workdir)
         output = await tier2.bash_exec(driver, session_id, command, timeout_seconds, workdir)
