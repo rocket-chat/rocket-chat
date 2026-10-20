@@ -736,6 +736,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             policy=policy or TurnPolicy(),
             sandbox_capabilities=(policy.sandbox_capabilities if policy is not None else None),
             active_repository=(policy.active_repository if policy is not None else ""),
+            agent_env=dict(policy.agent_env) if policy is not None else {},
             callbacks=self._build_turn_callbacks(
                 session_id,
                 event_queue,

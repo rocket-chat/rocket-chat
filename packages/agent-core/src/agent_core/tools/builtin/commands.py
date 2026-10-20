@@ -83,10 +83,10 @@ def fold_leading_cd(command: str, workdir: str) -> tuple[str, str]:
 def _register_shell_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
-            "Execute a shell command inside the sandbox (/bin/sh by default; write POSIX-compliant "
-            "syntax or invoke bash explicitly if using bashisms). Each call is a fresh shell: "
-            "`cd` and exported variables do not carry over. Always say where it runs with `cwd`; "
-            "never start the command with `cd`."
+            "Execute a shell command inside the sandbox, in bash (sh only in an image without "
+            "bash). Each call is a fresh shell: `cd` and `export` do not carry over. Always say "
+            "where it runs with `cwd`; never start the command with `cd`. For variables every "
+            "command needs, use `env_set` once instead of exporting them each time."
         )
     )
     async def bash_exec(

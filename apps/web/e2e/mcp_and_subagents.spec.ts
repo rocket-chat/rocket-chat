@@ -27,7 +27,8 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await expect(note).toContainText("registers itself");
     await expect(note).toContainText("/v1/mcp/oauth/callback");
     await expect(note.getByRole("link", { name: /Setup guide/ })).toHaveAttribute("href", "https://linear.app/docs/mcp");
-    await expect(page.getByLabel("Authorization URL")).toHaveValue("");
+    // Nothing to fill in: the endpoints and client are discovered when signing in.
+    await expect(page.getByTestId("mcp-sign-in-summary")).toContainText("Nothing to set up");
   });
 
   test("a command server is configured with environment variables", async ({ page }) => {

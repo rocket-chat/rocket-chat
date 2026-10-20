@@ -96,6 +96,16 @@ const firstLine = (text: string): string => {
   return `${line.slice(0, 157).trimEnd()}…`;
 };
 
+/** A step's kind, with the start of its text on a smaller line below so the two never read as one sentence. */
+const TitledPreview: React.FC<{ title: string; text: string }> = ({ title, text }) => (
+  <span className="flex min-w-0 flex-col leading-tight">
+    <span className="truncate text-neutral-600 dark:text-neutral-400">{title}</span>
+    <span data-testid="step-preview" className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+      {firstLine(text)}
+    </span>
+  </span>
+);
+
 export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = false }) => {
   const [isOpen, setIsOpen] = useState(false);
   const fileDiffs = useMissionStore((state) => state.fileDiffs);
@@ -148,12 +158,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                 <StepRow
                   icon={<Sparkles className="h-3.5 w-3.5" />}
                   title={entry.reasoning.trim()}
-                  label={
-                    <>
-                      <span className="text-neutral-600 dark:text-neutral-400">Thought</span>
-                      <span className="ml-2 text-neutral-500" title={entry.reasoning.trim()}>{firstLine(entry.reasoning)}</span>
-                    </>
-                  }
+                  label={<TitledPreview title="Thought" text={entry.reasoning} />}
                   meta={
                     entry.timestamp ? (
                       <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">
@@ -178,12 +183,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                 <StepRow
                   icon={<Sparkles className="h-3.5 w-3.5 text-brand" />}
                   title={entry.content.trim()}
-                  label={
-                    <>
-                      <span className="text-neutral-600 dark:text-neutral-400">Step intent</span>
-                      <span className="ml-2 text-neutral-500" title={entry.content.trim()}>{firstLine(entry.content)}</span>
-                    </>
-                  }
+                  label={<TitledPreview title="Step intent" text={entry.content} />}
                   meta={
                     entry.timestamp ? (
                       <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">

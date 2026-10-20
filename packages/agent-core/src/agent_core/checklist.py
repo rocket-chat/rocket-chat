@@ -9,6 +9,7 @@ final answer, asks the model once to bring the list up to date.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Sequence
 from typing import Any
 
@@ -86,22 +87,61 @@ EDIT_TOOLS = frozenset(
     {"file_write", "file_edit", "file_replace", "apply_patch", "apply_diff_file", "replace_symbol"}
 )
 VERIFY_TOOLS = frozenset({"run_tests", "lint", "typecheck", "build"})
+# Shell commands that test, build or check a project: as good a verification as the tools.
+_VERIFY_COMMAND = re.compile(
+    r"\b(?:go\s+(?:test|build|vet)|golangci-lint|make|mage|pytest|tox|nox|ruff|mypy|tsc|"
+    r"eslint|jest|vitest|playwright|cargo\s+(?:test|build|check|clippy)|gradle\w*|mvn\w*|"
+    r"dotnet\s+(?:test|build)|(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:test|build|lint|"
+    r"typecheck|type-check|check))\b"
+)
+
+
+def _call_name_and_arguments(call: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    raw_function = call.get("function")
+    function: dict[str, Any] = raw_function if isinstance(raw_function, dict) else {}
+    name = call.get("name") or function.get("name", "")
+    raw = call.get("arguments", function.get("arguments"))
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw or "{}")
+        except ValueError:
+            raw = {}
+    return str(name), raw if isinstance(raw, dict) else {}
+
+
+def _verifies(name: str, arguments: dict[str, Any]) -> bool:
+    if name in VERIFY_TOOLS:
+        return True
+    if name in ("bash_exec", "process_start"):
+        return bool(_VERIFY_COMMAND.search(str(arguments.get("command", ""))))
+    # Waiting for CI or reading a pull request's checks is verification by the project's own CI.
+    if name == "wait_for":
+        return arguments.get("target") == "ci_status"
+    return name == "github_pull_request" and arguments.get("action") == "checks"
 
 
 def verification_gate_notice(conversation: Sequence[ChatMessage]) -> str | None:
-    """A reminder when code was edited but no test/verification tool ran before completing."""
+    """A reminder when this turn edited code and nothing verified it before completing.
+
+    Only the current turn counts (back to the latest user message): an edit an earlier turn
+    already verified, or a turn woken only to read CI results, must not send the agent
+    rebuilding a project it has finished with.
+    """
     for message in reversed(conversation):
+        if message.role == "user":
+            return None
         for call in message.tool_calls or []:
-            name = call.get("name") or call.get("function", {}).get("name", "")
-            if name in VERIFY_TOOLS:
+            name, arguments = _call_name_and_arguments(call)
+            if _verifies(name, arguments):
                 return None
             if name in EDIT_TOOLS:
-                tasks = latest_tasks(conversation)
-                if any(t.get("status") == "completed" for t in tasks):
-                    return (
-                        "Verification gate: you modified files but have not run project verification "
-                        "tools since your last edit. Run `run_tests`, `lint`, `typecheck`, or `build` to verify "
-                        "your changes before finalizing tasks."
-                    )
-                return None
+                if not any(t.get("status") == "completed" for t in latest_tasks(conversation)):
+                    return None
+                return (
+                    "Verification gate: you changed files in this turn and nothing has checked "
+                    "them since (tests, a build, a linter or CI). If the project can be checked "
+                    "here, run that check now. If you already verified another way, or it cannot "
+                    "be checked in this sandbox, do not try further: give your final answer and "
+                    "say in one line what was and was not verified."
+                )
     return None

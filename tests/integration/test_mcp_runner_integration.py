@@ -65,7 +65,7 @@ async def _running(url: str) -> int:
 
 
 async def _whoami(user: str) -> str | None:
-    provider = await mcp_turn._mcp_tools_for_turn(None, ORG, user)
+    provider = (await mcp_turn._mcp_tools_for_turn(None, ORG, user)).provider
     if provider is None:
         return None
     try:
@@ -207,7 +207,8 @@ async def test_each_concurrent_turn_has_its_own_process_that_ends_with_the_turn(
         headers=ADMIN,
     )
     providers = [
-        await mcp_turn._mcp_tools_for_turn(None, ORG, u) for u in ("alice", "bob", "carol")
+        (await mcp_turn._mcp_tools_for_turn(None, ORG, u)).provider
+        for u in ("alice", "bob", "carol")
     ]
     try:
         results = await asyncio.gather(

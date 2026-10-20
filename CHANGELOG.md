@@ -15,10 +15,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `settings`: `models.context_target_tokens` (200,000 by default): long conversations are pruned and compacted below it even on models with a larger window. `models.provider_preferences`: OpenRouter provider preferences per model pattern, to keep a model on one provider and its prompt cache warm.
 - `settings`, `api`, `web`: A step limit of `0` (organization or agent) runs a turn until the agent answers, is cancelled or reaches a cost cap, without a "converge now" notice or forced synthesis.
 
+- `api`, `web`: Zero-setup MCP sign-in: entering a server's URL detects that it signs people in (OAuth metadata), the form offers only who signs in, and **Add & sign in** opens the provider's login in a new tab that reports back when done. Providers that accept a client metadata URL instead of registration are supported (`/v1/mcp/oauth/client-metadata.json`).
+- `api`: An MCP server whose account is missing, expired or refused is marked *sign-in required*; a refused token is refreshed and retried once, and the agent is told which servers need signing in (with the link) instead of the server silently disappearing.
+- `api`, `web`: **Environment variables per sandbox type** (Settings → Sandboxes): set for every command of the type's sessions; a variable marked secret is stored encrypted, write-only and never given to the model (it learns names only). Migration `044_sandbox_catalogue_env`.
+- `orchestrator`: `env_set`, `env_unset` and `env_list`: the agent sets a variable once for every later command of the session, in this and later turns, instead of exporting it in each command.
 - `slack`, `web`: A bot can send private requests' questions, approvals, errors and result by direct message, each linking to its thread (`private_dm_updates`); the buttons work from the DM.
 
 ### Changed
 - `orchestrator`: Loop detection never pauses an autonomous turn: repeated failures and edit/revert loops are notes to the agent in every mode but `ask`. The checklist stall detector is removed (re-sending an unchanged checklist counted as "no progress" and its warning asked for another update), an unchanged checklist re-send is a no-op, and the stale-checklist reminder comes every 20 steps without asking for an update "with your next tool call".
+- `sandbox`: Commands run in bash when the image has it (sh otherwise).
 - `orchestrator`: `bash_exec` requires `cwd`, and a leading `cd <folder> &&` runs as that folder; the cockpit shows the command and where it ran.
 - `orchestrator`: The active repository's `AGENTS.md` moves from the cached system prompt to the per-turn context: switching repository no longer re-sends the whole history uncached on the next turn.
 - `orchestrator`: `.rocket/PLAN.md` and `PROGRESS.md` are read at turn start (and after a step that writes them) and given once with the turn's context, instead of four sandbox reads and an uncached copy at the end of every request.
@@ -26,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api`: `wait_for ci_status` reads the pull request's checks first and answers at once when CI has finished or no check appears (a branch behind its base, no CI), instead of waiting up to two hours.
 
 ### Fixed
+- `orchestrator`: The verification reminder no longer reopens a finished turn for edits an earlier turn made, and counts tests or builds run in the shell and CI as verification; it tells the agent to finish when it cannot verify (an automatic CI turn spent 23 steps rebuilding a project after its summary).
+- `api`: Stopping a session cancels its pending waits, a wait ends when its CI or review result wakes the session, and a second `wait_for` on the same target replaces the first; an expired wait restarted a session its owner had stopped.
+- `web`: A thought or step intent shows its kind and the start of its text on two lines, so "Thought" no longer reads as the first word of the thought.
+- `api`: MCP sign-ins could never complete: the OAuth callback URL (and the client registered with it) was the backend's internal address. It is now the public address (`ROCKET_PUBLIC_URL`, else the forwarded host), and clients registered for another callback URL are registered again automatically.
+- `api`: MCP OAuth requests carry the server's `resource` (RFC 8707, required by the MCP authorization spec) and no longer fall back to a guessed endpoint, client ID (`rocket-chat`) or scope (`mcp:tools`); a provider that cannot register clients is told so with the callback URL to use.
+- `api`: Re-saving a signed-in OAuth server probed it without its token and reported it broken.
 - `slack`: Linked members were still refused `git_push` when the bot's agent lists its tools: the blocked tools were also removed from that list. The turn's blocked set now applies to both.
 - `orchestrator`: Tool-call markup leftovers cut at other places (`name="path" string="true">…`, `parameter name="body" …`) are recognised too.
 - `api`, `web`: A reloaded session showed one block of reasoning before all of a turn's steps (or nothing visible among them); each step's reasoning is now saved with the call it led to and shown between the steps, as it streamed.

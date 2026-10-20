@@ -46,7 +46,7 @@ def test_verification_gate_triggers_when_files_edited_without_verification() -> 
 
     notice = verification_gate_notice(conversation)
     assert notice is not None
-    assert "Verification gate: you modified files but have not run project verification" in notice
+    assert notice.startswith("Verification gate: you changed files in this turn")
 
 
 def test_verification_gate_passes_when_verification_tool_ran_after_edit() -> None:
@@ -129,3 +129,63 @@ def test_verification_gate_does_not_trigger_for_read_only_turns() -> None:
 
     notice = verification_gate_notice(conversation)
     assert notice is None
+
+
+def _call(call_id: str, name: str, arguments: str) -> ChatMessage:
+    return ChatMessage(
+        role="assistant",
+        content="",
+        tool_calls=[
+            {"id": call_id, "type": "function", "function": {"name": name, "arguments": arguments}}
+        ],
+    )
+
+
+_DONE = '{"tasks": [{"id": "t1", "title": "Fix CI", "status": "completed"}]}'
+
+
+def test_an_edit_from_an_earlier_turn_does_not_reopen_a_turn_that_only_read_ci() -> None:
+    # session_116c1b0bb3: woken by a CI update after the edits; it answered and was sent back
+    # to rebuild the project for 23 steps.
+    conversation = [
+        ChatMessage(role="user", content="Fix the CI errors"),
+        _call("c1", "file_edit", '{"path": "ticket/go.mod"}'),
+        ChatMessage(role="tool", content="ok", tool_call_id="c1"),
+        _call("c2", "update_task_checklist", _DONE),
+        ChatMessage(role="tool", content="updated", tool_call_id="c2"),
+        ChatMessage(role="assistant", content="Pushed; waiting for CI."),
+        ChatMessage(role="user", content="[Automatic turn] All 6 CI checks passed."),
+        _call("c3", "github_pull_request", '{"action": "view"}'),
+        ChatMessage(role="tool", content="#3816 open", tool_call_id="c3"),
+        ChatMessage(role="assistant", content="CI is green. Summary: ..."),
+    ]
+    assert verification_gate_notice(conversation) is None
+
+
+def test_a_test_command_run_in_the_shell_counts_as_verification() -> None:
+    conversation = [
+        ChatMessage(role="user", content="Fix it"),
+        _call("c1", "file_edit", '{"path": "a.go"}'),
+        ChatMessage(role="tool", content="ok", tool_call_id="c1"),
+        _call("c2", "bash_exec", '{"command": "go test ./...", "cwd": "/workspace/svc"}'),
+        ChatMessage(role="tool", content="ok", tool_call_id="c2"),
+        _call("c3", "update_task_checklist", _DONE),
+        ChatMessage(role="tool", content="updated", tool_call_id="c3"),
+        ChatMessage(role="assistant", content="Done."),
+    ]
+    assert verification_gate_notice(conversation) is None
+
+
+def test_the_reminder_lets_the_agent_finish_when_it_cannot_verify() -> None:
+    conversation = [
+        ChatMessage(role="user", content="Fix it"),
+        _call("c1", "file_edit", '{"path": "a.go"}'),
+        ChatMessage(role="tool", content="ok", tool_call_id="c1"),
+        _call("c2", "bash_exec", '{"command": "git push", "cwd": "/workspace/svc"}'),
+        ChatMessage(role="tool", content="ok", tool_call_id="c2"),
+        _call("c3", "update_task_checklist", _DONE),
+        ChatMessage(role="tool", content="updated", tool_call_id="c3"),
+        ChatMessage(role="assistant", content="Done."),
+    ]
+    notice = verification_gate_notice(conversation)
+    assert notice is not None and "do not try further" in notice

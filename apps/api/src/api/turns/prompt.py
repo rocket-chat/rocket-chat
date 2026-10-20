@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from api.auth.origin import public_base_url
 from api.services.git_credentials import GitCredentialBundle
 from api.services.github_watches import GithubWatchStore, pending_events_notice
 from api.services.personas import DEFAULT_AGENT_PROMPT
@@ -25,7 +26,7 @@ from api.services.skills_lookup import list_visible_skills
 from api.services.subagents import load_subagent_configs
 from api.services.workspace_release import RELEASED_AT, released_notice
 from api.turns.context import TurnContext
-from specifications.interfaces.agent import GitPolicy, SystemPrompt
+from specifications.interfaces.agent import GitPolicy, SystemPrompt, TurnPolicy
 from specifications.interfaces.sandbox import SandboxStatus
 from specifications.interfaces.session import SessionRecord
 
@@ -88,9 +89,10 @@ WORKING_STYLE_GUIDANCE = (
     "- Avoid redundant verification loops: when a file edit, write, or rebase continue succeeds, "
     "trust the tool output and move directly to the next step. Do not execute consecutive identical "
     "`git status` calls or re-read files you just wrote without an intervening state change.\n"
-    "- Shell dialect: commands in `bash_exec` execute in `/bin/sh` by default. Write portable "
-    "POSIX shell scripts (`[ ... ]` instead of `[[ ... ]]`), or invoke `/bin/bash -c '...'` "
-    "explicitly if using bashisms.\n"
+    "- Shell: `bash_exec` runs commands in bash (sh only in an image without bash).\n"
+    "- Environment variables every command needs (e.g. `GOPRIVATE`, `NODE_OPTIONS`): set them "
+    "once with `env_set`; they apply to every later command, in this turn and later ones. Do not "
+    "re-export them in each command.\n"
     "- Do not repeat a search that already failed with a similar query: change approach or "
     "say what you could not find.\n"
     "- For work of three or more steps keep a task checklist with `update_task_checklist`: "
@@ -292,6 +294,8 @@ async def build_system_prompt(
     )
     processes_note = await _processes_note(ctx)
     github_note = await _github_activity_note(ctx)
+    sign_in_note = _mcp_sign_in_note(ctx.state.mcp_needs_sign_in)
+    env_note = _session_env_note(ctx.binding.policy)
     released_note = await _released_workspace_note(ctx)
     return SystemPrompt(
         stable=base
@@ -303,7 +307,34 @@ async def build_system_prompt(
         + (f"\n{released_note}" if released_note else "")
         + (f"\n{processes_note}" if processes_note else "")
         + (f"\n{github_note}" if github_note else "")
+        + (f"\n{sign_in_note}" if sign_in_note else "")
+        + (f"\n{env_note}" if env_note else "")
         + (f"\n{overlay.dynamic}" if overlay and overlay.dynamic else ""),
+    )
+
+
+def _session_env_note(policy: TurnPolicy) -> str:
+    """Which variables every command already has (names only: values may be secrets)."""
+    parts = []
+    if policy.sandbox_env_names:
+        parts.append(f"from the sandbox type: {', '.join(policy.sandbox_env_names)}")
+    if policy.agent_env:
+        parts.append(f"set by you (env_set): {', '.join(sorted(policy.agent_env))}")
+    if not parts:
+        return ""
+    return f"Environment variables every command already has, {'; '.join(parts)}."
+
+
+def _mcp_sign_in_note(servers: list[str]) -> str:
+    """Tool servers the member has not signed in to: their tools are missing from this turn."""
+    if not servers:
+        return ""
+    settings = f"{public_base_url()}/settings/mcp" if public_base_url() else "Settings > MCP"
+    names = ", ".join(sorted(set(servers)))
+    return (
+        f"Not signed in (their tools are unavailable this turn): {names}. If the task needs one, "
+        f"tell the person to sign in at {settings} and say what you could not do; do not try to "
+        "reach that service another way."
     )
 
 

@@ -332,6 +332,7 @@ async def test_a_turn_only_sees_its_own_organizations_and_members_servers(
     class Recorder:
         def __init__(self, targets: list[McpServerTarget], **_: Any) -> None:
             seen.append(sorted(t.server_id for t in targets))
+            self.unauthorized: set[str] = set()
 
         async def load(self) -> Recorder:
             return self

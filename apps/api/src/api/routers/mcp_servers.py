@@ -15,6 +15,7 @@ from mcp_runner.protocol import is_valid_env_name
 from sqlalchemy import or_, select
 
 from api.auth.access import _get_request_identity
+from api.auth.origin import mcp_oauth_callback_url, public_origin
 from api.db.models import (
     McpServerEntityModel,
 )
@@ -33,7 +34,6 @@ from api.models import (
 from api.services.audit import AuditService
 from api.services.mcp_discovery import DiscoveryError as McpDiscoveryError
 from api.services.mcp_discovery import discover as discover_mcp_oauth
-from api.services.mcp_discovery import register_client as register_mcp_oauth_client
 from api.services.mcp_engine import (
     OAUTH_TOKEN_KEYS,
     probe_and_fetch_tools,
@@ -43,6 +43,7 @@ from api.services.mcp_member_env import (
     overridable_names,
     save_member_values,
 )
+from api.services.mcp_oauth_setup import MANUAL_CLIENT, needs_settling, settle_oauth
 from api.services.mcp_runner import runner_status
 from api.services.mcp_runtime import auth_headers as mcp_auth_headers
 from api.services.mcp_turn import (
@@ -365,11 +366,35 @@ async def validate_mcp_server(
         for t in tools_data
     ]
 
+    sign_in = None
+    if status != "connected" and not req_headers:
+        sign_in = await _sign_in_offered(req.transport, req.endpoint_or_command)
     return ValidateMcpServerResponse(
         valid=(status == "connected"),
-        status=status,
+        status=NEEDS_SIGN_IN if sign_in else status,
         tools=tools,
-        error=err_msg,
+        error=(
+            "This server signs you in with your account: save it, then sign in."
+            if sign_in == "automatic"
+            else "This server signs you in with your account, but its provider needs an OAuth "
+            "app created by hand: enter its client ID under Advanced."
+            if sign_in == "needs_client"
+            else err_msg
+        ),
+        sign_in=sign_in,
+    )
+
+
+async def _sign_in_offered(transport: str, endpoint: str) -> str | None:
+    """Whether a remote server that refused us advertises OAuth, and if it needs setup."""
+    if transport == "stdio" or not endpoint.startswith(("http://", "https://")):
+        return None
+    try:
+        found = await discover_mcp_oauth(endpoint)
+    except McpDiscoveryError:
+        return None
+    return (
+        "automatic" if found.registration_url or found.client_metadata_supported else "needs_client"
     )
 
 
@@ -598,39 +623,52 @@ def _keep_stored_secrets(
             header.value = _open_secret(old["value"], bool(old.get("is_secret")))
 
 
+# OAuth fields set up automatically; an edit that leaves the client unchanged keeps them.
+_SETTLED_OAUTH_KEYS = (
+    "oauth_client_method",
+    "oauth_registered_redirect_uri",
+    "oauth_resource",
+)
+
+
+def _carry_oauth_setup(
+    auth_dict: dict[str, Any], req: CreateMcpServerRequest, stored: dict[str, Any] | None
+) -> None:
+    """Mark a client entered by hand as such, and keep an automatic setup across an edit."""
+    previous = (stored or {}).get("encrypted_auth") or {}
+    entered = req.auth.oauth_client_id
+    if entered and entered == previous.get("oauth_client_id"):
+        for key in _SETTLED_OAUTH_KEYS:
+            if key in previous:
+                auth_dict[key] = previous[key]
+    elif entered:
+        auth_dict["oauth_client_method"] = MANUAL_CLIENT
+
+
 async def _discover_oauth_settings(
     req: CreateMcpServerRequest, auth_dict: dict[str, Any], request: Request
 ) -> None:
     """Fill in OAuth endpoints and a client when the server can describe itself.
 
-    Nothing to type in: ask the server how to authorize (RFC 9728/8414) and register a
-    client (RFC 7591) when it allows it. A server that does not is configured by hand.
+    Nothing to type in: ask the server how to authorize (RFC 9728/8414) and set up a client
+    for our public callback URL (RFC 7591 registration, or our metadata URL). A server that
+    does neither keeps what was entered by hand; signing in then says what is missing.
     """
-    needs_discovery = (
-        req.auth.auth_type in ("oauth", "oauth2")
-        and req.endpoint_or_command.startswith(("http://", "https://"))
-        and not (auth_dict.get("oauth_authorization_url") and auth_dict.get("oauth_token_url"))
-    )
-    if not needs_discovery:
+    redirect_uri = mcp_oauth_callback_url(request)
+    if req.auth.auth_type not in ("oauth", "oauth2") or not needs_settling(auth_dict, redirect_uri):
         return
-    redirect_uri = f"{str(request.base_url).rstrip('/')}/v1/mcp/oauth/callback"
     try:
-        found = await discover_mcp_oauth(req.endpoint_or_command)
-        auth_dict["oauth_authorization_url"] = found.authorization_url
-        auth_dict["oauth_token_url"] = found.token_url
-        if not auth_dict.get("oauth_scopes"):
-            auth_dict["oauth_scopes"] = found.scopes or ""
-        if not auth_dict.get("oauth_client_id"):
-            registered = await register_mcp_oauth_client(found, redirect_uri)
-            auth_dict["oauth_client_id"] = registered.client_id
-            if registered.client_secret:
-                auth_dict["oauth_client_secret"] = _cipher.encrypt(registered.client_secret)
+        settled = await settle_oauth(
+            auth_dict, req.endpoint_or_command, redirect_uri, public_origin(request), _cipher
+        )
     except McpDiscoveryError as err:
         logger.info("OAuth discovery for %s did not complete: %s", req.endpoint_or_command, err)
+        return
+    auth_dict.update(settled)
 
 
 async def _tools_and_status(
-    req: CreateMcpServerRequest, org_id: str
+    req: CreateMcpServerRequest, org_id: str, account: dict[str, Any] | None = None
 ) -> tuple[list[dict[str, Any]], str]:
     """The tools the caller supplied, or the ones the server reports when none were given."""
     if req.tools:
@@ -648,10 +686,33 @@ async def _tools_and_status(
         transport=req.transport,
         endpoint_or_command=req.endpoint_or_command,
         headers=raw_headers,
+        # The signed-in account, kept across the edit: without it every re-save of an OAuth
+        # server probed anonymously and reported it broken.
+        auth_data=account,
         org_id=org_id,
         install_command=req.auth.install_command,
     )
     return fetched_tools or [], status
+
+
+# The status of an OAuth server nobody has signed in to yet (or whose account was disconnected).
+NEEDS_SIGN_IN = "needs_sign_in"
+
+
+def _awaits_sign_in(
+    req: CreateMcpServerRequest,
+    auth_dict: dict[str, Any],
+    stored: dict[str, Any] | None,
+    reconnected: bool,
+    status: str,
+) -> bool:
+    """An OAuth server without an account yet: its probe was refused for want of a token."""
+    if req.auth.auth_type not in ("oauth", "oauth2") or status == "connected":
+        return False
+    if auth_dict.get("oauth_mode") == "member":
+        return True
+    previous = (stored or {}).get("encrypted_auth") or {}
+    return reconnected or not previous.get("access_token_enc")
 
 
 def _connection_changed(req: CreateMcpServerRequest, stored: dict[str, Any] | None) -> bool:
@@ -769,8 +830,15 @@ async def register_or_update_mcp_server(
     await _enforce_mcp_policy(request, org_id, user_id, req.scope, req.transport, req.id)
 
     auth_dict = _encrypted_auth_payload(req)
+    _carry_oauth_setup(auth_dict, req, stored)
     await _discover_oauth_settings(req, auth_dict, request)
-    tools, status = await _tools_and_status(req, org_id)
+    account = None
+    previous_auth = (stored or {}).get("encrypted_auth") or {}
+    if not reconnected and previous_auth.get("access_token_enc"):
+        account = {k: previous_auth[k] for k in OAUTH_TOKEN_KEYS if k in previous_auth}
+    tools, status = await _tools_and_status(req, org_id, account)
+    if _awaits_sign_in(req, auth_dict, stored, reconnected, status):
+        status = NEEDS_SIGN_IN
 
     db_mgr = getattr(request.app.state, "db_manager", None)
     if not db_mgr:
@@ -880,6 +948,18 @@ async def delete_mcp_server(server_id: str, request: Request) -> dict[str, bool]
     raise HTTPException(status_code=404, detail="MCP server not found")
 
 
+def _probed_status(
+    status: str, error: str | None, auth_type: str | None, auth: dict[str, Any]
+) -> str:
+    """A refused OAuth server waits for a sign-in rather than being reported broken."""
+    if status == "connected" or auth_type not in ("oauth", "oauth2"):
+        return status
+    signed_in = bool(auth.get("access_token_enc")) and auth.get("oauth_mode") != "member"
+    if not signed_in or "401" in (error or ""):
+        return NEEDS_SIGN_IN
+    return status
+
+
 @router.post("/mcp/servers/{server_id}/probe", response_model=McpServerResponseModel)
 async def probe_mcp_server(server_id: str, request: Request) -> McpServerResponseModel:
     """Probe an MCP server and refresh its discovered tools."""
@@ -911,7 +991,7 @@ async def probe_mcp_server(server_id: str, request: Request) -> McpServerRespons
             auth_data = entity.encrypted_auth or {}
             req_headers = mcp_auth_headers(auth_data, _cipher)
 
-            status, tools, _ = await probe_and_fetch_tools(
+            status, tools, error = await probe_and_fetch_tools(
                 transport=entity.transport,
                 endpoint_or_command=entity.endpoint_or_command,
                 headers=req_headers,
@@ -919,7 +999,7 @@ async def probe_mcp_server(server_id: str, request: Request) -> McpServerRespons
                 org_id=org_id,
                 install_command=auth_data.get("install_command"),
             )
-            entity.status = status
+            entity.status = _probed_status(status, error, entity.auth_type, auth_data)
             entity.last_probed = _probe_timestamp()
             if tools:
                 entity.tools = tools
@@ -929,11 +1009,14 @@ async def probe_mcp_server(server_id: str, request: Request) -> McpServerRespons
     if server_id not in _mcp_servers_store:
         raise HTTPException(status_code=404, detail="MCP server not found")
     record = _mcp_servers_store[server_id]
-    status, tools, _ = await probe_and_fetch_tools(
+    status, tools, error = await probe_and_fetch_tools(
         transport=record.get("transport", "stdio"),
         endpoint_or_command=record.get("endpoint_or_command", ""),
+        auth_data=record.get("encrypted_auth") or None,
     )
-    record["status"] = status
+    record["status"] = _probed_status(
+        status, error, record.get("auth_type"), record.get("encrypted_auth") or {}
+    )
     record["last_probed"] = _probe_timestamp()
     if tools:
         record["tools"] = tools

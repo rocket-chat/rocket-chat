@@ -127,3 +127,14 @@ def test_bounded_output_keeps_both_ends() -> None:
     small = BoundedOutput(limit=100)
     small.append("abc")
     assert small.text() == "abc"
+
+
+def test_commands_run_in_bash_when_the_image_has_it() -> None:
+    """Models write bash; under dash `${PIPESTATUS[0]}` failed with "Bad substitution"."""
+    from sandbox_driver.utils import wrap_with_deadline
+
+    result = _sh(
+        wrap_with_deadline('[[ 1 == 1 ]] && false | true; echo "pipe=${PIPESTATUS[0]}"', 5)
+    )
+
+    assert result.returncode == 0 and "pipe=1" in result.stdout

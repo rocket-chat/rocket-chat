@@ -17,6 +17,7 @@ import uuid
 from dataclasses import dataclass, field, fields
 from typing import Any, ClassVar
 
+from config_engine.crypto import CredentialCipher
 from sandbox_driver.profiles import configured_profiles
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
@@ -24,6 +25,11 @@ from sqlalchemy.exc import IntegrityError
 from api.db.models import SandboxCatalogueModel
 from api.db.session import DatabaseSessionManager
 from api.services.settings import effective_settings
+from specifications.interfaces.sandbox import (
+    MAX_SESSION_ENV_VALUE_CHARS,
+    MAX_SESSION_ENV_VARS,
+    session_env_name_problem,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +73,9 @@ class SandboxEntry:
     disk_size: str = ""
     # Days an idle session keeps its workspace volume; None inherits the organization's.
     release_after_days: int | None = None
+    # Variables set for every command of the type's sessions: [{name, value, secret}], a
+    # secret's value encrypted at rest and never shown again.
+    env: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def capability_set(self) -> frozenset[str]:
@@ -108,6 +117,59 @@ def validate_runtime(entry: SandboxEntry) -> None:
     days = entry.release_after_days
     if days is not None and not 0 <= days <= MAX_RELEASE_DAYS:
         raise CatalogueError(f"Release after 0 (never) to {MAX_RELEASE_DAYS} days.")
+
+
+def _check_env_name(name: str, seen: set[str]) -> None:
+    if problem := session_env_name_problem(name):
+        raise CatalogueError(problem)
+    if name in seen:
+        raise CatalogueError(f"{name} is listed twice.")
+    seen.add(name)
+
+
+def seal_env(
+    submitted: list[dict[str, Any]], previous: list[dict[str, Any]], cipher: CredentialCipher
+) -> list[dict[str, Any]]:
+    """The variables as stored: secrets encrypted, and a secret left blank kept as it was."""
+    if len(submitted) > MAX_SESSION_ENV_VARS:
+        raise CatalogueError(f"At most {MAX_SESSION_ENV_VARS} environment variables.")
+    stored_before = {str(v.get("name")): v for v in previous}
+    sealed: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for variable in submitted:
+        name = str(variable.get("name") or "").strip()
+        _check_env_name(name, seen)
+        secret = bool(variable.get("secret"))
+        value = variable.get("value")
+        if value is not None and len(str(value)) > MAX_SESSION_ENV_VALUE_CHARS:
+            raise CatalogueError(f"The value of {name} is too long.")
+        if secret and not value:
+            before = stored_before.get(name)
+            if not before or not before.get("secret") or not before.get("value"):
+                raise CatalogueError(f"Enter a value for the secret {name}.")
+            stored = str(before["value"])
+        else:
+            stored = cipher.encrypt(str(value)) if secret else str(value or "")
+        sealed.append({"name": name, "value": stored, "secret": secret})
+    return sealed
+
+
+def env_view(entry: SandboxEntry) -> list[dict[str, Any]]:
+    """The variables as shown: a secret's value is never returned."""
+    return [
+        {"name": v["name"], "value": None if v.get("secret") else v.get("value", ""),
+         "secret": bool(v.get("secret"))}
+        for v in entry.env
+    ]  # fmt: skip
+
+
+def entry_environment(entry: SandboxEntry, cipher: CredentialCipher) -> dict[str, str]:
+    """The variables a session's commands receive, secrets decrypted."""
+    return {
+        str(v["name"]): cipher.decrypt(str(v["value"])) if v.get("secret") else str(v["value"])
+        for v in entry.env
+        if v.get("name")
+    }
 
 
 class SandboxCatalogue:
@@ -179,6 +241,7 @@ class SandboxCatalogue:
         description: str = "",
         capabilities: list[str] | None = None,
         is_default: bool = False,
+        env: list[dict[str, Any]] | None = None,
         **runtime: Any,
     ) -> SandboxEntry:
         capabilities = sorted(set(capabilities or []))
@@ -197,6 +260,7 @@ class SandboxCatalogue:
             capabilities=capabilities,
             is_default=False,
             created_at=int(time.time()),
+            env=seal_env(env or [], [], CredentialCipher()),
             **{k: v for k, v in runtime.items() if k in _RUNTIME_FIELDS},
         )
         validate_runtime(entry)
@@ -217,10 +281,12 @@ class SandboxCatalogue:
                 **{
                     k: v
                     for k, v in changes.items()
-                    if (v is not None or k in _INHERITING) and k != "is_default"
+                    if (v is not None or k in _INHERITING) and k not in ("is_default", "env")
                 },
             }
         )
+        if changes.get("env") is not None:
+            updated.env = seal_env(changes["env"], entry.env, CredentialCipher())
         updated.capabilities = sorted(set(updated.capabilities))
         validate_entry(updated.name, updated.image, updated.capabilities)
         validate_runtime(updated)

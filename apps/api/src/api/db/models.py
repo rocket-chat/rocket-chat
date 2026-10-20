@@ -1060,6 +1060,10 @@ class SandboxCatalogueModel(Base):
     memory_limit: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     disk_size: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     release_after_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # [{name, value, secret}]; a secret's value is sealed with the credential cipher.
+    env: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
 
 
 class GithubWatchModel(Base):

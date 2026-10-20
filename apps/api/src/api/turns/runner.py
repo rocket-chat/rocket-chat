@@ -34,6 +34,7 @@ from api.services.git_signing import (
 from api.services.mcp_turn import _mcp_tools_for_turn
 from api.services.redaction import RedactionPolicy, Redactor
 from api.services.sandbox_catalogue import SandboxCatalogue
+from api.services.session_env import agent_env_of, apply_session_env
 from api.services.session_support import (
     _new_message_id,
     _repo_slug,
@@ -365,7 +366,7 @@ class TurnRunner:
         )
         if _selection(req.selection, metadata).raw:
             binding = _raw(binding)
-        binding = await self._with_sandbox_capabilities(binding, session, metadata)
+        binding = await self._with_sandbox_type(binding, session, metadata)
         model = binding.model or str(req.orchestrator.default_model)
         router = binding.model_router
         state.effective_model, state.router = model, router
@@ -387,10 +388,11 @@ class TurnRunner:
         )
         return binding, model, binding.routing_reason or "default"
 
-    async def _with_sandbox_capabilities(
+    async def _with_sandbox_type(
         self, binding: AgentBinding, session: SessionRecord, metadata: dict[str, Any]
     ) -> AgentBinding:
-        """Tell the registry what this session's sandbox can do, so unsupported tools are hidden."""
+        """Apply the session's sandbox type: its capabilities hide the tools it cannot support,
+        and its variables (with the agent's own) reach every command of the turn."""
         catalogue = SandboxCatalogue(self.req.db_mgr)
         chosen = await catalogue.chosen(
             session.tenant_org_id,
@@ -402,7 +404,14 @@ class TurnRunner:
             session.tenant_org_id, image=session.container_image or binding.sandbox_image or None
         )
         capabilities = entry.capability_set if entry is not None else frozenset[str]()
-        return replace(binding, policy=replace(binding.policy, sandbox_capabilities=capabilities))
+        apply_session_env(self.req.driver, session.session_id, entry, metadata)
+        policy = replace(
+            binding.policy,
+            sandbox_capabilities=capabilities,
+            sandbox_env_names=tuple(v["name"] for v in entry.env) if entry is not None else (),
+            agent_env=agent_env_of(metadata),
+        )
+        return replace(binding, policy=policy)
 
     def _toolsets(self, session: SessionRecord) -> frozenset[str]:
         overlay = self.req.overlay
@@ -447,10 +456,11 @@ class TurnRunner:
             req.db_mgr, session.tenant_org_id, "user_preferences", session.tenant_user_id
         )
         git_bundle = await self._resolve_git(ctx, member_prefs)
+        # Before the prompt, which names the servers the member still has to sign in to.
+        mcp = await _mcp_tools_for_turn(req.db_mgr, session.tenant_org_id, session.tenant_user_id)
+        self.state.mcp_tools = mcp.provider
+        self.state.mcp_needs_sign_in = mcp.needs_sign_in
         system_prompt = await build_system_prompt(ctx, git_bundle, member_prefs)
-        self.state.mcp_tools = await _mcp_tools_for_turn(
-            req.db_mgr, session.tenant_org_id, session.tenant_user_id
-        )
         await self._warn_about_budget(ctx)
         attachments = await self._resolve_attachments(ctx)
         model_prompt = await _expand_slash_command(

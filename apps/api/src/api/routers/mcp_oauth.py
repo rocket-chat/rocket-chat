@@ -16,12 +16,11 @@ from sqlalchemy import select
 
 from api.auth.access import _get_request_identity
 from api.auth.identity import is_production
+from api.auth.origin import mcp_oauth_callback_url, public_origin
 from api.db.models import (
     McpServerEntityModel,
 )
 from api.services.mcp_discovery import DiscoveryError as McpDiscoveryError
-from api.services.mcp_discovery import discover as discover_mcp_oauth
-from api.services.mcp_discovery import register_client as register_mcp_oauth_client
 from api.services.mcp_engine import (
     MCP_OAUTH_COOKIE,
     OAUTH_FLOW_TTL_SECONDS,
@@ -33,6 +32,12 @@ from api.services.mcp_engine import (
     take_oauth_state,
 )
 from api.services.mcp_member_tokens import is_member_mode
+from api.services.mcp_oauth_setup import (
+    CLIENT_METADATA_PATH,
+    client_metadata_document,
+    needs_settling,
+    settle_oauth,
+)
 from api.services.mcp_turn import (
     _cipher,
     _load_mcp_auth,
@@ -69,7 +74,7 @@ def _may_authorize_mcp(
 async def _build_mcp_authorization_url(server_id: str, request: Request) -> OAuthAuthorization:
     """Build the RFC 9728 / PKCE authorization redirect URL for an MCP server."""
     org_id, user_id, roles = _get_request_identity(request)
-    redirect_uri = f"{str(request.base_url).rstrip('/')}/v1/mcp/oauth/callback"
+    redirect_uri = mcp_oauth_callback_url(request)
 
     db_mgr = getattr(request.app.state, "db_manager", None)
     auth_config: dict[str, Any] = {}
@@ -102,15 +107,9 @@ async def _build_mcp_authorization_url(server_id: str, request: Request) -> OAut
         raise HTTPException(
             status_code=403, detail="You are not allowed to connect an account to this server."
         )
-    if not auth_config.get("oauth_authorization_url") or not auth_config.get("oauth_token_url"):
-        # The server may advertise its own OAuth (RFC 9728/8414/7591); use that rather than
-        # guessing paths. A member cannot change a shared connector, so in member mode this
-        # must already have been settled by an administrator.
-        if member_mode:
-            raise HTTPException(
-                status_code=409,
-                detail="This connector is not fully set up yet; ask an administrator to open it once.",
-            )
+    if needs_settling(auth_config, redirect_uri):
+        # The server's own OAuth description (RFC 9728/8414) and a client set up for this
+        # callback URL (RFC 7591, or our metadata URL); nothing is typed in on either side.
         auth_config = await _discover_and_persist_mcp_oauth(
             request, server_id, org_id, auth_config, redirect_uri
         )
@@ -133,23 +132,15 @@ async def _discover_and_persist_mcp_oauth(
 ) -> dict[str, Any]:
     """Fill in a connector's OAuth endpoints and client from the server's own metadata."""
     endpoint = str(auth_config.get("endpoint_or_command", ""))
-    if not endpoint.startswith(("http://", "https://")):
-        raise HTTPException(
-            status_code=400, detail="No OAuth authorization URL configured or discoverable."
-        )
     try:
-        found = await discover_mcp_oauth(endpoint)
-        updated = dict(auth_config)
-        updated["oauth_authorization_url"] = found.authorization_url
-        updated["oauth_token_url"] = found.token_url
-        if not updated.get("oauth_scopes"):
-            updated["oauth_scopes"] = found.scopes or ""
-        if not updated.get("oauth_client_id"):
-            registered = await register_mcp_oauth_client(found, redirect_uri)
-            updated["oauth_client_id"] = registered.client_id
-            if registered.client_secret:
-                updated["oauth_client_secret"] = _cipher.encrypt(registered.client_secret)
+        updated = await settle_oauth(
+            auth_config, endpoint, redirect_uri, public_origin(request), _cipher
+        )
     except McpDiscoveryError as err:
+        if auth_config.get("oauth_authorization_url") and auth_config.get("oauth_client_id"):
+            # Set up before the callback URL was recorded and not rediscoverable: keep it.
+            logger.info("Keeping the existing OAuth setup of %s: %s", server_id, err)
+            return auth_config
         raise HTTPException(status_code=400, detail=str(err)) from err
 
     db_mgr = getattr(request.app.state, "db_manager", None)
@@ -183,6 +174,13 @@ def _set_mcp_oauth_cookie(response: Response, authorization: OAuthAuthorization)
         samesite="lax",
         path="/",
     )
+
+
+@router.get(CLIENT_METADATA_PATH.removeprefix("/v1"))
+async def mcp_oauth_client_metadata(request: Request) -> dict[str, Any]:
+    """Rocket Chat's OAuth client metadata, for authorization servers that accept a URL as the
+    client ID (no registration on the provider's side). Public: it holds no secret."""
+    return client_metadata_document(public_origin(request), mcp_oauth_callback_url(request))
 
 
 @router.post("/mcp/servers/{server_id}/oauth/authorize")

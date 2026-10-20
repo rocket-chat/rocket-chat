@@ -81,6 +81,7 @@ READ_TOOLS: frozenset[str] = frozenset(
         "delegate_subagents_parallel",
         "workspace_status",
         "git_status_all",
+        "env_list",
         "wait_for",
         "create_artifact",
         "update_artifact",

@@ -95,6 +95,8 @@ class ExecutionContext:
     # Where git, test and build tools act when the agent names no folder. Seeded from the
     # turn policy and set by the first ``clone_repository`` of a session that has none.
     active_repository: str = ""
+    # Variables the agent set for the session's commands (``env_set``), seeded from the policy.
+    agent_env: dict[str, str] = field(default_factory=dict)
     # The prompt size the provider reported for the turn's latest request (0 until one did, and
     # again after a compaction): the floor for the next request's estimate.
     measured_prompt_tokens: int = 0

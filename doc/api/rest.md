@@ -628,6 +628,13 @@ to the victim's server (or the reverse).
 
 **Responses:** `200`
 
+### `GET /v1/mcp/oauth/client-metadata.json`
+
+Rocket Chat's OAuth client metadata, for authorization servers that accept a URL as the
+client ID (no registration on the provider's side). Public: it holds no secret.
+
+**Responses:** `200`
+
 ### `GET /v1/mcp/runner`
 
 Whether command (stdio) MCP servers can run on this installation (the MCP runner pod).
@@ -985,6 +992,7 @@ Create Sandbox
 | memory_limit | string | no |  |
 | disk_size | string | no |  |
 | release_after_days | integer | no |  |
+| env | list of SandboxEnvVar | no |  |
 
 **Responses:** `200`
 
@@ -1018,6 +1026,7 @@ Update Sandbox
 | memory_limit | string | no |  |
 | disk_size | string | no |  |
 | release_after_days | integer | no |  |
+| env | list of SandboxEnvVar | no |  |
 
 **Responses:** `200`
 

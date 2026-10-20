@@ -15,7 +15,7 @@ import re
 import time
 from collections.abc import Callable, Iterable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import httpx2
@@ -149,6 +149,26 @@ def auth_headers(auth: dict[str, Any], cipher: CredentialCipher) -> dict[str, st
     return headers
 
 
+def is_unauthorized(err: BaseException) -> bool:
+    """Whether a failure is the server refusing the credentials (HTTP 401), however wrapped."""
+    pending: list[BaseException] = [err]
+    seen: set[int] = set()
+    while pending:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        response = getattr(current, "response", None)
+        if getattr(response, "status_code", None) == 401:
+            return True
+        if isinstance(current, BaseExceptionGroup):
+            pending.extend(current.exceptions)
+        for linked in (current.__cause__, current.__context__):
+            if linked is not None and linked is not current:
+                pending.append(linked)
+    return False
+
+
 def connect_remote(target: McpServerTarget) -> AbstractAsyncContextManager[Client]:
     """Open an MCP client session to a remote server."""
     if target.transport == "sse":
@@ -265,6 +285,8 @@ class McpToolProvider:
         self._routes: dict[str, tuple[McpServerTarget, str]] = {}
         self._pool: dict[str, _Connection] = {}
         self._opening: dict[str, asyncio.Lock] = {}
+        # Servers that refused this turn's credentials (HTTP 401): the caller may refresh them.
+        self.unauthorized: set[str] = set()
 
     # -- connections --------------------------------------------------------------------
 
@@ -340,6 +362,8 @@ class McpToolProvider:
                 result = await (await self._client(target)).list_tools()
         except Exception as err:  # an unreachable or hostile server must not break the turn
             logger.warning("MCP server '%s' unavailable for this turn: %s", target.name, err)
+            if is_unauthorized(err):
+                self.unauthorized.add(target.server_id)
             await self._drop(target)
             return []
         tools = [
@@ -357,6 +381,20 @@ class McpToolProvider:
         ]
         _listing_cache[target.server_id] = _Listing(time.monotonic(), target.updated_at, tools)
         return tools
+
+    async def retry(self, server_id: str, headers: dict[str, str]) -> bool:
+        """List a server again with fresh credentials; whether its tools are now available."""
+        target = self._targets.get(server_id)
+        if target is None:
+            return False
+        await self._drop(target)
+        self._targets[server_id] = replace(target, headers=headers)
+        _listing_cache.pop(server_id, None)
+        self.unauthorized.discard(server_id)
+        await self.load()
+        return server_id not in self.unauthorized and any(
+            routed.server_id == server_id for routed, _ in self._routes.values()
+        )
 
     def definitions(self) -> list[ToolDefinition]:
         return list(self._definitions.values())

@@ -166,6 +166,7 @@ async def test_expiring_tokens_are_refreshed_and_stay_encrypted(
     cipher = CredentialCipher()
     auth: dict[str, Any] = {
         "oauth_token_url": "https://idp.example.test/token",
+        "oauth_client_id": "client-registered",
         "access_token_enc": cipher.encrypt("at-old"),
         "refresh_token_enc": cipher.encrypt("rt-old"),
         "expires_at": time.time() + 10,

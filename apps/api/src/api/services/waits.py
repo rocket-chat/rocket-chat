@@ -167,6 +167,28 @@ class PostgresWaitStore(WaitStoreProtocol):
         )
 
 
+async def settle_waits(
+    store: WaitStoreProtocol,
+    session_id: str,
+    tenant_org_id: str,
+    *,
+    status: str,
+    kind: str | None = None,
+    target: str | None = None,
+) -> int:
+    """Close the session's open waits (those on ``kind``/``target`` when given).
+
+    A wait left open after its result arrived, or after the person stopped the session, wakes
+    the session again at its deadline with nothing to do but start work nobody asked for.
+    """
+    settled = 0
+    for wait in await store.list_active_waits(session_id, tenant_org_id):
+        if (kind is None or wait.kind == kind) and (target is None or wait.target == target):
+            await store.resolve_wait(session_id, wait.id, tenant_org_id, status=status)
+            settled += 1
+    return settled
+
+
 _in_memory_wait_store = InMemoryWaitStore()
 
 

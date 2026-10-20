@@ -154,17 +154,21 @@ MAX_CAPTURED_CHARS = 1_000_000
 
 
 def wrap_with_deadline(command: str, timeout_seconds: int) -> str:
-    """Run ``command`` under ``timeout -s KILL`` so a hung process dies inside the sandbox.
+    """Run ``command`` (in bash when available) under ``timeout -s KILL`` so a hung process dies
+    inside the sandbox.
 
     Cancelling only the client side would leave the process running (and holding the
     sandbox's CPU) after the caller was told it timed out. Images without ``timeout`` run
     the command unwrapped, which keeps the previous behaviour.
     """
     quoted = shlex.quote(command)
+    # bash when the image has it: models write bash (``[[ ]]``, ``${PIPESTATUS[0]}``, arrays),
+    # and under ``sh`` (dash) those fail with "Bad substitution". POSIX commands run the same.
     return (
+        "if command -v bash >/dev/null 2>&1; then rocket_sh=bash; else rocket_sh=sh; fi; "
         "if command -v timeout >/dev/null 2>&1; "
-        f"then exec timeout -s KILL {int(timeout_seconds)} sh -c {quoted}; "
-        f"else exec sh -c {quoted}; fi"
+        f'then exec timeout -s KILL {int(timeout_seconds)} "$rocket_sh" -c {quoted}; '
+        f'else exec "$rocket_sh" -c {quoted}; fi'
     )
 
 

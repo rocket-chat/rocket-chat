@@ -9,6 +9,8 @@ sandbox, rotating a token takes effect on the next command, and a stopped sandbo
 
 from __future__ import annotations
 
+from specifications.interfaces.sandbox import SESSION_ENV_LAYERS
+
 # Persistent language caches residing on the workspace volume (Item C4).
 DEFAULT_SANDBOX_CACHE_ENV: dict[str, str] = {
     "GOMODCACHE": "/workspace/.rocket/cache/go/pkg/mod",
@@ -24,11 +26,23 @@ class SessionEnvMixin:
     """Mixin for drivers: remember an env per session and merge it into every exec."""
 
     _session_env: dict[str, dict[str, str]]
+    _session_env_layers: dict[str, dict[str, dict[str, str]]]
 
     def _env_store(self) -> dict[str, dict[str, str]]:
         if not hasattr(self, "_session_env"):
             self._session_env = {}
         return self._session_env
+
+    def _layer_store(self) -> dict[str, dict[str, dict[str, str]]]:
+        if not hasattr(self, "_session_env_layers"):
+            self._session_env_layers = {}
+        return self._session_env_layers
+
+    def set_session_env_layer(self, session_id: str, layer: str, env: dict[str, str]) -> None:
+        """Replace one layer (the sandbox type's or the agent's variables) of the session."""
+        if layer not in SESSION_ENV_LAYERS:
+            raise ValueError(f"Unknown session environment layer: {layer}")
+        self._layer_store().setdefault(session_id, {})[layer] = dict(env)
 
     def set_session_env(self, session_id: str, env: dict[str, str]) -> None:
         """Replace the environment applied to every command of ``session_id``."""
@@ -36,11 +50,14 @@ class SessionEnvMixin:
 
     def clear_session_env(self, session_id: str) -> None:
         self._env_store().pop(session_id, None)
+        self._layer_store().pop(session_id, None)
 
     def merged_env(self, session_id: str, env: dict[str, str] | None) -> dict[str, str]:
-        """Session env overlaid with the call's own env (the call wins)."""
-        return {
-            **DEFAULT_SANDBOX_CACHE_ENV,
-            **self._env_store().get(session_id, {}),
-            **(env or {}),
-        }
+        """Caches, then the session's layers, then the platform's env, then the call's own."""
+        layers = self._layer_store().get(session_id, {})
+        merged = dict(DEFAULT_SANDBOX_CACHE_ENV)
+        for layer in SESSION_ENV_LAYERS:
+            merged.update(layers.get(layer, {}))
+        merged.update(self._env_store().get(session_id, {}))
+        merged.update(env or {})
+        return merged

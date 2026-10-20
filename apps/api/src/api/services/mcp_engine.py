@@ -68,16 +68,19 @@ def create_oauth_authorization_url(
     organization, the server and the token endpoint, and the PKCE verifier travels only in an
     HttpOnly cookie bound to that state. Any replica can therefore finish the flow.
     """
+    # Never guessed: a made-up endpoint, client or scope only fails on the provider's own page.
     auth_url = auth_config.get("oauth_authorization_url") or auth_config.get("authorization_url")
-    if not auth_url:
-        endpoint = auth_config.get("endpoint_or_command", "")
-        if endpoint.startswith(("http://", "https://")):
-            auth_url = endpoint.rstrip("/") + "/oauth/authorize"
-        else:
-            raise ValueError("No OAuth authorization URL configured or discoverable for MCP server")
-
-    client_id = auth_config.get("oauth_client_id") or "rocket-chat"
-    scopes = auth_config.get("oauth_scopes") or "mcp:tools"
+    client_id = auth_config.get("oauth_client_id")
+    if not auth_url or not client_id:
+        raise ValueError(
+            "This MCP server's sign-in is not set up (no authorization endpoint or client)."
+        )
+    # Entered as a list in the form, discovered as a space-separated string.
+    raw_scopes = auth_config.get("oauth_scopes") or ""
+    scopes = (
+        " ".join(str(s) for s in raw_scopes) if isinstance(raw_scopes, list) else str(raw_scopes)
+    ).strip()
+    resource = str(auth_config.get("oauth_resource") or "")
 
     verifier, challenge = generate_pkce_pair()
     state = oauth_state.sign(
@@ -88,6 +91,7 @@ def create_oauth_authorization_url(
             "redirect_uri": redirect_uri,
             "token_url": auth_config.get("oauth_token_url"),
             "client_id": client_id,
+            "resource": resource,
             "member_mode": member_mode,
             "nonce": secrets.token_urlsafe(8),
         }
@@ -96,11 +100,15 @@ def create_oauth_authorization_url(
         "response_type": "code",
         "client_id": client_id,
         "redirect_uri": redirect_uri,
-        "scope": scopes,
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",
     }
+    if scopes:
+        params["scope"] = scopes
+    # RFC 8707, required by the MCP authorization spec: the token is for this server only.
+    if resource:
+        params["resource"] = resource
     return OAuthAuthorization(
         url=f"{auth_url}?{urlencode(params)}",
         cookie_value=oauth_state.sign({"state": state, "cv": verifier}),
@@ -153,6 +161,8 @@ async def exchange_oauth_code(
         "client_id": state_data["client_id"],
         "code_verifier": state_data["code_verifier"],
     }
+    if state_data.get("resource"):
+        payload["resource"] = state_data["resource"]
     if client_secret:
         payload["client_secret"] = client_secret
     return await _post_token_request(token_url, payload)
@@ -188,13 +198,15 @@ def oauth_token_needs_refresh(auth: dict[str, Any]) -> bool:
 async def refresh_oauth_tokens(auth: dict[str, Any]) -> bool:
     """Refresh the stored access token in place; returns whether it succeeded."""
     token_url = auth.get("oauth_token_url")
-    if not token_url or not auth.get("refresh_token_enc"):
+    if not token_url or not auth.get("refresh_token_enc") or not auth.get("oauth_client_id"):
         return False
     payload = {
         "grant_type": "refresh_token",
         "refresh_token": _cipher.decrypt(auth["refresh_token_enc"]),
-        "client_id": auth.get("oauth_client_id") or "rocket-chat",
+        "client_id": str(auth["oauth_client_id"]),
     }
+    if auth.get("oauth_resource"):
+        payload["resource"] = str(auth["oauth_resource"])
     if auth.get("oauth_client_secret"):
         payload["client_secret"] = _cipher.decrypt(auth["oauth_client_secret"])
     try:

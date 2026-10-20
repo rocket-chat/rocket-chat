@@ -21,6 +21,7 @@ from api.services.knowledge import search_knowledge
 from api.services.mcp_runtime import McpToolProvider
 from api.services.memory import MemoryService
 from api.services.process_tracker import ProcessTracker
+from api.services.session_env import remember_agent_env
 from api.services.session_support import choose_active_repository, remember_active_repository
 from api.services.settings import effective_settings
 from api.services.skills import test_skill_execution
@@ -28,6 +29,7 @@ from api.services.skills_lookup import _find_visible_skill
 from api.services.subagent_transcripts import get_subagent_transcript_store
 from api.services.subagents import load_subagent_configs
 from api.services.tool_loading import remember_loaded
+from api.services.waits import get_wait_store, settle_waits
 from api.turns.context import TurnContext
 from api.turns.provisioning import provision_session_sandbox, run_repository_setup
 from api.turns.shared import _background_tasks
@@ -326,6 +328,14 @@ def _schedule_github_wake(
                         await store.record_delivery(
                             w, {"status": status, "summary": summary}, woke=True, finished=True
                         )
+                    await settle_waits(
+                        get_wait_store(ctx.req.db_mgr),
+                        ctx.session_id,
+                        ctx.session.tenant_org_id,
+                        status="completed",
+                        kind=target,
+                        target=identifier,
+                    )
                     await ctx.req.event_bus.publish(
                         SessionEvent(
                             session_id=ctx.session_id,
@@ -485,7 +495,18 @@ def _build_wait_for(
                 try:
                     from api.services.waits import PostgresWaitStore, SessionWait
 
-                    await PostgresWaitStore(ctx.req.db_mgr).create_wait(
+                    waits = PostgresWaitStore(ctx.req.db_mgr)
+                    # One wait per target: a second wait_for on the same pull request replaces
+                    # the first instead of waking the session twice.
+                    await settle_waits(
+                        waits,
+                        session_id,
+                        ctx.session.tenant_org_id,
+                        status="cancelled",
+                        kind=target,
+                        target=norm_identifier,
+                    )
+                    await waits.create_wait(
                         SessionWait(
                             id=wait_id,
                             session_id=session_id,
@@ -718,6 +739,7 @@ class _SessionRecordCallbacks(TypedDict):
     repository_cloned: Callable[[str, str], Awaitable[str | None]] | None
     active_repository_chosen: Callable[[str, str], Awaitable[None]] | None
     tools_loaded: Callable[[str, list[str]], Awaitable[None]]
+    agent_env_changed: Callable[[str, dict[str, str]], Awaitable[None]]
 
 
 def _session_record_callbacks(ctx: TurnContext) -> _SessionRecordCallbacks:
@@ -752,10 +774,14 @@ def _session_record_callbacks(ctx: TurnContext) -> _SessionRecordCallbacks:
     async def tools_loaded(target_session_id: str, names: list[str]) -> None:
         await store.mutate_session(target_session_id, org, remember_loaded(names))
 
+    async def agent_env_changed(target_session_id: str, env: dict[str, str]) -> None:
+        await remember_agent_env(store, target_session_id, org, env)
+
     return _SessionRecordCallbacks(
         repository_cloned=repository_cloned if driver else None,
         active_repository_chosen=active_repository_chosen if driver else None,
         tools_loaded=tools_loaded,
+        agent_env_changed=agent_env_changed,
     )
 
 

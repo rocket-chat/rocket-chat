@@ -6,6 +6,7 @@ import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Field } from "../ui/Field";
+import { SandboxEnvEditor, envPayload, rowsOf, type SandboxEnvRow, type SandboxEnvVar } from "./SandboxEnvEditor";
 
 interface Sandbox {
   id: string;
@@ -19,6 +20,8 @@ interface Sandbox {
   memory_limit: string;
   disk_size: string;
   release_after_days: number | null;
+  /** Only returned to administrators. */
+  env?: SandboxEnvVar[];
 }
 
 interface Profile {
@@ -45,6 +48,7 @@ interface FormValues {
   disk: string;
   /** Empty inherits the organization's delay. */
   releaseDays: string;
+  env: SandboxEnvRow[];
 }
 
 const EMPTY_FORM: FormValues = {
@@ -57,6 +61,7 @@ const EMPTY_FORM: FormValues = {
   memory: "",
   disk: "",
   releaseDays: "",
+  env: [],
 };
 
 const formOf = (box: Sandbox): FormValues => ({
@@ -69,6 +74,7 @@ const formOf = (box: Sandbox): FormValues => ({
   memory: box.memory_limit || "",
   disk: box.disk_size || "",
   releaseDays: box.release_after_days === null || box.release_after_days === undefined ? "" : String(box.release_after_days),
+  env: rowsOf(box.env),
 });
 
 const toPayload = (values: FormValues) => ({
@@ -81,6 +87,7 @@ const toPayload = (values: FormValues) => ({
   memory_limit: values.memory.trim(),
   disk_size: values.disk.trim(),
   release_after_days: values.releaseDays.trim() === "" ? null : Number(values.releaseDays),
+  env: envPayload(values.env),
 });
 
 interface SandboxFormProps {
@@ -217,6 +224,7 @@ const SandboxForm: React.FC<SandboxFormProps> = ({ initial, browserHelp, profile
           </Field>
         ))}
       </fieldset>
+      <SandboxEnvEditor rows={form.env} onChange={(env) => setForm({ ...form, env })} />
       <div className="md:col-span-2 flex justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={onCancel}>
           Cancel
@@ -345,6 +353,11 @@ export const SandboxCataloguePanel: React.FC = () => {
                   {box.release_after_days !== null && box.release_after_days !== undefined && (
                     <Badge>
                       {box.release_after_days === 0 ? "workspace kept" : `released after ${box.release_after_days}d`}
+                    </Badge>
+                  )}
+                  {box.env && box.env.length > 0 && (
+                    <Badge data-testid="sandbox-env-count" title={box.env.map((v) => v.name).join(", ")}>
+                      {box.env.length} variable{box.env.length === 1 ? "" : "s"}
                     </Badge>
                   )}
                 </div>
