@@ -201,3 +201,24 @@ def test_attachments_are_recorded_by_reference_not_content() -> None:
         {"id": "att_9", "name": "shot.png", "mime": "image/png", "size": 2048}
     ]
     assert "PNG-bytes" not in repr(finished)
+
+
+def test_the_turn_cost_is_reported_in_dollars() -> None:
+    trace = _accumulator()
+    for _ in range(3):
+        trace.record_model_usage(
+            {"model": "m", "prompt_tokens": 10, "completion_tokens": 5, "cost_usd": 0.0015}
+        )
+
+    finished = trace.finish(status=TURN_STATUS_COMPLETED)
+
+    assert finished.tokens["usage"]["cost_usd"] == 0.0045
+    assert trace.cost_usd == 0.0045
+    assert [call["cost_usd"] for call in finished.tokens["calls"]] == [0.0015] * 3
+
+
+def test_migration_042_converts_stored_turn_costs_to_dollars() -> None:
+    source = (MIGRATION.parent / "042_turn_trace_cost_in_dollars.py").read_text(encoding="utf-8")
+
+    assert 'down_revision: str | None = "041_backfill_msg_timestamps"' in source
+    assert "/ 1000000" in source and "* 1000000" in source

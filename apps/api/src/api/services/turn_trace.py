@@ -103,6 +103,9 @@ class TurnTraceAccumulator:
         # `_usage` is the per-turn token totals folded from `model_usage` events.
         self._routing: dict[str, Any] | None = None
         self._usage: dict[str, int] = {}
+        # Summed in integer micro-dollars so thousands of sub-cent calls do not drift;
+        # the trace reports dollars.
+        self._cost_micro_usd = 0
         self._usage_by_model: dict[str, dict[str, int]] = {}
         self._model_calls: list[dict[str, Any]] = []
 
@@ -181,7 +184,7 @@ class TurnTraceAccumulator:
         self._usage["cache_creation_tokens"] = (
             self._usage.get("cache_creation_tokens", 0) + cache_creation
         )
-        self._usage["cost_usd"] = int(self._usage.get("cost_usd", 0) + int(cost * 1_000_000))
+        self._cost_micro_usd += int(cost * 1_000_000)
         self._usage["model_calls"] = self._usage.get("model_calls", 0) + 1
 
         model = str(payload.get("model") or "unknown")
@@ -222,7 +225,7 @@ class TurnTraceAccumulator:
 
     @property
     def cost_usd(self) -> float:
-        return float(self._usage.get("cost_usd", 0)) / 1_000_000.0
+        return self._cost_micro_usd / 1_000_000.0
 
     def finish(
         self,
@@ -236,7 +239,7 @@ class TurnTraceAccumulator:
         if self._routing is not None:
             tokens.update(self._routing)
         if self._usage:
-            tokens["usage"] = dict(self._usage)
+            tokens["usage"] = {**self._usage, "cost_usd": round(self.cost_usd, 6)}
             prompt = self._usage.get("prompt_tokens", 0)
             # Share of the prompt the provider served from its cache: what the request layout
             # (stable prompt first, rolling breakpoint, volatile context last) is meant to raise.
