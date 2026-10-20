@@ -16,7 +16,7 @@ from specifications.interfaces.llm import ChatMessage
 
 TOOL_NAME = "update_task_checklist"
 OPEN_STATUSES = frozenset({"pending", "in_progress"})
-STALE_AFTER_STEPS = 8
+STALE_AFTER_STEPS = 20
 
 
 def latest_tasks(conversation: Sequence[ChatMessage]) -> list[dict[str, Any]]:
@@ -76,9 +76,9 @@ def stale_notice(conversation: Sequence[ChatMessage]) -> str | None:
     if since == 0 or since % STALE_AFTER_STEPS:
         return None
     return (
-        f"Reminder: you have worked {since} steps without updating your task checklist. Call "
-        "`update_task_checklist` with the complete list (finished tasks completed, the current "
-        "one in_progress), together with your next tool call."
+        f"Reminder: you have worked {since} steps without updating your task checklist. If a "
+        "task has finished or a new one started, call `update_task_checklist` with the complete "
+        "list; otherwise carry on. Never re-send an unchanged list."
     )
 
 

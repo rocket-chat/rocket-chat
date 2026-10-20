@@ -67,7 +67,7 @@ async def test_one_snapshot_precedes_the_first_change_and_not_later_ones(turn: N
 
     await registry.call_tool("file_write", {"path": "a.txt", "content": "1"})
     await registry.call_tool("file_write", {"path": "b.txt", "content": "2"})
-    await registry.call_tool("bash_exec", {"command": "echo hi"})
+    await registry.call_tool("bash_exec", {"command": "echo hi", "cwd": "/workspace"})
 
     assert driver.snapshots == 1
     first_snapshot = next(i for i, (_, c) in enumerate(driver.exec_calls) if "commit-tree" in c)

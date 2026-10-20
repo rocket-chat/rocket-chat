@@ -2,7 +2,8 @@
 
 Enforces deterministic message positioning:
 - Turn-fixed context (recalled memories, active repo, attachment manifest) is inserted
-  once immediately after the current turn's user message. Because it remains in the same
+  once immediately after the message that opened the turn (the person's, or the stored opener
+  of an automatic turn, see ``notes.automatic_turn_prompt``). Because it remains in the same
   position across steps, requests 2..N share a byte-identical prefix for prompt caching.
 - Dynamic notes (sticky turn notices, next-only truncation/checklist notices) ride at the tail.
 - Images from `view_image` ride at the tail after the tool result that requested them,
@@ -16,7 +17,13 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import replace
 
-from agent_core.notes import REMINDER_CLOSE, REMINDER_OPEN, is_engine_note, render_notes
+from agent_core.notes import (
+    REMINDER_CLOSE,
+    REMINDER_OPEN,
+    is_automatic_turn_prompt,
+    is_engine_note,
+    render_notes,
+)
 from specifications.interfaces.llm import AttachmentRef, ChatMessage
 
 __all__ = [
@@ -40,9 +47,12 @@ def format_attachment_manifest(attachments: Sequence[AttachmentRef]) -> str:
 
 
 def find_turn_user_index(messages: Sequence[ChatMessage]) -> int:
-    """Index of the latest real user message for this turn, skipping engine reminders."""
+    """Index of the message that opened this turn: the person's, or the platform's own opener
+    of an automatic turn. Other engine reminders are skipped."""
     for idx in range(len(messages) - 1, -1, -1):
         msg = messages[idx]
+        if is_automatic_turn_prompt(msg):
+            return idx
         if msg.role == "user" and not is_engine_note(msg):
             content = msg.content or ""
             if not content.startswith(REMINDER_OPEN):
@@ -89,7 +99,7 @@ def assemble_request_messages(
             role="user",
             content=f"{REMINDER_OPEN}\n{turn_fixed_content}\n{REMINDER_CLOSE}",
         )
-        if is_synthetic or user_idx < 0:
+        if user_idx < 0:
             res.append(fixed_msg)
         else:
             res.insert(user_idx + 1, fixed_msg)

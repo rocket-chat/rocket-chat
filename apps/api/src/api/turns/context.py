@@ -76,6 +76,9 @@ class TurnState:
     assistant_parts: list[str] = field(default_factory=list)
     reasoning_parts: list[str] = field(default_factory=list)
     executed_tools: list[dict[str, Any]] = field(default_factory=list)
+    # Reasoning already saved with the part of the turn before a message the person sent
+    # during it (see ``TurnEventHandlers._user_steer``); kept for the turn's trace.
+    earlier_reasoning: list[str] = field(default_factory=list)
     had_post_failure_synthesis: bool = False
     synthesis_turns: int = 30
     trace: TurnTraceAccumulator | None = None

@@ -11,7 +11,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | `company_name` | Organization | str | empty | Organization name given to the agent as context. |
 | `session_privacy_default` | Organization | `private` / `shared_org` | `private` | Whether new sessions are private to their owner or shared with the organization. |
 | `public_session_links` | Organization | bool | `False` | Let members create read-only public links to a session's conversation (anyone with the link can read it; turning this off disables links already issued). |
-| `max_turns` | Organization | min 1, max 500 | `100` | Maximum reasoning steps per turn. It is the default for agents, and the ceiling for an agent that sets its own limit. |
+| `max_turns` | Organization | min 0, max 500 | `100` | Maximum reasoning steps per turn (0: no limit, the turn runs until the agent answers, is cancelled or reaches a cost cap). It is the default for agents, and the ceiling for an agent that sets its own limit. |
 | `tool_loading` | Organization | `auto` / `all` / `on_demand` | `auto` | Which tools are sent to the model with every step. all: every allowed tool. on_demand: the platform's own tools (or an agent's 'Always loaded' list); the others are listed by name and loaded when needed. auto: like all, until an agent has more tools than tool_loading_threshold; then its MCP servers' tools are loaded on demand. An agent can choose its own. |
 | `tool_loading_threshold` | Organization | min 1, max 1000 | `60` | With tool_loading auto: how many tools an agent may have before its MCP servers' tools are loaded on demand. |
 | `output_offload_threshold` | Organization | min 500, max 100000 | `6000` | Character threshold above which tool execution outputs are offloaded to /workspace/.rocket/outputs with head and tail preserved in context. |
@@ -24,6 +24,8 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | :-- | :-- | :-- | :-- | :-- |
 | `default_model` | Organization | str | `openrouter/deepseek/deepseek-v4.1-flash` | Organization default model (below the agent and the user's choice). |
 | `context_windows` | Organization | dict | `{}` | Context-window size in tokens per model name or pattern (e.g. \{"my-provider/*": 32000\}), for models whose size is not known to the platform; drives when long conversations are compacted. |
+| `context_target_tokens` | Organization | min 0, max 1e+07 | `200000` | Working context size in tokens: long conversations are pruned and compacted to stay under it even when the model's window is larger (requests stay fast and focused). 0 uses the model's whole window. |
+| `provider_preferences` | Organization | dict | `{}` | OpenRouter provider preferences per model name or pattern, e.g. \{"openrouter/deepseek/*": \{"order": ["deepseek"], "allow_fallbacks": false\}\}. Pinning a model to one provider keeps its prompt cache warm across requests. |
 | `fallback_models` | Organization | list | empty | Ordered fail-over models used on transient provider errors (opt-in, allowlisted). |
 | `allowed_models` | Organization | list | empty | fnmatch patterns of models members may use; empty allows all. |
 | `forbidden_models` | Organization | list | empty | fnmatch patterns of models that are never allowed. |

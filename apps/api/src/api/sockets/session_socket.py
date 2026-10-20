@@ -30,6 +30,7 @@ from api.turns.context import TurnSelection
 from api.turns.gates import _forget_pending_decisions, take_stored_question
 from api.turns.runner import _active_running_turns
 from api.turns.tasks import _spawn_background_turn
+from specifications.interfaces.agent import SteeringMessage
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 from specifications.interfaces.session import SessionStoreProtocol
@@ -319,6 +320,14 @@ class SessionSocket:
     async def _on_turn(self, data: dict[str, Any]) -> None:
         prompt = (data.get("content") or data.get("prompt") or "").strip()
         if not prompt:
+            return
+        # While this session's turn runs here, the message joins it at its next step rather
+        # than waiting for the end of a turn that may run for an hour. Files go with a turn of
+        # their own.
+        steering = SteeringMessage(
+            content=prompt, message_id=data.get("message_id"), author_user_id=self._user_id
+        )
+        if not data.get("attachment_ids") and self._orchestrator.steer(self._session_id, steering):
             return
         await self._forget_decisions()
         self._start_turn(

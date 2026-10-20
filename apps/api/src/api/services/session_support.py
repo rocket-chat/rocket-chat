@@ -89,7 +89,7 @@ def apply_sharing(record: SessionRecord, is_shared: bool, collaborators: list[st
 # Metadata keys a client may set on its own session. Everything else (toolsets, fork and
 # Slack provenance, title provenance, suggestions) is written by the server only.
 _CLIENT_PATCHABLE_METADATA = frozenset(
-    {"inference_mode", "selected_model", "agent_id", "permission_mode", "queued_prompt"}
+    {"inference_mode", "selected_model", "agent_id", "permission_mode"}
 )
 
 

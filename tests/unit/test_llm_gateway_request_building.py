@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import dataclasses
 from types import SimpleNamespace
 
 import pytest
+from api.services.settings import save_org_config
 from llm_gateway.gateway import LiteLLMGateway
 from llm_gateway.reasoning import ReasoningStreamFilter
 
-from specifications.interfaces.llm import ChatMessage, ModelRequest
+from specifications.interfaces.llm import ChatMessage, ModelRequest, current_model_scope
+from tests.turn_harness import run_turn
 
 
 @pytest.fixture
@@ -124,3 +127,33 @@ def test_a_provider_authentication_error_is_an_actionable_error_not_text() -> No
         assert chunks[0].text_delta is None, "never shown or stored as the model's answer"
     assert "Settings > Models" in (auth[0].error or "") and "bad key" in (auth[0].error or "")
     assert "was not found" in (absent[0].error or "")
+
+
+@pytest.mark.setting("models.provider_preferences")
+async def test_provider_preferences_pin_an_openrouter_model_and_keep_data_rules() -> None:
+    org = "wire_provider_preferences"
+    pinned = {"order": ["deepseek"], "allow_fallbacks": False}
+    await save_org_config(None, org, "models", {"provider_preferences": {"deepseek/*": pinned}}, [])
+    outcome = await run_turn(org, model_choice="openrouter/deepseek/deepseek-v4-pro")
+    scope = outcome.model.scopes[0]
+    assert scope.provider_preferences == (("deepseek/*", pinned),)
+
+    gateway = LiteLLMGateway()
+    token = current_model_scope.set(dataclasses.replace(scope, zero_retention=True))
+    try:
+        kwargs = gateway._completion_kwargs(
+            "openrouter/deepseek/deepseek-v4-pro",
+            dataclasses.replace(
+                _request(zero_retention=True), model="openrouter/deepseek/deepseek-v4-pro"
+            ),
+        )
+        other = gateway._completion_kwargs("openrouter/acme/model", _request())
+    finally:
+        current_model_scope.reset(token)
+
+    provider = kwargs["extra_body"]["provider"]
+    assert provider == {"data_collection": "deny", **pinned}
+    assert kwargs["extra_body"]["session_id"] == scope.session_id
+    assert "provider" not in other.get("extra_body", {}) or other["extra_body"]["provider"] == {
+        "data_collection": "deny"
+    }

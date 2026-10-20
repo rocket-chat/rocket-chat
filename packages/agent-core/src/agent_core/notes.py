@@ -19,11 +19,30 @@ from specifications.interfaces.llm import ChatMessage
 
 REMINDER_OPEN = "<system-reminder>"
 REMINDER_CLOSE = "</system-reminder>"
+AUTOMATIC_TURN_LABEL = "[Automatic turn: no new message from the person]"
+_AUTOMATIC_TURN_OPEN = f"{REMINDER_OPEN}\n{AUTOMATIC_TURN_LABEL}"
 
 
 def render_notes(notes: Sequence[str]) -> str:
     body = "\n\n".join(note.strip() for note in notes if note.strip())
     return f"{REMINDER_OPEN}\n{body}\n{REMINDER_CLOSE}"
+
+
+def automatic_turn_prompt(text: str) -> ChatMessage:
+    """The stored opener of a turn the platform started (resume, continuation, wake).
+
+    It is kept in the model's transcript once, where the turn begins, rather than re-sent at
+    the end of every request: as the newest message on each step it read as a fresh
+    instruction, and models restarted the same first step over and over. As a reminder it is
+    never taken for the person's request (compaction anchors and memory recall skip it).
+    """
+    return ChatMessage(
+        role="user", content=f"{_AUTOMATIC_TURN_OPEN}\n{text.strip()}\n{REMINDER_CLOSE}"
+    )
+
+
+def is_automatic_turn_prompt(message: ChatMessage) -> bool:
+    return message.role == "user" and (message.content or "").startswith(_AUTOMATIC_TURN_OPEN)
 
 
 def with_turn_notes(messages: list[ChatMessage], notes: Sequence[str]) -> list[ChatMessage]:

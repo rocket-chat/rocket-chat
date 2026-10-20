@@ -63,11 +63,11 @@ class AgentPersonaModel(BaseModel):
     )
     max_turns: int | None = Field(
         default=None,
-        ge=1,
+        ge=0,
         le=500,
         description=(
-            "Maximum reasoning steps per turn for this agent; empty inherits the organization's "
-            "limit, and a value above it is refused"
+            "Maximum reasoning steps per turn for this agent (0: no limit); empty inherits the "
+            "organization's limit, and a value above it is refused"
         ),
     )
     tool_loading: ToolLoadingMode | None = Field(

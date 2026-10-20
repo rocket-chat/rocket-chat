@@ -10,11 +10,13 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from api.services.metrics import record_tool_call
+from api.services.session_support import _new_message_id
 from api.services.turn_trace import record_running_tool_call
 from api.turns.context import TurnContext
 from api.turns.gates import _remember_pending_decision
 from specifications.interfaces.agent import AgentEvent
 from specifications.interfaces.events import EventType, SessionEvent
+from specifications.interfaces.llm import ChatMessage
 from specifications.interfaces.session import SessionRecord
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,9 @@ class TokenCoalescer:
         self._first_buffered_at: float = 0.0
         self._char_count: int = 0
         self._timer_task: asyncio.Task[None] | None = None
+        # The timer flushes from its own task while the turn keeps adding: one flush at a time,
+        # so chunks are published in the order they were streamed.
+        self._flushing = asyncio.Lock()
 
     async def add(self, event_type: EventType, delta: str) -> None:
         if not delta:
@@ -90,30 +95,33 @@ class TokenCoalescer:
         self._timer_task = asyncio.create_task(self._timer_flush())
 
     def _cancel_timer(self) -> None:
-        if self._timer_task is not None:
+        # Never the task doing the flush: the timer cancelling itself aborted the publish after
+        # the buffer was taken, and the chunk was lost (thoughts streamed with words missing).
+        if self._timer_task is not None and self._timer_task is not asyncio.current_task():
             self._timer_task.cancel()
-            self._timer_task = None
+        self._timer_task = None
 
     async def _timer_flush(self) -> None:
         try:
             await asyncio.sleep(self._max_delay_seconds)
-            await self.flush()
         except asyncio.CancelledError:
-            pass
+            return
+        await self.flush()
 
     async def flush(self) -> None:
         self._cancel_timer()
-        if self._current_type is None or not self._buffer:
+        async with self._flushing:
+            if self._current_type is None or not self._buffer:
+                self._current_type = None
+                self._buffer.clear()
+                self._char_count = 0
+                return
+            merged_delta = "".join(self._buffer)
+            event_type = self._current_type
             self._current_type = None
             self._buffer.clear()
             self._char_count = 0
-            return
-        merged_delta = "".join(self._buffer)
-        event_type = self._current_type
-        self._current_type = None
-        self._buffer.clear()
-        self._char_count = 0
-        await self._publish_fn(event_type, {"delta": merged_delta})
+            await self._publish_fn(event_type, {"delta": merged_delta})
 
 
 class TurnEventHandlers:
@@ -140,6 +148,8 @@ class TurnEventHandlers:
             "subagent_completed": self._forward(EventType.SUBAGENT_COMPLETED),
             "context_compacted": self._forward(EventType.CONTEXT_COMPACTED),
             "post_failure_synthesis": self._post_failure_synthesis,
+            "user_steer": self._user_steer,
+            "steering_untaken": self._steering_untaken,
         }
 
     async def handle(self, event: AgentEvent) -> None:
@@ -388,6 +398,69 @@ class TurnEventHandlers:
         if event.payload.get("status") == "waiting":
             self.ctx.state.is_waiting = True
         await self._publish(EventType.STATUS_CHANGED, event.payload)
+
+    async def _user_steer(self, event: AgentEvent) -> None:
+        """A message the person sent during the turn reached the model at this step.
+
+        The session history keeps the order the model saw: the turn so far is saved as one
+        assistant entry, then the message, and the rest of the turn becomes the next entry.
+        """
+        ctx, state = self.ctx, self.ctx.state
+        self._commit_step_text()
+        content = str(event.payload.get("content") or "")
+        author = str(event.payload.get("author_user_id") or ctx.session.tenant_user_id)
+        so_far = ChatMessage(
+            role="assistant",
+            content="".join(state.assistant_parts).strip(),
+            reasoning="".join(state.reasoning_parts).strip() or None,
+            tool_calls=list(state.executed_tools) or None,
+        )
+        message = ChatMessage(role="user", content=content, author_user_id=author)
+
+        def split_turn(record: SessionRecord) -> None:
+            if so_far.content or so_far.reasoning or so_far.tool_calls:
+                record.conversation_history.append(so_far)
+            record.conversation_history.append(message)
+
+        await ctx.req.store.mutate_session(ctx.session_id, ctx.session.tenant_org_id, split_turn)
+        state.earlier_reasoning.extend(state.reasoning_parts)
+        state.reasoning_parts.clear()
+        state.assistant_parts.clear()
+        # In place: the running-turn snapshot a reconnecting tab gets shares this list, and the
+        # steps before the message are now in the saved history.
+        state.executed_tools.clear()
+        await self._publish(
+            EventType.USER_MESSAGE,
+            {
+                "message_id": str(event.payload.get("message_id") or _new_message_id()),
+                "role": "user",
+                "content": content,
+                "author_user_id": author,
+            },
+        )
+
+    async def _steering_untaken(self, event: AgentEvent) -> None:
+        """Messages that arrived as the turn ended run as the next turns, in order."""
+        from api.turns.tasks import _spawn_background_turn
+
+        req = self.ctx.req
+        for message in event.payload.get("messages") or []:
+            _spawn_background_turn(
+                session_id=self.ctx.session_id,
+                prompt=str(message.get("content") or ""),
+                orchestrator=req.orchestrator,
+                event_bus=req.event_bus,
+                driver=req.driver,
+                registry=req.registry,
+                store=req.store,
+                git_engine=req.git_engine,
+                db_mgr=req.db_mgr,
+                message_id=message.get("message_id"),
+                author_user_id=message.get("author_user_id"),
+                concurrency_gate=req.concurrency_gate,
+                session_locks=req.session_locks,
+                overlay=req.overlay,
+            )
 
     async def _post_failure_synthesis(self, event: AgentEvent) -> None:
         state = self.ctx.state

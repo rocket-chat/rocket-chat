@@ -358,6 +358,11 @@ class GenerationParams:
     # The organization's own context-window sizes, as (model name or fnmatch pattern, tokens),
     # for models the provider library does not know (a BYOK or self-hosted model).
     context_windows: tuple[tuple[str, int], ...] = ()
+    # The working size a conversation is kept under (0: the model's whole window). Pruning and
+    # compaction thresholds apply to the smaller of the two.
+    context_target_tokens: int = 0
+    # Provider preferences per model pattern, applied by the gateway (see ``ModelScope``).
+    provider_preferences: tuple[tuple[str, dict[str, object]], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -413,6 +418,25 @@ DEFAULT_PERMISSION_MODE = "auto"
 # Reasoning steps a turn may take before the agent must summarise what it has (an agent persona or
 # the organization can set another value).
 DEFAULT_MAX_TURNS = 100
+# A step limit of 0: the turn runs until the model answers, the person cancels it or a cost cap
+# is reached. Long coding sessions legitimately take hundreds of steps; a cap there only makes
+# the agent wrap up and start over.
+NO_STEP_LIMIT = 0
+
+
+def combine_step_limits(agent_limit: int | None, organization_limit: int) -> int:
+    """The step limit of a turn: the agent's own, never beyond the organization's.
+
+    ``NO_STEP_LIMIT`` is the largest value: an agent asking for it under a finite organization
+    limit gets that limit, and an unlimited organization lets each agent choose.
+    """
+    if agent_limit is None:
+        return organization_limit
+    if organization_limit == NO_STEP_LIMIT:
+        return agent_limit
+    if agent_limit == NO_STEP_LIMIT:
+        return organization_limit
+    return min(agent_limit, organization_limit)
 
 
 TOOL_LOADING_MODES = ("all", "on_demand", "auto")
@@ -508,6 +532,19 @@ class AgentEvent:
     payload: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class SteeringMessage:
+    """A message the person sent while a turn of the session was running.
+
+    The running turn takes it at its next step, as a message of the conversation, instead of
+    the person waiting for the end of a turn that may run for an hour.
+    """
+
+    content: str
+    message_id: str | None = None
+    author_user_id: str | None = None
+
+
 class AgentOrchestratorProtocol(ABC):
     """
     Contract for managing conversational turns, sub-agent delegating,
@@ -576,3 +613,11 @@ class AgentOrchestratorProtocol(ABC):
     async def cancel_turn(self, session_id: str) -> None:
         """Halts the currently running turn immediately."""
         pass
+
+    def steer(self, session_id: str, message: SteeringMessage) -> bool:
+        """Hand ``message`` to the session's running turn, if this process runs one.
+
+        ``False`` means no turn here can take it: the caller starts a turn instead, which waits
+        for any turn still running elsewhere.
+        """
+        return False

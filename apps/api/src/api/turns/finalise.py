@@ -127,7 +127,7 @@ async def persist_trace(state: TurnState, db_mgr: Any) -> None:
     trace = state.trace
     if trace is None:
         return
-    reasoning = "".join(state.reasoning_parts)
+    reasoning = "".join([*state.earlier_reasoning, *state.reasoning_parts])
     if state.open_decision is not None and is_shutting_down():
         # Cancelled by a restart while waiting on a person: this turn did not complete. It
         # stays interrupted with its question, which the cockpit shows again.

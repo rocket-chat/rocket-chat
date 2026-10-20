@@ -24,7 +24,7 @@ async function seedSession(request: import("@playwright/test").APIRequestContext
             {
               id: "c2",
               name: "bash_exec",
-              arguments: { command: "pytest -q" },
+              arguments: { command: "cd /workspace/api && pytest -q", cwd: "/workspace" },
               result: "1 failed, 12 passed",
               status: "error",
             },
@@ -72,7 +72,10 @@ test.describe("Chat layout: minimal by default, detail on demand", () => {
     await expect(diff).toContainText("-print('helo')");
     await expect(diff).toContainText("+print('hello')");
 
+    // A leading `cd` is shown as where the command ran, not as part of the command.
     const run = steps.filter({ hasText: "pytest -q" });
+    await expect(run.locator("code")).toHaveText("pytest -q");
+    await expect(run.getByTestId("step-where")).toHaveText("in api");
     await run.click();
     await expect(page.getByText("1 failed, 12 passed").first()).toBeVisible();
   });

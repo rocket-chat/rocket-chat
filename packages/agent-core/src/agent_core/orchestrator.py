@@ -2,6 +2,7 @@
 
 import asyncio
 import dataclasses
+import itertools
 import json
 import logging
 import os
@@ -38,7 +39,7 @@ from agent_core.leaked_calls import (
     contains_leaked_calls,
     strip_leaked_calls,
 )
-from agent_core.notes import without_engine_notes
+from agent_core.notes import automatic_turn_prompt, without_engine_notes
 from agent_core.progress import LoopDetectionResult, ProgressTracker
 from agent_core.retry_policy import execute_stream_with_retry
 from agent_core.subagents import SubagentRunner
@@ -56,6 +57,7 @@ from agent_core.truncation import (
 from specifications.interfaces.agent import (
     APPROVAL_GRANTED_PREFIX,
     DEFAULT_MAX_TURNS,
+    NO_STEP_LIMIT,
     AgentEvent,
     AgentOrchestratorProtocol,
     ApprovalRequest,
@@ -63,6 +65,7 @@ from specifications.interfaces.agent import (
     FileDiff,
     GenerationParams,
     InteractiveQuestion,
+    SteeringMessage,
     SubagentConfig,
     SubagentTaskRequest,
     SystemPrompt,
@@ -134,6 +137,7 @@ class _StreamCollector:
         self.reasoning_blocks: list[dict[str, Any]] = []
         self.tool_calls: dict[int, dict[str, Any]] = {}
         self.reported_usage: dict[str, int] | None = None
+        self.reported_cost: float | None = None
         self.finish_reason: str | None = None
 
     async def feed(self, chunk: StreamChunk) -> None:
@@ -143,6 +147,7 @@ class _StreamCollector:
             raise ModelExecutionError(chunk.error)
         if chunk.token_usage:
             self.reported_usage = chunk.token_usage
+            self.reported_cost = chunk.cost_usd
         if chunk.finish_reason:
             self.finish_reason = chunk.finish_reason
         if chunk.reasoning_blocks:
@@ -229,6 +234,9 @@ class _TurnRun:
     # recalled memories): after the conversation, so it never breaks the cached prefix.
     context_note: str = ""
     synthetic_prompt: bool = False
+    # ``.rocket/PLAN.md`` and ``PROGRESS.md`` as last read; ``None`` until read, or once a step
+    # may have changed them.
+    working_memory: tuple[str | None, str | None] | None = None
 
     def current_notes(self) -> list[str]:
         return [
@@ -237,10 +245,48 @@ class _TurnRun:
             *self.next_notes,
         ]
 
+    def on_last_step(self, step: int) -> bool:
+        return self.turn_limit != NO_STEP_LIMIT and step >= self.turn_limit - 1
+
     def take_notes(self) -> list[str]:
         notes = [*([self.context_note] if self.context_note else []), *self.sticky_notes]
         notes, self.next_notes = [*notes, *self.next_notes], []
         return notes
+
+
+_WORKING_MEMORY_FILES = ("PLAN.md", "PROGRESS.md")
+_WORKING_MEMORY_NOTE_CHARS = 12_000
+
+
+def _mentions_working_memory(call: dict[str, Any]) -> bool:
+    """Whether a tool call may have written ``.rocket/PLAN.md`` or ``PROGRESS.md``."""
+    arguments = str(call.get("arguments") or (call.get("function") or {}).get("arguments") or "")
+    return any(name in arguments for name in _WORKING_MEMORY_FILES)
+
+
+def _working_memory_note(plan_md: str | None, progress_md: str | None) -> str:
+    """The working-memory files as they were when the turn started, for the turn's context.
+
+    Given once with the turn's fixed context (a cached position) rather than at the end of every
+    request: within the turn the agent sees its own edits to them.
+    """
+    sections = [
+        f"{title}:\n{text.strip()[:_WORKING_MEMORY_NOTE_CHARS]}"
+        for title, text in (
+            ("Working Plan (.rocket/PLAN.md)", plan_md),
+            ("Progress (.rocket/PROGRESS.md)", progress_md),
+        )
+        if text and text.strip()
+    ]
+    return "\n\n".join(sections)
+
+
+def _steering_payload(message: SteeringMessage) -> dict[str, Any]:
+    return {
+        "content": message.content,
+        "message_id": message.message_id,
+        "author_user_id": message.author_user_id,
+    }
 
 
 class AsyncReActOrchestrator(AgentOrchestratorProtocol):
@@ -292,6 +338,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         # (the process-wide turn slot) while the turn is parked.
         self.human_wait_scope: Callable[[], AbstractAsyncContextManager[None]] | None = None
         self.context_manager = ContextManager(catalogue=catalogue)
+        # Messages the person sent while their session's turn runs, taken at its next step.
+        self._live_turns: set[str] = set()
+        self._steering: dict[str, list[SteeringMessage]] = {}
 
         # The durable log is the source of truth; this is a bounded cache of live
         # conversations, rehydrated from the store when a session is not resident.
@@ -706,6 +755,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 session_id=session_id,
                 zero_retention=zero_retention,
                 region=region,
+                provider_preferences=exec_ctx.policy.generation.provider_preferences,
             )
         )
 
@@ -846,7 +896,11 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         # Internal per-turn telemetry for cost attribution: the turn handler
         # folds these into the trace's `tokens` object. It is never published to the event
         # bus, so it adds no WebSocket frame.
-        step_cost = estimate_cost_usd(eff_model, p_toks, c_toks, cache_read, cache_creation)
+        step_cost = (
+            stream.reported_cost
+            if stream.reported_cost is not None
+            else estimate_cost_usd(eff_model, p_toks, c_toks, cache_read, cache_creation)
+        )
         await self._check_cache_collapse(exec_ctx, p_toks, cache_read, session_id, event_queue)
         await event_queue.put(
             AgentEvent(
@@ -1039,27 +1093,14 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         step = run.step if run else None
         last_step = run.last_compaction_step if run else None
         active_repo = exec_ctx.active_repository if exec_ctx else ""
-        plan_md, progress_md = (
-            await self._read_working_memory(run.session_id, active_repo) if run else (None, None)
-        )
-        if run and plan_md:
-            note = f"Working Plan (.rocket/PLAN.md):\n{plan_md}"
-            existing_idx = next(
-                (
-                    i
-                    for i, n in enumerate(run.sticky_notes)
-                    if "Working Plan (.rocket/PLAN.md)" in n
-                ),
-                None,
-            )
-            if existing_idx is not None:
-                run.sticky_notes[existing_idx] = note
-            else:
-                run.sticky_notes.append(note)
-        elif run and not plan_md:
-            run.sticky_notes = [
-                n for n in run.sticky_notes if "Working Plan (.rocket/PLAN.md)" not in n
-            ]
+        plan_md, progress_md = None, None
+        if run is not None:
+            # Read once, then again only after a step that wrote them: compaction needs the
+            # files, but reading them from the sandbox before every model call cost several
+            # sandbox round trips per step.
+            if run.working_memory is None:
+                run.working_memory = await self._read_working_memory(run.session_id, active_repo)
+            plan_md, progress_md = run.working_memory
 
         if run and isinstance(conversation, RecordingList) and conversation.pending:
             await self._flush_transcript(run.session_id, run.org_id, conversation)
@@ -1076,6 +1117,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             force_compaction=force_compaction,
             working_plan=plan_md,
             progress_md=progress_md,
+            target_tokens=exec_ctx.policy.generation.context_target_tokens if exec_ctx else 0,
         )
         if cleaned != messages:
             if exec_ctx is not None:
@@ -1314,11 +1356,13 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             model_router=model_router,
             synthetic_prompt=synthetic_prompt,
         )
+        self._live_turns.add(session_id)
         try:
             await self._drive_turn(run, user_message, synthetic_prompt=synthetic_prompt)
         except Exception as err:
             await self._fail_turn(run, err)
         finally:
+            await self._return_untaken_steering(run)
             await self._flush_transcript(run.session_id, run.org_id, run.conversation)
             self._evict_idle_sessions()
             await event_queue.put(None)
@@ -1369,12 +1413,16 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         memory_context = await self._registry.build_memory_context(recall_prompt)
         workspace_context = await self._registry.build_workspace_context()
         dynamic = system_prompt_parts.dynamic if system_prompt_parts is not None else ""
+        working_memory = await self._read_working_memory(
+            session_id, exec_ctx.active_repository if exec_ctx is not None else ""
+        )
         context = [
             part.strip()
             for part in (
                 dynamic,
                 memory_context if isinstance(memory_context, str) else "",
                 workspace_context if isinstance(workspace_context, str) else "",
+                _working_memory_note(*working_memory),
             )
             if part and part.strip()
         ]
@@ -1391,13 +1439,14 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             seed_messages=seed_messages,
             react_model=react_model,
             summary_model=summary_model,
-            turn_limit=max_turns or self.max_turns,
+            turn_limit=max_turns if max_turns is not None else self.max_turns,
             event_queue=event_queue,
             whitelisted_tools=whitelisted_tools,
             exec_ctx=exec_ctx,
             pending_attachments=att_list,
             context_note="\n\n".join(context),
             synthetic_prompt=synthetic_prompt,
+            working_memory=working_memory,
         )
 
     async def _emit(self, run: _TurnRun, event_type: str, payload: dict[str, Any]) -> None:
@@ -1421,17 +1470,21 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         self, run: _TurnRun, user_message: str, synthetic_prompt: bool = False
     ) -> None:
         """Run ReAct steps until the model answers, the user cancels or the budget ends."""
-        if synthetic_prompt:
-            run.sticky_notes.append(user_message)
-        else:
-            run.conversation.append(ChatMessage(role="user", content=user_message))
-            await self._flush_transcript(run.session_id, run.org_id, run.conversation)
+        opener = (
+            automatic_turn_prompt(user_message)
+            if synthetic_prompt
+            else ChatMessage(role="user", content=user_message)
+        )
+        run.conversation.append(opener)
+        await self._flush_transcript(run.session_id, run.org_id, run.conversation)
         await self._emit_status(run, OrchestratorState.RUNNING, "running", "Thinking...")
 
         # Nudge the model to converge before the hard cap so the final answer is
-        # written within budget rather than forced out at the wall (spec 8.1.2).
-        soft_warn_at = max(1, run.turn_limit - max(1, run.turn_limit // 5))
-        for step in range(run.turn_limit):
+        # written within budget rather than forced out at the wall (spec 8.1.2). Without a cap
+        # there is nothing to converge towards: the turn runs until the model answers.
+        limited = run.turn_limit != NO_STEP_LIMIT
+        soft_warn_at = max(1, run.turn_limit - max(1, run.turn_limit // 5)) if limited else -1
+        for step in range(run.turn_limit) if limited else itertools.count():
             if self._cancel_flags.get(run.session_id, False):
                 self._session_states[run.session_id] = OrchestratorState.CANCELLED.value
                 return
@@ -1439,9 +1492,38 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 return
         await self._synthesize_after_budget(run)
 
+    def steer(self, session_id: str, message: SteeringMessage) -> bool:
+        if session_id not in self._live_turns:
+            return False
+        self._steering.setdefault(session_id, []).append(message)
+        return True
+
+    async def _take_steering(self, run: _TurnRun) -> None:
+        """Add what the person sent during the turn to the conversation, before the next step."""
+        taken = self._steering.pop(run.session_id, [])
+        for message in taken:
+            run.conversation.append(
+                ChatMessage(
+                    role="user", content=message.content, author_user_id=message.author_user_id
+                )
+            )
+            await self._emit(run, "user_steer", _steering_payload(message))
+        if taken:
+            await self._flush_transcript(run.session_id, run.org_id, run.conversation)
+
+    async def _return_untaken_steering(self, run: _TurnRun) -> None:
+        """Messages that arrived as the turn ended: the host starts them as the next turn."""
+        self._live_turns.discard(run.session_id)
+        untaken = self._steering.pop(run.session_id, [])
+        if untaken:
+            await self._emit(
+                run, "steering_untaken", {"messages": [_steering_payload(m) for m in untaken]}
+            )
+
     async def _react_step(self, run: _TurnRun, step: int, soft_warn_at: int) -> bool:
         """One model call and the tools it asked for; True once the turn is complete."""
         run.step = step
+        await self._take_steering(run)
         if step == soft_warn_at:
             run.sticky_notes.append(
                 f"Budget notice: {run.turn_limit - step} of {run.turn_limit} reasoning "
@@ -1501,7 +1583,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             # but never reject on the final step so the substantive answer is never lost to budget exhaustion.
             if (
                 not run.checklist_reminded
-                and step < run.turn_limit - 1
+                and not run.on_last_step(step)
                 and (reminder := unfinished_notice(run.conversation))
             ):
                 run.checklist_reminded = True
@@ -1510,7 +1592,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 return False
             if (
                 not run.verification_reminded
-                and step < run.turn_limit - 1
+                and not run.on_last_step(step)
                 and (reminder := verification_gate_notice(run.conversation))
             ):
                 run.verification_reminded = True
@@ -1533,7 +1615,13 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             reasoning=reply.reasoning,
             reasoning_blocks=reply.reasoning_blocks,
         )
+        return await self._after_tool_calls(run, tool_calls)
+
+    async def _after_tool_calls(self, run: _TurnRun, tool_calls: dict[int, dict[str, Any]]) -> bool:
+        """Record a step's tool results; True when a ``wait_for`` ended the turn."""
         await self._process_tool_results_progress(run, tool_calls)
+        if any(_mentions_working_memory(call) for call in tool_calls.values()):
+            run.working_memory = None
         await self._flush_transcript(run.session_id, run.org_id, run.conversation)
         if any(call.get("name") == "wait_for" for call in tool_calls.values()):
             self._session_states[run.session_id] = OrchestratorState.WAITING.value
@@ -1551,15 +1639,12 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         run: _TurnRun,
         tool_calls: dict[int, dict[str, Any]] | list[dict[str, Any]],
     ) -> None:
-        """Inspect completed tool calls to detect repetitive loops or stalls."""
+        """Inspect completed tool calls to detect failure and edit/revert loops."""
         calls_list = list(tool_calls.values()) if isinstance(tool_calls, dict) else list(tool_calls)
-        updated_checklist = False
         for call in calls_list:
             name = str(call.get("name") or (call.get("function") or {}).get("name") or "")
             if not name:
                 continue
-            if name in ("update_task_checklist", "update_checklist", "checklist_update"):
-                updated_checklist = True
             raw_args = str(
                 call.get("arguments") or (call.get("function") or {}).get("arguments") or "{}"
             )
@@ -1579,17 +1664,6 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 elif detection.level == 2:
                     await self._handle_progress_decision(run, detection)
                     return
-
-        has_checklist = bool(run.active_checklist) or (
-            unfinished_notice(run.conversation) is not None
-        )
-        if not updated_checklist and has_checklist:
-            step_det = run.progress_tracker.record_step(has_active_checklist=True)
-            if step_det is not None:
-                if step_det.level == 1:
-                    run.next_notes.append(step_det.suggested_nudge)
-                elif step_det.level == 2:
-                    await self._handle_progress_decision(run, step_det)
 
     def _check_progress_loop(
         self, run: _TurnRun, name: str | None, raw_args: str, output: str
@@ -1643,18 +1717,20 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             tasks = args.get("tasks")
             if isinstance(tasks, list):
                 run.active_checklist = tasks
-                return run.progress_tracker.record_checklist_state(tasks)
 
         return None
 
     async def _handle_progress_decision(self, run: _TurnRun, res: LoopDetectionResult) -> None:
         """Present an interactive decision card when progress is stuck in a loop."""
         mode = run.exec_ctx.policy.permission_mode if run.exec_ctx and run.exec_ctx.policy else ""
-        if mode == "bypass":
-            # In bypass mode, never block execution with an interactive question modal.
-            # Continue running autonomously while injecting the warning into prompt notes.
+        if mode != "ask":
+            # Only a session that asked to approve actions is paused for a person: autonomous
+            # sessions run for hours unattended, and a question there parks the agent until
+            # someone happens to look. They get the warning and change course themselves.
             run.next_notes.append(
-                f"[Bypass Autonomous Progress: {res.reason} Continuing automatically without pausing.]"
+                f"[Progress warning: {res.reason} Stop repeating what has not worked: diagnose "
+                "the cause or take another approach, and if you are blocked say so in your "
+                "answer.]"
             )
             return
 
@@ -1776,7 +1852,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 finish_reason,
                 run.empty_retries,
             )
-            remaining = max(0, run.turn_limit - run.step)
+            remaining = (
+                max(0, run.turn_limit - run.step) if run.turn_limit != NO_STEP_LIMIT else None
+            )
             run.next_notes.append(empty_reply_notice(finish_reason, remaining_steps=remaining))
             return False
         answer = empty_reply_give_up(finish_reason)

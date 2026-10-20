@@ -137,3 +137,48 @@ async def test_check_github_ci_poll_scenarios(monkeypatch: pytest.MonkeyPatch) -
     assert should_wake is True
     assert status == "completed"
     assert "2 CI check(s) passed" in summary
+
+
+def _github(check_runs: list[dict[str, Any]], mergeable_state: str = "clean") -> Any:
+    async def request(acc: Any, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        if "pulls" in path:
+            return {"head": {"sha": "sha12345678"}, "mergeable_state": mergeable_state}
+        if "check-runs" in path:
+            return {"check_runs": check_runs}
+        return {"statuses": []}
+
+    return request
+
+
+@pytest.mark.asyncio
+async def test_waiting_on_settled_or_absent_ci_answers_at_once_instead_of_parking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The agent waited 30+ minutes on CI that had already failed, and on pull requests where
+    CI never runs (no checks at all, or a branch behind its base)."""
+    from unittest.mock import MagicMock
+
+    from api.turns import callbacks
+    from api.turns.callbacks import _ci_already_settled
+
+    from specifications.interfaces.agent import GithubAccess
+
+    async def access(repo: str) -> GithubAccess:
+        return GithubAccess("ghp_test", "https://api.github.com", "user")
+
+    monkeypatch.setattr("api.turns.callbacks._github_read_access", lambda _c, _b: access)
+    monkeypatch.setattr(callbacks, "NO_CHECKS_GRACE_SECONDS", 0.0)
+    bundle = MagicMock()
+
+    failed = [{"name": "build", "status": "completed", "conclusion": "failure"}]
+    monkeypatch.setattr("agent_core.tools.github_client.request", _github(failed))
+    answer = await _ci_already_settled(MagicMock(), bundle, "acme/api", 7)
+    assert answer is not None and "CI failed" in answer and "No wait was registered" in answer
+
+    monkeypatch.setattr("agent_core.tools.github_client.request", _github([], "behind"))
+    answer = await _ci_already_settled(MagicMock(), bundle, "acme/api", 7)
+    assert answer is not None and "No CI check" in answer and "behind its base" in answer
+
+    running = [{"name": "build", "status": "in_progress", "conclusion": None}]
+    monkeypatch.setattr("agent_core.tools.github_client.request", _github(running))
+    assert await _ci_already_settled(MagicMock(), bundle, "acme/api", 7) is None

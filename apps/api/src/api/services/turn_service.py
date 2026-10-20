@@ -107,6 +107,25 @@ def _context_windows(raw: object) -> tuple[tuple[str, int], ...]:
     return tuple(windows)
 
 
+def _context_target(raw: object) -> int:
+    """The organization's working context size; anything unusable means the whole window."""
+    try:
+        return max(0, int(str(raw)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _provider_preferences(raw: object) -> tuple[tuple[str, dict[str, object]], ...]:
+    """The organization's provider preferences, keeping only usable entries."""
+    if not isinstance(raw, dict):
+        return ()
+    return tuple(
+        (str(pattern).strip(), dict(prefs))
+        for pattern, prefs in raw.items()
+        if str(pattern).strip() and isinstance(prefs, dict) and prefs
+    )
+
+
 def _match_output_tokens(model: str, mapping: Any) -> int | None:
     """Find the max output tokens configured for a model (exact or wildcard)."""
     if not isinstance(mapping, dict):
@@ -175,6 +194,8 @@ def _resolve_model_generation(
         reasoning=reasoning_policy,
         fallback_models=fallbacks,
         context_windows=_context_windows(models.get("context_windows")),
+        context_target_tokens=_context_target(models.get("context_target_tokens")),
+        provider_preferences=_provider_preferences(models.get("provider_preferences")),
     )
 
 

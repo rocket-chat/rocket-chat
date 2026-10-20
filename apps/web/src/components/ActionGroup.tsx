@@ -260,7 +260,7 @@ const ToolRow: React.FC<{
   const failed = isFailed(call);
   const counts = step.kind === "edit" ? diffCounts(call, recordedDiff) : null;
   const toolTitle = step.target
-    ? `${isPending(call) ? step.doing : step.done}: ${step.target}`
+    ? `${isPending(call) ? step.doing : step.done}: ${step.target}${step.where ? ` (in ${step.where})` : ""}`
     : isPending(call)
       ? step.doing
       : step.done;
@@ -277,6 +277,11 @@ const ToolRow: React.FC<{
             <code className="ml-2 rounded bg-surface-elevated px-1.5 py-0.5 font-mono text-[12px] text-neutral-700 dark:text-neutral-300" title={step.target}>
               {step.target}
             </code>
+          )}
+          {step.where && (
+            <span data-testid="step-where" className="ml-2 text-xs text-neutral-500 dark:text-neutral-400">
+              in {step.where}
+            </span>
           )}
         </>
       }

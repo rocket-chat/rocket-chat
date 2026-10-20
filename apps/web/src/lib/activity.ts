@@ -12,6 +12,8 @@ export interface StepDescription {
   target: string;
   /** The workspace path an edit touched, used to find its diff. */
   path?: string;
+  /** Where a command ran, shortened ("api" for /workspace/api). */
+  where?: string;
 }
 
 const RUN_TOOLS = new Set(["bash_exec", "bash", "exec_command"]);
@@ -31,13 +33,33 @@ const clip = (text: string, max = 80): string => {
   return single.length > max ? `${single.slice(0, max - 1)}…` : single;
 };
 
+// A leading `cd <folder> &&`: the server runs the rest in that folder, so it is shown as one.
+const LEADING_CD = /^\s*cd\s+([A-Za-z0-9_./@+-]+)\s*&&\s*(?=\S)/;
+
+const shortFolder = (folder: string): string => {
+  const trimmed = folder.replace(/\/+$/, "");
+  if (trimmed === "/workspace" || trimmed === "") return "workspace";
+  return trimmed.startsWith("/workspace/") ? trimmed.slice("/workspace/".length) : trimmed;
+};
+
+/** A command and the folder it ran in, with a leading `cd` read as the folder. */
+export function splitCommand(command: string, cwd: string): { command: string; where: string } {
+  const match = LEADING_CD.exec(command);
+  if (!match) return { command, where: cwd ? shortFolder(cwd) : "" };
+  const folder = match[1];
+  const base = cwd || "/workspace";
+  const absolute = folder.startsWith("/") ? folder : `${base.replace(/\/+$/, "")}/${folder}`;
+  return { command: command.slice(match[0].length), where: shortFolder(absolute) };
+}
+
 /** Words for a tool call a person would use, so rows read as "Edited src/app.py", not "file_edit". */
 export function describeToolCall(call: ToolCallData): StepDescription {
   const args = call.arguments ?? {};
   const name = call.name;
 
   if (RUN_TOOLS.has(name)) {
-    return { kind: "run", done: "Ran", doing: "Running", target: clip(asText(args.command) || asText(args.cmd)) };
+    const { command, where } = splitCommand(asText(args.command) || asText(args.cmd), asText(args.cwd));
+    return { kind: "run", done: "Ran", doing: "Running", target: clip(command), where: where || undefined };
   }
   if (name in CHECK_TOOLS) {
     return { kind: "run", done: "Ran", doing: "Running", target: CHECK_TOOLS[name] };

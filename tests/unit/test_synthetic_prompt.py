@@ -115,3 +115,37 @@ async def test_memory_recall_uses_original_request_on_synthetic_turn() -> None:
     assert recall_mock.call_count == 2
     # Second recall must be called with the original request, NOT the synthetic prompt
     assert recall_mock.call_args[0][0] == "Deploy to Kubernetes cluster"
+
+
+async def test_an_automatic_turn_prompt_is_sent_once_where_the_turn_starts() -> None:
+    """A wake prompt re-sent as the newest message on every step made models restart the
+    same first step over and over: it must stay where the turn began."""
+    store = InMemorySessionStore()
+    driver = FakeSandboxDriver()
+    await run_turn("org_synth_wake", prompt="Fix CI", store=store, driver=driver)
+    wake = "ci_status update for acme/api#7: failing. Proceed with the next steps."
+
+    outcome = await run_turn(
+        "org_synth_wake",
+        prompt=wake,
+        synthetic_prompt=True,
+        store=store,
+        driver=driver,
+        script=[("list_dir", {"path": "."}), ("list_dir", {"path": "src"})],
+    )
+
+    requests = [r for r in outcome.model.requests if r.tools]
+    assert len(requests) == 3
+    for request in requests:
+        carrying = [i for i, m in enumerate(request.messages) if wake in (m.content or "")]
+        assert len(carrying) == 1
+    later = requests[-1].messages
+    opener = next(i for i, m in enumerate(later) if wake in (m.content or ""))
+    assert later[opener].role == "user"
+    assert any(m.role == "tool" for m in later[opener + 1 :])
+    assert wake not in (later[-1].content or "")
+    first = requests[0].messages
+    first_opener = next(i for i, m in enumerate(first) if wake in (m.content or ""))
+    assert [m.content for m in later[: first_opener + 1]] == [
+        m.content for m in first[: first_opener + 1]
+    ]

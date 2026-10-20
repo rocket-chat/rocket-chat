@@ -46,7 +46,7 @@ async def test_auto_checkpoint_created_before_rebase() -> None:
     # Execute a risky rebase command via bash_exec
     output = await registry.call_tool(
         "bash_exec",
-        {"command": "git rebase origin/main"},
+        {"command": "git rebase origin/main", "cwd": "/workspace"},
     )
     assert isinstance(output, str)
 
@@ -82,7 +82,9 @@ async def test_auto_checkpoint_in_real_git_repository(tmp_path: pathlib.Path) ->
     registry = ToolRegistry(driver=driver, session_id=session_id)
 
     # Risky operation: git rebase main
-    output = await registry.call_tool("bash_exec", {"command": "git rebase main"})
+    output = await registry.call_tool(
+        "bash_exec", {"command": "git rebase main", "cwd": "/workspace"}
+    )
     assert isinstance(output, str)
 
     # Verify that a real git checkpoint tag was minted in the git repository

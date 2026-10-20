@@ -18,7 +18,6 @@ import {
   selectUnseenEvents,
 } from "./session-cursor";
 import { planSync, type SyncPlan } from "./sync-plan";
-import { newMessageId } from "./message-id";
 
 /**
  * The transport boundary. Server frames are untyped JSON whose payload shape is
@@ -440,21 +439,6 @@ export class MissionWebSocket {
             });
           }
 
-          // If a next prompt was queued during execution, automatically dispatch it
-          if (rawStatus === "completed" || rawStatus === "cancelled") {
-            const nextPrompt = store.popQueuedPrompt();
-            if (nextPrompt) {
-              const messageId = newMessageId();
-              store.appendOwnUserMessage({
-                messageId,
-                content: nextPrompt,
-                authorUserId: null,
-              });
-              setTimeout(() => {
-                this.sendTurn(nextPrompt, undefined, messageId);
-              }, 100);
-            }
-          }
         }
         break;
       }

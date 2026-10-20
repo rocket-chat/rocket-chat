@@ -36,6 +36,10 @@ class ModelScope:
     # summaries, follow-ups) obey zero-retention and region pinning like the agent's own.
     zero_retention: bool = False
     region: str = ""
+    # The organization's provider preferences per model name or fnmatch pattern (OpenRouter's
+    # ``provider`` object: order, allow_fallbacks, ...). Pinning a model to one provider keeps
+    # its prompt cache: a request served by another provider starts with nothing cached.
+    provider_preferences: tuple[tuple[str, dict[str, object]], ...] = ()
 
 
 current_model_scope: ContextVar[ModelScope | None] = ContextVar("current_model_scope", default=None)
@@ -246,6 +250,11 @@ class StreamChunk:
     is_finished: bool = False
     finish_reason: str | None = None
     token_usage: dict[str, int] | None = None
+    # What the call cost in USD, set with ``token_usage`` when the stream ends: the amount the
+    # provider billed when it reports one (OpenRouter does), else the best known price. Every
+    # consumer uses this one figure, so the ledger, the turn telemetry and the provider's
+    # invoice agree.
+    cost_usd: float | None = None
     # Pieces of the provider's reasoning blocks (thinking text, then its signature).
     reasoning_blocks: list[dict[str, Any]] | None = None
     # Set (with `finish_reason="error"`) when the provider call failed; consumers must treat

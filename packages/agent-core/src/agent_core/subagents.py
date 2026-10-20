@@ -125,6 +125,7 @@ class _Generation:
     reasoning_blocks: list[dict[str, Any]] = field(default_factory=list)
     tool_calls: dict[int, dict[str, Any]] = field(default_factory=dict)
     usage: dict[str, int] | None = None
+    cost_usd: float | None = None
     finish_reason: str | None = None
 
     def produced_text(self) -> str:
@@ -507,6 +508,7 @@ class _SubagentExecution:
             raise ModelExecutionError(chunk.error)
         if getattr(chunk, "token_usage", None):
             generation.usage = chunk.token_usage
+            generation.cost_usd = getattr(chunk, "cost_usd", None)
         if getattr(chunk, "finish_reason", None):
             generation.finish_reason = chunk.finish_reason
         if getattr(chunk, "reasoning_blocks", None):
@@ -545,12 +547,16 @@ class _SubagentExecution:
                     self._model, self._messages, self._tools, generation.produced_text()
                 )
             self._tokens += prompt_tokens + completion_tokens
-            self._cost += estimate_cost_usd(
-                self._model,
-                prompt_tokens,
-                completion_tokens,
-                cache_read_tokens=cache_read,
-                cache_creation_tokens=cache_creation,
+            self._cost += (
+                generation.cost_usd
+                if generation.cost_usd is not None
+                else estimate_cost_usd(
+                    self._model,
+                    prompt_tokens,
+                    completion_tokens,
+                    cache_read_tokens=cache_read,
+                    cache_creation_tokens=cache_creation,
+                )
             )
             if hasattr(gateway, "record_usage") and not getattr(gateway, "records_usage", False):
                 await gateway.record_usage(
@@ -655,7 +661,8 @@ def workspace_brief(permitted: set[str]) -> str:
             if active
             else "No repository is active: use absolute /workspace/... paths."
         ),
-        "Each bash_exec runs in a fresh shell (no cd or exports carry over).",
+        "Each bash_exec runs in a fresh shell in the folder given as `cwd` (never start a "
+        "command with `cd`; exports do not carry over).",
         "Tool output is clamped: search (grep_search, glob_files, code_search) before reading, "
         "and read large files by line range.",
     ]

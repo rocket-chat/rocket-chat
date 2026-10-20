@@ -166,3 +166,25 @@ async def test_turn_event_handlers_flushes_before_non_token_events() -> None:
     await handlers.flush()
     assert published_events[-1].event_type == EventType.TOKEN
     assert published_events[-1].payload["delta"] == "Done!"
+
+
+@pytest.mark.asyncio
+async def test_timer_flushes_never_lose_or_reorder_text_behind_a_slow_publisher() -> None:
+    """The timer's flush cancelled its own task mid-publish: the chunk was taken from the buffer
+    and never sent, so live thoughts showed sentences with words missing."""
+    published: list[str] = []
+
+    async def slow_publish(event_type: EventType, payload: dict[str, str]) -> None:
+        await asyncio.sleep(0.005)
+        published.append(payload["delta"])
+
+    coalescer = TokenCoalescer(slow_publish, max_chars=10_000, max_delay_ms=5.0)
+    words = [f"word{i} " for i in range(200)]
+    for word in words:
+        await coalescer.add(EventType.REASONING_TOKEN, word)
+        await asyncio.sleep(0.001)
+    await coalescer.flush()
+    await asyncio.sleep(0.05)
+
+    assert "".join(published) == "".join(words)
+    assert len(published) > 1, "the timer did flush along the way"

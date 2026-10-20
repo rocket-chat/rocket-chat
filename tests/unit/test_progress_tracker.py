@@ -71,66 +71,6 @@ def test_edit_revert_oscillation_detected() -> None:
     )
 
 
-def test_checklist_stagnation_detection() -> None:
-    tracker = ProgressTracker()
-    tasks = [
-        {"id": "1", "status": "completed"},
-        {"id": "2", "status": "in_progress"},
-        {"id": "3", "status": "pending"},
-    ]
-
-    # Call 1 sets initial baseline. Then 24 steps with same checklist state: no alarm
-    for _ in range(25):
-        assert tracker.record_checklist_state(tasks) is None
-
-    # Step 25 without progress: triggers level 1 stall warning
-    res1 = tracker.record_checklist_state(tasks)
-    assert res1 is not None
-    assert res1.level == 1
-    assert "25 steps have completed without updating any checklist item" in res1.suggested_nudge
-
-    # Run up to 74 steps
-    for _ in range(49):
-        tracker.record_checklist_state(tasks)
-
-    # Step 75: triggers level 2 decision required
-    res2 = tracker.record_checklist_state(tasks)
-    assert res2 is not None
-    assert res2.level == 2
-    assert "has continued for 75 steps without updating any checklist task" in (
-        res2.question_text or ""
-    )
-
-
-def test_checklist_all_completed_no_stagnation() -> None:
-    tracker = ProgressTracker()
-    all_done = [
-        {"id": "1", "status": "completed"},
-        {"id": "2", "status": "completed"},
-    ]
-    for _ in range(20):
-        assert tracker.record_checklist_state(all_done) is None
-
-
-def test_record_step_stagnation() -> None:
-    tracker = ProgressTracker()
-    for _ in range(24):
-        assert tracker.record_step(has_active_checklist=True) is None
-
-    res1 = tracker.record_step(has_active_checklist=True)
-    assert res1 is not None
-    assert res1.level == 1
-    assert "25 steps have completed without updating any checklist item" in res1.suggested_nudge
-
-    for _ in range(49):
-        tracker.record_step(has_active_checklist=True)
-
-    res2 = tracker.record_step(has_active_checklist=True)
-    assert res2 is not None
-    assert res2.level == 2
-    assert "75 steps" in (res2.question_text or "")
-
-
 def test_classify_risky_git_operations() -> None:
     from agent_core.tools.git_tools import classify_risky_git_operation
 

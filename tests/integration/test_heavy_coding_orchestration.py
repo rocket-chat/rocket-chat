@@ -98,7 +98,9 @@ async def test_heavy_coding_orchestration_context_hygiene() -> None:
                     "id": f"call_{turn_counter}",
                     "function": {
                         "name": "bash_exec",
-                        "arguments": json.dumps({"command": f"make build_target_{turn_counter}"}),
+                        "arguments": json.dumps(
+                            {"command": f"make build_target_{turn_counter}", "cwd": "/workspace"}
+                        ),
                     },
                 }
             )

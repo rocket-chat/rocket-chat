@@ -17,6 +17,7 @@ from api.services.personas import (
 )
 from api.services.settings import effective_settings, load_org_config
 from api.services.turn_limits import organization_max_turns
+from specifications.interfaces.agent import combine_step_limits
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,8 @@ async def _resolve_effective_max_turns(
 ) -> int:
     """The agent's own limit, never above the organization's; else the organization's."""
     ceiling = await organization_max_turns(db_mgr, org_id)
-    if agent and agent.max_turns is not None:
-        return min(int(agent.max_turns), ceiling)
-    return ceiling
+    own = int(agent.max_turns) if agent and agent.max_turns is not None else None
+    return combine_step_limits(own, ceiling)
 
 
 async def _resolve_turn_routing(

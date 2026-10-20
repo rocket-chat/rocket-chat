@@ -234,13 +234,21 @@ def _register_checklist_tools(registry: ToolRegistry) -> None:
             "first, keep exactly one task in_progress, and mark each task completed as soon as "
             "it is done, not later. Before your final answer no task may stay pending or "
             "in_progress: mark finished work completed and abandoned work failed. Send an empty "
-            "list to clear it when it no longer helps."
+            "list to clear it when it no longer helps. Call it only when a task's status "
+            "changes, never on every step."
         )
     )
     async def update_task_checklist(
         tasks: Annotated[list[ChecklistTask], Field(description="List of tasks in the checklist.")],
     ) -> str:
         ctx = current_execution_ctx.get()
+        if ctx is not None and ctx.checklist == list(tasks):
+            return (
+                "Checklist unchanged: the person already sees this exact list. Do not send it "
+                "again until a task's status changes; continue with the work."
+            )
+        if ctx is not None:
+            ctx.checklist = [dict(task) for task in tasks]
         if ctx and ctx.event_queue:
             ctx.event_queue.put_nowait(
                 AgentEvent(

@@ -80,7 +80,7 @@ async def test_the_stable_prompt_carries_no_per_turn_content() -> None:
     assert "[Workspace]" in first and "[Editing and verifying]" in first
     assert "[Long-running tasks and git hygiene]" in first
     assert "never leave a rebase" in first
-    assert "maintain `.rocket/PLAN.md`" in first
+    assert "maintain `.rocket/PLAN.md`" in first and "never re-send an" in first
     # Size budget assertion on stable platform prompt to prevent unbounded prompt inflation
     assert 2_000 < len(first) < 10_000
 
@@ -108,3 +108,19 @@ async def test_the_repositorys_instructions_survive_a_sleeping_sandbox() -> None
     assert asleep == awake
     record.metadata = {**record.metadata, "active_repository": "/workspace/web"}
     assert await prompt._project_instructions(_ctx(store, record, driver)) is None
+
+
+async def test_repository_instructions_ride_with_the_turn_not_the_cached_prefix() -> None:
+    """Switching the active repository must not change the cached prefix of the next turn."""
+    section = "[Project Instructions - from `/workspace/api/AGENTS.md`]\nRun make check."
+    metadata = {
+        "active_repository": "/workspace/api",
+        prompt.PROJECT_INSTRUCTIONS_KEY: {"repository": "/workspace/api", "text": section},
+    }
+
+    outcome = await run_turn("org_prompt_instr", metadata=metadata, driver=FakeSandboxDriver())
+
+    messages = outcome.model.requests[0].messages
+    assert "Run make check." not in str(messages[0].content)
+    assert any("Run make check." in (m.content or "") for m in messages[1:] if m.role == "user")
+    assert str(messages[0].content) == await _stable("org_prompt_instr_none")

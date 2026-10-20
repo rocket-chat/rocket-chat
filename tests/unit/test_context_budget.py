@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
-from agent_core.context import ContextManager
+from agent_core.context import ContextManager, render_transcript
 from agent_core.orchestrator import AsyncReActOrchestrator
 from agent_core.tools.registry import ToolRegistry
 from api.services.settings import save_org_config
@@ -185,3 +185,55 @@ async def test_an_organizations_context_window_decides_when_a_turn_compacts() ->
     assert not any(
         "Compacted" in (m.content or "") for r in unbounded.model.requests for m in r.messages
     )
+
+
+@pytest.mark.setting("models.context_target_tokens")
+async def test_the_context_target_compacts_below_a_larger_model_window() -> None:
+    org = "wire_context_target"
+    await save_org_config(
+        None,
+        org,
+        "models",
+        {"context_windows": {"*": 1_000_000}, "context_target_tokens": 2_000},
+        [],
+    )
+    script = [("list_dir", {"path": "."})] * 6
+
+    outcome = await run_turn(org, script=script)
+
+    assert any(
+        "Compacted" in (m.content or "") for r in outcome.model.requests for m in r.messages
+    ), "a 2,000-token target compacts although the window is 1M tokens"
+    whole_window = "wire_context_target_off"
+    await save_org_config(
+        None,
+        whole_window,
+        "models",
+        {"context_windows": {"*": 1_000_000}, "context_target_tokens": 0},
+        [],
+    )
+    unbounded = await run_turn(whole_window, script=script)
+    assert not any(
+        "Compacted" in (m.content or "") for r in unbounded.model.requests for m in r.messages
+    )
+
+
+def test_the_summarized_transcript_keeps_call_arguments_and_the_start_of_the_work() -> None:
+    first = ChatMessage(role="user", content="Decision: keep the HTTP routes, move reads only")
+    edit = ChatMessage(
+        role="assistant",
+        tool_calls=[
+            {
+                "id": "c1",
+                "type": "function",
+                "function": {"name": "file_edit", "arguments": '{"path": "gateway/routes.go"}'},
+            }
+        ],
+    )
+    filler = [ChatMessage(role="tool", content="x" * 600, tool_call_id=f"t{i}") for i in range(400)]
+
+    text = render_transcript([first, edit, *filler], max_chars=20_000)
+
+    assert "file_edit" in text and "gateway/routes.go" in text
+    assert "keep the HTTP routes" in text
+    assert len(text) < 21_000

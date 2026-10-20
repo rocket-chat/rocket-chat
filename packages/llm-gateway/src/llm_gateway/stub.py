@@ -56,7 +56,7 @@ _MARKER_CALLS: dict[str, tuple[str, str, str]] = {
     ),
     BASH_MARKER: (
         "bash_exec",
-        '{"command": "echo stub-ran"}',
+        '{"command": "echo stub-ran", "cwd": "/workspace"}',
         "running a command in the workspace",
     ),
     WRITE_MARKER: (

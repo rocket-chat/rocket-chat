@@ -154,9 +154,6 @@ export interface ComposerSlice {
   seedComposer: (text: string) => void;
   /** A seed is applied once; leaving it in the store would refill every composer that mounts later. */
   clearComposerSeed: () => void;
-  queuedPrompt: string | null;
-  setQueuedPrompt: (prompt: string | null) => void;
-  popQueuedPrompt: () => string | null;
   /** Files staged in the composer for the *next* turn. */
   pendingAttachments: AttachmentInfo[];
   attachmentError: string | null;

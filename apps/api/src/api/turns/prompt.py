@@ -55,11 +55,12 @@ SANDBOX_GUIDANCE: tuple[str, ...] = (
 WORKSPACE_GUIDANCE: tuple[str, ...] = (
     "\n[Workspace]",
     "- Each repository lives in `/workspace/<name>`. The first one you clone becomes the "
-    "active repository; `set_active_repository` switches. Git, test, lint and build tools "
-    "act on it unless you pass `path`, `bash_exec` runs in it unless you pass `cwd`, and "
-    "relative file paths are inside it.",
-    "- Every `bash_exec` is a fresh shell: `cd`, `export` and shell variables do not carry "
-    "over. Pass `cwd`, or chain commands with `&&` in one call.",
+    "active repository: git, test, lint and build tools act on it unless you pass `path`, and "
+    "relative file paths are inside it. In multi-repository work pass `path` rather than "
+    "switching with `set_active_repository`.",
+    "- `bash_exec` runs in the folder you give as `cwd` (e.g. `/workspace/api`); never start a "
+    "command with `cd`. Every call is a fresh shell: `export` and shell variables do not carry "
+    "over, so chain dependent commands with `&&` in one call.",
     "- Tool output is clamped (head and tail, with the hidden range marked). Search first "
     "(`grep_search`, `glob_files`, `code_search`), then read only what you need: "
     "`file_read` returns 400 numbered lines at a time and takes a line range; `web_fetch` "
@@ -92,9 +93,10 @@ WORKING_STYLE_GUIDANCE = (
     "explicitly if using bashisms.\n"
     "- Do not repeat a search that already failed with a similar query: change approach or "
     "say what you could not find.\n"
-    "- For work of three or more steps keep `update_task_checklist` current as you go and "
-    "settled before you answer. Say you are nearly done only when the next step is the final "
-    "answer.\n"
+    "- For work of three or more steps keep a task checklist with `update_task_checklist`: "
+    "update it when a task starts or finishes (not on every step, and never re-send an "
+    "unchanged list) and settle it before you answer. Say you are nearly done only when the "
+    "next step is the final answer.\n"
     "- Hand focused tasks or investigations to specialist subagents "
     "(`delegate_subagent` or `delegate_subagents_parallel` for concurrent tasks) when it saves you steps; "
     "they report back and isolate work on their own branch if they edit files.\n"
@@ -110,9 +112,10 @@ WORKING_STYLE_GUIDANCE = (
 
 LONG_TASK_GUIDANCE = (
     "\n[Long-running tasks and git hygiene]\n"
-    "- Working plan: maintain `.rocket/PLAN.md` (and optional `PROGRESS.md`) for tasks of 3 or more "
-    "steps. Write the goal, planned steps, decisions, and current progress. This file is preserved "
-    "across turns and sandbox cycles.\n"
+    "- Working plan: for work that will span several turns, maintain `.rocket/PLAN.md` (and "
+    "optionally `PROGRESS.md`) with the goal, decisions and what remains; the checklist tracks "
+    "the steps. The file is given back to you at the start of every turn and survives sandbox "
+    "restarts, so update it when a decision or milestone changes, not on every step.\n"
     "- Safe git operations: never leave a rebase, merge conflict, or detached HEAD open at the "
     "end of a turn. Always resolve or abort (`git rebase --abort`, `git merge --abort`) before "
     "delivering your answer.\n"
@@ -272,8 +275,10 @@ async def build_system_prompt(
     env_details += await _organization_guidance(ctx, member_prefs)
     env_details += await _skills_guidance(ctx)
     env_details += await _subagents_guidance(ctx)
-    if instructions := await _project_instructions(ctx):
-        env_details.append(instructions)
+    # The active repository's instructions change whenever the agent switches repository (in
+    # multi-repository work, many times a session): in the cached prefix every switch made the
+    # next turn re-send the whole history uncached, so they ride with the per-turn context.
+    instructions = await _project_instructions(ctx)
 
     # Runtime facts (workspace, committer, repository) are session-stable, so they belong in
     # the cacheable prefix rather than the volatile suffix. The "why this model" notice is
@@ -294,6 +299,7 @@ async def build_system_prompt(
         + "\n".join(env_details)
         + (f"\n{overlay.stable_suffix}" if overlay and overlay.stable_suffix else ""),
         dynamic=routing_notice
+        + (f"\n{instructions}" if instructions else "")
         + (f"\n{released_note}" if released_note else "")
         + (f"\n{processes_note}" if processes_note else "")
         + (f"\n{github_note}" if github_note else "")

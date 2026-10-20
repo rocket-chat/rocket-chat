@@ -6,6 +6,7 @@ import dataclasses
 import logging
 import os
 from collections.abc import AsyncIterator, Iterable, Iterator, Mapping
+from fnmatch import fnmatch
 from typing import Any
 
 import litellm
@@ -91,6 +92,32 @@ def _attach_reasoning(
         entry["thinking_blocks"] = message.reasoning_blocks
     elif replay == _CONTENT and in_current_turn and message.reasoning and message.tool_calls:
         entry["reasoning_content"] = message.reasoning
+
+
+def _provider_preferences(
+    model: str, configured: tuple[tuple[str, dict[str, object]], ...]
+) -> dict[str, object]:
+    """The first configured preferences whose pattern names ``model`` (with or without the
+    gateway prefix), else none."""
+    name = (model or "").lower()
+    bare = name.split("/", 1)[1] if name.startswith("openrouter/") else name
+    for pattern, preferences in configured:
+        wanted = pattern.lower()
+        if fnmatch(name, wanted) or fnmatch(bare, wanted):
+            return dict(preferences)
+    return {}
+
+
+def _merge_extra_body(kwargs: dict[str, Any], extra: dict[str, Any]) -> None:
+    """Add ``extra`` to the request body options, merging the provider object key by key."""
+    if not extra:
+        return
+    body = kwargs.setdefault("extra_body", {})
+    for key, value in extra.items():
+        if isinstance(value, dict) and isinstance(body.get(key), dict):
+            body[key] = {**body[key], **value}
+        else:
+            body[key] = value
 
 
 def misplaced_system_messages(messages: list[ChatMessage]) -> int:
@@ -361,6 +388,9 @@ class LiteLLMGateway(LLMGatewayProtocol):
             kwargs.pop("temperature", None)
         kwargs.update(self._generation_options(request))
         usage_opts = _usage_options(model)
+        if model_lower.startswith("openrouter/"):
+            # Usage accounting: OpenRouter then reports what it billed for the call.
+            _merge_extra_body(kwargs, {"usage": {"include": True}})
         if "extra_body" in usage_opts:
             kwargs.setdefault("extra_body", {}).update(usage_opts["extra_body"])
         if "stream_options" in usage_opts:
@@ -373,7 +403,9 @@ class LiteLLMGateway(LLMGatewayProtocol):
             kwargs["tool_choice"] = request.tool_choice
 
         self._apply_credentials(kwargs, request.credentials)
-        kwargs.update(self._data_governance_kwargs(model, request))
+        governance = self._data_governance_kwargs(model, request)
+        _merge_extra_body(kwargs, governance.pop("extra_body", {}))
+        kwargs.update(governance)
         scope = current_model_scope.get()
         if scope is not None and scope.session_id:
             kwargs["user"] = scope.session_id
@@ -382,6 +414,9 @@ class LiteLLMGateway(LLMGatewayProtocol):
             if "openrouter" in model_lower:
                 kwargs.setdefault("extra_body", {})["session_id"] = scope.session_id
                 kwargs.setdefault("extra_headers", {})["x-session-id"] = scope.session_id
+        if scope is not None and "openrouter" in model_lower:
+            if preferences := _provider_preferences(model, scope.provider_preferences):
+                _merge_extra_body(kwargs, {"provider": preferences})
         return kwargs
 
     def _generation_options(self, request: ModelRequest) -> dict[str, Any]:
@@ -479,6 +514,16 @@ class LiteLLMGateway(LLMGatewayProtocol):
             usage_dict["cache_creation_tokens"] = int(cache_creation)
         return usage_dict
 
+    @classmethod
+    def _billed_cost(cls, chunk: Any) -> float | None:
+        """The cost the provider billed for the call, when it reports one (OpenRouter's
+        ``usage.cost`` with usage accounting on)."""
+        cost = cls._get_val(cls._get_val(chunk, "usage"), "cost")
+        try:
+            return float(cost) if cost is not None else None
+        except (TypeError, ValueError):
+            return None
+
     @staticmethod
     def _filtered_chunks(
         pieces: Iterable[tuple[str, str]],
@@ -547,6 +592,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
             return
 
         latest_usage: dict[str, int] | None = None
+        billed: float | None = None
         last_finish_reason: str | None = None
         ait = aiter(response)
         idle_timeout = float(getattr(request, "timeout", None) or 90.0)
@@ -563,6 +609,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
                     finish_reason="error",
                     error=f"LLM stream idle timeout after {int(idle_timeout)}s with no chunks received",
                     token_usage=latest_usage,
+                    cost_usd=billed,
                 )
                 return
 
@@ -571,6 +618,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
             usage_dict = self._usage_from_chunk(chunk)
             if usage_dict:
                 latest_usage = usage_dict
+                billed = self._billed_cost(chunk)
             choices = getattr(chunk, "choices", None)
             if not choices:
                 continue
@@ -591,6 +639,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
             is_finished=True,
             finish_reason=last_finish_reason or "stop",
             token_usage=latest_usage,
+            cost_usd=billed,
         )
 
     async def chat_stream(
@@ -631,6 +680,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
             return
 
         usage: dict[str, int] | None = None
+        cost: float | None = None
         produced: list[str] = []
         failed = False
         try:
@@ -639,6 +689,12 @@ class LiteLLMGateway(LLMGatewayProtocol):
                     failed = True  # a refused call costs nothing; it is not billed
                 if chunk.token_usage:
                     usage = chunk.token_usage
+                    cost = (
+                        chunk.cost_usd
+                        if chunk.cost_usd is not None
+                        else self._usage_cost(request.model, usage)
+                    )
+                    chunk = dataclasses.replace(chunk, cost_usd=cost)
                 produced.append(_produced_text(chunk))
                 yield chunk
         except Exception as err:
@@ -653,7 +709,16 @@ class LiteLLMGateway(LLMGatewayProtocol):
             yield StreamChunk(is_finished=True, finish_reason=reason, error=str(err))
         finally:
             if not failed or produced or usage:
-                await self._record_call(scope, request, usage, "".join(produced), key_source)
+                await self._record_call(scope, request, usage, "".join(produced), key_source, cost)
+
+    def _usage_cost(self, model: str, usage: dict[str, int]) -> float:
+        return self._cost_usd(
+            model,
+            int(usage.get("prompt_tokens", 0)),
+            int(usage.get("completion_tokens", 0)),
+            int(usage.get("cache_read_tokens", 0)),
+            int(usage.get("cache_creation_tokens", 0)),
+        )
 
     async def _record_call(
         self,
@@ -662,6 +727,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
         usage: dict[str, int] | None,
         produced: str,
         key_source: str,
+        billed: float | None = None,
     ) -> None:
         if scope is None or self.usage_sink is None:
             return
@@ -687,7 +753,9 @@ class LiteLLMGateway(LLMGatewayProtocol):
                     completion_tokens=completion,
                     cache_read_tokens=cache_read,
                     cache_creation_tokens=cache_creation,
-                    cost_usd=self._cost_usd(
+                    cost_usd=billed
+                    if billed is not None
+                    else self._cost_usd(
                         request.model, prompt, completion, cache_read, cache_creation
                     ),
                     key_source=key_source,
@@ -705,20 +773,29 @@ class LiteLLMGateway(LLMGatewayProtocol):
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
     ) -> float:
-        """The provider's published price from LiteLLM, else the conservative estimate."""
-        try:
-            prompt_cost, completion_cost = litellm.cost_per_token(
-                model=model,
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                cache_read_input_tokens=cache_read_tokens,
-                cache_creation_input_tokens=cache_creation_tokens,
-            )
+        """The provider's published price from LiteLLM, else the conservative estimate.
+
+        A gateway's name for a model (``openrouter/deepseek/deepseek-v4-pro``) is often absent
+        from LiteLLM's table while the model itself (``deepseek/deepseek-v4-pro``) is listed:
+        without that second lookup every such call was priced at a family's old rate card.
+        """
+        names = [model]
+        if (model or "").lower().startswith("openrouter/"):
+            names.append(model.split("/", 1)[1])
+        for name in names:
+            try:
+                prompt_cost, completion_cost = litellm.cost_per_token(
+                    model=name,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    cache_read_input_tokens=cache_read_tokens,
+                    cache_creation_input_tokens=cache_creation_tokens,
+                )
+            except Exception:
+                continue
             total = float(prompt_cost) + float(completion_cost)
             if total > 0:
                 return round(total, 6)
-        except Exception:
-            pass
         return estimate_cost_usd(
             model,
             prompt_tokens,

@@ -57,7 +57,9 @@ async def test_tier2_sandbox_delegation() -> None:
     registry = ToolRegistry(driver=mock_driver, session_id="test_session")
 
     # 1. bash_exec
-    bash_out = await registry.call_tool("bash_exec", {"command": "echo hello world"})
+    bash_out = await registry.call_tool(
+        "bash_exec", {"command": "echo hello world", "cwd": "/workspace"}
+    )
     assert "hello world" in bash_out
     # Around the command itself, the repository's changed files are fingerprinted (diffs).
     mock_driver.exec_command.assert_any_await(
@@ -96,7 +98,7 @@ async def test_tier2_sandbox_delegation() -> None:
 @pytest.mark.asyncio
 async def test_tier2_unbound_sandbox_error() -> None:
     registry = ToolRegistry()  # No sandbox bound
-    result = await registry.call_tool("bash_exec", {"command": "ls"})
+    result = await registry.call_tool("bash_exec", {"command": "ls", "cwd": "/workspace"})
     assert "Error: Sandbox not initialized" in result
 
 

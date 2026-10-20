@@ -87,7 +87,6 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       suggestedFollowup:
         session.suggested_followup ||
         ((meta.suggested_followup as string) ?? null),
-      queuedPrompt: sessionChanged ? (meta.queued_prompt as string) || null : get().queuedPrompt,
       statusMessage: "System Ready. Standing by for instructions.",
     });
 
