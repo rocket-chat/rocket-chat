@@ -503,6 +503,7 @@ class TurnRunner:
             ):
                 await handlers.handle(event)
         finally:
+            handlers.close()
             await handlers.flush()
 
     async def _auto_title(self, ctx: TurnContext) -> None:

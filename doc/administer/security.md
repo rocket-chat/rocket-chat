@@ -150,6 +150,12 @@ Anything not named **keeps the human gate** — the default never silently appro
 action. The decision is enforced server-side on the `approval_required` event; the model
 is never asked to police itself.
 
+Questions the agent asks (`ask_question`) wait for an answer, however long it takes. For
+sessions nobody watches, such as ones a script drives through the API, set
+`{"question_timeout_seconds": 300}`: once the time is up the question closes unanswered
+(clients receive `decision_submitted` with no option chosen) and the agent continues with
+its recommended option, or its best judgement, and states the assumption it made.
+
 ### C. Redaction pipeline
 Applied to tool output **before** it enters the trace, the persisted history and the
 terminal log, and to any value written through the memory service:
