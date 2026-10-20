@@ -103,6 +103,8 @@ export interface RunningTurnData {
     redacted?: number;
     seq?: number;
     created_at?: number;
+    /** The reasoning that led to this call (on the first call of its step). */
+    reasoning?: string;
   }>;
 }
 
@@ -218,6 +220,8 @@ export interface ToolCallData {
   stderr?: string;
   exit_code?: number;
   created_at?: number;
+  /** The reasoning that led to this call (on the first call of its step). */
+  reasoning?: string;
 }
 
 /**

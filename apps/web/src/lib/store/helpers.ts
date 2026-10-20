@@ -112,19 +112,23 @@ export function convertHistoryToFlightLogs(
         timestamp,
       });
     } else {
-      if (m.reasoning) {
+      // Newer turns keep each step's reasoning on the call it led to, and on the message only
+      // what followed the last call; older ones keep it all on the message, shown first.
+      const stepReasoning = (m.tool_calls ?? []).some((tc) => !!tc.reasoning);
+      const thought = (text: string, key: string, at: string) =>
         logs.push({
-          id: `msg-${sessionId}-${idx}-thought`,
+          id: `msg-${sessionId}-${idx}-${key}`,
           role: "AGENT",
           content: "",
-          reasoning: m.reasoning,
-          timestamp,
+          reasoning: text,
+          timestamp: at,
           isPersisted: true,
         });
-      }
+      if (m.reasoning && !stepReasoning) thought(m.reasoning, "thought", timestamp);
       if (m.tool_calls && m.tool_calls.length > 0) {
         m.tool_calls.forEach((tc, tIdx) => {
           const toolTimestamp = formatTimestamp(tc.created_at) || timestamp;
+          if (tc.reasoning) thought(tc.reasoning, `thought-${tIdx}`, toolTimestamp);
           logs.push({
             id: `msg-${sessionId}-${idx}-tool-${tIdx}`,
             role: "AGENT",
@@ -134,6 +138,7 @@ export function convertHistoryToFlightLogs(
           });
         });
       }
+      if (m.reasoning && stepReasoning) thought(m.reasoning, "thought", timestamp);
       if (m.content) {
         logs.push({
           id: `msg-${sessionId}-${idx}-ans`,

@@ -28,9 +28,12 @@ LEAK_MARKERS: tuple[str, ...] = (
 )
 
 # What some providers leave in the text after turning a DSML call into a structured one: the
-# tail of a parameter tag without its opening, e.g. `path" string="true">/workspace/api`. It
-# has no "<", so it is recognised by its shape, and only at the start of a reply.
-_REMNANT = re.compile(r'^\s*[A-Za-z_][\w.-]{0,63}" string="(?:true|false)">')
+# tail of a parameter tag cut anywhere before its name, e.g. `path" string="true">/workspace`,
+# `name="path" string="true">...` or `parameter name="body" string="true">...`. It has no
+# "<", so it is recognised by its shape, and only at the start of a reply.
+_REMNANT = re.compile(
+    r'^\s*(?:\S*parameter\s+)?(?:name)?=?"?[A-Za-z_][\w.-]{0,63}"\s*string="(?:true|false)">'
+)
 # How much of a reply's start is held back until it is known not to be a remnant.
 _REMNANT_HEAD = 80
 

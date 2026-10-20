@@ -111,6 +111,7 @@ class SlackAdmissionMixin(SlackAssistantState):
         self,
         base: list[str] | None = None,
         org_allowed: tuple[str, ...] = (),
+        blocked: frozenset[str] | None = None,
     ) -> list[str] | None:
         """The tool allowlist for a Slack turn, ``None`` meaning every tool.
 
@@ -118,9 +119,11 @@ class SlackAdmissionMixin(SlackAssistantState):
         whitelist when it declares one. A wildcard on both sides stays unrestricted rather than
         becoming a list of the tools registered now: MCP tools only exist once the turn starts,
         and a list would hide them. The blocked tools are enforced apart, as the overlay's
-        ``denied_tools``.
+        ``denied_tools``; ``blocked`` is that turn's set (default: the deployment's list), so an
+        agent's own allowlist never takes back what the turn was given.
         """
-        allowed, blocked = self._slack_tool_selection(org_allowed)
+        allowed, default_blocked = self._slack_tool_selection(org_allowed)
+        blocked = default_blocked if blocked is None else blocked
         agent_scope = None if base is None or "*" in base else frozenset(base)
         if allowed is None and agent_scope is None:
             return None

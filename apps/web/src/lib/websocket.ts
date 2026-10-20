@@ -295,6 +295,16 @@ export class MissionWebSocket {
         const stepTs = formatEventTime(
           step.created_at ?? (plan.runningTurn.started_at ? plan.runningTurn.started_at * 1000 : null)
         );
+        if (step.reasoning) {
+          store.appendFlightLog({
+            id: step.id ? `thought-${step.id}` : `thought-${Date.now()}-${Math.random()}`,
+            role: "AGENT",
+            content: "",
+            reasoning: step.reasoning,
+            timestamp: stepTs,
+            isPersisted: true,
+          });
+        }
         store.appendFlightLog({
           id: step.id ? `tool-${step.id}` : `tool-${Date.now()}-${Math.random()}`,
           role: "CODER",
