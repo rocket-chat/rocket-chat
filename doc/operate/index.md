@@ -25,7 +25,7 @@ Rocket Chat ships as container images and a Helm chart. For a single machine, Do
 
 ## Artifacts
 
-Each release publishes the backend and frontend images (multi-arch), the sandbox images (the development image and its browser variant), the Helm chart and a software bill of materials. Pin versions in production; `:latest` and `:dev` move.
+Each release publishes the backend and frontend images (multi-arch), the sandbox images (the development image and its browser variant), the Helm chart and a software bill of materials. Pin versions in production; `:latest` and `:dev` move. The backend image carries its release number in `ROCKET_VERSION`, which the settings console shows; a `:dev` image or a run from source reports `dev`.
 
 ## Day-two checklist
 

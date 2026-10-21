@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowLeft, Building2, X } from "lucide-react";
 
+import { AppVersion } from "./AppVersion";
 import { useSession } from "../AuthProvider";
 import { useMissionStore } from "../../lib/store";
 import { SettingsSearchButton } from "./SettingsSearch";
@@ -146,6 +147,9 @@ export const SettingsNav: React.FC = () => {
           <div className="flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400">
             <span>Tenant Scope: {tenantOrg}</span>
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          </div>
+          <div className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
+            Rocket Chat <AppVersion />
           </div>
         </div>
       </aside>

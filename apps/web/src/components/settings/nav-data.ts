@@ -13,6 +13,7 @@ import {
   Box,
   Users,
   SlidersHorizontal,
+  KeyRound,
 } from "lucide-react";
 
 export interface NavItem {
@@ -38,6 +39,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/settings/user/profile", label: "Profile & preferences", icon: User },
       { href: "/settings/github", label: "Git & GitHub", icon: GitPullRequest },
       { href: "/settings/user/models", label: "My models & keys", icon: Cpu },
+      { href: "/settings/user/api-tokens", label: "API access", icon: KeyRound },
     ],
   },
   {
