@@ -134,6 +134,19 @@ def misplaced_system_messages(messages: list[ChatMessage]) -> int:
 
 
 # Self-hosted providers keep nothing and run where the organization put them.
+# The environment variable that carries each provider's deployment-wide key, the one used when
+# neither a member nor the organization stored a key of their own.
+PROVIDER_KEY_ENV_VARS: dict[str, str] = {
+    "openrouter": "OPENROUTER_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "deepseek": "DEEPSEEK_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "azure": "AZURE_API_KEY",
+    "mistral": "MISTRAL_API_KEY",
+    "groq": "GROQ_API_KEY",
+}
+
 _SELF_HOSTED_PROVIDERS = frozenset({"ollama", "ollama_chat", "hosted_vllm", "vllm", "lm_studio"})
 _ZERO_RETENTION_PROVIDERS = frozenset({"openrouter"}) | _SELF_HOSTED_PROVIDERS
 _REGION_PROVIDERS = (
@@ -310,16 +323,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
 
     def _sanitize_environment_keys(self) -> None:
         """Ensure standard LLM provider API keys in os.environ have no trailing newlines or control chars."""
-        key_names = [
-            "OPENROUTER_API_KEY",
-            "ANTHROPIC_API_KEY",
-            "OPENAI_API_KEY",
-            "DEEPSEEK_API_KEY",
-            "GEMINI_API_KEY",
-            "AZURE_API_KEY",
-            "MISTRAL_API_KEY",
-            "GROQ_API_KEY",
-        ]
+        key_names = PROVIDER_KEY_ENV_VARS.values()
         for key in key_names:
             val = os.getenv(key)
             if val is not None:

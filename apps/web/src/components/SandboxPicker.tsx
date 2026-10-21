@@ -52,7 +52,7 @@ export const SandboxPicker: React.FC<{ disabled?: boolean; bare?: boolean }> = (
 
   return (
     <label
-      className={`flex items-center gap-1.5 px-2.5 py-1.5 text-muted-foreground ${
+      className={`flex items-center gap-1 px-2 py-1 text-muted-foreground sm:gap-1.5 sm:px-2.5 sm:py-1.5 ${
         bare ? "focus-within:bg-elevated" : "rounded-lg bg-surface border border-border focus-within:border-primary/60"
       }`}
       title={hint}

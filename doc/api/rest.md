@@ -1249,6 +1249,15 @@ Provider keys shared by the organization (administrators).
 
 **Responses:** `200`
 
+### `GET /v1/admin/model-keys/platform`
+
+Providers whose key the deployment itself holds in the environment (administrators).
+
+Members use these when neither they nor the organization stored a key; an organization key
+for the same provider replaces the deployment's for this organization only.
+
+**Responses:** `200`
+
 ### `PUT /v1/admin/model-keys/{provider}`
 
 Put Org Model Key

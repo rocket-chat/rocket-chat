@@ -78,4 +78,43 @@ test.describe("Session sidebar", () => {
     await menu.getByRole("menuitem", { name: /Pin/ }).click();
     await expect(page.locator(`[data-testid="session-row"][data-session-id="${id}"]`)).toHaveAttribute("data-pinned", "true");
   });
+
+  test("an archived conversation leaves the list at once and is found only in the Archived view", async ({ page, request }) => {
+    const title = `Archive ${Date.now()}`;
+    const sessionId = await newSession(request, title);
+    const keep = await newSession(request, `Keep ${Date.now()}`);
+
+    await page.goto(`/chat/${sessionId}`);
+    const sidebar = page.getByTestId("session-sidebar");
+    const row = sidebar.locator(`[data-testid="session-row"][data-session-id="${sessionId}"]`);
+    await expect(row).toBeVisible();
+    await row.hover();
+    await row.getByTestId("archive-session-btn").click();
+    await expect(row).toHaveCount(0);
+    await expect(sidebar.locator(`[data-testid="session-row"][data-session-id="${keep}"]`)).toBeVisible();
+
+    await sidebar.getByTestId("toggle-archived-btn").click();
+    await expect(sidebar.locator(`[data-testid="session-row"][data-session-id="${sessionId}"]`)).toBeVisible();
+    await expect(sidebar.locator(`[data-testid="session-row"][data-session-id="${keep}"]`)).toHaveCount(0);
+
+    await sidebar.getByTestId("toggle-archived-btn").click();
+    await expect(row).toHaveCount(0);
+  });
+
+  test("the filters other than All are icons that explain themselves on hover", async ({ page, request }) => {
+    const sessionId = await newSession(request, "Filters");
+    await page.goto(`/chat/${sessionId}`);
+
+    const filters = page.getByRole("group", { name: "Filter conversations" });
+    await expect(filters.getByRole("button", { name: "All" })).toHaveText("All");
+    for (const [name, detail] of [
+      ["Shared", /shared with you/],
+      ["Slack", /started from Slack/],
+      ["Archived", /archived conversations/],
+    ] as const) {
+      const button = filters.getByRole("button", { name });
+      await expect(button).toHaveText("");
+      await expect(button).toHaveAttribute("title", detail);
+    }
+  });
 });

@@ -15,13 +15,13 @@ DEV_VERSION = "dev"
 class VersionInfo(BaseModel):
     version: str = Field(
         ...,
-        description="The release this server was built from (`0.5.0`), or `dev` for any build "
-        "that is not a tagged release",
+        description="The release this server was built from (`0.5.0`), `dev-DDMMYYYY-HHMM` for a "
+        "published development image, or `dev` for any other build",
     )
 
 
 def running_version() -> str:
-    # Only the release workflow sets ROCKET_VERSION: the manifests carry the last release number
+    # Only the image workflows set ROCKET_VERSION: the manifests carry the last release number
     # on every commit after it, so reading them would label unreleased builds as released.
     return os.getenv("ROCKET_VERSION", "").strip().removeprefix("v") or DEV_VERSION
 

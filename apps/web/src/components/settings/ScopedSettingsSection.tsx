@@ -19,9 +19,11 @@ const SectionHeader: React.FC<{
   badge?: React.ReactNode;
   action?: React.ReactNode;
 }> = ({ title, description, badge, action }) => (
-  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-    <div className="min-w-0">
-      <div className="flex items-center gap-2">
+  // Wraps instead of squeezing: the settings column is narrower than the window (the navigation
+  // takes a share of it), so the action drops below the title when there is no room beside it.
+  <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+    <div className="min-w-0 flex-1 basis-72">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <h2 className="font-display text-base font-semibold text-foreground">{title}</h2>
         {badge}
       </div>
@@ -75,7 +77,7 @@ export const OrgScopeSection: React.FC<OrgScopeSectionProps> = ({
         description={description}
         badge={
           // Shown to administrators too: a change here applies to every member.
-          <Badge>
+          <Badge className="whitespace-nowrap">
             <Lock className="h-2.5 w-2.5" aria-hidden="true" />
             {isAdmin ? "Admin only · whole organization" : "Read-only"}
           </Badge>

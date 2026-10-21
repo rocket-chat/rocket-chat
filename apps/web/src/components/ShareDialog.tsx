@@ -45,6 +45,8 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
   const [copied, setCopied] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
+  // The form stays disabled until this has loaded: adopting the server's state over what the
+  // person already typed or ticked would silently undo it, and Save would then store the old value.
   const adopt = useCallback((next: Sharing) => {
     setSharing(next);
     setOrgWide(next.org_wide);
@@ -188,6 +190,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
                   data-testid="share-emails"
                   rows={3}
                   value={emails}
+                  disabled={!sharing}
                   onChange={(event) => setEmails(event.target.value)}
                   placeholder="alex@example.com"
                 />
@@ -198,6 +201,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
                 type="checkbox"
                 data-testid="share-org-wide"
                 checked={orgWide}
+                disabled={!sharing}
                 onChange={(event) => setOrgWide(event.target.checked)}
               />
               Everyone in the organization

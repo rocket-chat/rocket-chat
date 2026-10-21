@@ -5,7 +5,7 @@ description: Your identity, models, GitHub account and notifications.
 
 # Your settings
 
-Open **Settings** from the sidebar (or the **View** menu in a session). The list has three groups: *Personal* (only affects you), *Agent capabilities* (agents, subagents, MCP servers, skills, knowledge bases) and *Organization* (administrators; see [Administer](/administer/index)). When an administrator **locks** a setting you see it as *locked by organization* and cannot change it. The foot of the list shows the version of the running server (`v0.5.0`), or `dev` when it was built from source rather than from a release.
+Open **Settings** from the sidebar (or the **View** menu in a session). The list has three groups: *Personal* (only affects you), *Agent capabilities* (agents, subagents, MCP servers, skills, knowledge bases) and *Organization* (administrators; see [Administer](/administer/index)). When an administrator **locks** a setting you see it as *locked by organization* and cannot change it. The foot of the list shows the version of the running server (`v0.5.0`), a development build shows `dev` and, for a published dev image, the date and time (UTC) it was built, such as `dev-21102026-1036`.
 
 **Saving.** A page never has a Save button per section. Edit as many fields as you like and a bar at the bottom shows how many changes are unsaved, with one **Save changes** and one **Discard**. Rarely changed settings are folded under **Advanced**, a number shows what it counts (minutes, USD, tokens), and **Reset to default** puts a changed value back.
 
