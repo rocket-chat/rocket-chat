@@ -113,13 +113,18 @@ affinity = prefer_node(previous_node_name)
 * **Python:** strict `mypy`; no `Any` escape hatches — use `TypeVar`, Pydantic models, `TypedDict`, `Protocol`. **TypeScript:** `strict` with `noImplicitAny`; no `@ts-ignore` and no `any` unless wrapping an untyped library (say why in a comment).
 
 ### D. Context hygiene (the agent's own context)
-Tools never emit unbounded output into the session: results are clamped head-and-tail (`clamp_output`), old tool payloads are pruned to receipts past 70% of the window, and compaction at 85% keeps the system prompt, the current request (verbatim), the checklist and the latest whole steps. Reasoning blocks and `tool_call_id` pairing are never dropped.
+Tools never emit unbounded output into the session: results are clamped head-and-tail (`clamp_output`), old tool payloads are pruned to receipts past 70% of the window, and compaction at 85% keeps the system prompt, the current request (verbatim), every earlier message of the person (verbatim, within a budget), the skills in effect, the checklist and the latest whole steps. Reasoning blocks and `tool_call_id` pairing are never dropped.
+* **A compaction summary is checked, never trusted.** It is asked on the live request (`tool_choice: none`, reasoning off), validated (`valid_summary`), retried once, and otherwise rebuilt from the tool history; an empty or markup-filled answer is never stored. Record how it was made (`summary_status`).
+* **Instructions the agent must follow live where the agent looks.** A skill's text is the `execute_skill` result, exempt from pruning and re-attached by compaction; do not move standing instructions into a context note that drifts a hundred steps behind a long turn.
+* **The fixed part of every request is a budget.** Every step re-sends the system prompt and every tool definition: `tests/unit/test_request_budget.py` holds them to a reviewed snapshot. Growing it needs a reason in the pull request.
 
 ### E. Concurrency
 * `asyncio` throughout. No blocking I/O in async paths (`time.sleep`, sync `requests`, raw file I/O): use `asyncio.sleep`, `httpx.AsyncClient`, `anyio.to_thread.run_sync`. **Every external network call has an explicit timeout** (Docker, Kubernetes, LiteLLM, HTTP).
 * Per-turn state lives in `current_execution_ctx` (a `contextvar`), never in mutable callbacks on shared singletons.
 * **Never read-modify-write a whole session record.** Use `store.mutate_session(session_id, org, fn)` (row-locked on PostgreSQL). Whole-record `get` + `update` let the title task, the answer and the follow-up erase each other and lost the answer about 1 turn in 12 under load.
 * **The connect snapshot loses nothing:** the live queue is opened *before* the session record is read; the turn's closing event is `status_changed` with `final: true`, published after the answer is stored. Do not add a slow step between reading the record, the gates and `last_seq` (see `dev/architecture.md` §5).
+* **Nothing a person sends is held only in memory.** A message sent during a turn is stored (`session_queued_messages`) before any turn takes it; a restart or another replica must lose none.
+* **A wait ends the turn only when something will wake it.** A wait that settles at once is a result the agent acts on in the same turn, and a CI wait is about the commit that was pushed, never the pull request's previous head.
 * **Every event payload has a type** in `specifications/interfaces/event_payloads.py`; adding a key means changing the type, the handler, the client and the WebSocket documentation in one change. Tests run with `ROCKET_VALIDATE_EVENTS=1` and fail on a violation.
 
 ### F. Security and tenancy invariants
@@ -128,6 +133,8 @@ Summarised here, specified in `dev/security-and-tenancy.md`: new tables get a mi
 ### G. Long-running sessions
 
 Complex software-engineering turns legitimately run 20+ minutes and 50+ tool calls. Never add hard caps on turn duration, tool count, or ReAct steps; fix the visibility of progress (status events, sidebar indicators) rather than shortening the work.
+
+Make each step cheaper and better informed instead: a lean request, context that survives compaction, setup the platform runs rather than prose the agent may skip, waits that end correctly. Judge such changes on numbers, not impressions: each turn's trace records steps, model and tool time, reasoning and compactions (`tokens.metrics`), and `scripts/harness_bench.py` runs the live tasks (`bench`) or replays a real session (`replay`) against an instance. A change meant to make the agent faster or cheaper says in its pull request what the benchmark or a replay showed.
 
 ---
 
@@ -149,7 +156,7 @@ Complex software-engineering turns legitimately run 20+ minutes and 50+ tool cal
 
 The full table is in `dev/architecture.md` §11. In short:
 
-* **Tool** — implement in `packages/agent-core/src/agent_core/tools/builtin/<domain>.py` (or a helper module), register in that group, annotate parameters with `Field(description=…)`, classify it in `permissions.py` (read/edit/command/publish), decide Tier 1/2 and capability gating, update `tests/golden/tool_catalogue.json` and the tool docs in `doc/`.
+* **Tool** — implement in `packages/agent-core/src/agent_core/tools/builtin/<domain>.py` (or a helper module), register in that group, annotate parameters with `Field(description=…)`, classify it in `permissions.py` (read/edit/command/publish), decide Tier 1/2 and capability gating, update `tests/golden/tool_catalogue.json` and the tool docs in `doc/`. A new tool is **deferred** (loaded on demand) unless it joins `CORE_TOOLS`, which needs a reason almost every task shares and an updated `tests/golden/request_budget.json`; its usage guidance belongs in its own description, not in the platform prompt.
 * **Setting** — add a `SettingSpec` in `packages/config-engine/src/config_engine/registry.py` naming the file that consumes it, **and a behaviour test marked `@pytest.mark.setting("domain.key")`** that changes the value and asserts what the platform then does (`tests/unit/test_every_setting_is_wired.py` fails for a setting without one); regenerate `doc/administer/settings-reference.md`. A setting that is stored and shown but changes nothing is a bug, not a feature.
 * **Route** — new router module, shared identity/access helpers, response model, tests for allowed and denied roles; regenerate the API reference.
 * **Table** — Alembic migration + model + forced RLS + RLS test.
@@ -164,6 +171,7 @@ The full table is in `dev/architecture.md` §11. In short:
 * Every backend route or feature has unit tests and an integration test; every UI change passes type-check, build and the Playwright suite, and its spec is updated in the same change. Run the **whole** Playwright suite, not only the spec you touched, and confirm zero regressions.
 * Fix flakes at the cause; do not retry around them. A test that passes only in isolation is a finding.
 * Slack behaviour is tested through the real Bolt app with recorded Web API calls (`tests/slack_harness.py`), not by calling internals.
+* The harness's own behaviour (compaction, skills, waits, tool loading, steering) is tested through whole turns: a scripted turn that crosses compaction twice, a wait that settles at once, a message sent mid-turn. `ScriptedModel` answers a compaction's summary request without consuming the script.
 * To prove a setting or agent field changes a whole turn, run one in memory with `tests/turn_harness.py` (`run_turn`: real orchestrator, turn engine, event bus and store; scripted model; fake sandbox) and assert on the model requests, sandbox commands and published events. Reading a key is not proof; a value that reaches a dataclass nobody uses is the usual way a setting ends up doing nothing.
 * Verify against both mental models: the **Docker** driver (local) and the **Kubernetes** driver (cluster).
 
