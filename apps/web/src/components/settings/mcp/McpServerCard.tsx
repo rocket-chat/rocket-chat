@@ -71,6 +71,8 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
 
   return (
     <div
+      data-testid="mcp-server-card"
+      data-server-name={server.name}
       className="rounded-lg border border-border bg-surface-card hover:border-brand/30 transition-all overflow-hidden"
     >
       <div className="p-3.5 flex items-center justify-between gap-3">

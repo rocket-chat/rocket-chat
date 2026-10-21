@@ -28,15 +28,23 @@ async function register(page: Page, name: string, guidance: string): Promise<voi
 test.describe("MCP server guidance", () => {
   test("a server's card shows the one line the agent weighs it by, and the manual rendered as markdown", async ({ page }) => {
     const name = `E2E Guided ${Date.now()}`;
-    await register(page, name, GUIDANCE);
+    // Other specs leave guided servers behind: this one's text is unique so only its card matches.
+    const trigger = `Use for billing questions ${Date.now()}`;
+    await register(page, name, `## ${trigger}\n\nAlways **confirm the currency** first.\n\n- Check the customer\n- Never refund without approval`);
     try {
       await page.goto("/settings/mcp");
-      const trigger = page.getByTestId("mcp-guidance-trigger").first();
-      await expect(trigger).toHaveText("Use for billing questions");
+      // One card is open at a time and the page opens the first server's once the list has
+      // loaded: let that settle, then open this server's details.
+      const card = page.locator(`[data-testid="mcp-server-card"][data-server-name="${name}"]`);
+      await expect(page.locator('[data-testid="mcp-server-card"] [aria-expanded="true"]')).toHaveCount(1);
+      const expand = card.getByRole("button", { name: "Expand server details" });
+      if (await expand.count()) await expand.click();
+      await expect(card.getByRole("button", { name: "Collapse server details" })).toBeVisible();
+      await expect(card.getByTestId("mcp-guidance-trigger")).toHaveText(trigger);
 
-      await page.getByTestId("mcp-guidance-card-toggle").first().click();
-      const body = page.getByTestId("mcp-guidance-body").first();
-      await expect(body.getByRole("heading", { name: "Use for billing questions" })).toBeVisible();
+      await card.getByTestId("mcp-guidance-card-toggle").click();
+      const body = card.getByTestId("mcp-guidance-body");
+      await expect(body.getByRole("heading", { name: trigger })).toBeVisible();
       await expect(body.getByRole("listitem")).toHaveCount(2);
       await expect(body.locator("strong")).toHaveText("confirm the currency");
     } finally {
@@ -95,7 +103,7 @@ test.describe("MCP server guidance", () => {
   });
 
   test("testing a server's connection starts the guidance from its own instructions", async ({ page }) => {
-    let instructions = "Always confirm the currency before refunding.\n\nPrefer partial refunds.";
+    const instructions = "Always confirm the currency before refunding.\n\nPrefer partial refunds.";
     await page.route("**/v1/mcp/servers/validate", (route) =>
       route.fulfill({
         status: 200,
