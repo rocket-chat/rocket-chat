@@ -127,4 +127,48 @@ test.describe("Cockpit Turn Inspector", () => {
     await page.getByLabel("Close turn inspector").click();
     await expect(inspector).toHaveCount(0);
   });
+
+  test("a turn that is still running shows what it has used so far", async ({ page, request }) => {
+    const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Running turn" } });
+    const sessionId: string = (await created.json()).session_id;
+    const none = { calls: 0, prompt_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, completion_tokens: 0, total_tokens: 0, cost_usd: 0, own_key_cost_usd: 0 };
+
+    await page.route(/\/v1\/sessions\/[^/]+\/turns/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          session_id: sessionId,
+          total: 1,
+          limit: 50,
+          offset: 0,
+          // The trace has no tokens until the turn ends.
+          turns: [{ id: "t1", session_id: sessionId, turn_index: 1, started_at: 1_700_000_000, ended_at: null, status: "running", tool_calls: [], diff_paths: [], approvals: [], tokens: {}, error: null }],
+        }),
+      })
+    );
+    await page.route(`**/v1/sessions/${sessionId}/usage`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          session_id: sessionId,
+          totals: { ...none, calls: 6, prompt_tokens: 250000, completion_tokens: 3000, total_tokens: 253000, cost_usd: 0.1234 },
+          turns: [{ turn_index: 1, started_at: 1_700_000_000, ended_at: null, status: "running", ...none, calls: 6, prompt_tokens: 250000, completion_tokens: 3000, total_tokens: 253000, cost_usd: 0.1234 }],
+          models: [],
+          before_first_turn: none,
+        }),
+      })
+    );
+
+    await page.goto(`/chat/${sessionId}`);
+    await page.getByTestId("view-menu-trigger").click();
+    await page.getByTestId("turn-inspector-toggle").click();
+
+    const live = page.getByTestId("turn-live-usage");
+    await expect(live).toBeVisible();
+    await expect(live).toContainText("250,000 in");
+    await expect(live).toContainText("$0.1234");
+  });
 });
+

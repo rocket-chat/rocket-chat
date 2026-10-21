@@ -1,5 +1,6 @@
 "use client";
 
+import { SessionUsageChip } from "./SessionUsageChip";
 import { useShallow } from "zustand/react/shallow";
 import React, { useState } from "react";
 import Link from "next/link";
@@ -127,6 +128,11 @@ export const FlightTelemetryHeader: React.FC = () => {
         <StatusChip
           status={session ? (isExecuting && statusOf(session) !== "needs_you" ? "working" : statusOf(session)) : isExecuting ? "working" : "idle"}
           tokenRate={tokenRate}
+        />
+
+        <SessionUsageChip
+          sessionId={session && !session.is_draft ? session.session_id : undefined}
+          running={isExecuting}
         />
 
         {goal && goal.status === "active" && (

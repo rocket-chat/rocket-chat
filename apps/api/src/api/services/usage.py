@@ -129,6 +129,25 @@ class UsageLedger:
             "models": by_model,
         }
 
+    async def session_events(self, org_id: str, session_id: str) -> list[dict[str, Any]]:
+        """Every call of one session, oldest first, as plain rows."""
+        if self._db is None:
+            return sorted(
+                (
+                    _event_row(e)
+                    for e in self._memory
+                    if e.org_id == org_id and e.session_id == session_id
+                ),
+                key=lambda row: row["created_at"],
+            )
+        statement = (
+            select(UsageEventModel)
+            .where(UsageEventModel.org_id == org_id, UsageEventModel.session_id == session_id)
+            .order_by(UsageEventModel.created_at)
+        )
+        async with self._db.session(tenant_org_id=org_id) as session:
+            return [_event_row(r) for r in (await session.execute(statement)).scalars()]
+
     async def _rows(self, org_id: str, since: int, user_id: str | None) -> list[dict[str, Any]]:
         if self._db is None:
             return [
@@ -164,3 +183,17 @@ class UsageLedger:
                 }
                 for r in (await session.execute(statement)).scalars()
             ]
+
+
+def _event_row(event: Any) -> dict[str, Any]:
+    """A ledger call, from the stored row or the in-process event, as the plain row totals use."""
+    return {
+        "model": event.model,
+        "prompt_tokens": event.prompt_tokens,
+        "completion_tokens": event.completion_tokens,
+        "cache_read_tokens": event.cache_read_tokens,
+        "cache_creation_tokens": event.cache_creation_tokens,
+        "cost_usd": event.cost_usd,
+        "key_source": event.key_source,
+        "created_at": event.created_at,
+    }

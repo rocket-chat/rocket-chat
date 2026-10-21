@@ -10,11 +10,13 @@ from fastapi import (
     Request,
 )
 
-from api.auth.access import _get_request_identity, _require_admin
+from api.auth.access import _check_session_access, _get_request_identity, _require_admin
+from api.db.store import TurnTraceStore
 from api.services.audit import (
     AuditService,
 )
 from api.services.budgets import BudgetService
+from api.services.session_usage import SessionUsage, TurnWindow, summarize_session_usage
 from api.services.settings import (
     effective_settings,
     load_org_config,
@@ -105,3 +107,29 @@ async def get_user_usage_telemetry(request: Request) -> dict[str, Any]:
         **summary,
         "recent_turns_count": summary["calls"],
     }
+
+
+@router.get("/sessions/{session_id}/usage", response_model=SessionUsage)
+async def get_session_usage(session_id: str, request: Request) -> SessionUsage:
+    """Tokens and cost of one session: in total, per turn and per model.
+
+    From the usage ledger, which records each model call as it happens, so a turn that is still
+    running is included. Per-turn figures need the PostgreSQL store (they come from the turns'
+    start times); without it only the totals are returned.
+    """
+    org_id, user_id, roles = _get_request_identity(request)
+    store = request.app.state.session_store
+    record = await store.get_session(session_id)
+    # Row-level security already hides another organization's session from the real store; checked
+    # here too so the answer never depends on that alone, and reads as "no such session".
+    if record is None or record.tenant_org_id != org_id:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _check_session_access(record, user_id, roles)
+
+    windows: list[TurnWindow] = []
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    if db_mgr is not None:
+        traces = await TurnTraceStore(db_mgr).list_for_session(session_id, org_id, limit=1000)
+        windows = [TurnWindow(t.turn_index, t.started_at, t.ended_at, t.status) for t in traces]
+    events = await _usage_ledger(request).session_events(org_id, session_id)
+    return summarize_session_usage(session_id, events, windows)
