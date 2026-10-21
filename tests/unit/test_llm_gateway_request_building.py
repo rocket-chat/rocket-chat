@@ -157,3 +157,45 @@ async def test_provider_preferences_pin_an_openrouter_model_and_keep_data_rules(
     assert "provider" not in other.get("extra_body", {}) or other["extra_body"]["provider"] == {
         "data_collection": "deny"
     }
+
+
+def test_openrouter_gets_the_reasoning_effort_as_its_own_parameter() -> None:
+    gateway = LiteLLMGateway()
+
+    kwargs = gateway._completion_kwargs(
+        "openrouter/deepseek/deepseek-v4-pro-0813", _request(reasoning_effort="low")
+    )
+
+    # LiteLLM refuses `reasoning_effort` for any OpenRouter model missing from its table.
+    assert "reasoning_effort" not in kwargs
+    assert kwargs["extra_body"]["reasoning"] == {"effort": "low"}
+    assert kwargs["extra_body"]["usage"] == {"include": True}, "next to the usage accounting"
+
+
+def test_openrouter_without_an_effort_sends_no_reasoning_object() -> None:
+    kwargs = LiteLLMGateway()._completion_kwargs("openrouter/acme/model", _request())
+
+    assert "reasoning" not in kwargs["extra_body"]
+
+
+def test_a_thinking_budget_keeps_the_effort_as_it_was() -> None:
+    kwargs = LiteLLMGateway()._completion_kwargs(
+        "openrouter/anthropic/claude-3.7-sonnet",
+        _request(reasoning_effort="high", thinking_budget_tokens=4096),
+    )
+
+    assert kwargs["reasoning_effort"] == "high" and kwargs["thinking"]["budget_tokens"] == 4096
+    assert "reasoning" not in kwargs["extra_body"], "OpenRouter takes an effort or a budget"
+
+
+def test_other_providers_keep_reasoning_effort_for_litellm_to_translate() -> None:
+    request = ModelRequest(
+        model="openai/o3-mini",
+        messages=[ChatMessage(role="user", content="hi")],
+        reasoning_effort="medium",
+    )
+
+    kwargs = LiteLLMGateway()._completion_kwargs("openai/o3-mini", request)
+
+    assert kwargs["reasoning_effort"] == "medium"
+    assert "reasoning" not in (kwargs.get("extra_body") or {})

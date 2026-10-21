@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api`: the unused per-tool `guidance` field of MCP tool listings is removed; a server's guidance is the server's, and each tool's own documentation already reaches the agent. Stored values are ignored.
 
 ### Fixed
+- `llm-gateway`: an agent's (or the organization's) reasoning effort failed every turn on an OpenRouter model that LiteLLM's table does not list, such as `deepseek-v4-pro-0813`, with "openrouter does not support parameters: ['reasoning_effort']". It is now sent as OpenRouter's own `reasoning: {effort}` parameter, which works for any model behind it (measured on that model: low about 1.5k reasoning tokens against about 4.2k at high on the same prompt). Unchanged when a thinking budget is set, and for other providers.
 - `web`: the permission-modes explanation in the composer opens upward and stays inside the window; it opened below the composer, off-screen.
 - `web`: the organization section headers of Agents, Knowledge bases and the other settings pages no longer squeeze the title and the **Admin only** badge next to the action button, and the API token form lines its fields up.
 - `web`: the share dialog no longer undoes what you tick or type before it has loaded: the "Everyone in the organization" box and the e-mail list stay disabled until the current sharing state arrives, so a slow connection cannot make Save store the old value.
