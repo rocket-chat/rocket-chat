@@ -305,7 +305,6 @@ class McpToolItem(BaseModel):
     name: str
     description: str = ""
     parameters_summary: str | None = None
-    guidance: str | None = None
 
 
 class ValidateMcpServerRequest(BaseModel):
@@ -324,6 +323,13 @@ class ValidateMcpServerResponse(BaseModel):
     status: str
     tools: list[McpToolItem] = Field(default_factory=list)
     error: str | None = None
+    instructions: str = Field(
+        default="",
+        description=(
+            "The usage instructions the server gave when the connection was opened (MCP "
+            "`instructions`), to start the agent guidance from; empty when it gave none"
+        ),
+    )
     sign_in: str | None = Field(
         default=None,
         description="The server asks for an account: 'automatic' (sign in after saving, nothing "

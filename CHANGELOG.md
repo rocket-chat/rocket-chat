@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `web`, `api`: **Test & validate connection** starts an MCP server's guidance from the instructions the server gave when connecting (`instructions` in the validate response), when the guidance is empty; the administrator reviews it in the editor before it is saved.
 - `agent-core`, `web`: **guidance for MCP servers.** A server's markdown guidance (up to 8,000 characters, with a Write/Preview editor and a template) is now used: its first line, the *trigger*, is always in the agent's instructions so it can tell whether the server is relevant; the rest is put in effect once, when the agent loads one of the server's tools or calls the new `load_guidance`, and is re-rendered from the session's state on every later turn so pruning cannot lose it. A tool of a guided server is refused until its guidance is in effect; a server without guidance costs nothing (no line, no check, no tool). Until now the field was stored and shown but never reached the agent.
 - `web`, `api`: the agent configuration page shows which tools are **active** and which **deferred**, with a summary of the mode in force, whose choice it is and why, worked out by the new `POST /v1/tools/loading-preview` with the organization's current settings.
 - `orchestrator`:
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `api`: the unused per-tool `guidance` field of MCP tool listings is removed; a server's guidance is the server's, and each tool's own documentation already reaches the agent. Stored values are ignored.
 
 ### Fixed
 - `api`: `POST /v1/sessions/{id}/turns` for a session that does not exist answers `404` instead of creating one in `default_org` with the caller-chosen id, bypassing the caller's organization, its privacy default and the sandbox choice. Create sessions with `POST /v1/sessions`.

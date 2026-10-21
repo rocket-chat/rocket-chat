@@ -14,7 +14,11 @@ type Mode = "write" | "preview";
  * Writes an MCP server's guidance in markdown, and shows what the agent will make of it: the first
  * line is the trigger it weighs the server by, the rest is given once it uses the server.
  */
-export const GuidanceEditor: React.FC<{ value: string; onChange: (value: string) => void }> = ({ value, onChange }) => {
+export const GuidanceEditor: React.FC<{ value: string; onChange: (value: string) => void; notice?: string | null }> = ({
+  value,
+  onChange,
+  notice,
+}) => {
   const [mode, setMode] = useState<Mode>("write");
   const baseId = useId();
   const length = value.length;
@@ -54,6 +58,12 @@ export const GuidanceEditor: React.FC<{ value: string; onChange: (value: string)
           </Button>
         )}
       </div>
+
+      {notice && (
+        <p role="status" data-testid="guidance-notice" className="rounded-lg border border-cyan/30 bg-cyan/10 px-3 py-2 text-xs text-foreground">
+          {notice}
+        </p>
+      )}
 
       <div id={`${baseId}-panel`} role="tabpanel" aria-labelledby={`${baseId}-${mode}`}>
         {mode === "write" ? (

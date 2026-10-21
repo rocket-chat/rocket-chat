@@ -212,6 +212,18 @@ def summarize_schema(schema: Any) -> str:
     )
 
 
+class ProbedTools(list[dict[str, Any]]):
+    """The tools a probe listed, carrying the usage ``instructions`` the server gave when the
+    connection was opened (the MCP initialize result). A list, so callers that only want the
+    tools are unaffected."""
+
+    instructions: str = ""
+
+    def __init__(self, tools: Iterable[dict[str, Any]], instructions: str | None = None) -> None:
+        super().__init__(tools)
+        self.instructions = (instructions or "").strip()
+
+
 def summarize_tool(tool: Any) -> dict[str, Any]:
     """The stored (display) form of a tool; execution re-lists the live schema."""
     return {
@@ -240,6 +252,7 @@ async def probe_target(
         async with asyncio.timeout(timeout_seconds):
             async with (connector or connect_remote)(target) as client:
                 result = await client.list_tools()
+                instructions = client.instructions
     except TimeoutError:
         return "offline", [], f"No MCP response from {target.url} within {timeout_seconds:g}s"
     except (OSError, httpx2.TransportError, httpx2.TimeoutException) as err:
@@ -247,7 +260,7 @@ async def probe_target(
     except Exception as err:
         logger.info("MCP probe of %s failed: %s", target.url, err)
         return "error", [], str(err)
-    return "connected", [summarize_tool(t) for t in result.tools], None
+    return "connected", ProbedTools((summarize_tool(t) for t in result.tools), instructions), None
 
 
 @dataclass

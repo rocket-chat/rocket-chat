@@ -2958,17 +2958,6 @@
             "title": "Description",
             "type": "string"
           },
-          "guidance": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Guidance"
-          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -6554,6 +6543,12 @@
               }
             ],
             "title": "Error"
+          },
+          "instructions": {
+            "default": "",
+            "description": "The usage instructions the server gave when the connection was opened (MCP `instructions`), to start the agent guidance from; empty when it gave none",
+            "title": "Instructions",
+            "type": "string"
           },
           "sign_in": {
             "anyOf": [

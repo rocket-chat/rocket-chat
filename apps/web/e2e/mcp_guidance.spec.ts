@@ -93,4 +93,51 @@ test.describe("MCP server guidance", () => {
       await remove(page, name);
     }
   });
+
+  test("testing a server's connection starts the guidance from its own instructions", async ({ page }) => {
+    let instructions = "Always confirm the currency before refunding.\n\nPrefer partial refunds.";
+    await page.route("**/v1/mcp/servers/validate", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ valid: true, status: "connected", tools: [], instructions }),
+      })
+    );
+    await page.goto("/settings/mcp");
+    await page.getByRole("button", { name: /Add server/i }).click();
+    await page.getByPlaceholder("e.g. Stripe Billing MCP").fill("E2E Instructed");
+    await page.getByPlaceholder("https://api.internal.service/mcp").fill("https://instructed.example.test/mcp");
+
+    await page.getByRole("button", { name: /Test connection|Validate/i }).click();
+
+    await expect(page.getByTestId("guidance-input")).toHaveValue(/^Always confirm the currency/);
+    await expect(page.getByTestId("guidance-notice")).toContainText("the server's own instructions");
+    await expect(page.getByTestId("guidance-trigger")).toContainText("Always confirm the currency before refunding.");
+
+    // Edited, it is the administrator's text: another test of the connection does not replace it.
+    await page.getByTestId("guidance-input").fill("Mine.");
+    await expect(page.getByTestId("guidance-notice")).toHaveCount(0);
+    await page.getByRole("button", { name: /Test connection|Validate/i }).click();
+    await expect(page.getByTestId("guidance-input")).toHaveValue("Mine.");
+  });
+
+  test("instructions longer than the limit are cut, and the page says so", async ({ page }) => {
+    await page.route("**/v1/mcp/servers/validate", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ valid: true, status: "connected", tools: [], instructions: "x".repeat(9000) }),
+      })
+    );
+    await page.goto("/settings/mcp");
+    await page.getByRole("button", { name: /Add server/i }).click();
+    await page.getByPlaceholder("https://api.internal.service/mcp").fill("https://long.example.test/mcp");
+
+    await page.getByRole("button", { name: /Test connection|Validate/i }).click();
+
+    await expect(page.getByTestId("guidance-notice")).toContainText("9,000 characters, cut to the 8,000 allowed");
+    await expect(page.getByTestId("guidance-count")).toHaveText("8,000 / 8,000");
+    await expect(page.getByTestId("guidance-count")).not.toHaveAttribute("data-state", "over");
+  });
 });
+

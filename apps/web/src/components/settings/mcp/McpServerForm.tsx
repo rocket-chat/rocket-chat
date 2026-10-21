@@ -58,6 +58,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
     error?: string | null;
     tools_count?: number;
     tools?: McpToolSchema[];
+    instructions?: string;
     sign_in?: SignIn | null;
   } | null>(null);
   // The server asks for an account: "automatic" needs nothing set up, "needs_client" an OAuth
@@ -69,6 +70,10 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
   const [transport, setTransport] = useState<"http" | "sse" | "streamable_http" | "websocket" | "stdio">(editing?.transport ?? "http");
   const [endpoint, setEndpoint] = useState(editing?.endpoint_or_command ?? "");
   const [guidance, setGuidance] = useState(editing?.guidance ?? "");
+  // The server's own instructions start the guidance once, when it is empty, and say so: they are
+  // the server's words and go to the agent only after the administrator has seen and saved them.
+  const [guidanceNotice, setGuidanceNotice] = useState<string | null>(null);
+  const [instructionsOffered, setInstructionsOffered] = useState(false);
   const [authType, setAuthType] = useState<string>(initialAuthType(editing));
   const [apiKey, setApiKey] = useState("");
   const [authHeaderName, setAuthHeaderName] = useState(editing?.header_name || "Authorization");
@@ -208,6 +213,19 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
     }
   };
 
+  const offerInstructions = (instructions?: string) => {
+    const text = (instructions ?? "").trim();
+    if (!text || guidance.trim() || instructionsOffered) return;
+    setInstructionsOffered(true);
+    const tooLong = text.length > MAX_GUIDANCE_CHARS;
+    setGuidance(tooLong ? text.slice(0, MAX_GUIDANCE_CHARS) : text);
+    setGuidanceNotice(
+      tooLong
+        ? `Filled in from the server's own instructions (${text.length.toLocaleString()} characters, cut to the ${MAX_GUIDANCE_CHARS.toLocaleString()} allowed). Review it before saving.`
+        : "Filled in from the server's own instructions. Review it before saving.",
+    );
+  };
+
   const handleValidateConnection = async () => {
     if (!endpoint) {
       setValidationResult({ valid: false, message: "Please provide an endpoint URL or command" });
@@ -236,6 +254,7 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
       } else {
         setValidationResult(data);
         adoptSignIn(data.sign_in);
+        if (data.valid) offerInstructions(data.instructions);
       }
     } catch (err) {
       setValidationResult({
@@ -423,11 +442,20 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
               </div>
 
               <Disclosure
+                // Remounted open when the server's instructions arrive, so they are not missed.
+                key={instructionsOffered ? "offered" : "initial"}
                 summary={guidance.trim() ? "Guidance for the agent" : "Guidance for the agent (optional)"}
                 testId="mcp-guidance-toggle"
                 defaultOpen={Boolean(guidance.trim())}
               >
-                <GuidanceEditor value={guidance} onChange={setGuidance} />
+                <GuidanceEditor
+                  value={guidance}
+                  notice={guidanceNotice}
+                  onChange={(value) => {
+                    setGuidance(value);
+                    setGuidanceNotice(null);
+                  }}
+                />
               </Disclosure>
 
               {/* Auth Mode */}
