@@ -9,6 +9,7 @@ import { DecisionCard } from "./DecisionCard";
 import { ApprovalCard } from "./ApprovalCard";
 import { ActionGroup } from "./ActionGroup";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { CompactionCard, isCompactionMessage } from "./CompactionCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { TaskChecklist } from "./TaskChecklist";
 import { TurnSummaryCard } from "./TurnSummaryCard";
@@ -17,7 +18,6 @@ import { RocketChatIcon } from "./RocketChatLogo";
 import { CockpitEmptyState } from "./CockpitEmptyState";
 import {
   AlertTriangle,
-  Archive,
   ArrowDown,
   Check,
   Clock,
@@ -338,25 +338,8 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
       const lower = content.toLowerCase();
 
       // Compaction Card
-      if (lower.includes("compacted") || lower.includes("compaction")) {
-        return (
-          <div key={item.entry.id} data-testid="compaction-card" className="flex justify-center my-3">
-            <div className="w-full max-w-xl rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3.5 space-y-2 text-foreground">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Archive className="w-4 h-4 text-emerald-400" />
-                  <span className="font-semibold text-xs text-emerald-300 uppercase tracking-wide">
-                    Context Compacted
-                  </span>
-                </div>
-                <span className="text-[10px] font-mono text-emerald-400/80">Checkpoint Saved</span>
-              </div>
-              <div className="text-xs text-neutral-300 leading-relaxed font-sans">
-                <MarkdownRenderer content={content} />
-              </div>
-            </div>
-          </div>
-        );
+      if (isCompactionMessage(content)) {
+        return <CompactionCard key={item.entry.id} content={content} />;
       }
 
       // Goal Continuation Card
