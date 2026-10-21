@@ -337,3 +337,83 @@ async def test_a_subagent_reads_the_guidance_in_the_result_and_never_overwrites_
 
     assert "Never query" in reply
     assert saved == [], "a subagent's record is its own"
+
+
+# -- the prompt cache --------------------------------------------------------------------------
+
+
+def _content(message: Any) -> tuple[Any, ...]:
+    """A message without its cache breakpoint, which moves to the last message of every request."""
+    return (message.role, message.content, message.tool_calls, message.tool_call_id)
+
+
+def _shared_prefix(earlier: Any, later: Any) -> int:
+    """How many leading messages two requests have in common: what a provider can serve from cache."""
+    count = 0
+    for before, after in zip(earlier.messages, later.messages, strict=False):
+        same = _content(before) == _content(after)
+        if not same:
+            break
+        count += 1
+    return count
+
+
+async def test_putting_guidance_in_effect_breaks_the_cache_once_and_only_after_the_history(
+    servers: _Servers,
+) -> None:
+    outcome = await run_turn(
+        await _on_demand("org_guidance_cache"),
+        script=[
+            ("load_tools", {"names": [SEARCH]}),
+            (SEARCH, {"q": "errors"}),
+            (SEARCH, {"q": "more errors"}),
+        ],
+    )
+
+    first, after_load, after_call, after_second = (r for r in outcome.model.requests if r.tools)
+    note_at = len(first.messages) - 1  # a request ends with the turn's context note
+    assert _content(first.messages[0]) == _content(after_load.messages[0]), (
+        "the cacheable system prompt never moves"
+    )
+    assert _shared_prefix(first, after_load) == note_at, (
+        "only the turn's own note changes: the history and the user's message stay cached"
+    )
+    assert _mentions(after_load, "Never query") == 1
+    assert _shared_prefix(after_load, after_call) == len(after_load.messages), "append-only again"
+    assert _shared_prefix(after_call, after_second) == len(after_call.messages)
+
+
+async def test_a_later_turn_finds_the_guidance_in_its_note_and_not_in_its_history(
+    servers: _Servers,
+) -> None:
+    from api.services.compaction import InMemoryCompactionStore
+    from api.services.transcript import InMemoryTranscriptStore
+    from api.store import InMemorySessionStore
+
+    org = await _on_demand("org_guidance_two_turns")
+    store, transcripts, compactions = (
+        InMemorySessionStore(),
+        InMemoryTranscriptStore(),
+        InMemoryCompactionStore(),
+    )
+    shared = {"store": store, "transcript_store": transcripts, "compaction_store": compactions}
+
+    once = await run_turn(org, script=[("load_tools", {"names": [SEARCH]})], **shared)
+    again = await run_turn(org, prompt="And now?", **shared)
+
+    last_of_first = [r for r in once.model.requests if r.tools][-1]
+    request = next(r for r in again.model.requests if r.tools)
+    assert _mentions(last_of_first, "Never query") == 1
+    assert _mentions(request, "Never query") == 1, "in this turn's note, not repeated from history"
+    assert "Never query" in request.messages[-1].content, "and that note is the last message"
+    # What was stored of the first turn: its messages without the note it was sent with.
+    stored = [
+        m for m in last_of_first.messages if not (m.content or "").startswith("<system-reminder>")
+    ]
+    history = request.messages[:-2]  # everything before the new user message and the note
+    assert [_content(m) for m in history[: len(stored)]] == [_content(m) for m in stored], (
+        "the earlier turn's note was never stored"
+    )
+    assert _content(request.messages[0]) == _content(last_of_first.messages[0]), (
+        "the same cacheable prompt in every turn"
+    )
