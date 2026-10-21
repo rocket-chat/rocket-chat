@@ -198,14 +198,14 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
   };
 
   /** As soon as an address is entered, ask the server whether it signs people in. */
-  const detectSignIn = async () => {
-    if (isCommand || editing || !/^https?:\/\//.test(endpoint.trim())) return;
+  const detectSignIn = async (address: string) => {
+    if (isCommand || editing || !/^https?:\/\//.test(address.trim())) return;
     if (authType !== "none" && authType !== "oauth2") return;
     try {
       const res = await fetch("/v1/mcp/servers/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transport, endpoint_or_command: endpoint.trim(), scope: formScope, auth: { auth_type: "none" } }),
+        body: JSON.stringify({ transport, endpoint_or_command: address.trim(), scope: formScope, auth: { auth_type: "none" } }),
       });
       if (res.ok) adoptSignIn((await res.json()).sign_in);
     } catch {
@@ -426,7 +426,9 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                           : "https://api.internal.service/mcp"
                       }
                       value={endpoint}
-                      onBlur={detectSignIn}
+                      // The address as typed, not the state: a blur straight after typing can come before the
+                      // re-render that carries it, and detection would then be skipped.
+                      onBlur={(e) => void detectSignIn(e.currentTarget.value)}
                       onChange={(e) => {
                         setEndpoint(e.target.value);
                         // A new address means a new authorization server: let it be discovered again.
