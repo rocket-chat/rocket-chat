@@ -64,12 +64,20 @@ def _rules(mode: str, active: tuple[str, ...] = (), threshold: int = 60) -> froz
     )
 
 
-def test_the_three_modes() -> None:
+def test_the_four_modes() -> None:
+    platform = {"file_read", "bash_exec"}
     assert _rules("all") == frozenset()
     assert _rules("on_demand") == frozenset(MCP), "MCP tools wait, the platform's tools do not"
-    assert _rules("on_demand", active=("mcp__signoz*__search*",)) == (
-        {"file_read", "bash_exec", AGGREGATE, QUERY}
-    ), "an explicit list keeps only it (and the loading tools) loaded"
+    assert _rules("on_demand", active=("mcp__signoz*__*search*",)) == {AGGREGATE, QUERY}, (
+        "a pinned MCP tool is loaded and the platform's tools stay loaded"
+    )
+    assert _rules("on_demand", active=("file_read",)) == frozenset(MCP), (
+        "pinning a platform tool changes nothing: it is loaded already"
+    )
+    assert _rules("pinned", active=("mcp__signoz*__*search*",)) == platform | {AGGREGATE, QUERY}, (
+        "pinned loads only the pins (and the loading tools)"
+    )
+    assert _rules("pinned") == platform | set(MCP), "with no pins only the loading tools are loaded"
     assert _rules("auto", threshold=60) == frozenset(), "few tools: nothing deferred"
     assert _rules("auto", threshold=5) == frozenset(MCP)
     assert _rules("auto", active=(QUERY,), threshold=5) == {SEARCH, AGGREGATE}
@@ -216,21 +224,27 @@ async def test_the_preview_applies_the_organizations_mode_to_an_agent_that_has_n
 
 async def test_the_preview_follows_the_agents_own_mode_and_pins(preview_client: Any) -> None:
     await save_org_config(None, "org_preview", "general", {"tool_loading": "all"}, [])
+    pins = [SEARCH, "mcp__grafana*"]
 
-    reply = preview_client.post(
+    additive = preview_client.post(
         "/v1/tools/loading-preview",
-        json={
-            "tool_loading": "on_demand",
-            "active_tools": [SEARCH, "mcp__grafana*"],
-            "tool_names": _TOOLS,
-        },
+        json={"tool_loading": "on_demand", "active_tools": pins, "tool_names": _TOOLS},
+        headers=_MEMBER,
+    ).json()
+    only_pinned = preview_client.post(
+        "/v1/tools/loading-preview",
+        json={"tool_loading": "pinned", "active_tools": pins, "tool_names": _TOOLS},
         headers=_MEMBER,
     ).json()
 
-    assert reply["source"] == "agent"
-    assert reply["deferred"] == sorted(["file_read", "bash_exec", AGGREGATE]), (
-        "with pins only they (and the loading tools) stay loaded"
+    assert additive["source"] == "agent" and only_pinned["source"] == "agent"
+    assert additive["deferred"] == [AGGREGATE], (
+        "the platform's tools stay loaded; pins add MCP tools"
     )
+    assert only_pinned["deferred"] == sorted(["file_read", "bash_exec", AGGREGATE]), (
+        "with pinned only the pins (and the loading tools) stay loaded"
+    )
+    assert "2 pinned tools" in only_pinned["reason"] and "plus 2 pinned" in additive["reason"]
 
 
 @pytest.mark.setting("general.tool_loading_threshold")
@@ -261,3 +275,12 @@ async def test_the_preview_says_so_when_an_agent_is_over_the_limit_with_nothing_
 
     assert reply["deferred"] == []
     assert "over the limit of 2" in reply["reason"] and "no MCP tools to defer" in reply["reason"]
+
+
+def test_the_built_in_developer_keeps_its_lean_core_as_a_pinned_agent() -> None:
+    from api.services.personas import DEFAULT_AGENT_PERSONAS
+
+    developer = next(p for p in DEFAULT_AGENT_PERSONAS if p.id == "persona-backend")
+
+    assert developer.tool_loading == "pinned"
+    assert "file_read" in developer.active_tools and "bash_exec" in developer.active_tools

@@ -31,14 +31,15 @@ def deferred_names(
 ) -> frozenset[str]:
     """The tools of ``definitions`` the agent must load before their definition is sent.
 
-    ``on_demand`` with no ``active`` list keeps the platform's own tools loaded and defers the
-    MCP servers' tools; with a list, only those (and the loading tools) are loaded.
+    ``on_demand`` keeps the platform's own tools loaded and defers the MCP servers' tools that
+    are not pinned; ``pinned`` loads only the pinned tools (and the loading tools) and defers
+    everything else. ``auto`` is ``on_demand`` once the agent has more tools than the threshold.
     """
-    if loading.mode == "on_demand":
-        if loading.active:
-            return frozenset(d.name for d in definitions if not is_active(d.name, loading.active))
-        return frozenset(d.name for d in definitions if is_external(d.name))
-    if loading.mode == "auto" and len(definitions) > loading.threshold:
+    if loading.mode == "pinned":
+        return frozenset(d.name for d in definitions if not is_active(d.name, loading.active))
+    if loading.mode == "on_demand" or (
+        loading.mode == "auto" and len(definitions) > loading.threshold
+    ):
         return frozenset(
             d.name
             for d in definitions

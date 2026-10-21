@@ -6,6 +6,7 @@ import type { ToolLoadingPreview } from "../../lib/useToolLoadingPreview";
 const MODE_LABEL: Record<ToolLoadingPreview["mode"], string> = {
   all: "Every tool loaded",
   on_demand: "On demand",
+  pinned: "Only pinned tools",
   auto: "Automatic",
 };
 

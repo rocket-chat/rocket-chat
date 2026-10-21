@@ -462,7 +462,7 @@ export interface AgentPersonaConfig {
   /** Steps per turn for this agent; empty inherits the organization's limit, its ceiling. */
   max_turns?: number | null;
   /** Which allowed tools every step carries; empty inherits the organization's setting. */
-  tool_loading?: "all" | "on_demand" | "auto" | null;
+  tool_loading?: "all" | "on_demand" | "pinned" | "auto" | null;
   /** Tools always loaded, by name or shell-style pattern. */
   active_tools?: string[];
   /** Default permission mode for sessions created with this persona. */

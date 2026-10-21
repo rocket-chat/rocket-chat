@@ -1,16 +1,17 @@
 import { test, expect } from "@playwright/test";
 
 /**
- * An agent chooses which of its tools every step carries: pinned tools and patterns are always
- * loaded; with "On demand" the others are listed by name and loaded when the agent needs them.
+ * An agent chooses which of its tools every step carries. "On demand" keeps the platform's tools
+ * loaded and lists the MCP tools that are not pinned by name; "Only pinned tools" loads nothing
+ * but what is pinned. Either way a deferred tool is loaded when the agent needs it.
  */
 test.describe("Agent tool loading", () => {
   test("a mode, pinned tools and patterns are saved with the agent", async ({ page }) => {
     await page.goto("/settings/agents");
     await page.getByRole("button", { name: /New agent/i }).first().click();
-    await page.locator("input").first().fill("On-demand Investigator");
+    await page.locator("input").first().fill("Pinned Investigator");
 
-    await page.getByTestId("agent-tool-loading").selectOption("on_demand");
+    await page.getByTestId("agent-tool-loading").selectOption("pinned");
     const pin = page.getByTestId("agent-pin-file_read");
     await pin.click();
     await expect(pin).toHaveAttribute("aria-pressed", "true");
@@ -22,8 +23,8 @@ test.describe("Agent tool loading", () => {
     await expect(page.getByText("SAVED!")).toBeVisible();
 
     const agents = await (await page.request.get("/v1/agents")).json();
-    const saved = agents.find((a: { name: string }) => a.name === "On-demand Investigator");
-    expect(saved.tool_loading).toBe("on_demand");
+    const saved = agents.find((a: { name: string }) => a.name === "Pinned Investigator");
+    expect(saved.tool_loading).toBe("pinned");
     expect(saved.active_tools).toEqual(["file_read", "mcp__signoz*__*search*"]);
   });
 
@@ -39,11 +40,18 @@ test.describe("Agent tool loading", () => {
     await expect(page.getByTestId("tool-count-deferred")).toHaveText("0");
     await expect(page.getByTestId("tool-state-deferred")).toHaveCount(0);
 
-    // With only pinned tools loaded, everything else the agent may use is deferred.
+    // On demand keeps the platform's tools loaded, so pinning one would do nothing and is not offered.
     await page.getByTestId("agent-tool-loading").selectOption("on_demand");
+    await expect(summary).toContainText("The platform's own tools");
+    await expect(page.getByTestId("tool-state-active").first()).toBeVisible();
+    await expect(page.getByTestId("agent-pin-file_read")).toHaveCount(0);
+
+    // With only pinned tools loaded, everything else the agent may use is deferred.
+    await page.getByTestId("agent-tool-loading").selectOption("pinned");
+    await expect(summary).toContainText("No tool is pinned");
     await page.getByTestId("agent-pin-file_read").click();
-    await expect(summary).toContainText("Only the pinned tools are sent with every step");
-    await expect(page.getByTestId("tool-count-active")).toHaveText(/^[1-9]\d*$/);
+    await expect(summary).toContainText("Only the 1 pinned tool (and the loading tools)");
+    await expect(page.getByTestId("tool-count-active")).toHaveText("1");
     await expect(page.getByTestId("tool-count-deferred")).not.toHaveText("0");
     await expect(page.getByTestId("tool-state-active").first()).toBeVisible();
     await expect(page.getByTestId("tool-state-deferred").first()).toBeVisible();

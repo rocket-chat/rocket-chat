@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 export interface ToolLoadingPreview {
-  mode: "all" | "on_demand" | "auto";
+  mode: "all" | "on_demand" | "pinned" | "auto";
   source: "agent" | "organization";
   threshold: number;
   total: number;
