@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `web`, `api`: **Test & validate connection** starts an MCP server's guidance from the instructions the server gave when connecting (`instructions` in the validate response), when the guidance is empty; the administrator reviews it in the editor before it is saved.
+- `agent-core`, `web`: **guidance for MCP servers.** A server's markdown guidance (up to 8,000 characters, with a Write/Preview editor and a template) is now used: its first line, the *trigger*, is always in the agent's instructions so it can tell whether the server is relevant; the rest is put in effect once, when the agent loads one of the server's tools or calls the new `load_guidance`, and is re-rendered from the session's state on every later turn so pruning cannot lose it. A tool of a guided server is refused until its guidance is in effect; a server without guidance costs nothing (no line, no check, no tool). Until now the field was stored and shown but never reached the agent.
+- `web`, `api`: the agent configuration page shows which tools are **active** and which **deferred**, with a summary of the mode in force, whose choice it is and why, worked out by the new `POST /v1/tools/loading-preview` with the organization's current settings.
 - `orchestrator`:
 - `sandboxes`:
 - `api`: personal API tokens for scripts and other machine clients: `POST /v1/user/api-tokens` creates a token acting as the member with their current role (shown once, 1 to 365 days, at most 20 per member), `GET`/`DELETE /v1/user/api-tokens` list and revoke them, and administrators list and revoke the organization's under `/v1/admin/api-tokens`. Sent as `Authorization: Bearer` or `?token=` on the WebSocket. Only a hash is stored (`api_tokens`, migration `047_api_tokens`, forced row-level security); a token cannot create another one. Administrators also create guest tokens (`POST /v1/admin/api-tokens`) for clients without an account, as unlinked Slack users: each acts as its own guest member and can only hold conversations.
@@ -23,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: the composer's status line is more compact, most of all on a phone, and no longer announces a sandbox that is ready or not yet created; it only says so when the sandbox is asleep or changing state.
 - `web`: **Organization provider keys** lists the providers whose key the deployment holds in its environment and lets an administrator override one for the organization (`GET /v1/admin/model-keys/platform`, fingerprint only).
 - `helm`: the `dev-images` workflow stamps the backend image with `dev-DDMMYYYY-HHMM` (UTC), shown as the version in the settings console.
+- `api`: the unused per-tool `guidance` field of MCP tool listings is removed; a server's guidance is the server's, and each tool's own documentation already reaches the agent. Stored values are ignored.
 
 ### Fixed
 - `web`: the permission-modes explanation in the composer opens upward and stays inside the window; it opened below the composer, off-screen.

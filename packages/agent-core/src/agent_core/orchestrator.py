@@ -30,6 +30,12 @@ from agent_core.context import (
 )
 from agent_core.context_policy import assemble_request_messages, format_attachment_manifest
 from agent_core.dispatcher import ToolDispatcher
+from agent_core.guidance import (
+    in_effect_at_turn_start,
+    render_index,
+    render_note,
+    servers_of_tools,
+)
 from agent_core.interaction import DecisionGateManager
 from agent_core.leaked_calls import (
     LEAK_GIVE_UP,
@@ -1198,13 +1204,18 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         loads tools and the cached prompt prefix stays valid for the session.
         """
         loading = exec_ctx.policy.tool_loading
-        deferred = deferred_names(
-            self._allowed_tools(whitelisted_tools), loading, self._registry.is_external
-        )
+        allowed = self._allowed_tools(whitelisted_tools)
+        deferred = deferred_names(allowed, loading, self._registry.is_external)
         exec_ctx.deferred_tools = deferred
         exec_ctx.loaded_tools = set(loading.loaded) & deferred
         exec_ctx.loaded_tools_order = [n for n in loading.loaded if n in deferred]
-        listed = catalogue(deferred)
+        self._settle_guidance(exec_ctx, allowed)
+        listed = "".join(
+            (
+                catalogue(deferred),
+                render_index(exec_ctx.guidance_by_server.values()),
+            )
+        )
         if not listed:
             return system_prompt, system_prompt_parts
         if system_prompt_parts is not None:
@@ -1212,6 +1223,27 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 system_prompt_parts, stable=f"{system_prompt_parts.stable}\n{listed}"
             )
         return f"{system_prompt or ''}\n{listed}".strip(), None
+
+    def _settle_guidance(self, exec_ctx: ExecutionContext, allowed: list[ToolDefinition]) -> None:
+        """Which MCP servers have guidance, and which of it the turn starts with.
+
+        Guidance for servers the turn cannot use is left out; a turn with none loses the
+        ``load_guidance`` tool too, so servers without guidance cost no tokens at all.
+        """
+        guidance = exec_ctx.policy.mcp_guidance
+        reachable = servers_of_tools(t.name for t in allowed)
+        exec_ctx.guidance_by_server = {
+            g.server: g for g in guidance.servers if g.server in reachable
+        }
+        if not exec_ctx.guidance_by_server:
+            exec_ctx.denied_tools = exec_ctx.denied_tools | {"load_guidance"}
+            return
+        usable = dataclasses.replace(guidance, servers=tuple(exec_ctx.guidance_by_server.values()))
+        loaded = servers_of_tools(
+            [t.name for t in allowed if t.name not in exec_ctx.deferred_tools]
+            + list(exec_ctx.loaded_tools)
+        )
+        exec_ctx.guidance_in_effect = in_effect_at_turn_start(usable, loaded)
 
     @staticmethod
     def _bounded_observation_summary(
@@ -1403,6 +1435,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             part.strip()
             for part in (
                 dynamic,
+                self._guidance_note(exec_ctx),
                 memory_context if isinstance(memory_context, str) else "",
                 workspace_context if isinstance(workspace_context, str) else "",
                 _working_memory_note(*working_memory),
@@ -1431,6 +1464,28 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             synthetic_prompt=synthetic_prompt,
             working_memory=working_memory,
         )
+
+    @staticmethod
+    def _guidance_note(exec_ctx: ExecutionContext | None) -> str:
+        """The usage guidance the turn starts with, rendered from the session's state."""
+        if exec_ctx is None or not exec_ctx.guidance_in_effect:
+            return ""
+        return render_note(
+            exec_ctx.guidance_by_server[server]
+            for server in exec_ctx.guidance_in_effect
+            if server in exec_ctx.guidance_by_server
+        )
+
+    @staticmethod
+    def _add_pending_guidance(run: _TurnRun) -> None:
+        """Move guidance the agent put in effect this step into the turn's context note, where the
+        next request carries it and later turns rebuild it from the session's state."""
+        ctx = run.exec_ctx
+        if ctx is None or not ctx.guidance_pending:
+            return
+        added = render_note(ctx.guidance_pending, added=True)
+        ctx.guidance_pending = []
+        run.context_note = f"{run.context_note}\n\n{added}".strip()
 
     async def _emit(self, run: _TurnRun, event_type: str, payload: dict[str, Any]) -> None:
         await run.event_queue.put(
@@ -1609,6 +1664,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
     async def _after_tool_calls(self, run: _TurnRun, tool_calls: dict[int, dict[str, Any]]) -> bool:
         """Record a step's tool results; True when a ``wait_for`` ended the turn."""
         await self._process_tool_results_progress(run, tool_calls)
+        self._add_pending_guidance(run)
         if any(_mentions_working_memory(call) for call in tool_calls.values()):
             run.working_memory = None
         await self._flush_transcript(run.session_id, run.org_id, run.conversation)

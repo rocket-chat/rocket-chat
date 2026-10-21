@@ -43,7 +43,7 @@ from api.services.session_support import (
 )
 from api.services.settings import effective_settings, load_org_config
 from api.services.title import TITLE_SOURCE_AUTO
-from api.services.tool_loading import loaded_tools_of
+from api.services.tool_loading import guidance_read_of, loaded_tools_of
 from api.services.turn_resume import RESUME_NOTICE
 from api.services.turn_trace import (
     LEASE_HEARTBEAT_SECONDS,
@@ -62,7 +62,12 @@ from api.turns.finalise import housekeeping, persist_trace, publish_followup, re
 from api.turns.prompt import build_system_prompt
 from api.turns.provisioning import _expand_slash_command
 from api.turns.shared import _turn_service
-from specifications.interfaces.agent import DEFAULT_MAX_TURNS, AgentBinding, TurnOverlay
+from specifications.interfaces.agent import (
+    DEFAULT_MAX_TURNS,
+    AgentBinding,
+    McpGuidance,
+    TurnOverlay,
+)
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
 from specifications.interfaces.llm import ChatMessage, ModelScope
 from specifications.interfaces.sandbox import SandboxDriverProtocol, SandboxStatus
@@ -599,6 +604,10 @@ class TurnRunner:
             active_repository=active_repository_of(ctx.session),
             tool_loading=replace(
                 ctx.binding.policy.tool_loading, loaded=loaded_tools_of(ctx.session)
+            ),
+            mcp_guidance=McpGuidance(
+                servers=tuple(ctx.state.mcp_tools.guidance()) if ctx.state.mcp_tools else (),
+                read=guidance_read_of(ctx.session),
             ),
         )
 

@@ -58,6 +58,9 @@ from api.services.settings import (
 )
 
 logger = logging.getLogger(__name__)
+# The server's own text is shown to the administrator in full; the guidance field takes less.
+MAX_SERVER_INSTRUCTIONS_CHARS = 64_000
+
 router = APIRouter(prefix="/v1", tags=["MCP"])
 
 
@@ -128,7 +131,6 @@ def _format_mcp_response(s: Any) -> McpServerResponseModel:
             parameters_summary=t.get("parameters_summary")
             if isinstance(t, dict)
             else getattr(t, "parameters_summary", None),
-            guidance=t.get("guidance") if isinstance(t, dict) else getattr(t, "guidance", None),
         )
         for t in tools_data
     ]
@@ -373,6 +375,7 @@ async def validate_mcp_server(
         valid=(status == "connected"),
         status=NEEDS_SIGN_IN if sign_in else status,
         tools=tools,
+        instructions=getattr(tools_data, "instructions", "")[:MAX_SERVER_INSTRUCTIONS_CHARS],
         error=(
             "This server signs you in with your account: save it, then sign in."
             if sign_in == "automatic"

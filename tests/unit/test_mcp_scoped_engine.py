@@ -267,3 +267,26 @@ def test_a_command_server_takes_environment_variables_with_valid_names(
     )
     assert ok.status_code in (200, 201), ok.text
     client.delete(f"/v1/mcp/servers/{ok.json()['id']}", headers=_ADMIN)
+
+
+def test_usage_guidance_is_kept_with_the_server_and_has_a_size_limit(client: TestClient) -> None:
+    admin = {
+        "X-Tenant-Org-Id": "test_org",
+        "X-Tenant-User-Id": "admin_user",
+        "X-User-Role": "admin",
+    }
+    server = {
+        "name": "Guided Stdio",
+        "transport": "stdio",
+        "endpoint_or_command": "node -e 'process.exit(0)'",
+        "scope": "org",
+    }
+    guidance = "# Use for billing\n\nAlways confirm the currency first."
+
+    saved = client.post("/v1/mcp/servers", json={**server, "guidance": guidance}, headers=admin)
+    too_long = client.post(
+        "/v1/mcp/servers", json={**server, "guidance": "x" * 8001}, headers=admin
+    )
+
+    assert saved.status_code == 200 and saved.json()["guidance"] == guidance
+    assert too_long.status_code == 422
