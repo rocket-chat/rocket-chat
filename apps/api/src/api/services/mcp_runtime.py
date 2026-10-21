@@ -19,6 +19,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 import httpx2
+from agent_core.guidance import server_guidance
 from agent_core.tools.clamp import clamp_output
 from agent_core.tools.safe_http import UnsafeURLError, resolve_public_target
 from config_engine.crypto import CredentialCipher
@@ -26,6 +27,7 @@ from mcp import Client
 from mcp.client.sse import sse_client
 from mcp.client.streamable_http import streamable_http_client
 
+from specifications.interfaces.agent import ServerGuidance
 from specifications.interfaces.llm import ToolDefinition
 
 logger = logging.getLogger(__name__)
@@ -53,6 +55,8 @@ class McpServerTarget:
     headers: dict[str, str] = field(default_factory=dict, repr=False)
     # Command servers: the script that installs their program (run once on the MCP runner).
     setup: str = ""
+    # The administrator's usage guidance (markdown), empty for most servers.
+    guidance: str = ""
 
 
 McpConnector = Callable[[McpServerTarget], AbstractAsyncContextManager[Client]]
@@ -120,6 +124,7 @@ def build_targets(
                 updated_at=int(_field(row, "updated_at", 0) or 0),
                 headers=auth_headers(_field(row, "encrypted_auth", {}) or {}, cipher),
                 setup=str((_field(row, "encrypted_auth", {}) or {}).get("install_command") or ""),
+                guidance=str(_field(row, "guidance", "") or ""),
             )
         )
     return targets
@@ -283,6 +288,8 @@ class McpToolProvider:
         self._guard = guard
         self._definitions: dict[str, ToolDefinition] = {}
         self._routes: dict[str, tuple[McpServerTarget, str]] = {}
+        # server id -> the <server> of its tool names, for the guidance the turn is given.
+        self._slugs: dict[str, str] = {}
         self._pool: dict[str, _Connection] = {}
         self._opening: dict[str, asyncio.Lock] = {}
         # Servers that refused this turn's credentials (HTTP 401): the caller may refresh them.
@@ -337,6 +344,7 @@ class McpToolProvider:
             while slug in used_slugs:
                 slug = f"{slug}-{target.server_id[-4:]}"
             used_slugs.add(slug)
+            self._slugs[target.server_id] = slug
             for tool_name, definition in listing:
                 name = namespaced_tool_name(slug, tool_name)
                 if name in self._routes:
@@ -398,6 +406,16 @@ class McpToolProvider:
 
     def definitions(self) -> list[ToolDefinition]:
         return list(self._definitions.values())
+
+    def guidance(self) -> list[ServerGuidance]:
+        """The usage guidance of the servers that offered tools this turn (most have none)."""
+        offering = {target.server_id for target, _ in self._routes.values()}
+        found = (
+            server_guidance(slug, self._targets[server_id].guidance)
+            for server_id, slug in self._slugs.items()
+            if server_id in offering
+        )
+        return [entry for entry in found if entry is not None]
 
     def owns(self, name: str) -> bool:
         return name in self._routes

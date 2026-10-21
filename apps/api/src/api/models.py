@@ -2,6 +2,7 @@
 
 from typing import Any, Literal
 
+from agent_core.guidance import MAX_GUIDANCE_CHARS
 from pydantic import BaseModel, Field, model_validator
 
 ToolLoadingMode = Literal["all", "on_demand", "auto"]
@@ -399,7 +400,15 @@ class CreateMcpServerRequest(BaseModel):
     description: str = ""
     transport: str = "stdio"  # stdio, http, sse, streamable_http, websocket
     endpoint_or_command: str
-    guidance: str = ""
+    guidance: str = Field(
+        default="",
+        max_length=MAX_GUIDANCE_CHARS,
+        description=(
+            "Usage guidance for the agent, in markdown. The first line says when to use the "
+            "server and is always in the agent's instructions; the rest is given once the "
+            "agent uses the server. Empty costs nothing."
+        ),
+    )
     scope: str = "org"
     auth: McpAuthInput = Field(default_factory=McpAuthInput)
     tools: list[McpToolItem] = Field(default_factory=list)

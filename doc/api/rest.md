@@ -770,7 +770,7 @@ Register or update an MCP server, securely encrypting secrets with AES-256-GCM.
 | description | string | no |  |
 | transport | string | no |  |
 | endpoint_or_command | string | yes |  |
-| guidance | string | no |  |
+| guidance | string | no | Usage guidance for the agent, in markdown. The first line says when to use the server and is always in the agent's instructions; the rest is given once the agent uses the server. Empty costs nothing. |
 | scope | string | no |  |
 | auth | McpAuthInput | no |  |
 | tools | list of McpToolItem | no |  |
@@ -2185,6 +2185,21 @@ Start a session from the template (the opening prompt runs immediately).
 ### `GET /v1/tools`
 
 The full tool catalog (name, description, category, toolset).
+
+**Responses:** `200`
+
+### `POST /v1/tools/loading-preview`
+
+Which of an agent's tools are sent with every step and which wait to be loaded, under its
+settings and the organization's current ones (the same rule a turn applies).
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| tool_loading | `all` / `on_demand` / `auto` | no | The agent's own mode; empty inherits the organization's |
+| active_tools | list of string | no | Always-loaded tool names or shell-style patterns |
+| tool_names | list of string | no | The tools the agent may use |
 
 **Responses:** `200`
 

@@ -47,6 +47,7 @@ READ_TOOLS: frozenset[str] = frozenset(
         "kb_search",
         "search_tools",
         "load_tools",
+        "load_guidance",
         # Fetching code to read it: it adds files to the sandbox but changes no repository.
         "clone_repository",
         "set_active_repository",

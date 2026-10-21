@@ -16,7 +16,7 @@ from specifications.interfaces.agent import ToolLoading
 from specifications.interfaces.llm import ToolDefinition
 
 # Never deferred: how the agent finds and loads the rest.
-ALWAYS_LOADED = frozenset({"load_tools", "search_tools"})
+ALWAYS_LOADED = frozenset({"load_tools", "search_tools", "load_guidance"})
 MCP_PREFIX = "mcp__"
 
 

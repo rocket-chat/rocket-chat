@@ -1118,6 +1118,8 @@
           },
           "guidance": {
             "default": "",
+            "description": "Usage guidance for the agent, in markdown. The first line says when to use the server and is always in the agent's instructions; the rest is given once the agent uses the server. Empty costs nothing.",
+            "maxLength": 8000,
             "title": "Guidance",
             "type": "string"
           },
@@ -5823,6 +5825,97 @@
           "categories"
         ],
         "title": "ToolCatalogResponse",
+        "type": "object"
+      },
+      "ToolLoadingPreview": {
+        "properties": {
+          "deferred": {
+            "description": "Allowed tools listed by name, loaded on demand",
+            "items": {
+              "type": "string"
+            },
+            "title": "Deferred",
+            "type": "array"
+          },
+          "mode": {
+            "description": "The mode in force: all, on_demand or auto",
+            "title": "Mode",
+            "type": "string"
+          },
+          "reason": {
+            "description": "What this means for the agent, in a sentence",
+            "title": "Reason",
+            "type": "string"
+          },
+          "source": {
+            "description": "Whether the agent or the organization chose the mode",
+            "enum": [
+              "agent",
+              "organization"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "threshold": {
+            "description": "The organization's limit for the automatic mode",
+            "title": "Threshold",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Tools counted against the limit",
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mode",
+          "source",
+          "threshold",
+          "total",
+          "deferred",
+          "reason"
+        ],
+        "title": "ToolLoadingPreview",
+        "type": "object"
+      },
+      "ToolLoadingPreviewRequest": {
+        "properties": {
+          "active_tools": {
+            "description": "Always-loaded tool names or shell-style patterns",
+            "items": {
+              "type": "string"
+            },
+            "title": "Active Tools",
+            "type": "array"
+          },
+          "tool_loading": {
+            "anyOf": [
+              {
+                "enum": [
+                  "all",
+                  "on_demand",
+                  "auto"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent's own mode; empty inherits the organization's",
+            "title": "Tool Loading"
+          },
+          "tool_names": {
+            "description": "The tools the agent may use",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5000,
+            "title": "Tool Names",
+            "type": "array"
+          }
+        },
+        "title": "ToolLoadingPreviewRequest",
         "type": "object"
       },
       "TreeEntry": {
@@ -13405,6 +13498,48 @@
           }
         },
         "summary": "List Tools",
+        "tags": [
+          "Tools"
+        ]
+      }
+    },
+    "/v1/tools/loading-preview": {
+      "post": {
+        "description": "Which of an agent's tools are sent with every step and which wait to be loaded, under its\nsettings and the organization's current ones (the same rule a turn applies).",
+        "operationId": "preview_tool_loading_v1_tools_loading_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolLoadingPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolLoadingPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Tool Loading",
         "tags": [
           "Tools"
         ]
