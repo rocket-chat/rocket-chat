@@ -36,3 +36,11 @@ async def test_a_build_without_a_release_number_is_dev(
     monkeypatch.delenv("ROCKET_VERSION", raising=False)
 
     assert (await api.get("/v1/version", headers=MEMBER)).json() == {"version": "dev"}
+
+
+async def test_a_dev_image_reports_the_time_it_was_built(
+    api: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ROCKET_VERSION", "dev-21102026-1036")
+
+    assert (await api.get("/v1/version", headers=MEMBER)).json() == {"version": "dev-21102026-1036"}
