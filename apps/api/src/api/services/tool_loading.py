@@ -1,8 +1,8 @@
 """Which of an agent's tools a turn sends with every step, and which it loads on demand.
 
-The organization picks the default (``general.tool_loading``, ``general.tool_loading_threshold``);
-an agent can choose its own mode and the tools it always keeps loaded. What a session already
-loaded is remembered on it, so the definitions stay in the cached prompt for its later turns.
+Every agent gets the core tools (``CORE_TOOLS``) and the ones it keeps active; the rest are
+loaded when needed. What a session already loaded is remembered on it, so the definitions stay
+in the cached prompt for its later turns.
 """
 
 from __future__ import annotations
@@ -10,8 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from api.services.settings import effective_settings
-from specifications.interfaces.agent import TOOL_LOADING_MODES, ToolLoading
+from specifications.interfaces.agent import ACTIVE_TOOLS_WARNING, ToolLoading
 from specifications.interfaces.session import SessionRecord
 
 logger = logging.getLogger(__name__)
@@ -21,18 +20,9 @@ GUIDANCE_READ_KEY = "guidance_read"
 SKILLS_READ_KEY = "skills_read"
 
 
-async def tool_loading_for(db_mgr: Any, org_id: str, agent: Any) -> ToolLoading:
-    """The organization's tool loading, with the agent's own mode and always-loaded tools."""
-    general = await effective_settings(db_mgr, org_id, "general")
-    mode = str(getattr(agent, "tool_loading", None) or general["tool_loading"])
-    if mode not in TOOL_LOADING_MODES:
-        logger.warning("Ignoring unknown tool_loading %r for org %s", mode, org_id)
-        mode = "all"
-    return ToolLoading(
-        mode=mode,
-        active=tuple(getattr(agent, "active_tools", None) or ()),
-        threshold=int(general["tool_loading_threshold"]),
-    )
+def tool_loading_for(agent: Any) -> ToolLoading:
+    """The agent's tool loading: the core set plus what it keeps active."""
+    return ToolLoading(active=tuple(getattr(agent, "active_tools", None) or ()), send_all=False)
 
 
 def loaded_tools_of(session: SessionRecord) -> tuple[str, ...]:
@@ -70,39 +60,19 @@ def remember_guidance_read(read: dict[str, str]) -> Any:
     return record
 
 
-def describe_loading(loading: ToolLoading, total: int, deferred: int) -> str:
-    """In a sentence, what the tool loading does for an agent with ``total`` tools."""
-    pinned = len(loading.active)
-    if loading.mode == "all":
-        return "Every allowed tool is sent with every step."
-    if loading.mode == "pinned":
-        which = (
-            f"Only the {pinned} pinned tool{'s' if pinned != 1 else ''} (and the loading tools)"
-            if pinned
-            else "No tool is pinned, so only the loading tools"
-        )
-        return (
-            f"{which} are sent with every step; every other allowed tool is listed by name "
-            "and loaded when the agent needs it."
-        )
-    if loading.mode == "on_demand":
-        pins = f", plus {pinned} pinned" if pinned else ""
-        return (
-            f"The platform's own tools{pins} are sent with every step; the other MCP tools are "
-            "listed by name and loaded when the agent needs them."
-        )
-    if total > loading.threshold:
-        waiting = (
-            "MCP tools that are not pinned are listed by name and loaded when the agent needs them."
-            if deferred
-            else "but it has no MCP tools to defer, so every tool is sent with every step."
-        )
-        return f"Automatic: {total} tools is over the limit of {loading.threshold}, " + (
-            f"so {waiting}" if deferred else waiting
-        )
+def describe_loading(sent: int, deferred: int) -> str:
+    """In a sentence, what the tool loading does for an agent."""
+    if not deferred:
+        return f"All {sent} allowed tools are sent with every step."
+    warning = (
+        f" That is more than {ACTIVE_TOOLS_WARNING}: every step pays for them, and models choose "
+        "worse among many tools; keep only the ones this agent uses on most tasks."
+        if sent > ACTIVE_TOOLS_WARNING
+        else ""
+    )
     return (
-        f"Automatic: {total} tools is within the limit of {loading.threshold}, so every tool "
-        "is sent with every step. Past the limit, MCP tools that are not pinned would wait."
+        f"{sent} tools are sent with every step (the core set and the ones kept active); the "
+        f"other {deferred} are listed by name and loaded when the agent needs them.{warning}"
     )
 
 

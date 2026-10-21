@@ -46,6 +46,7 @@ def _to_checkpoint(row: SessionCompactionModel) -> CompactionCheckpoint:
         tokens_before=row.tokens_before,
         tokens_after=row.tokens_after,
         created_at=row.created_at,
+        summary_status=row.summary_status,
     )
 
 
@@ -99,6 +100,7 @@ class PostgresCompactionStore(CompactionStoreProtocol):
                 org_id=checkpoint.org_id,
                 boundary_seq=checkpoint.boundary_seq,
                 summary=checkpoint.summary,
+                summary_status=checkpoint.summary_status,
                 compacted_messages=compacted_dict,
                 tokens_before=checkpoint.tokens_before,
                 tokens_after=checkpoint.tokens_after,
@@ -108,6 +110,7 @@ class PostgresCompactionStore(CompactionStoreProtocol):
                 constraint="uq_session_compactions_boundary",
                 set_={
                     "summary": checkpoint.summary,
+                    "summary_status": checkpoint.summary_status,
                     "compacted_messages": compacted_dict,
                     "tokens_before": checkpoint.tokens_before,
                     "tokens_after": checkpoint.tokens_after,

@@ -10,14 +10,14 @@ nor configurable.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Literal
 
-from agent_core.tool_loading import ALWAYS_LOADED, MCP_PREFIX, deferred_names
+from agent_core.tool_loading import ALWAYS_LOADED, deferred_names, sent_count
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api.auth.access import _get_request_identity
 from api.services.tool_loading import describe_loading, tool_loading_for
+from specifications.interfaces.agent import ACTIVE_TOOLS_WARNING, CORE_TOOLS
 from specifications.interfaces.llm import ToolDefinition
 
 router = APIRouter(prefix="/v1", tags=["Tools"])
@@ -89,11 +89,8 @@ async def list_tools(request: Request) -> ToolCatalogResponse:
 
 
 class ToolLoadingPreviewRequest(BaseModel):
-    tool_loading: Literal["all", "on_demand", "pinned", "auto"] | None = Field(
-        default=None, description="The agent's own mode; empty inherits the organization's"
-    )
     active_tools: list[str] = Field(
-        default_factory=list, description="Always-loaded tool names or shell-style patterns"
+        default_factory=list, description="Tools kept active besides the core set, or patterns"
     )
     tool_names: list[str] = Field(
         default_factory=list, max_length=5000, description="The tools the agent may use"
@@ -101,13 +98,11 @@ class ToolLoadingPreviewRequest(BaseModel):
 
 
 class ToolLoadingPreview(BaseModel):
-    mode: str = Field(..., description="The mode in force: all, on_demand, pinned or auto")
-    source: Literal["agent", "organization"] = Field(
-        ..., description="Whether the agent or the organization chose the mode"
-    )
-    threshold: int = Field(..., description="The organization's limit for the automatic mode")
-    total: int = Field(..., description="Tools counted against the limit")
+    core: list[str] = Field(..., description="The core tools, sent with every step when allowed")
+    sent: int = Field(..., description="Tools sent with every step: core, active and loading")
+    total: int = Field(..., description="Tools the agent may use")
     deferred: list[str] = Field(..., description="Allowed tools listed by name, loaded on demand")
+    warning_at: int = Field(..., description="Above this many tools sent, the page warns")
     reason: str = Field(..., description="What this means for the agent, in a sentence")
 
 
@@ -115,23 +110,19 @@ class ToolLoadingPreview(BaseModel):
 async def preview_tool_loading(
     body: ToolLoadingPreviewRequest, request: Request
 ) -> ToolLoadingPreview:
-    """Which of an agent's tools are sent with every step and which wait to be loaded, under its
-    settings and the organization's current ones (the same rule a turn applies)."""
-    org_id, _, _ = _get_request_identity(request)
-    db_mgr = getattr(request.app.state, "db_manager", None)
-    agent = SimpleNamespace(tool_loading=body.tool_loading, active_tools=tuple(body.active_tools))
-    loading = await tool_loading_for(db_mgr, org_id, agent)
+    """Which of an agent's tools are sent with every step and which wait to be loaded (the same
+    rule a turn applies)."""
+    _get_request_identity(request)
+    loading = tool_loading_for(SimpleNamespace(active_tools=tuple(body.active_tools)))
     names = list(dict.fromkeys([*body.tool_names, *ALWAYS_LOADED - {"load_guidance"}]))
-    deferred = deferred_names(
-        [ToolDefinition(name=n, description="", parameters_json_schema={}) for n in names],
-        loading,
-        lambda name: name.startswith(MCP_PREFIX),
-    )
+    definitions = [ToolDefinition(name=n, description="", parameters_json_schema={}) for n in names]
+    deferred = deferred_names(definitions, loading)
+    sent = sent_count(definitions, loading)
     return ToolLoadingPreview(
-        mode=loading.mode,
-        source="agent" if body.tool_loading else "organization",
-        threshold=loading.threshold,
+        core=list(CORE_TOOLS),
+        sent=sent,
         total=len(names),
         deferred=sorted(deferred),
-        reason=describe_loading(loading, len(names), len(deferred)),
+        warning_at=ACTIVE_TOOLS_WARNING,
+        reason=describe_loading(sent, len(deferred)),
     )

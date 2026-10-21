@@ -202,6 +202,59 @@ class ApiTokenModel(Base):
     last_used_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
+class RepositorySetupModel(Base):
+    """How to prepare a folder of a repository before the agent works there.
+
+    ``repository`` (``owner/name``) and ``folder`` (a path inside it, empty for its root) are
+    shell-style patterns. Protected by PostgreSQL Row-Level Security (RLS).
+    """
+
+    __tablename__ = "repository_setups"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    repository: Mapped[str] = mapped_column(String(255), nullable=False)
+    folder: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
+    command: Mapped[str] = mapped_column(Text, nullable=False)
+    timeout_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=900, server_default="900"
+    )
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+    updated_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+
+
+class SessionQueuedMessageModel(Base):
+    """A message sent while a turn ran: steering it, or queued for after it.
+
+    ``status`` goes from ``pending`` to ``taken``, ``started`` or ``cancelled``. Protected by
+    PostgreSQL Row-Level Security (RLS).
+    """
+
+    __tablename__ = "session_queued_messages"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    author_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    delivery: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+
+
 class PolicyModel(Base):
     """Hierarchical policy definitions for Org, Team, or User."""
 
@@ -516,7 +569,6 @@ class AgentPersonaEntityModel(Base):
     thinking_budget_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reasoning_effort: Mapped[str | None] = mapped_column(String(50), nullable=True)
     max_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    tool_loading: Mapped[str | None] = mapped_column(String(20), nullable=True)
     active_tools: Mapped[list[str]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), default=list
     )
@@ -674,6 +726,10 @@ class SessionCompactionModel(Base):
     )
     boundary_seq: Mapped[int] = mapped_column(Integer, nullable=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # model, model_retry or digest (see agent_core.compaction_summary); legacy before 049.
+    summary_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="legacy", server_default="legacy"
+    )
     compacted_messages: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=False
     )

@@ -1,0 +1,60 @@
+name: Live benchmark
+
+# Real tasks on a real model, through the API: how many steps, minutes and dollars the harness
+# takes. It spends provider credit, so it never runs on pull requests.
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Model for every task
+        required: false
+        default: openrouter/deepseek/deepseek-v4-pro
+  schedule:
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  live-bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PGPASSWORD: postgres
+      DATABASE_URL: postgresql+asyncpg://rocket_app:rocket_app@localhost:5432/rocket_chat
+      ADMIN_DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/rocket_chat
+      DEV_AUTH_BYPASS: "true"
+      DEFAULT_SANDBOX_DRIVER: docker
+      ROCKET_DEFAULT_SANDBOX_IMAGE: rocket-chat-sandbox:bench
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-backend
+      - name: Build the sandbox image
+        run: docker build -f deploy/docker/Dockerfile.sandbox -t rocket-chat-sandbox:bench .
+      - name: Start and migrate PostgreSQL
+        run: |
+          docker run -d --name pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=rocket_chat \
+            --health-cmd pg_isready --health-interval 2s --health-retries 30 pgvector/pgvector:pg16
+          until [ "$(docker inspect -f '{{.State.Health.Status}}' pg)" = healthy ]; do sleep 1; done
+          scripts/ci/provision_postgres.sh
+          DATABASE_URL=$ADMIN_DATABASE_URL uv run alembic upgrade head
+      - name: Start the API
+        run: |
+          uv run uvicorn api.main:app --app-dir apps/api/src --port 8000 > api.log 2>&1 &
+          for _ in $(seq 60); do curl -sf http://localhost:8000/health && break; sleep 2; done
+      - name: Run the benchmark
+        run: |
+          uv run python scripts/harness_bench.py bench --api http://localhost:8000 \
+            --model "${{ inputs.model || 'openrouter/deepseek/deepseek-v4-pro' }}" \
+            --report live-report.json --baseline tests/harness/live/baseline.json
+      - name: Keep the report and the API log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-bench
+          path: |
+            live-report.json
+            api.log
+          retention-days: 30
+          if-no-files-found: ignore

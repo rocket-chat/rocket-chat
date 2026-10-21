@@ -13,13 +13,13 @@ import hashlib
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any, cast, get_args
+from typing import Any
 
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
 from api.db.models import AgentPersonaEntityModel
-from api.models import AgentPersonaModel, ToolLoadingMode
+from api.models import AgentPersonaModel
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.turn_limits import organization_max_turns
 from specifications.interfaces.agent import NO_STEP_LIMIT
@@ -65,44 +65,17 @@ DEFAULT_AGENT_PERSONAS: tuple[AgentPersonaModel, ...] = (
             "You are a Senior Backend & Systems Engineer working in Rocket Chat. You specialize in "
             "reliable backend development, API design, database migrations, asynchronous pipelines, "
             "and microservice refactors. You write idiomatic, type-safe, well-tested code. "
-            "For multi-step missions, maintain .rocket/PLAN.md as durable working memory, verify all "
-            "changes with tests before completing steps, use wait_for on external CI or PR gates, "
-            "and delegate deep research or test runs to subagents to keep turn context clean."
+            "Build and test in the sandbox before you push, then use wait_for on the pull "
+            "request's CI."
         ),
         model="",
         reasoning_effort="medium",
         max_turns=100,
         cpu_limit="4",
         memory_limit="8Gi",
-        tool_loading="pinned",
         whitelisted_tools=["*"],
-        active_tools=[
-            "file_read",
-            "file_edit",
-            "apply_patch",
-            "file_write",
-            "grep_search",
-            "glob_files",
-            "code_search",
-            "workspace_status",
-            "git_status_all",
-            "repo_foreach",
-            "bash_exec",
-            "process_start",
-            "process_wait",
-            "process_output",
-            "git_status",
-            "git_diff",
-            "git_commit",
-            "git_branch",
-            "git_checkpoint",
-            "git_push",
-            "git_open_pr",
-            "update_task_checklist",
-            "wait_for",
-            "delegate_subagent",
-            "delegate_subagents_parallel",
-        ],
+        # The core tools are always sent; these are the few more a backend task keeps using.
+        active_tools=["process_start", "process_output", "process_wait", "git_diff"],
         icon="server",
     ),
     AgentPersonaModel(
@@ -171,14 +144,6 @@ class PersonaError(Exception):
     detail: str
 
 
-def _tool_loading_mode(value: str | None) -> ToolLoadingMode | None:
-    """The stored mode when it is one the API accepts; anything else inherits the org's."""
-    for mode in get_args(ToolLoadingMode):
-        if value == mode:
-            return cast(ToolLoadingMode, mode)
-    return None
-
-
 def _from_entity(entity: AgentPersonaEntityModel) -> AgentPersonaModel:
     return AgentPersonaModel(
         id=entity.id,
@@ -199,7 +164,6 @@ def _from_entity(entity: AgentPersonaEntityModel) -> AgentPersonaModel:
         thinking_budget_tokens=entity.thinking_budget_tokens,
         reasoning_effort=entity.reasoning_effort,
         max_turns=entity.max_turns,
-        tool_loading=_tool_loading_mode(entity.tool_loading),
         active_tools=entity.active_tools or [],
         enabled=getattr(entity, "enabled", True)
         if getattr(entity, "enabled", True) is not None
@@ -228,7 +192,6 @@ _COPIED_FIELDS = (
     "thinking_budget_tokens",
     "reasoning_effort",
     "max_turns",
-    "tool_loading",
     "active_tools",
     "enabled",
     "default_permission_mode",

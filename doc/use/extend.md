@@ -11,7 +11,7 @@ Everything here lives under **Settings**. Items can be personal (only you) or, f
 
 A skill is a named instruction you invoke with a slash: type `/review src/` and the composer offers your skills; the agent receives the skill's text with your arguments filled in (`$ARGUMENTS`). A skill can also be a short Python function the agent runs in its sandbox. You can import skills from a repository.
 
-The agent sees the name and summary of every skill it may use and loads one with `execute_skill` when a task matches, so write a clear `description` that says when the skill applies. An instruction skill, once loaded, stays in effect for the whole session: the agent is told its instructions are in effect and they are part of its instructions from then on, on every later turn, so they are not lost when long sessions prune older tool results or compact their history, and loading the skill again does not repeat it. Edit a skill and the next turn stops carrying the old text until the agent loads it again. A code skill still returns its output as a result. A persona that lists skills only sees those.
+The agent sees the name and summary of every skill it may use and loads one with `execute_skill` when a task matches, so write a clear `description` that says when the skill applies. An instruction skill, once loaded, stays in effect for the whole session: its instructions arrive in the conversation at the moment the agent loads it, and stay there on every later turn. They are never trimmed when a long session prunes older tool results, and a compaction of the history carries them over whole, so they are not lost; loading the skill again does not repeat it. Edit a skill and the next turn tells the agent it changed, so it loads the new text before relying on it. A code skill still returns its output as a result. A persona that lists skills only sees those.
 
 ## MCP servers
 
@@ -50,7 +50,7 @@ Upload documents (architecture notes, runbooks, API docs) and the agent searches
 An agent is a system prompt, a model and an optional list of allowed tools, skills, knowledge bases, and resource limits. The platform ships with three built-in agents:
 
 * **General Software Engineer (`persona-general`)**: versatile full-stack autonomous engineer with access to all runtime tools.
-* **Backend Developer (`persona-backend`)**: optimized for complex, long-running backend engineering tasks (APIs, microservices, databases, durable waits, and subagent worktrees) with `on_demand` tool loading, `medium` reasoning effort, and a 100-step turn budget.
+* **Backend Developer (`persona-backend`)**: optimized for complex, long-running backend engineering tasks (APIs, microservices, databases, durable waits, and subagent worktrees) keeping background processes and `git_diff` active beside the core tools, `medium` reasoning effort, and a 100-step turn budget.
 * **Security & Penetration Auditor (`persona-security`)**: focused read-only code auditor checking for OWASP vulnerabilities, RLS leaks, and secret exposure.
 
 Administrators can edit the built-in agents for the whole organization (prompt, model, tools, reasoning effort, temperature, step limit, and sandbox sizing) and use **Reset to default** to restore the shipped version; members who want a variation save a copy. Define narrower ones for specific jobs (a reviewer limited to read-only tools, a database migration specialist). A persona can also name a sandbox image and placement profile, subject to your organization's catalogue.
@@ -69,25 +69,20 @@ Each agent can set **Max steps per turn**, from 1 up to the organization's ceili
 
 ### Which tools every step carries
 
-Every tool definition an agent can use is sent to the model at every step. An agent connected to several MCP servers can pay tens of thousands of tokens per step for tools it rarely uses, and choose worse among hundreds of them. Each allowed tool can therefore be:
+Every tool definition sent to the model is paid for at every step, and a model chooses worse among many tools. So every agent's steps carry a small **core** set, the tools almost every task uses:
 
-* **active:** its definition is sent at every step;
-* **deferred (loaded on demand):** its name is listed, grouped by server, and the agent loads its definition with `load_tools` when it needs it (calling it by name loads it too). It then stays loaded for the rest of the session;
-* **not allowed:** unchecked.
+`bash_exec`, `file_read`, `file_edit`, `file_write`, `apply_patch`, `grep_search`, `glob_files`, `update_task_checklist`, `web_fetch`, `web_search`, `execute_skill`, `ask_question`, `clone_repository`, `git_commit`, `git_push`, `git_open_pr`, `github_pull_request`, `github_actions` and `wait_for`.
 
-The agent's **Tool loading** chooses how:
+Each other tool the agent may use is either:
 
-| Mode | What every step carries |
-| :--- | :--- |
-| **Automatic** | Everything, until the agent has more tools than the organization's threshold; then it behaves like *On demand*. |
-| **On demand** | The platform's own tools (built-in and Slack) and the MCP tools you pinned; the other MCP tools are loaded on demand. Pinning a platform tool changes nothing, so the page does not offer it. |
-| **Only pinned tools** | Just the tools you pinned; every other allowed tool, the platform's own included, is loaded on demand. Keep it for a lean agent that works with a short, known list of tools (the built-in *Backend Developer* does). |
-| **Load every allowed tool** | Everything, as before. |
-| **Organization default** | The organization's choice: `general.tool_loading` (`auto` by default) and `general.tool_loading_threshold` (60), in **Settings > Organization**. |
+* **active:** you keep it with every step, with the pin on the tool or a pattern under **Kept active** (`mcp__signoz*__*search*`);
+* **deferred (loaded on demand):** its name is listed, grouped by server, and the agent loads its definition with `load_tools` when it needs it (calling it by name loads it too). It then stays loaded for the rest of the session.
 
-The agent's page shows the result: a summary of the mode in force, whose choice it is (the agent's or the organization's), how many allowed tools are **active** and how many **deferred**, and why; every allowed tool carries an *Active* or *Deferred* badge. It is worked out by the API with the organization's current settings, so it changes when you change the mode, a pin, the tools the agent may use, or the organization's threshold.
+A core tool the agent may not use (unchecked in its tools) is not sent. Tools the session or the channel switches on for a turn are sent too: Slack's own tools on a Slack turn, and the browser of a session that runs in a browser sandbox. The agent's page shows how many tools every step carries and how many wait, with a *Core*, *Active* or *Deferred* badge on each allowed tool, and warns once more than 30 are sent with every step: keep active only what the agent uses on most tasks. The same rule applies to agents in the cockpit, in Slack and in scheduled missions.
 
-Pin a tool (the pin on an allowed tool) or list patterns under **Always loaded** (`mcp__signoz*__*search*`) to keep it loaded.
+### Warnings about the prompt
+
+While you edit an agent's prompt the page checks it, and warns (it never refuses a save) when the prompt is longer than 4,000 characters, names a tool the platform does not have, or shows a call with an argument the tool does not take (such as `wait_for(ci_status, pr=…)`, whose tool has no `pr`). The prompt is sent with every step; what the platform already says about the workspace, tools and git does not need repeating there.
 
 An agent's prompt says who it is and how it should work. The platform adds the facts about where it works, whatever the prompt says: the sandbox starts blank and how to find and clone a repository; the workspace (the active repository, a fresh shell per command, clamped output); how to edit and verify; and the git and GitHub rules. Those rules cover no credentials in the sandbox, never committing to the default branch, publishing with `git_push` or `git_open_pr`, how the organization's signing mode applies, and the `github_*` tools. The platform also adds your organization's skills and the active repository's own `AGENTS.md` (or similar). After the agent clones a repository its `AGENTS.md` is in effect from the next step, kept for the rest of the session; a long one keeps its beginning (what it is for, how to build and test) and its end, says which lines were left out, and names the file so the agent can read the rest. Putting how to prepare and build the repository at the top of `AGENTS.md`, or in a `.rocket/setup.sh`, saves the agent the trouble of discovering it. The built-in agents use whatever model you or your organization choose, from any provider.
 

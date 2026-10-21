@@ -17,7 +17,7 @@ from typing import Any
 
 from llm_gateway.pricing import estimate_cost_usd
 from llm_gateway.reasoning import merge_reasoning_blocks
-from llm_gateway.tokens import estimated_usage
+from llm_gateway.tokens import estimated_usage, request_tokens
 
 from agent_core.checklist import stale_notice, unfinished_notice, verification_gate_notice
 from agent_core.context import (
@@ -26,7 +26,6 @@ from agent_core.context import (
     Summarizer,
     _current_request,
     current_execution_ctx,
-    render_transcript,
 )
 from agent_core.context_policy import assemble_request_messages, format_attachment_manifest
 from agent_core.dispatcher import ToolDispatcher
@@ -54,9 +53,16 @@ from agent_core.reasoning_guard import (
     reasoning_tokens_estimate,
 )
 from agent_core.retry_policy import execute_stream_with_retry
-from agent_core.standing import render_skills, skills_at_turn_start
+from agent_core.standing import (
+    changed_skills,
+    changed_skills_note,
+    render_skills,
+    skills_at_turn_start,
+    skills_missing_from,
+)
 from agent_core.subagents import SubagentRunner
-from agent_core.tool_loading import catalogue, deferred_names
+from agent_core.summarizer import model_summarizer
+from agent_core.tool_loading import ALWAYS_LOADED, catalogue, deferred_names
 from agent_core.tool_slot import human_wait
 from agent_core.tools.registry import ToolRegistry
 from agent_core.transcript import RecordingList, repair_tool_pairs
@@ -132,6 +138,9 @@ class _ModelReply:
     cost_usd: float = 0.0
 
 
+LOADING_TOOLS = ALWAYS_LOADED - {"load_guidance"}
+
+
 class _StreamCollector:
     """Folds one model stream into a reply, forwarding reasoning and answer text as they come."""
 
@@ -147,6 +156,7 @@ class _StreamCollector:
         self.event_queue = event_queue
         self.emit_answer = emit_answer
         self.leak_filter = LeakFilter()
+        self.started_at = time.monotonic()
         self.text = ""
         self.reasoning = ""
         self.reasoning_blocks: list[dict[str, Any]] = []
@@ -363,6 +373,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         # Messages the person sent while their session's turn runs, taken at its next step.
         self._live_turns: set[str] = set()
         self._steering: dict[str, list[SteeringMessage]] = {}
+        self._overhead_cache: dict[tuple[str, int, tuple[str, ...]], int] = {}
 
         # The durable log is the source of truth; this is a bounded cache of live
         # conversations, rehydrated from the store when a session is not resident.
@@ -437,6 +448,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         if len(conversation) < 3:
             return None
         effective_model = model or self.default_model
+        # A manual compaction has no turn, so no tool set to share a cache with.
         summarize = self._make_summarizer(effective_model)
         cleaned = await self.context_manager.enforce_hygiene_async(
             effective_model,
@@ -463,6 +475,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                         org_id=org_id,
                         boundary_seq=boundary_seq,
                         summary=getattr(cleaned, "summary", None),
+                        summary_status=getattr(cleaned, "summary_status", "") or "legacy",
                         compacted_messages=getattr(cleaned, "compacted_prefix", []),
                         tokens_before=getattr(cleaned, "tokens_before", 0),
                         tokens_after=getattr(cleaned, "tokens_after", 0),
@@ -1006,10 +1019,33 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                     "cache_creation_tokens": cache_creation,
                     "cost_usd": step_cost,
                     "finish_reason": finish_reason or stream.finish_reason or "stop",
+                    "duration_ms": int((time.monotonic() - stream.started_at) * 1000),
+                    "reasoning_chars": len(stream.reasoning),
+                    "overhead_tokens": self._overhead_tokens(
+                        eff_model, messages, tools_for_request
+                    ),
                 },
             )
         )
         return step_cost
+
+    def _overhead_tokens(
+        self, model: str, messages: list[ChatMessage], tools: list[ToolDefinition]
+    ) -> int:
+        """What every request of the turn pays before the conversation: system prompt and tools.
+
+        Counted once per distinct prompt and tool set, since tokenizing 80 schemas on every
+        step would cost more than the figure is worth.
+        """
+        system = [m for m in messages if m.role == "system"]
+        key = (model, sum(len(m.content or "") for m in system), tuple(t.name for t in tools))
+        cached = self._overhead_cache.get(key)
+        if cached is None:
+            cached = request_tokens(model, system, tools)
+            if len(self._overhead_cache) > 64:
+                self._overhead_cache.clear()
+            self._overhead_cache[key] = cached
+        return cached
 
     @staticmethod
     async def _check_cache_collapse(
@@ -1075,45 +1111,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             return []
         return [ChatMessage(role="system", content=prompt.stable, cacheable=True)]
 
-    def _make_summarizer(self, model: str) -> Summarizer:
-        """A model-backed summarizer for Tier-3 context compaction (cheap `summarize` route)."""
-
-        async def _summarize(middle: list[ChatMessage]) -> str:
-            transcript = render_transcript(middle)
-            request = ModelRequest(
-                model=model,
-                messages=[
-                    ChatMessage(
-                        role="system",
-                        content=(
-                            "You compress the middle of a long coding-agent session so work can continue.\n"
-                            "Structure your summary in the following clear sections:\n"
-                            "1. Goal & Stop Condition (what was requested and how to know it is done)\n"
-                            "2. Decisions Made (architectural, design, and implementation choices)\n"
-                            "3. Per-Repository & Workspace State (branches, clones, directories)\n"
-                            "4. Files Touched (created, modified, or deleted)\n"
-                            "5. Commands Run & Failing Checks (test/build/lint outcomes)\n"
-                            "6. Open Threads & Blockers (unresolved issues)\n"
-                            "7. Next Steps (immediate action to resume progress)\n\n"
-                            "Be dense, factual, and concise. Omit conversational filler. Plain text."
-                        ),
-                    ),
-                    ChatMessage(role="user", content=transcript),
-                ],
-                # About a tenth of what is compacted (4 characters a token), within bounds.
-                max_tokens=max(700, min(4_000, len(transcript) // 40)),
-                temperature=0.1,
-                stream=False,
-            )
-            text = ""
-            async for chunk in self._gateway.chat_stream(request):
-                if chunk.error:
-                    raise ModelExecutionError(chunk.error)
-                if chunk.text_delta:
-                    text += chunk.text_delta
-            return text
-
-        return _summarize
+    def _make_summarizer(self, model: str, tools: list[ToolDefinition] | None = None) -> Summarizer:
+        return model_summarizer(self._gateway, model, tools)
 
     async def _read_working_memory(
         self, session_id: str, active_repo: str = ""
@@ -1164,7 +1163,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         """Compose the request payload with model-summarized compaction when needed."""
         messages = [*seed_messages, *conversation]
         exec_ctx = current_execution_ctx.get()
-        summarize = self._make_summarizer(summary_model)
+        tools = self._tools_for_request(whitelisted_tools)
+        # The live request only helps on the turn's own model: another model has no cache of it.
+        summarize = self._make_summarizer(summary_model, tools if summary_model == model else None)
         step = run.step if run else None
         last_step = run.last_compaction_step if run else None
         active_repo = exec_ctx.active_repository if exec_ctx else ""
@@ -1184,7 +1185,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             model,
             messages,
             summarize=summarize,
-            tools=self._tools_for_request(whitelisted_tools),
+            tools=tools,
             measured_tokens=exec_ctx.measured_prompt_tokens if exec_ctx else 0,
             overrides=exec_ctx.policy.generation.context_windows if exec_ctx else (),
             step=step,
@@ -1224,6 +1225,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                     org_id=run.org_id,
                     boundary_seq=boundary_seq,
                     summary=getattr(result, "summary", None),
+                    summary_status=getattr(result, "summary_status", "") or "legacy",
                     compacted_messages=getattr(result, "compacted_prefix", []),
                     tokens_before=getattr(result, "tokens_before", 0),
                     tokens_after=getattr(result, "tokens_after", 0),
@@ -1242,6 +1244,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                     "tokens_after": getattr(result, "tokens_after", 0),
                     "compacted_messages_count": getattr(result, "compacted_count", 0),
                     "summary": getattr(result, "summary", None),
+                    "summary_status": getattr(result, "summary_status", "") or "legacy",
                 },
             )
         )
@@ -1253,8 +1256,16 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         all_tools = [t for t in self._registry.get_tool_definitions() if t.name not in denied]
         if whitelisted_tools is None or "*" in whitelisted_tools:
             return all_tools
-        allowed = set(whitelisted_tools)
-        return [tool for tool in all_tools if tool.name in allowed]
+        listed = set(whitelisted_tools)
+        allowed = [tool for tool in all_tools if tool.name in listed]
+        loading = ctx.policy.tool_loading if ctx is not None else None
+        if loading is not None and deferred_names(
+            allowed, loading, self._registry.enabled_for_this_turn
+        ):
+            # A deferred tool is only usable through the loading tools, whatever the agent's list
+            # says (``load_guidance`` is dropped separately when no server has guidance).
+            allowed += [t for t in all_tools if t.name in LOADING_TOOLS and t.name not in listed]
+        return allowed
 
     def _tools_for_request(self, whitelisted_tools: list[str] | None) -> list[ToolDefinition]:
         """The definitions a request carries: allowed tools, without deferred unloaded ones.
@@ -1291,7 +1302,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         """
         loading = exec_ctx.policy.tool_loading
         allowed = self._allowed_tools(whitelisted_tools)
-        deferred = deferred_names(allowed, loading, self._registry.is_external)
+        deferred = deferred_names(allowed, loading, self._registry.enabled_for_this_turn)
         exec_ctx.deferred_tools = deferred
         exec_ctx.loaded_tools = set(loading.loaded) & deferred
         exec_ctx.loaded_tools_order = [n for n in loading.loaded if n in deferred]
@@ -1529,7 +1540,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             part.strip()
             for part in (
                 dynamic,
-                self._guidance_note(exec_ctx),
+                self._guidance_note(exec_ctx, conversation),
                 memory_context if isinstance(memory_context, str) else "",
                 workspace_context if isinstance(workspace_context, str) else "",
                 _working_memory_note(*working_memory),
@@ -1560,7 +1571,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         )
 
     @staticmethod
-    def _guidance_note(exec_ctx: ExecutionContext | None) -> str:
+    def _guidance_note(exec_ctx: ExecutionContext | None, conversation: list[ChatMessage]) -> str:
         """The standing instructions the turn starts with, rendered from the session's state:
         the guidance of MCP servers and the skills the agent put in effect."""
         if exec_ctx is None:
@@ -1574,8 +1585,12 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                     if server in exec_ctx.guidance_by_server
                 )
             )
-        if exec_ctx.skill_texts:
-            parts.append(render_skills(exec_ctx.skill_texts))
+        # Skills live in the conversation (the execute_skill result, re-attached by compaction);
+        # the note only carries those it lacks, and says which were edited since they were read.
+        missing = skills_missing_from(exec_ctx.skill_texts, [m.content or "" for m in conversation])
+        if missing:
+            parts.append(render_skills(missing))
+        parts.append(changed_skills_note(changed_skills(exec_ctx.policy.skills)))
         return "\n\n".join(part for part in parts if part)
 
     @staticmethod
@@ -1633,6 +1648,16 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             if await self._react_step(run, step, soft_warn_at):
                 return
         await self._synthesize_after_budget(run)
+
+    def is_running(self, session_id: str) -> bool:
+        """Whether a turn of ``session_id`` runs in this process."""
+        return session_id in self._live_turns
+
+    def withdraw_steering(self, session_id: str, message_id: str) -> None:
+        """Drop a steering message the turn has not taken yet (the person withdrew it)."""
+        pending = self._steering.get(session_id)
+        if pending:
+            self._steering[session_id] = [m for m in pending if m.message_id != message_id]
 
     def steer(self, session_id: str, message: SteeringMessage) -> bool:
         if session_id not in self._live_turns:
@@ -1775,7 +1800,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         if any(_mentions_working_memory(call) for call in tool_calls.values()):
             run.working_memory = None
         await self._flush_transcript(run.session_id, run.org_id, run.conversation)
-        if any(call.get("name") == "wait_for" for call in tool_calls.values()):
+        if self._wait_registered(run, tool_calls):
             self._session_states[run.session_id] = OrchestratorState.WAITING.value
             await self._emit_status(
                 run,
@@ -1785,6 +1810,19 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             )
             return True
         return False
+
+    @staticmethod
+    def _wait_registered(run: _TurnRun, tool_calls: dict[int, dict[str, Any]]) -> bool:
+        """Whether this step registered a wait that will wake the session (and is reset).
+
+        Without an execution context (tests driving the loop directly) any ``wait_for`` call
+        counts, as it always did.
+        """
+        ctx = run.exec_ctx
+        if ctx is None:
+            return any(call.get("name") == "wait_for" for call in tool_calls.values())
+        registered, ctx.wait_registered = ctx.wait_registered, False
+        return registered
 
     async def _process_tool_results_progress(
         self,

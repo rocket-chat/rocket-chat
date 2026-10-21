@@ -18,6 +18,7 @@ from api.db.store import ResumableTurn
 from api.services.attachments import AttachmentService
 from api.services.metrics import GlobalConcurrencyGate, SessionWriteLocks
 from api.services.missions import Mission
+from api.services.queued_messages import QueuedMessageStore
 from api.services.repository_hint import with_repository_hint
 from api.services.title import TITLE_SOURCE_USER
 from api.services.turn_resume import RESUME_NOTICE
@@ -246,6 +247,8 @@ async def start_turn_on_session(
     *,
     resume_attempt: int = 0,
     synthetic_prompt: bool = False,
+    message_id: str | None = None,
+    author_user_id: str | None = None,
 ) -> bool:
     """Start a turn on an existing session that nobody typed into; False when it is gone."""
     state = app.state
@@ -268,10 +271,36 @@ async def start_turn_on_session(
             session_locks=getattr(state, "session_write_locks", None),
             resume_attempt=resume_attempt,
             synthetic_prompt=synthetic_prompt,
+            message_id=message_id,
+            author_user_id=author_user_id,
         )
     finally:
         current_tenant_org_id.reset(token)
     return True
+
+
+async def start_queued_turns(app: FastAPI, org_id: str, session_id: str) -> int:
+    """Start, in order, the turns for the messages of ``session_id`` that no turn took.
+
+    For a message whose replica restarted (the sweeper); a turn that ends here starts them
+    itself (``TurnRunner._start_queued_turns``).
+    """
+    store = QueuedMessageStore(getattr(app.state, "db_manager", None))
+    token = current_tenant_org_id.set(org_id)
+    try:
+        claimed = await store.claim_for_next_turn(org_id, session_id)
+    finally:
+        current_tenant_org_id.reset(token)
+    for message in claimed:
+        await start_turn_on_session(
+            app,
+            org_id,
+            session_id,
+            message.content,
+            message_id=message.id,
+            author_user_id=message.author_user_id,
+        )
+    return len(claimed)
 
 
 async def resume_claimed_turn(app: FastAPI, turn: ResumableTurn) -> None:

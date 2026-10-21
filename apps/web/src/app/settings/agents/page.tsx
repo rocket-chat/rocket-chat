@@ -17,6 +17,7 @@ import {
 import { MarkdownRenderer } from "../../../components/MarkdownRenderer";
 import { ToolLoadBadge, ToolLoadSummary } from "../../../components/settings/ToolLoadState";
 import { useToolLoadingPreview } from "../../../lib/useToolLoadingPreview";
+import { usePersonaLint } from "../../../lib/usePersonaLint";
 import {
   Bot,
   Plus,
@@ -35,6 +36,7 @@ import {
   Database,
   Trash2,
   RotateCcw,
+  AlertTriangle,
 } from "lucide-react";
 import { useSession } from "../../../components/AuthProvider";
 import {
@@ -207,10 +209,11 @@ export default function AgentsSettingsPage() {
   ];
   const allowedToolIds = isAllowAll ? allToolIds : (formData.whitelisted_tools || []).filter((t) => t !== "*");
   const { preview: loadingPreview, deferred: deferredTools, failed: loadingFailed } = useToolLoadingPreview({
-    toolLoading: formData.tool_loading ?? null,
     activeTools: formData.active_tools || [],
     toolNames: allowedToolIds,
   });
+  const coreTools = new Set(loadingPreview?.core ?? []);
+  const promptWarnings = usePersonaLint(formData.system_prompt || "");
 
   const handleToggleAllowAll = () => {
     if (!canEditCurrentAgent) return;
@@ -866,33 +869,6 @@ export default function AgentsSettingsPage() {
             )}
           </Field>
 
-          {/* Which allowed tools every step carries; the rest wait for load_tools */}
-          <Field
-            label="Tool loading"
-            hint="On demand keeps the platform's tools loaded and lists the MCP tools that are not pinned by name, to be loaded when the agent needs them. Only pinned tools goes further: everything that is not pinned waits, the platform's tools included. Automatic does On demand once the agent has many tools."
-          >
-            {(control) => (
-              <Select {...control}
-                data-testid="agent-tool-loading"
-                disabled={!canEditCurrentAgent}
-                value={formData.tool_loading ?? ""}
-                onChange={(e) =>
-                  setFormData({
-                    ...formData,
-                    tool_loading: (e.target.value || null) as AgentPersonaConfig["tool_loading"],
-                  })
-                }
-                className="max-w-xs"
-              >
-                <option value="">Organization default</option>
-                <option value="auto">Automatic</option>
-                <option value="on_demand">On demand (MCP tools load when needed; pinned ones stay loaded)</option>
-                <option value="pinned">Only pinned tools (everything else loads when needed)</option>
-                <option value="all">Load every allowed tool</option>
-              </Select>
-            )}
-          </Field>
-
           {/* Default Permission Mode */}
           <Field
             label="Default permission mode"
@@ -933,11 +909,11 @@ export default function AgentsSettingsPage() {
             )}
           </Field>
 
-          <ToolLoadSummary preview={loadingPreview} allowed={allowedToolIds.length} failed={loadingFailed} />
+          <ToolLoadSummary preview={loadingPreview} failed={loadingFailed} />
 
           <Field
-            label="Always loaded"
-            hint="Pinned tools, and patterns such as mcp__signoz*__*search*, one per line. A pinned MCP tool stays loaded in On demand and Automatic; in Only pinned they are the only tools loaded. Use the pin on an allowed tool below."
+            label="Kept active"
+            hint="Every agent gets the core tools with every step; the other tools it may use are listed by name and loaded when it needs them. Tools named here, or matching a pattern such as mcp__signoz*__*search* (one per line), are sent with every step too. Use the pin on an allowed tool below."
           >
             {(control) => (
               <Textarea {...control}
@@ -1004,6 +980,20 @@ export default function AgentsSettingsPage() {
                 className="w-full px-3 py-2 rounded-lg border border-border bg-void text-xs font-mono text-foreground/90 focus:outline-none focus:border-cyan leading-relaxed disabled:opacity-60"
                 placeholder="Enter markdown-formatted system instructions..."
               />
+            )}
+            {promptWarnings.length > 0 && (
+              <ul data-testid="persona-warnings" role="status" className="mt-2 space-y-1">
+                {promptWarnings.map((warning) => (
+                  <li
+                    key={warning.message}
+                    data-testid={`persona-warning-${warning.kind}`}
+                    className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-300"
+                  >
+                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                    {warning.message}
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
 
@@ -1195,11 +1185,10 @@ export default function AgentsSettingsPage() {
                                 </span>
                               )}
                               {isChecked && loadingPreview && (
-                                <ToolLoadBadge deferred={deferredTools.has(tool.name)} />
+                                <ToolLoadBadge deferred={deferredTools.has(tool.name)} core={coreTools.has(tool.name)} />
                               )}
-                              {/* A platform tool is loaded in every mode but "Only pinned tools", where
-                                  the pin is what loads it: elsewhere a pin would do nothing. */}
-                              {isChecked && loadingPreview?.mode === "pinned" && (
+                              {/* A core tool is sent anyway: only the others can be kept active. */}
+                              {isChecked && loadingPreview && !coreTools.has(tool.name) && (
                                 <PinToggle
                                   tool={tool.name}
                                   pinned={(formData.active_tools || []).includes(tool.name)}
@@ -1287,7 +1276,7 @@ export default function AgentsSettingsPage() {
                                   {isChecked && loadingPreview && (
                                     <ToolLoadBadge deferred={deferredTools.has(toolId)} />
                                   )}
-                                  {isChecked && loadingPreview && loadingPreview.mode !== "all" && (
+                                  {isChecked && loadingPreview && (
                                     <PinToggle
                                       tool={toolId}
                                       pinned={(formData.active_tools || []).includes(toolId)}
@@ -1344,7 +1333,7 @@ function PinToggle({
     <button
       type="button"
       data-testid={`agent-pin-${tool}`}
-      aria-label={pinned ? `Stop always loading ${tool}` : `Always load ${tool}`}
+      aria-label={pinned ? `Stop keeping ${tool} active` : `Keep ${tool} active`}
       aria-pressed={pinned}
       disabled={disabled}
       onClick={(e) => {

@@ -103,8 +103,15 @@ async def run_setup(
     session_id: str,
     plan: SetupPlan,
     directory: str = WORKSPACE,
+    *,
+    timeout_seconds: int = SETUP_TIMEOUT_SECONDS,
+    trusted_env: dict[str, str] | None = None,
 ) -> tuple[bool, str]:
-    """Run ``plan`` in ``directory`` unless this exact setup already ran there; (ok, output tail)."""
+    """Run ``plan`` in ``directory`` unless this exact setup already ran there; (ok, output tail).
+
+    A repository's own setup runs without credentials. ``trusted_env`` (the agent's variables)
+    is for setups the organization wrote: they run with the agent's own access.
+    """
     marker = _marker_path(directory)
     done = await driver.exec_command(session_id, f"cat {marker} 2>/dev/null", timeout_seconds=15)
     if done.exit_code == 0 and done.stdout.strip() == plan.fingerprint:
@@ -113,8 +120,8 @@ async def run_setup(
         session_id,
         plan.command,
         workdir=directory,
-        timeout_seconds=SETUP_TIMEOUT_SECONDS,
-        env=dict(_NO_CREDENTIALS),
+        timeout_seconds=timeout_seconds,
+        env=dict(trusted_env) if trusted_env is not None else dict(_NO_CREDENTIALS),
     )
     output = (result.stdout + result.stderr).strip()[-1500:]
     if result.exit_code != 0:

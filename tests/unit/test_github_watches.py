@@ -14,7 +14,14 @@ from agent_core.tools.registry import ToolRegistry
 from api.events import AsyncIOEventBus
 from api.services import github_events
 from api.services.github_events import deliver_repo_event
-from api.services.github_watches import MAX_WAKES_PER_WATCH, GithubWatchStore, watch_callbacks
+from api.services.github_watches import (
+    MAX_WAKES_PER_WATCH,
+    PUSHED_HEADS_KEY,
+    GithubWatchStore,
+    pushed_head,
+    remember_pushed_head,
+    watch_callbacks,
+)
 from api.services.metrics import SessionWriteLocks
 from api.store import InMemorySessionStore
 from git_engine.config import GitEngineSettings
@@ -53,6 +60,7 @@ def test_ci_results_reviews_comments_and_the_end_of_a_pull_request_are_events() 
     assert suite is not None
     assert (suite.repo_full_name, suite.pr_numbers, suite.outcome) == ("acme/api", (7,), "failure")
     assert suite.branch == "agent/fix" and suite.trusted
+    assert suite.head_sha == "abcdef123456"
 
     merged = _parse(
         "pull_request",
@@ -166,7 +174,7 @@ class _App:
         )
         self.started: list[tuple[str, str]] = []
 
-    async def create_session(self, archived: bool = False) -> None:
+    async def create_session(self, archived: bool = False, pushed: str = "") -> None:
         await self.store.create_session(
             SessionRecord(
                 session_id="s1",
@@ -174,6 +182,7 @@ class _App:
                 tenant_user_id="u",
                 title="t",
                 is_archived=archived,
+                metadata={PUSHED_HEADS_KEY: {"acme/api@agent/fix": pushed}} if pushed else {},
             )
         )
 
@@ -337,3 +346,25 @@ async def test_watch_matching_branch_when_pull_requests_is_empty() -> None:
     matches = await store.matching(ORG, "acme/api", pr_numbers=(), branch="feat/my-pr")
     assert len(matches) == 1
     assert matches[0].session_id == "s1"
+
+
+async def test_ci_of_an_older_commit_is_shown_but_does_not_wake_the_session(app: _App) -> None:
+    await app.create_session(pushed="2955ddfd3efb")
+    await _follow()
+    older = _event(branch="agent/fix", head_sha="fc301bbc6aa0")
+    pushed = _event(branch="agent/fix", head_sha="2955ddfd3efb")
+
+    await deliver_repo_event(app, ORG, older)  # type: ignore[arg-type]
+    assert app.started == [], "the run the agent waits for is the newer one"
+    await deliver_repo_event(app, ORG, pushed)  # type: ignore[arg-type]
+    assert len(app.started) == 1
+
+
+def test_a_publication_is_remembered_per_repository_and_branch() -> None:
+    record = SessionRecord(session_id="s1", tenant_org_id=ORG, tenant_user_id="u", title="t")
+    remember_pushed_head("Acme/API", "agent/fix", "2955ddfd")(record)
+    remember_pushed_head("acme/api", "other", "aaaa")(record)
+
+    assert pushed_head(record.metadata, "acme/api", "agent/fix") == "2955ddfd"
+    assert pushed_head(record.metadata, "acme/api", "missing") == ""
+    assert pushed_head(None, "acme/api", "agent/fix") == ""

@@ -11,6 +11,7 @@ from fastapi import (
     Request,
 )
 from git_engine.engine import GitEngine
+from pydantic import BaseModel, Field
 
 from api.auth.access import _check_session_access, _get_request_identity
 from api.models import (
@@ -24,6 +25,7 @@ from api.services.audit import (
 from api.services.metrics import (
     record_quota_rejection,
 )
+from api.services.queued_messages import QueuedMessageStore, hold_for_running_turn
 from api.services.session_support import _new_message_id
 from api.services.waits import get_wait_store, settle_waits
 from api.turns.context import TurnSelection
@@ -80,6 +82,20 @@ async def start_session_turn(
     _check_session_access(record, req_user, roles, require_write=True)
 
     message_id = _new_message_id()
+    if not req.attachment_ids and await hold_for_running_turn(
+        session_store=store,
+        orchestrator=orchestrator,
+        event_bus=event_bus,
+        db_mgr=db_mgr,
+        org_id=record.tenant_org_id,
+        session_id=session_id,
+        prompt=req.prompt,
+        delivery=req.delivery,
+        message_id=message_id,
+        author_user_id=req_user,
+    ):
+        status = "steering" if req.delivery == "steer" else "queued"
+        return {"status": status, "session_id": session_id, "message_id": message_id}
     _spawn_background_turn(
         session_id=session_id,
         prompt=req.prompt,
@@ -222,3 +238,62 @@ async def cancel_turn(session_id: str, request: Request) -> dict[str, str]:
             )
         )
     return {"status": "cancelled", "session_id": session_id}
+
+
+class PendingMessageResponse(BaseModel):
+    message_id: str = Field(..., description="The message's id")
+    delivery: str = Field(..., description="steer (next step of the running turn) or queue")
+    content: str = Field(..., description="What the person wrote")
+    author_user_id: str | None = Field(default=None, description="Who sent it")
+
+
+@router.get("/sessions/{session_id}/queued-messages", response_model=list[PendingMessageResponse])
+async def list_queued_messages(session_id: str, request: Request) -> list[PendingMessageResponse]:
+    """Messages sent during a turn that no turn has taken yet, oldest first."""
+    store: SessionStoreProtocol = request.app.state.session_store
+    record = await store.get_session(session_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _, req_user, roles = _get_request_identity(request)
+    _check_session_access(record, req_user, roles)
+    pending = await QueuedMessageStore(getattr(request.app.state, "db_manager", None)).pending(
+        record.tenant_org_id, session_id
+    )
+    return [
+        PendingMessageResponse(
+            message_id=m.id,
+            delivery=m.delivery,
+            content=m.content,
+            author_user_id=m.author_user_id,
+        )
+        for m in pending
+    ]
+
+
+@router.delete("/sessions/{session_id}/queued-messages/{message_id}")
+async def cancel_queued_message(
+    session_id: str, message_id: str, request: Request
+) -> dict[str, str]:
+    """Withdraw a message sent during a turn (steering it or queued after it) that no turn has
+    taken yet."""
+    store: SessionStoreProtocol = request.app.state.session_store
+    record = await store.get_session(session_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _, req_user, roles = _get_request_identity(request)
+    _check_session_access(record, req_user, roles, require_write=True)
+    queued = QueuedMessageStore(getattr(request.app.state, "db_manager", None))
+    if not await queued.cancel(record.tenant_org_id, session_id, message_id):
+        raise HTTPException(status_code=404, detail="No pending message with this id")
+    orchestrator: AsyncReActOrchestrator = request.app.state.orchestrator
+    orchestrator.withdraw_steering(session_id, message_id)
+    event_bus: EventBusProtocol | None = getattr(request.app.state, "event_bus", None)
+    if event_bus:
+        await event_bus.publish(
+            SessionEvent(
+                session_id=session_id,
+                event_type=EventType.MESSAGE_CANCELLED,
+                payload={"message_id": message_id},
+            )
+        )
+    return {"status": "cancelled", "message_id": message_id}

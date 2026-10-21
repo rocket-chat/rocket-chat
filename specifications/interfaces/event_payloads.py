@@ -127,6 +127,18 @@ class UserMessagePayload(TypedDict):
     author_user_id: str | None
 
 
+class MessagePendingPayload(TypedDict):
+    message_id: str
+    # "steer": taken by the running turn at its next step; "queue": run as the next turn.
+    delivery: str
+    content: str
+    author_user_id: str | None
+
+
+class MessageCancelledPayload(TypedDict):
+    message_id: str
+
+
 class PlanUpdatedPayload(TypedDict):
     tasks: list[dict[str, Any]]
     session_id: NotRequired[str]
@@ -214,6 +226,8 @@ class ContextCompactedPayload(TypedDict):
     tokens_after: int
     compacted_messages_count: int
     summary: NotRequired[str | None]
+    # "model", "model_retry" or "digest" (rebuilt from the tool history), see session_compactions.
+    summary_status: NotRequired[str]
 
 
 class GoalUpdatedPayload(TypedDict):
@@ -240,6 +254,8 @@ class WaitStartedPayload(TypedDict):
     target: str
     timeout_seconds: NotRequired[int | None]
     reason: NotRequired[str | None]
+    # ci_status: the commit whose checks are awaited (the head the session last pushed).
+    sha: NotRequired[str]
 
 
 class WaitCompletedPayload(TypedDict):
@@ -286,6 +302,8 @@ PAYLOAD_TYPES: dict[EventType, Any] = {
     EventType.SANDBOX_STATE: SandboxStatePayload,
     EventType.SESSION_UPDATED: SessionUpdatedPayload,
     EventType.USER_MESSAGE: UserMessagePayload,
+    EventType.MESSAGE_PENDING: MessagePendingPayload,
+    EventType.MESSAGE_CANCELLED: MessageCancelledPayload,
     EventType.PLAN_UPDATED: PlanUpdatedPayload,
     EventType.FOLLOWUP_SUGGESTION: FollowupSuggestionPayload,
     EventType.SUBAGENT_STARTED: SubagentStartedPayload,

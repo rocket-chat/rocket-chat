@@ -37,6 +37,7 @@ from specifications.interfaces.agent import (
     DEFAULT_PERMISSION_MODE,
     ExternalToolProvider,
     FileDiff,
+    FolderSetupOutcome,
     GithubAccess,
     GitPolicy,
     ServerGuidance,
@@ -45,6 +46,11 @@ from specifications.interfaces.llm import ToolDefinition
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 
 logger = logging.getLogger(__name__)
+
+# Tools that run commands in a folder: the organization's setup for that folder runs first.
+FOLDER_COMMAND_TOOLS = frozenset(
+    {"bash_exec", "run_tests", "build", "lint", "typecheck", "package_manager", "process_start"}
+)
 
 
 class ToolRegistry:
@@ -197,46 +203,54 @@ class ToolRegistry:
         if not target or self._driver is None:
             return ""
         _, session_id = target
+        ctx = current_execution_ctx.get()
+        if ctx is not None and ctx.plan_mode:
+            return ""
         try:
-            import json
-            import posixpath
-
-            raw_manifest = ""
-            for path in ("/workspace/.rocket/workspace.json", ".rocket/workspace.json"):
-                try:
-                    raw_manifest = await self._driver.read_file(session_id, path)
-                    if raw_manifest:
-                        break
-                except Exception:
-                    continue
-            if not raw_manifest:
-                ctx = current_execution_ctx.get()
-                if ctx is not None and ctx.plan_mode:
-                    return ""
-                repos_list = await list_repositories(self._driver, session_id)
-                if len(repos_list) <= 1:
-                    return ""
-                lines = [f"Workspace Repositories ({len(repos_list)}):"]
-                for r in repos_list[:8]:
-                    name = posixpath.basename(r)
-                    lines.append(f"- {name} (branch: main)")
-                if len(repos_list) > 8:
-                    lines.append(f"... and {len(repos_list) - 8} more repositories")
-                return "\n".join(lines)
-            manifest = json.loads(raw_manifest)
-            repos = manifest.get("repositories", [])
-            if len(repos) <= 1:
+            paths = await self._workspace_repository_paths(session_id)
+            if len(paths) <= 1:
                 return ""
-            lines = [f"Workspace Repositories ({len(repos)}):"]
-            for r in repos[:8]:
-                name = r.get("name") or posixpath.basename(r.get("path", ""))
-                branch = r.get("default_branch") or r.get("branch") or "main"
-                lines.append(f"- {name} (branch: {branch})")
-            if len(repos) > 8:
-                lines.append(f"... and {len(repos) - 8} more repositories")
-            return "\n".join(lines)
+            branches = await self._checked_out_branches(session_id, paths[:8])
         except Exception:
             return ""
+        lines = [f"Workspace Repositories ({len(paths)}):"]
+        for path in paths[:8]:
+            lines.append(f"- {posixpath.basename(path)} (branch: {branches.get(path, '?')})")
+        if len(paths) > 8:
+            lines.append(f"... and {len(paths) - 8} more repositories")
+        return "\n".join(lines)
+
+    async def _workspace_repository_paths(self, session_id: str) -> list[str]:
+        """The repositories of the workspace: from its manifest, else found on disk."""
+        assert self._driver is not None
+        for manifest_path in ("/workspace/.rocket/workspace.json", ".rocket/workspace.json"):
+            try:
+                raw = await self._driver.read_file(session_id, manifest_path)
+            except Exception:
+                continue
+            if raw:
+                repos = json.loads(raw).get("repositories", [])
+                return [str(r.get("path") or f"/workspace/{r.get('name')}") for r in repos]
+        return list(await list_repositories(self._driver, session_id))
+
+    async def _checked_out_branches(self, session_id: str, paths: list[str]) -> dict[str, str]:
+        """Each repository's branch as it is now, in one command: the manifest records the
+        default branch at clone time, and the agent works on its own branch."""
+        assert self._driver is not None
+        script = "; ".join(
+            f"printf '%s\\t' {shlex.quote(path)}; "
+            f"git -C {shlex.quote(path)} rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?'"
+            for path in paths
+        )
+        result = await self._driver.exec_command(
+            session_id=session_id, command=script, timeout_seconds=10
+        )
+        branches: dict[str, str] = {}
+        for line in (result.stdout or "").splitlines():
+            path, _, branch = line.partition("\t")
+            if path and branch:
+                branches[path] = branch.strip()
+        return branches
 
     def register_dynamic_tool(
         self,
@@ -491,6 +505,23 @@ class ToolRegistry:
     # Tools that only work on a sandbox image that declares the capability.
     CAPABILITY_TOOLS: ClassVar[dict[str, str]] = {"browser_inspect": "browser"}
 
+    def enabled_for_this_turn(self, name: str) -> bool:
+        """A tool the session or transport switched on for this turn: a toolset's (Slack's own
+        tools on a Slack turn) or a sandbox capability's (the browser of a browser sandbox).
+        They are sent with every step like the core tools: whoever enabled them meant them."""
+        ctx = current_execution_ctx.get()
+        if ctx is None:
+            return False
+        tag = self._dynamic_tool_toolsets.get(name)
+        if tag is not None:
+            return tag in ctx.enabled_toolsets
+        needed = self.CAPABILITY_TOOLS.get(name)
+        return (
+            needed is not None
+            and ctx.sandbox_capabilities is not None
+            and needed in ctx.sandbox_capabilities
+        )
+
     def _capability_missing(self, name: str) -> str | None:
         """The capability this tool needs but the session's sandbox does not declare."""
         ctx = current_execution_ctx.get()
@@ -580,9 +611,47 @@ class ToolRegistry:
         await self._checkpoint_before_first_change(name, arguments)
         # A deferred tool called by name (from the list in the prompt) is simply loaded.
         await self.load([name])
+        setup = await self._prepare_folder(name, arguments)
+        if setup is not None and not setup.ok:
+            return setup.note
         result = await self._dispatch(name, arguments)
+        if setup is not None:
+            result = f"{setup.note}\n{result}"
         follow_up = await self._run_hooks("post_tool", name, arguments, result=result)
         return f"{result}\n\n[post_tool hook failed] {follow_up}" if follow_up else result
+
+    async def _prepare_folder(
+        self, name: str, arguments: dict[str, Any]
+    ) -> FolderSetupOutcome | None:
+        """Run the organization's setups for the folder a command is about to run in.
+
+        Once per folder and turn; the setup's own marker keeps it to once per workspace.
+        """
+        ctx = current_execution_ctx.get()
+        prepare = self._turn_callback("prepare_folder")
+        if ctx is None or prepare is None or name not in FOLDER_COMMAND_TOOLS:
+            return None
+        folder = self._command_folder(name, arguments, ctx.active_repository)
+        if not folder or folder in ctx.prepared_folders:
+            return None
+        ctx.prepared_folders.add(folder)
+        outcome = await prepare(ctx.session_id, folder)
+        if outcome is not None and not outcome.ok:
+            ctx.prepared_folders.discard(folder)  # fixed setups are tried again
+        return cast("FolderSetupOutcome | None", outcome)
+
+    @staticmethod
+    def _command_folder(name: str, arguments: dict[str, Any], active_repository: str) -> str:
+        """Where a command tool will run: its ``cwd``/``path``, else the active repository."""
+        raw = str(arguments.get("cwd") or arguments.get("path") or "").strip()
+        base = active_repository.strip()
+        if base and not base.startswith("/"):
+            base = posixpath.join("/workspace", base)
+        if not raw:
+            return posixpath.normpath(base) if base else ""
+        if not raw.startswith("/"):
+            raw = posixpath.join(base or "/workspace", raw)
+        return posixpath.normpath(raw)
 
     async def _run_hooks(
         self, event: str, name: str, arguments: dict[str, Any], result: str | None = None
@@ -653,11 +722,11 @@ class ToolRegistry:
         return fresh
 
     async def put_skill_in_effect(self, name: str, body: str) -> bool:
-        """Put an instruction skill in effect for the session; whether it was not already.
+        """Record an instruction skill as in effect for the session; whether it was not already.
 
-        Kept as state and rendered into each turn's context note, not left in a tool result that
-        pruning and compaction would take away. A subagent has no note: it reads the text in the
-        result, and its own record never replaces the session's.
+        The text itself is the tool's result, which pruning leaves whole and compaction
+        re-attaches; the record lets later turns know what the session loaded. A subagent's own
+        record never replaces the session's.
         """
         ctx = current_execution_ctx.get()
         if ctx is None or ctx.guidance_in_result:

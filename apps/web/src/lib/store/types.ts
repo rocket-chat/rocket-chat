@@ -181,7 +181,22 @@ export interface StreamSlice {
   setArtifacts: (artifacts: ArtifactItem[]) => void;
 }
 
+/** A message sent while a turn ran, not yet taken by a turn. */
+export interface PendingMessage {
+  messageId: string;
+  content: string;
+  /** "steer": taken by the running turn at its next step; "queue": run after it. */
+  delivery: "steer" | "queue";
+}
+
 export interface ComposerSlice {
+  /** Messages sent during the running turn that no turn has taken yet, oldest first. */
+  pendingMessages: PendingMessage[];
+  addPendingMessage: (message: PendingMessage) => void;
+  /** What the server holds for the session (a reload or another session). */
+  setPendingMessages: (messages: PendingMessage[]) => void;
+  /** Taken by a turn, or withdrawn: it leaves the composer's list. */
+  removePendingMessage: (messageId: string) => void;
   suggestedFollowup: string | null;
   setSuggestedFollowup: (followup: string | null) => void;
   /** Text the empty state or a template drops into the composer; the nonce re-fires an identical seed. */

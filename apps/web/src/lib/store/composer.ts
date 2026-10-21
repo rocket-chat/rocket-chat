@@ -5,6 +5,16 @@ import type {
 import type { MissionStore, ComposerSlice } from "./types";
 
 export const createComposerSlice: StateCreator<MissionStore, [], [], ComposerSlice> = (set, get) => ({
+  pendingMessages: [],
+  addPendingMessage: (message) =>
+    set((state) =>
+      state.pendingMessages.some((m) => m.messageId === message.messageId)
+        ? state
+        : { pendingMessages: [...state.pendingMessages, message] }
+    ),
+  setPendingMessages: (pendingMessages) => set({ pendingMessages }),
+  removePendingMessage: (messageId) =>
+    set((state) => ({ pendingMessages: state.pendingMessages.filter((m) => m.messageId !== messageId) })),
   composerSeed: null,
   seedComposer: (text) => set({ composerSeed: { text, nonce: Date.now() } }),
   clearComposerSeed: () => set({ composerSeed: null }),

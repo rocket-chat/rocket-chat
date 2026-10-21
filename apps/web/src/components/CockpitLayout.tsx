@@ -142,7 +142,8 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
     prompt: string,
     model?: string,
     messageId?: string,
-    attachmentIds?: string[]
+    attachmentIds?: string[],
+    delivery: "steer" | "queue" = "steer"
   ) => {
     if (isDraft) {
       const newSession = await createSessionWithPrompt(prompt, model, messageId);
@@ -151,7 +152,11 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
       }
       return;
     }
-    wsRef.current?.sendTurn(prompt, model, messageId, attachmentIds);
+    wsRef.current?.sendTurn(prompt, model, messageId, attachmentIds, delivery);
+  };
+
+  const handleCancelPending = (messageId: string) => {
+    wsRef.current?.cancelPendingMessage(messageId);
   };
 
   const handleCancel = () => {
@@ -204,7 +209,12 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                   onApprove={handleApprove}
                   onReject={handleReject}
                 />
-              <IgnitionConsole onIgnite={handleIgnite} onCancel={handleCancel} loading={opening} />
+              <IgnitionConsole
+                onIgnite={handleIgnite}
+                onCancel={handleCancel}
+                onCancelPending={handleCancelPending}
+                loading={opening}
+              />
 
               {/* Mobile Full-Screen Inspector Sheet */}
               {isRightPanelOpen && (
@@ -249,7 +259,12 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                   onApprove={handleApprove}
                   onReject={handleReject}
                 />
-                <IgnitionConsole onIgnite={handleIgnite} onCancel={handleCancel} loading={opening} />
+                <IgnitionConsole
+                onIgnite={handleIgnite}
+                onCancel={handleCancel}
+                onCancelPending={handleCancelPending}
+                loading={opening}
+              />
               </Panel>
 
               {/* Draggable Divider Handle */}

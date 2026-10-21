@@ -12,6 +12,7 @@ import logging
 import time
 import uuid
 from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from api.db.session import DatabaseSessionManager
@@ -36,6 +37,7 @@ __all__ = [
     "TURN_STATUS_ERROR",
     "TURN_STATUS_INTERRUPTED",
     "TURN_STATUS_RUNNING",
+    "TurnMetrics",
     "TurnTraceAccumulator",
     "active_turn_sessions",
     "beat_turn_leases",
@@ -63,6 +65,63 @@ INTERRUPTED_TURN_ERROR = "Turn interrupted: the API process stopped before the t
 # to keep one turn's traces small.
 MAX_REASONING_SUMMARY_CHARS = 2000
 _TRUNCATION_MARKER = "\n… [reasoning truncated]"
+
+
+# Tools whose call publishes commits to a remote: each one starts a CI run the agent may wait on.
+_PUBLISHING_TOOLS = frozenset({"git_push", "git_open_pr"})
+
+
+@dataclass
+class TurnMetrics:
+    """How a turn spent its time and context, beside its tokens and cost.
+
+    These are the figures that tell a slow turn from an expensive one: how many model steps,
+    how long the model generated versus how long tools ran, how much it reasoned (and the
+    longest single deliberation), what every request paid before the conversation, and how
+    often the context was compacted with a summary the model did not write.
+    """
+
+    steps: int = 0
+    model_ms: int = 0
+    tool_ms: int = 0
+    tool_calls: int = 0
+    reasoning_chars: int = 0
+    max_step_reasoning_chars: int = 0
+    reasoning_limit_stops: int = 0
+    overhead_tokens: int = 0
+    tool_loads: int = 0
+    pushes: int = 0
+    compactions: int = 0
+    compactions_without_model_summary: int = 0
+
+    def add_model_call(self, payload: Mapping[str, Any]) -> None:
+        if str(payload.get("role") or "") != "react":
+            return
+        self.steps += 1
+        self.model_ms += int(payload.get("duration_ms") or 0)
+        reasoning = int(payload.get("reasoning_chars") or 0)
+        self.reasoning_chars += reasoning
+        self.max_step_reasoning_chars = max(self.max_step_reasoning_chars, reasoning)
+        if payload.get("finish_reason") == "reasoning_limit":
+            self.reasoning_limit_stops += 1
+        self.overhead_tokens = max(self.overhead_tokens, int(payload.get("overhead_tokens") or 0))
+
+    def add_tool_call(self, tool_call: Mapping[str, Any]) -> None:
+        self.tool_calls += 1
+        self.tool_ms += int(float(tool_call.get("duration_ms") or 0))
+        name = str(tool_call.get("name") or "")
+        if name == "load_tools":
+            self.tool_loads += 1
+        elif name in _PUBLISHING_TOOLS:
+            self.pushes += 1
+
+    def add_compaction(self, payload: Mapping[str, Any]) -> None:
+        self.compactions += 1
+        if payload.get("summary_status") not in ("model", "model_retry"):
+            self.compactions_without_model_summary += 1
+
+    def as_dict(self) -> dict[str, int]:
+        return asdict(self)
 
 
 def _bounded_reasoning(reasoning: str | None) -> str | None:
@@ -108,6 +167,7 @@ class TurnTraceAccumulator:
         self._cost_micro_usd = 0
         self._usage_by_model: dict[str, dict[str, int]] = {}
         self._model_calls: list[dict[str, Any]] = []
+        self._metrics = TurnMetrics()
 
     def start_record(self) -> TurnTraceRecord:
         """The durable ``running`` marker persisted before the turn does any work."""
@@ -127,6 +187,11 @@ class TurnTraceAccumulator:
     def record_tool_call(self, tool_call: Mapping[str, Any]) -> None:
         """Record a completed tool call — the same dict published as ``tool_completed``."""
         self._tool_calls.append(dict(tool_call))
+        self._metrics.add_tool_call(tool_call)
+
+    def record_compaction(self, payload: Mapping[str, Any]) -> None:
+        """Count a context compaction, and whether its summary was the model's own."""
+        self._metrics.add_compaction(payload)
 
     def record_file_diff(self, payload: Mapping[str, Any]) -> None:
         """Record a touched path exactly once, preserving first-touch order."""
@@ -202,6 +267,7 @@ class TurnTraceAccumulator:
         bucket["cache_read_tokens"] += cache_read
         bucket["cache_creation_tokens"] += cache_creation
 
+        self._metrics.add_model_call(payload)
         self._model_calls.append(
             {
                 "model": model,
@@ -250,6 +316,8 @@ class TurnTraceAccumulator:
                 model: dict(totals) for model, totals in self._usage_by_model.items()
             }
             tokens["calls"] = list(self._model_calls)
+        if self._metrics.steps or self._metrics.tool_calls:
+            tokens["metrics"] = self._metrics.as_dict()
         return TurnTraceRecord(
             id=self.trace_id,
             session_id=self.session_id,

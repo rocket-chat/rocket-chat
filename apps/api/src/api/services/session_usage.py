@@ -31,11 +31,37 @@ class UsageTotals(BaseModel):
     )
 
 
+class TurnMetricsModel(BaseModel):
+    steps: int = Field(default=0, description="Model steps of the reason-and-act loop")
+    model_ms: int = Field(default=0, description="Time the model spent generating, ms")
+    tool_ms: int = Field(default=0, description="Time tools spent running, ms")
+    tool_calls: int = Field(default=0, description="Tool calls made")
+    reasoning_chars: int = Field(default=0, description="Reasoning written, in characters")
+    max_step_reasoning_chars: int = Field(
+        default=0, description="Longest reasoning of a single step, in characters"
+    )
+    reasoning_limit_stops: int = Field(
+        default=0, description="Steps stopped by the reasoning limit and asked to decide"
+    )
+    overhead_tokens: int = Field(
+        default=0, description="System prompt and tool definitions every request carries"
+    )
+    tool_loads: int = Field(default=0, description="Calls to load_tools")
+    pushes: int = Field(default=0, description="Pushes and pull requests opened")
+    compactions: int = Field(default=0, description="Context compactions")
+    compactions_without_model_summary: int = Field(
+        default=0, description="Compactions whose summary was rebuilt from the tool history"
+    )
+
+
 class TurnUsage(UsageTotals):
     turn_index: int = Field(..., description="1-based turn number within the session")
     started_at: int = Field(..., description="Turn start, epoch seconds")
     ended_at: int | None = Field(default=None, description="Turn end; null while it runs")
     status: str = Field(..., description="running, completed, error or interrupted")
+    metrics: TurnMetricsModel | None = Field(
+        default=None, description="Steps, time and context figures; null until the turn ends"
+    )
 
 
 class ModelUsage(UsageTotals):
@@ -61,6 +87,7 @@ class TurnWindow:
     started_at: int
     ended_at: int | None
     status: str
+    metrics: dict[str, int] | None = None
 
 
 def _add(totals: UsageTotals, event: dict[str, Any]) -> None:
@@ -91,7 +118,11 @@ def summarize_session_usage(
     before = UsageTotals()
     per_turn = [
         TurnUsage(
-            turn_index=t.turn_index, started_at=t.started_at, ended_at=t.ended_at, status=t.status
+            turn_index=t.turn_index,
+            started_at=t.started_at,
+            ended_at=t.ended_at,
+            status=t.status,
+            metrics=TurnMetricsModel(**t.metrics) if t.metrics else None,
         )
         for t in ordered
     ]

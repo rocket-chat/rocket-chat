@@ -632,3 +632,24 @@ def test_authored_by_user_committed_by_bot_policy() -> None:
 
     with pytest.raises(ValueError, match="GitHub App signing cannot set a custom author"):
         publish_spec_for_policy(replace(policy, signing_mode="github_app"))
+
+
+async def test_a_publication_reports_the_new_head_to_the_session() -> None:
+    """The head is recorded so a CI wait reads that commit, not the pull request's previous one."""
+    from agent_core.tools.git_tools import git_push
+
+    from specifications.interfaces.git import PublishResult
+
+    class _Engine:
+        async def publish_branch(self, session_id: str, spec: object) -> PublishResult:
+            return PublishResult("acme/api", "agent/fix", "2955ddfd3efb1234", "github_api", 1)
+
+    published: list[tuple[str, str, str, str]] = []
+
+    async def remember(session_id: str, repo: str, branch: str, sha: str) -> None:
+        published.append((session_id, repo, branch, sha))
+
+    text = await git_push("s1", None, False, _Engine(), published=remember)  # type: ignore[arg-type]
+
+    assert "Head: 2955ddfd3efb" in text
+    assert published == [("s1", "acme/api", "agent/fix", "2955ddfd3efb1234")]

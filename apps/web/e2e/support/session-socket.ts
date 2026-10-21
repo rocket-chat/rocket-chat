@@ -14,7 +14,19 @@ export interface SessionSocket {
   emit: (eventType: string, payload: Record<string, unknown>) => void;
 }
 
-export async function routeSessionSocket(page: Page, sessionId: string): Promise<SessionSocket> {
+export interface RouteOptions {
+  /**
+   * Frame types the backend must not receive: the spec answers them itself. The stub backend
+   * knows no running turn, so it would start a real one for a message meant to wait.
+   */
+  intercept?: string[];
+}
+
+export async function routeSessionSocket(
+  page: Page,
+  sessionId: string,
+  options: RouteOptions = {}
+): Promise<SessionSocket> {
   let route: WebSocketRoute | null = null;
   let markReady: () => void = () => undefined;
   const ready = new Promise<void>((resolve) => {
@@ -30,13 +42,16 @@ export async function routeSessionSocket(page: Page, sessionId: string): Promise
       if (typeof message === "string" && message.includes('"sync"')) markReady();
     });
     ws.onMessage((message) => {
+      let frame: Record<string, unknown> | null = null;
       if (typeof message === "string") {
         try {
-          sent.push(JSON.parse(message));
+          frame = JSON.parse(message);
+          sent.push(frame as Record<string, unknown>);
         } catch {
           // not JSON: forwarded all the same
         }
       }
+      if (frame && options.intercept?.includes(String(frame.type))) return;
       server.send(message);
     });
   });

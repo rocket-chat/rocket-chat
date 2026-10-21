@@ -68,7 +68,8 @@ def test_accumulates_tool_calls_diffs_and_approvals() -> None:
     assert finished.reasoning_summary == "Inspecting the failing test."
     assert finished.status == TURN_STATUS_COMPLETED
     assert finished.error is None
-    assert finished.tokens == {}
+    # No model call was recorded: only the tool metrics, no token totals.
+    assert set(finished.tokens) == {"metrics"}
 
 
 def test_repeated_diff_for_one_path_is_recorded_once() -> None:
@@ -222,3 +223,32 @@ def test_migration_046_converts_stored_turn_costs_to_dollars() -> None:
 
     assert 'down_revision: str | None = "045_artifact_versions"' in source
     assert "/ 1000000" in source and "* 1000000" in source
+
+
+def test_metrics_split_model_time_from_tool_time_and_keep_the_longest_deliberation() -> None:
+    acc = _accumulator()
+    usage = {"model": "m", "prompt_tokens": 9000, "completion_tokens": 50, "role": "react"}
+    acc.record_model_usage({**usage, "duration_ms": 4000, "reasoning_chars": 1200,
+                            "overhead_tokens": 7000})  # fmt: skip
+    acc.record_model_usage({**usage, "duration_ms": 90_000, "reasoning_chars": 40_000,
+                            "finish_reason": "reasoning_limit", "overhead_tokens": 7000})  # fmt: skip
+    # The title, the summary and the follow-up are model calls of the turn, not its steps.
+    acc.record_model_usage({**usage, "role": "title", "duration_ms": 500})
+    acc.record_tool_call(TOOL_CALL)
+    acc.record_tool_call({**TOOL_CALL, "name": "load_tools", "duration_ms": 3})
+    acc.record_tool_call({**TOOL_CALL, "name": "git_push", "duration_ms": 1500})
+    acc.record_compaction({"tokens_before": 1, "tokens_after": 1, "summary_status": "model"})
+    acc.record_compaction({"tokens_before": 1, "tokens_after": 1, "summary_status": "digest"})
+
+    metrics = acc.finish(status=TURN_STATUS_COMPLETED).tokens["metrics"]
+
+    assert metrics["steps"] == 2 and metrics["model_ms"] == 94_000
+    assert metrics["tool_calls"] == 3 and metrics["tool_ms"] == 412 + 3 + 1500
+    assert metrics["reasoning_chars"] == 41_200 and metrics["max_step_reasoning_chars"] == 40_000
+    assert metrics["reasoning_limit_stops"] == 1 and metrics["overhead_tokens"] == 7000
+    assert metrics["tool_loads"] == 1 and metrics["pushes"] == 1
+    assert metrics["compactions"] == 2 and metrics["compactions_without_model_summary"] == 1
+
+
+def test_a_turn_with_no_step_and_no_tool_records_no_metrics() -> None:
+    assert "metrics" not in _accumulator().finish(status=TURN_STATUS_COMPLETED).tokens

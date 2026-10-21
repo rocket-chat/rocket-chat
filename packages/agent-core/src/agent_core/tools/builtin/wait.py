@@ -7,6 +7,9 @@ from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import Field
 
+from agent_core.context import current_execution_ctx
+from specifications.interfaces.agent import WaitOutcome
+
 if TYPE_CHECKING:
     from agent_core.tools.registry import ToolRegistry
 
@@ -19,8 +22,9 @@ def register(registry: ToolRegistry) -> None:
             "Pause execution and wait durably for an external event to complete before "
             "continuing: CI status on a pull request ('ci_status'), a pull request review "
             "('review'), a sandbox background process ('process_exit'), or a timer delay ('time'). "
-            "The turn concludes in a 'waiting' state, yielding resources; when the event occurs, "
-            "a new continuation turn is automatically woken with the result payload."
+            "When the wait is registered the turn ends in a 'waiting' state, yielding resources, "
+            "and a new turn wakes with the result. When the condition has already settled (CI "
+            "finished on the commit), the result says so and you continue at once."
         )
     )
     async def wait_for(
@@ -42,11 +46,26 @@ def register(registry: ToolRegistry) -> None:
                 description="Optional maximum wait timeout in seconds before automatically waking."
             ),
         ] = None,
+        sha: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "ci_status only: the commit to wait for. Default: the head you last pushed to "
+                    "the pull request's branch, so CI of an older commit is never reported."
+                )
+            ),
+        ] = None,
     ) -> str:
+        ctx = current_execution_ctx.get()
         wait_cb = registry._turn_callback("wait_for")
-        if wait_cb is not None:
-            return str(await wait_cb(target, identifier, timeout_seconds))
-        return (
-            f"Wait scheduled for {target} ({identifier}) with timeout {timeout_seconds}s. "
-            "Turn entering waiting state."
-        )
+        if wait_cb is None:
+            outcome = WaitOutcome(
+                f"Wait scheduled for {target} ({identifier}) with timeout {timeout_seconds}s. "
+                "Turn entering waiting state.",
+                registered=True,
+            )
+        else:
+            outcome = await wait_cb(target, identifier, timeout_seconds, sha)
+        if ctx is not None:
+            ctx.wait_registered = ctx.wait_registered or outcome.registered
+        return outcome.message

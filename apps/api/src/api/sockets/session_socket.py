@@ -29,13 +29,13 @@ from api.services.metrics import (
     websocket_connection_opened,
 )
 from api.services.pending_gates import pending_gates
+from api.services.queued_messages import QueuedMessageStore, hold_for_running_turn
 from api.services.session_support import apply_sharing
 from api.services.turn_trace import session_running_turn
 from api.turns.context import TurnSelection
 from api.turns.gates import _forget_pending_decisions, take_stored_question
 from api.turns.runner import _active_running_turns
 from api.turns.tasks import _spawn_background_turn
-from specifications.interfaces.agent import SteeringMessage
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 from specifications.interfaces.session import SessionStoreProtocol
@@ -44,7 +44,17 @@ logger = logging.getLogger(__name__)
 
 # Client frames that mutate the session; the read-only role may only observe.
 WRITE_FRAMES = frozenset(
-    {"turn", "action", "cancel", "interrupt", "abort", "answer_question", "approval", "share"}
+    {
+        "turn",
+        "action",
+        "cancel",
+        "interrupt",
+        "abort",
+        "answer_question",
+        "approval",
+        "share",
+        "cancel_message",
+    }
 )
 _TURN_FRAMES = frozenset({"turn", "action"})
 _CANCEL_FRAMES = frozenset({"cancel", "interrupt", "abort"})
@@ -70,6 +80,7 @@ class SessionSocket:
         "answer_question": "_on_answer_question",
         "approval": "_on_approval",
         "share": "_on_share",
+        "cancel_message": "_on_cancel_message",
         "ping": "_on_ping",
     }
 
@@ -330,13 +341,11 @@ class SessionSocket:
         prompt = (data.get("content") or data.get("prompt") or "").strip()
         if not prompt:
             return
-        # While this session's turn runs here, the message joins it at its next step rather
-        # than waiting for the end of a turn that may run for an hour. Files go with a turn of
-        # their own.
-        steering = SteeringMessage(
-            content=prompt, message_id=data.get("message_id"), author_user_id=self._user_id
-        )
-        if not data.get("attachment_ids") and self._orchestrator.steer(self._session_id, steering):
+        # While a turn of this session runs (here or on another replica), the message is kept
+        # until a turn takes it: steering joins the running turn at its next step rather than
+        # waiting for the end of a turn that may run for an hour, a queued one runs after it.
+        # Files go with a turn of their own.
+        if not data.get("attachment_ids") and await self._keep_for_running_turn(prompt, data):
             return
         await self._forget_decisions()
         self._start_turn(
@@ -349,6 +358,36 @@ class SessionSocket:
             attachment_service=getattr(self._ws.app.state, "attachment_service", None),
             attachment_ids=data.get("attachment_ids") or [],
         )
+
+    async def _keep_for_running_turn(self, prompt: str, data: dict[str, Any]) -> bool:
+        """Store a message sent while a turn runs; whether one did (else a turn starts now)."""
+        return await hold_for_running_turn(
+            session_store=self._store,
+            orchestrator=self._orchestrator,
+            event_bus=self._event_bus,
+            db_mgr=self._db,
+            org_id=self._org_id,
+            session_id=self._session_id,
+            prompt=prompt,
+            delivery="queue" if data.get("delivery") == "queue" else "steer",
+            message_id=data.get("message_id"),
+            author_user_id=self._user_id,
+        )
+
+    async def _on_cancel_message(self, data: dict[str, Any]) -> None:
+        """Withdraw a message no turn has taken yet."""
+        message_id = str(data.get("message_id") or "")
+        if not message_id:
+            return
+        if await QueuedMessageStore(self._db).cancel(self._org_id, self._session_id, message_id):
+            self._orchestrator.withdraw_steering(self._session_id, message_id)
+            await self._event_bus.publish(
+                SessionEvent(
+                    session_id=self._session_id,
+                    event_type=EventType.MESSAGE_CANCELLED,
+                    payload={"message_id": message_id},
+                )
+            )
 
     async def _on_cancel(self, data: dict[str, Any]) -> None:
         await self._forget_decisions()

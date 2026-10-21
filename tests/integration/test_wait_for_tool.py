@@ -9,7 +9,7 @@ import pytest
 from agent_core.context import ExecutionContext, current_execution_ctx
 from agent_core.tools.registry import ToolRegistry
 
-from specifications.interfaces.agent import TurnCallbacks
+from specifications.interfaces.agent import TurnCallbacks, WaitOutcome
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
 
 
@@ -29,7 +29,9 @@ async def test_wait_for_tool_emits_wait_started_event() -> None:
     # Mock github watch callback
     mock_watch = AsyncMock(return_value="Now following rocket-chat/platform#42.")
 
-    async def mock_wait_for(target: str, identifier: str, timeout_seconds: int | None) -> str:
+    async def mock_wait_for(
+        target: str, identifier: str, timeout_seconds: int | None, sha: str | None
+    ) -> WaitOutcome:
         await event_bus.publish(
             SessionEvent(
                 session_id=session_id,
@@ -45,8 +47,8 @@ async def test_wait_for_tool_emits_wait_started_event() -> None:
         if target in ("ci_status", "review"):
             parts = identifier.split("#")
             await mock_watch(parts[0], int(parts[1]), branch=None, wake=True)
-            return f"Waiting for {target} on {identifier}."
-        return f"Waiting for {target} ({identifier})."
+            return WaitOutcome(f"Waiting for {target} on {identifier}.", registered=True)
+        return WaitOutcome(f"Waiting for {target} ({identifier}).", registered=True)
 
     callbacks = TurnCallbacks(wait_for=mock_wait_for)
     exec_ctx = ExecutionContext(
@@ -70,6 +72,7 @@ async def test_wait_for_tool_emits_wait_started_event() -> None:
         )
         assert "Waiting for ci_status on rocket-chat/platform#42" in result
         assert mock_watch.await_count == 1
+        assert exec_ctx.wait_registered, "the step will end the turn"
 
         # Check WAIT_STARTED event published
         wait_events = [e for e in events_published if e.event_type == EventType.WAIT_STARTED]
@@ -91,7 +94,9 @@ async def test_wait_for_time_delay() -> None:
 
     event_bus.publish = AsyncMock(side_effect=mock_publish)
 
-    async def mock_wait_for(target: str, identifier: str, timeout_seconds: int | None) -> str:
+    async def mock_wait_for(
+        target: str, identifier: str, timeout_seconds: int | None, sha: str | None
+    ) -> WaitOutcome:
         await event_bus.publish(
             SessionEvent(
                 session_id=session_id,
@@ -104,7 +109,7 @@ async def test_wait_for_time_delay() -> None:
                 },
             )
         )
-        return f"Waiting for timer delay of {identifier}s."
+        return WaitOutcome(f"Waiting for timer delay of {identifier}s.", registered=True)
 
     callbacks = TurnCallbacks(wait_for=mock_wait_for)
     exec_ctx = ExecutionContext(

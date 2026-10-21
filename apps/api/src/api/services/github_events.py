@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import Any
 
 from fastapi import FastAPI
 
@@ -13,6 +14,7 @@ from api.services.github_watches import (
     GithubWatch,
     GithubWatchStore,
     next_step_hint,
+    pushed_head,
 )
 from api.turns.tasks import start_turn_on_session
 from specifications.interfaces.event_payloads import GithubEventPayload
@@ -58,7 +60,13 @@ async def _deliver(
         return False
     locks = getattr(state, "session_write_locks", None)
     idle = locks is None or not locks.is_locked(watch.session_id)
-    may_wake = watch.wake and event.trusted and idle and watch.wakes_used < MAX_WAKES_PER_WATCH
+    may_wake = (
+        watch.wake
+        and event.trusted
+        and idle
+        and watch.wakes_used < MAX_WAKES_PER_WATCH
+        and not _about_an_older_commit(record.metadata, event)
+    )
     pr_number = (
         watch.pr_number if watch.pr_number is not None else next(iter(event.pr_numbers), None)
     )
@@ -89,6 +97,18 @@ async def _deliver(
     )
     await store.record_delivery(watch, dict(entry), woke=woke, finished=event.ends_watch)
     return True
+
+
+def _about_an_older_commit(metadata: dict[str, Any] | None, event: RepoEvent) -> bool:
+    """A CI result for a commit other than the one the session last pushed on that branch.
+
+    It is still shown, but it does not wake the agent: the run it is waiting for is the newer
+    one, and the older run's (often failed) outcome was taken for the new commit's.
+    """
+    if not event.head_sha or not event.branch:
+        return False
+    expected = pushed_head(metadata, event.repo_full_name, event.branch)
+    return bool(expected) and expected != event.head_sha
 
 
 def _link(event: RepoEvent) -> str:

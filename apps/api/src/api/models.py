@@ -5,8 +5,6 @@ from typing import Any, Literal
 from agent_core.guidance import MAX_GUIDANCE_CHARS
 from pydantic import BaseModel, Field, model_validator
 
-ToolLoadingMode = Literal["all", "on_demand", "pinned", "auto"]
-
 
 class AgentPersonaModel(BaseModel):
     """Custom Agent Persona configuration."""
@@ -75,20 +73,12 @@ class AgentPersonaModel(BaseModel):
             "organization's limit, and a value above it is refused"
         ),
     )
-    tool_loading: ToolLoadingMode | None = Field(
-        default=None,
-        description=(
-            "Which allowed tools every step carries: all; on_demand (the platform's tools, and "
-            "the MCP tools in active_tools; the other MCP tools are loaded when needed); pinned "
-            "(only active_tools; every other tool is loaded when needed); or auto. Empty "
-            "inherits the organization's setting"
-        ),
-    )
     active_tools: list[str] = Field(
         default_factory=list,
         description=(
-            "Tools always loaded, by name or pattern (mcp__signoz*__*search*). They keep MCP "
-            "tools loaded in on_demand and auto, and are the only tools loaded in pinned"
+            "Tools sent with every step besides the core set, by name or pattern "
+            "(mcp__signoz*__*search*); every other allowed tool is listed by name and loaded "
+            "when the agent needs it"
         ),
     )
     default_permission_mode: str | None = Field(
@@ -200,6 +190,13 @@ class UserTurnRequest(BaseModel):
     """Payload to trigger an autonomous agent ReAct turn."""
 
     prompt: str = Field(..., min_length=1, description="Instruction or steer message for the agent")
+    delivery: Literal["steer", "queue"] = Field(
+        default="steer",
+        description=(
+            "While a turn of the session runs: 'steer' joins it at its next step, 'queue' runs "
+            "after it as a turn of its own. Ignored when no turn runs"
+        ),
+    )
     model: str | None = Field(default=None, description="Override LLM model name")
     agent_id: str | None = Field(
         default=None, description="The agent for this turn; empty keeps the session's"

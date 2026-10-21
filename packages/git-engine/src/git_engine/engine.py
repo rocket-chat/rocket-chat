@@ -541,6 +541,7 @@ def _check_suite_event(payload: dict[str, Any]) -> RepoEvent | None:
         branch=suite.get("head_branch"),
         outcome=conclusion,
         trusted=True,
+        head_sha=str(suite.get("head_sha") or ""),
     )
 
 

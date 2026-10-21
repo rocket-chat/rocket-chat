@@ -57,7 +57,11 @@ async def test_the_personas_tool_whitelist_limits_the_tools_offered() -> None:
         "wire_persona_tools", whitelisted_tools=["file_read", "think"]
     )
 
-    assert {tool.name for tool in _first_agent_request(outcome).tools} == {"file_read", "think"}
+    request = _first_agent_request(outcome)
+    # file_read is core; think is allowed but deferred (listed, loaded on demand).
+    assert {tool.name for tool in request.tools} == {"file_read", "load_tools", "search_tools"}
+    assert "think" in (request.messages[0].content or "")
+    assert "bash_exec" not in (request.messages[0].content or "").split("[Tools to load")[-1]
 
 
 async def test_the_personas_turn_limit_bounds_the_turn() -> None:

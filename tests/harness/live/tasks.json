@@ -1,0 +1,25 @@
+{
+  "tasks": [
+    {
+      "id": "go-uuid-must-parse-bytes",
+      "language": "go",
+      "prompt": "Clone google/uuid. Add a function `MustParseBytes(b []byte) UUID` next to `MustParse`: it behaves like `ParseBytes` and panics when the input is invalid, with the same panic message style as `MustParse`. Add a test for it, run the package's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+      "workdir": "/workspace/uuid",
+      "verify": "cat > zz_bench_test.go <<'EOF'\npackage uuid\n\nimport \"testing\"\n\nfunc TestBenchMustParseBytes(t *testing.T) {\n\tif MustParseBytes([]byte(\"f47ac10b-58cc-0372-8567-0e02b2c3d479\")).String() != \"f47ac10b-58cc-0372-8567-0e02b2c3d479\" {\n\t\tt.Fatal(\"wrong value\")\n\t}\n\tdefer func() {\n\t\tif recover() == nil {\n\t\t\tt.Fatal(\"no panic on invalid input\")\n\t\t}\n\t}()\n\tMustParseBytes([]byte(\"nope\"))\n}\nEOF\ngo test ./... && rm zz_bench_test.go"
+    },
+    {
+      "id": "py-markupsafe-escape-all",
+      "language": "python",
+      "prompt": "Clone pallets/markupsafe. Add a public function `escape_all(values)` to the package: it takes an iterable and returns a list with `escape` applied to each item, in order. Export it from the package like `escape`, add a test, run the existing test suite in the sandbox, and stop when it passes. Do not push or open a pull request.",
+      "workdir": "/workspace/markupsafe",
+      "verify": "python -m pip install -q -e . && python -c \"from markupsafe import escape_all, Markup; r = escape_all(['<a>', 1]); assert r == [Markup('&lt;a&gt;'), Markup('1')], r\""
+    },
+    {
+      "id": "js-clsx-dedupe",
+      "language": "javascript",
+      "prompt": "Clone lukeed/clsx. Export a new named function `clsxDedupe(...inputs)` from the main entry: it accepts the same inputs as `clsx` and returns the same string without repeated class names, keeping the first occurrence. Add a test, run the existing tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+      "workdir": "/workspace/clsx",
+      "verify": "node --input-type=module -e \"import { clsxDedupe } from './src/index.js'; const r = clsxDedupe('a b', {b: true, c: true}, ['a', 'd']); if (r !== 'a b c d') { throw new Error(r); }\""
+    }
+  ]
+}

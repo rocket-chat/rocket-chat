@@ -1,9 +1,9 @@
-"""Skill instructions stay in effect for the session instead of riding in a prunable tool result.
+"""Skill instructions arrive once, as the ``execute_skill`` result, and nothing takes them away.
 
-An instruction skill used to come back as the result of ``execute_skill``. Past 70% of the window
-the engine prunes tool results to a receipt, so the agent lost the instructions it had been told to
-follow and loaded them again, or went without. They are now state of the session, rendered into each
-turn's context note, which pruning and compaction never touch.
+The result is the skill's block, where the agent decided it needed it. Pruning leaves it whole and a
+compaction re-attaches it, so in a long session the instructions stay in front of the agent instead
+of a context note a hundred steps back (where an agent broke the skill's rules while it was there).
+The note only carries a skill the conversation lacks, and says when a skill was edited since.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from agent_core.standing import (
 )
 from api.services import skills_lookup
 from api.services.compaction import InMemoryCompactionStore
+from api.services.settings import save_org_config
 from api.services.tool_loading import SKILLS_READ_KEY
 from api.services.transcript import InMemoryTranscriptStore
 from api.store import InMemorySessionStore
@@ -99,7 +100,7 @@ def _tool_results(request: Any) -> list[str]:
     return [m.content or "" for m in request.messages if m.role == "tool"]
 
 
-async def test_loading_a_skill_puts_it_in_effect_once_and_keeps_it_out_of_the_result() -> None:
+async def test_loading_a_skill_returns_its_block_once_and_not_again() -> None:
     outcome = await run_turn(
         ORG,
         script=[
@@ -110,21 +111,22 @@ async def test_loading_a_skill_puts_it_in_effect_once_and_keeps_it_out_of_the_re
 
     first, after_load, after_again = _with_tools(outcome)[:3]
     assert _mentions(first, "vendir sync") == 0
-    assert _mentions(after_load, "vendir sync") == 1, "in the next request, in the turn's note"
+    assert _mentions(after_load, "vendir sync") == 1, "in the result, where it was asked for"
     assert _mentions(after_again, "vendir sync") == 1, "loading it again does not repeat it"
     results = _tool_results(after_again)
-    assert "now in effect" in results[0] and "vendir" not in results[0]
-    assert "already in effect" in results[1]
+    assert results[0].startswith('<skill name="backend-services">') and "vendir" in results[0]
+    assert "already in this conversation" in results[1]
+    assert "vendir" not in after_again.messages[-1].content or "", "not in the turn's note"
     assert outcome.session.metadata[SKILLS_READ_KEY] == {"backend-services": _digest(BODY)}
 
 
-async def test_the_next_turn_starts_with_the_skill_and_not_in_the_history() -> None:
+async def test_the_next_turn_has_the_skill_once_from_the_history_not_the_note() -> None:
     shared = {
         "store": InMemorySessionStore(),
         "transcript_store": InMemoryTranscriptStore(),
         "compaction_store": InMemoryCompactionStore(),
     }
-    once = await run_turn(
+    await run_turn(
         ORG,
         script=[("execute_skill", {"skill_name": "backend-services", "arguments": {}})],
         **shared,
@@ -133,17 +135,43 @@ async def test_the_next_turn_starts_with_the_skill_and_not_in_the_history() -> N
 
     request = _with_tools(again)[0]
     assert _mentions(request, "vendir sync") == 1
-    assert "vendir sync" in request.messages[-1].content, "in this turn's note"
-    stored = [m for m in _with_tools(once)[-1].messages if m.role == "tool"]
-    assert all("vendir" not in (m.content or "") for m in stored), "never in a tool result"
+    assert any("vendir sync" in r for r in _tool_results(request)), "the stored tool result"
 
 
-async def test_a_skill_edited_since_it_was_read_is_not_carried_over() -> None:
+async def test_a_session_loaded_before_the_change_gets_its_skills_in_the_note() -> None:
+    read = {"backend-services": _digest(BODY)}
+
+    outcome = await run_turn(ORG, metadata={SKILLS_READ_KEY: read})
+
+    request = _with_tools(outcome)[0]
+    assert _mentions(request, "vendir sync") == 1
+    assert "vendir sync" in (request.messages[-1].content or ""), "the conversation lacks it"
+
+
+async def test_a_skill_edited_since_it_was_read_asks_to_load_it_again() -> None:
     read = {"backend-services": _digest("an older text")}
 
     outcome = await run_turn(ORG, metadata={SKILLS_READ_KEY: read})
 
-    assert _mentions(_with_tools(outcome)[0], "vendir sync") == 0
+    request = _with_tools(outcome)[0]
+    assert _mentions(request, "vendir sync") == 0
+    assert "[Skills changed] 'backend-services'" in (request.messages[-1].content or "")
+
+
+async def test_pruning_and_compaction_never_take_the_skill_away() -> None:
+    org = ORG
+    await save_org_config(None, org, "models", {"context_windows": {"*": 8_000}}, [])
+    script = [("execute_skill", {"skill_name": "backend-services", "arguments": {}})] + [
+        ("bash_exec", {"command": f"echo {'x' * 400} {n}", "cwd": "/workspace"}) for n in range(30)
+    ]
+    try:
+        outcome = await run_turn(org, script=script)
+    finally:
+        await save_org_config(None, org, "models", {}, [])
+
+    assert outcome.events_of("context_compacted"), "the window forces compaction"
+    last = [r for r in outcome.model.requests if r.tools and r.tool_choice != "none"][-1]
+    assert _mentions(last, "vendir sync") == 1, "re-attached by the compaction, exactly once"
 
 
 async def test_a_code_skill_still_returns_its_output() -> None:
@@ -160,4 +188,4 @@ async def test_a_code_skill_still_returns_its_output() -> None:
         ORG, script=[("execute_skill", {"skill_name": "calc", "arguments": {}})]
     )
 
-    assert not any("now in effect" in r for r in _tool_results(_with_tools(outcome)[-1]))
+    assert not any(r.startswith("<skill") for r in _tool_results(_with_tools(outcome)[-1]))

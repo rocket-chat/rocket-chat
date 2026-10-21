@@ -13,10 +13,52 @@ import shlex
 import time
 from typing import TYPE_CHECKING
 
+from agent_core.context import current_execution_ctx
+
 if TYPE_CHECKING:
     from specifications.interfaces.sandbox import SandboxDriverProtocol
 
 logger = logging.getLogger(__name__)
+
+# What a checker prints when the project's dependencies or generated code are missing: a setup
+# step not run yet, not an error in the edited file. Reported as such, once per turn, instead of
+# "Syntax/Type Issue" after every edit (four times in one session, for a missing `make base`).
+_SETUP_FAILURES = (
+    "does not contain package",
+    "no required module provides package",
+    "cannot find module providing package",
+    "missing go.sum entry",
+    "go: updates to go.mod needed",
+    "ModuleNotFoundError",
+)
+DIAGNOSTICS_LABEL = "[LSP Diagnostics - Syntax/Type Issue]"
+SETUP_LABEL = "[Diagnostics unavailable: the project is not set up]"
+
+
+def setup_failure(output: str) -> str | None:
+    """The line that shows ``output`` comes from a missing setup step, or ``None``."""
+    for line in output.splitlines():
+        if any(marker in line for marker in _SETUP_FAILURES):
+            return line.strip()[:240]
+    return None
+
+
+def _report(output: str) -> str | None:
+    """What the agent is told about a failed check: the errors, or (once per turn) the setup."""
+    missing = setup_failure(output)
+    if missing is None:
+        return f"\n\n{DIAGNOSTICS_LABEL}\n" + "\n".join(output.splitlines()[:10])
+    ctx = current_execution_ctx.get()
+    if ctx is not None:
+        if ctx.setup_noted:
+            return None
+        ctx.setup_noted = True
+    return (
+        f"\n\n{SETUP_LABEL}\n{missing}\n"
+        "This is the environment, not your edit: run the repository's setup (its skill, AGENTS.md "
+        "or Makefile: dependencies, code generation) before relying on diagnostics or tests."
+    )
+
 
 # Cache binary lookup per session with a TTL to avoid stale results while avoiding
 # re-running 'which' on every single edit.
@@ -117,9 +159,7 @@ async def run_diagnostics_on_file(
         if res.exit_code != 0:
             output = (res.stdout + "\n" + res.stderr).strip()
             if output:
-                lines = output.splitlines()[:10]
-                summary = "\n".join(lines)
-                return f"\n\n[LSP Diagnostics - Syntax/Type Issue]\n{summary}"
+                return _report(output)
     except Exception:
         logger.debug("Diagnostics check failed or timed out for %s", file_path)
 

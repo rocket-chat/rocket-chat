@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal
 from pydantic import Field
 
 from agent_core.context import current_execution_ctx
+from agent_core.standing import skill_result
 from agent_core.tools import memory_tools
 from specifications.interfaces.agent import SkillInstructions
 
@@ -103,12 +104,13 @@ def register(registry: "ToolRegistry") -> None:
         result = await run_skill(skill_name, arguments)
         if not isinstance(result, SkillInstructions):
             return str(result)
-        if await registry.put_skill_in_effect(result.name, result.body):
-            return (
-                f"The instructions of skill '{result.name}' are now in effect: they are in your "
-                "instructions from your next step and stay there for the whole session. Follow them."
-            )
+        if not result.body.strip():
+            return f"Skill '{result.name}' has no content."
         ctx = current_execution_ctx.get()
         if ctx is not None and ctx.skill_texts.get(result.name) == result.body.strip():
-            return f"The instructions of skill '{result.name}' are already in effect."
-        return result.body or f"Skill '{result.name}' has no content."
+            return (
+                f"The instructions of skill '{result.name}' are already in this conversation, "
+                "unchanged; follow them."
+            )
+        await registry.put_skill_in_effect(result.name, result.body)
+        return skill_result(result.name, result.body)

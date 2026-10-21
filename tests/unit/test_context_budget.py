@@ -152,7 +152,8 @@ async def test_a_request_refused_as_too_large_is_compacted_and_retried_once() ->
 
     output = "".join(await _turn(orchestrator, "s_over"))
 
-    react = [r for r in model.requests if r.tools]
+    # The compaction's own summary requests carry tool_choice "none" (or no tools, flattened).
+    react = [r for r in model.requests if r.tools and r.tool_choice != "none"]
     assert "answer after compaction" in output
     assert len(react) == 2 and len(react[1].messages) <= 12, "one retry, on the compacted history"
 
@@ -168,7 +169,8 @@ async def test_a_second_refusal_ends_the_turn_with_an_error() -> None:
         history += _write_call(index, 50)
 
     assert "ERROR" in await _turn(orchestrator, "s_over2")
-    assert len([r for r in model.requests if r.tools]) == 2, "no second retry"
+    steps = [r for r in model.requests if r.tools and r.tool_choice != "none"]
+    assert len(steps) == 2, "no second retry"
 
 
 @pytest.mark.setting("models.context_windows")
