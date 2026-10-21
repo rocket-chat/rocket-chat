@@ -42,8 +42,9 @@ from api.services.session_support import (
     active_repository_of,
 )
 from api.services.settings import effective_settings, load_org_config
+from api.services.skills_in_effect import skill_texts_for
 from api.services.title import TITLE_SOURCE_AUTO
-from api.services.tool_loading import guidance_read_of, loaded_tools_of
+from api.services.tool_loading import guidance_read_of, loaded_tools_of, skills_read_of
 from api.services.turn_resume import RESUME_NOTICE
 from api.services.turn_trace import (
     LEASE_HEARTBEAT_SECONDS,
@@ -66,6 +67,7 @@ from specifications.interfaces.agent import (
     DEFAULT_MAX_TURNS,
     AgentBinding,
     McpGuidance,
+    SkillsInEffect,
     TurnOverlay,
 )
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
@@ -466,6 +468,7 @@ class TurnRunner:
         mcp = await _mcp_tools_for_turn(req.db_mgr, session.tenant_org_id, session.tenant_user_id)
         self.state.mcp_tools = mcp.provider
         self.state.mcp_needs_sign_in = mcp.needs_sign_in
+        self.state.skill_texts = await skill_texts_for(req.db_mgr, session, ctx.binding.skill_ids)
         system_prompt = await build_system_prompt(ctx, git_bundle, member_prefs)
         await self._warn_about_budget(ctx)
         attachments = await self._resolve_attachments(ctx)
@@ -604,6 +607,9 @@ class TurnRunner:
             active_repository=active_repository_of(ctx.session),
             tool_loading=replace(
                 ctx.binding.policy.tool_loading, loaded=loaded_tools_of(ctx.session)
+            ),
+            skills=SkillsInEffect(
+                read=skills_read_of(ctx.session), texts=dict(ctx.state.skill_texts)
             ),
             mcp_guidance=McpGuidance(
                 servers=tuple(ctx.state.mcp_tools.guidance()) if ctx.state.mcp_tools else (),

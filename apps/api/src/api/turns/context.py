@@ -86,6 +86,8 @@ class TurnState:
     synthesis_turns: int = 30
     trace: TurnTraceAccumulator | None = None
     mcp_tools: McpToolProvider | None = None
+    # The current instructions of the skills the session has in effect (skill -> text).
+    skill_texts: dict[str, str] = field(default_factory=dict)
     # MCP servers the member must sign in to before their tools exist in this turn.
     mcp_needs_sign_in: list[str] = field(default_factory=list)
     turn_error: BaseException | None = None
