@@ -419,6 +419,13 @@ class LiteLLMGateway(LLMGatewayProtocol):
         if model_lower.startswith("openrouter/"):
             # Usage accounting: OpenRouter then reports what it billed for the call.
             _merge_extra_body(kwargs, {"usage": {"include": True}})
+            # OpenRouter takes reasoning effort as its own `reasoning` object, the same for every
+            # model behind it. LiteLLM's `reasoning_effort` is checked against its own per-model
+            # table instead and refused for any model it does not list ("openrouter does not
+            # support parameters: ['reasoning_effort']"), which failed every turn on such a model.
+            # Not with a thinking budget: OpenRouter takes an effort or a budget, not both.
+            if "thinking" not in kwargs and (effort := kwargs.pop("reasoning_effort", None)):
+                _merge_extra_body(kwargs, {"reasoning": {"effort": effort}})
         if "extra_body" in usage_opts:
             kwargs.setdefault("extra_body", {}).update(usage_opts["extra_body"])
         if "stream_options" in usage_opts:
