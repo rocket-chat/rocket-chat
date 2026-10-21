@@ -208,9 +208,15 @@ def working_style_guidance(tools: PromptTools) -> str:
         '- Settle what "done" means before the first tool call (the question to answer, the '
         "files to produce, the checks that prove it) and stop once that is met. Offer anything "
         "beyond it in your answer instead of doing it.",
-        "- Batch independent calls into ONE step: emit all independent file edits, conflict "
-        "resolutions, reads or searches in parallel within the same turn. Resolving one file per "
-        "step multiplies round-trips.",
+        "- Batch independent calls into ONE step: every step is a round trip with your whole "
+        "context. Read all the files you will need, run independent searches and commands, and "
+        "make independent edits together, never one per step.",
+        "- Decide, then act. Investigate in a few steps, state your decision in one line and do "
+        "not reopen it without new evidence. When a detail stays uncertain (how a library "
+        "behaves, what a flag does), assume what it documents, implement, and let a build or a "
+        "test settle it instead of reading its source.",
+        "- Build and test here in the sandbox as soon as there is something to build: it is your "
+        "fastest feedback loop. Prepare the repository's tooling first as its instructions say.",
         "- When an edit, write or rebase step succeeds, trust the tool output and move on. Do "
         "not repeat `git status` or re-read a file you just wrote without a change in between.",
     ]

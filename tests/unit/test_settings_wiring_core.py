@@ -127,6 +127,21 @@ async def test_generation_parameters_and_fallbacks_reach_the_turn_plan() -> None
     assert generation.fallback_models == ("ok/a",)
 
 
+@pytest.mark.setting("models.default_reasoning_effort")
+async def test_the_default_reasoning_effort_reaches_a_model_the_catalogue_does_not_know() -> None:
+    unknown = "vendor/model-the-catalogue-lacks"
+    await save_org_config(
+        None, "wire_effort_set", "models", {"default_reasoning_effort": "low"}, []
+    )
+    await save_org_config(None, "wire_effort_unset", "models", {}, [])
+
+    configured = (await _plan("wire_effort_set", request_model=unknown)).policy.generation
+    unset = (await _plan("wire_effort_unset", request_model=unknown)).policy.generation
+
+    assert configured.reasoning_effort == "low"
+    assert unset.reasoning_effort is None, "left to the provider, as before"
+
+
 @pytest.mark.setting("models.output_tokens")
 async def test_output_tokens_setting_overrides_max_tokens() -> None:
     org = "wire_output_tokens"

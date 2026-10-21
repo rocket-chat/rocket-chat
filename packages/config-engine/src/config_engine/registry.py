@@ -286,6 +286,18 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             maximum=2,
         ),
         _spec(
+            "default_reasoning_effort",
+            "str",
+            "",
+            "org",
+            _TURN,
+            "How much the model reasons before it acts (low, medium or high) when the agent does "
+            "not choose: less is faster and cheaper, and keeps an agent from deliberating for "
+            "minutes over a decision it could test. Empty leaves it to the provider (the platform "
+            "uses medium for the reasoning models it knows).",
+            choices=("", "low", "medium", "high"),
+        ),
+        _spec(
             "max_tokens",
             "int",
             8192,

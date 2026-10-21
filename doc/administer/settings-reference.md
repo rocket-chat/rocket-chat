@@ -31,6 +31,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | `forbidden_models` | Organization | list | empty | fnmatch patterns of models that are never allowed. |
 | `custom_models` | Organization | list | empty | Extra model ids offered in the picker, e.g. a private vLLM or Ollama model (`ollama/llama3.1`, `hosted_vllm/qwen2.5-coder`); pair with an organization key that sets the endpoint's base URL. |
 | `temperature` | Organization | min 0, max 2 | `0.2` | Default sampling temperature (an agent persona may override it). Ignored when extended thinking is on for an Anthropic model: those requests take the provider's own temperature. |
+| `default_reasoning_effort` | Organization | `` / `low` / `medium` / `high` | empty | How much the model reasons before it acts (low, medium or high) when the agent does not choose: less is faster and cheaper, and keeps an agent from deliberating for minutes over a decision it could test. Empty leaves it to the provider (the platform uses medium for the reasoning models it knows). |
 | `max_tokens` | Organization | min 1, max 200000 | `8192` | Maximum completion tokens per call for models that do not reason. A reasoning model uses its catalogue ceiling, or the matching entry of output_tokens; an agent's own limit wins over both. |
 | `output_tokens` | Organization | dict | `{}` | Maximum completion tokens per model name or pattern (e.g. \{'*': 64000, 'claude*': 64000\}), overriding the catalogue default ceiling. |
 
