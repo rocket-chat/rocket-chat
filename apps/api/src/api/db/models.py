@@ -177,6 +177,31 @@ class BYOKCredentialModel(Base):
     )
 
 
+class ApiTokenModel(Base):
+    """A member's personal API token: only a hash of its secret is stored.
+
+    Protected by PostgreSQL Row-Level Security (RLS); the token names its organization so it can
+    be looked up under that organization's context.
+    """
+
+    __tablename__ = "api_tokens"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    secret_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+    expires_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_used_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
 class PolicyModel(Base):
     """Hierarchical policy definitions for Org, Team, or User."""
 

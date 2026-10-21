@@ -14,7 +14,11 @@ from agent_core.tools.registry import ToolRegistry
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 
 from api.auth.access import _check_session_access
-from api.auth.identity import resolve_identity, resolve_token_identity
+from api.auth.identity import (
+    attach_api_token_identity,
+    resolve_identity,
+    resolve_token_identity,
+)
 from api.auth.roles import with_live_roles
 from api.db.session import current_tenant_org_id
 from api.db.store import TurnTraceStore
@@ -130,6 +134,7 @@ class SessionSocket:
         # Identity comes only from the shared resolver (cookie, bearer header, or the `token`
         # query parameter browsers use because WebSockets cannot set headers). The session
         # ACL is always enforced, however the deployment authenticates.
+        await attach_api_token_identity(self._ws, self._db, self._token)
         caller = resolve_identity(self._ws) or resolve_token_identity(self._token)
         if caller is not None:
             caller = await with_live_roles(caller, self._db)
