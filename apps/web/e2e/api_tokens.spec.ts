@@ -94,17 +94,22 @@ test("administrators manage guest tokens, and only guest ones are listed", async
   expect(requests).toContain("DELETE /v1/admin/api-tokens/g1");
 });
 
-test("the settings navigation shows the running version, `dev` for an unreleased build", async ({ page }) => {
+test("the settings navigation shows the running version as it was built", async ({ page }) => {
   await stubTokens(page, []);
   await page.goto("/settings/user/api-tokens");
   await expect(page.getByTestId("app-version")).toHaveText("dev");
 
-  await page.unroute("**/v1/version");
-  await page.route("**/v1/version", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ version: "0.5.0" }) })
-  );
-  await page.reload();
-  await expect(page.getByTestId("app-version")).toHaveText("v0.5.0");
+  for (const [built, shown] of [
+    ["0.5.0", "v0.5.0"],
+    ["dev-21102026-1036", "dev-21102026-1036"],
+  ]) {
+    await page.unroute("**/v1/version");
+    await page.route("**/v1/version", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ version: built }) })
+    );
+    await page.reload();
+    await expect(page.getByTestId("app-version")).toHaveText(shown);
+  }
 });
 
 test("the API access page is listed in the personal settings", async ({ page }) => {
@@ -113,3 +118,21 @@ test("the API access page is listed in the personal settings", async ({ page }) 
   await page.getByRole("navigation", { name: "Personal" }).getByRole("link", { name: /API access/ }).click();
   await expect(page.getByRole("heading", { name: "API access" })).toBeVisible();
 });
+
+test("the create form lines its controls up on one row", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await stubTokens(page, []);
+  await page.goto("/settings/user/api-tokens");
+
+  const personal = page.getByTestId("api-tokens-personal");
+  const bottoms = await Promise.all(
+    [personal.getByLabel("Name"), personal.getByLabel("Expires after"), personal.getByRole("button", { name: "Create token" })].map(
+      async (control) => {
+        const box = await control.boundingBox();
+        return box!.y + box!.height;
+      }
+    )
+  );
+  expect(Math.max(...bottoms) - Math.min(...bottoms)).toBeLessThanOrEqual(1);
+});
+

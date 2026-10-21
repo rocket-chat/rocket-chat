@@ -164,3 +164,46 @@ def test_members_cannot_change_the_organizations_budget_settings(client: TestCli
         "/v1/settings/budgets", json={"overrides": {"monthly_budget_usd": 1000000}}, headers=MEMBER
     )
     assert res.status_code == 422
+
+
+def test_administrators_see_which_providers_the_deployment_holds_a_key_for(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for var in (
+        "OPENROUTER_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "GEMINI_API_KEY",
+        "AZURE_API_KEY",
+        "MISTRAL_API_KEY",
+        "GROQ_API_KEY",
+    ):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("OPENROUTER_API_KEY", SECRET)
+    monkeypatch.setenv("OPENAI_API_KEY", "   ")
+
+    listed = client.get("/v1/admin/model-keys/platform", headers=ADMIN)
+
+    assert listed.status_code == 200
+    assert listed.json() == [
+        {"provider": "openrouter", "env_var": "OPENROUTER_API_KEY", "fingerprint": "sk-...9999"}
+    ]
+    assert SECRET not in listed.text and "DO-NOT-LEAK" not in listed.text
+
+
+def test_the_deployments_keys_are_for_administrators_only(client: TestClient) -> None:
+    assert client.get("/v1/admin/model-keys/platform", headers=MEMBER).status_code == 403
+
+
+def test_an_organization_key_sits_beside_the_deployments_without_replacing_it(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", SECRET)
+    client.put("/v1/admin/model-keys/anthropic", json={"api_key": SECRET + "-ORG"}, headers=ADMIN)
+
+    organization = client.get("/v1/admin/model-keys", headers=ADMIN).json()
+    deployment = client.get("/v1/admin/model-keys/platform", headers=ADMIN).json()
+
+    assert [k["provider"] for k in organization] == ["anthropic"]
+    assert "anthropic" in [k["provider"] for k in deployment]

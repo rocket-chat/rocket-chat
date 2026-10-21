@@ -7,7 +7,8 @@ test.describe("Composer", () => {
     await expect(mode).toBeVisible();
     await expect(mode.locator("option")).toHaveText(["Org default", "Read-only", "Ask first", "Auto-edit", "Auto", "No approvals"]);
     await expect(page.getByTestId("agent-model-picker")).toBeVisible();
-    await expect(page.getByTestId("sandbox-state")).toContainText("Sandbox starts when needed");
+    // A sandbox that is ready, or not created yet, is the norm and is not announced.
+    await expect(page.getByTestId("sandbox-state")).toHaveCount(0);
     await expect(page.getByTestId("instruction-input")).toHaveAttribute("placeholder", "What should we work on?");
   });
 
@@ -66,4 +67,27 @@ test.describe("Composer", () => {
     await page.getByTestId("composer").dispatchEvent("dragover", { dataTransfer: await page.evaluateHandle(() => new DataTransfer()) });
     await expect(page.getByTestId("drop-hint")).toBeVisible();
   });
+
+  for (const viewport of [
+    { name: "desktop", width: 1280, height: 800 },
+    { name: "phone", width: 390, height: 844 },
+  ]) {
+    test(`the permission modes explanation opens inside the window on a ${viewport.name}`, async ({ page }) => {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto("/");
+      await page.getByRole("button", { name: "Permission modes explanation" }).click();
+
+      const popover = page.getByTestId("permission-modes-popover");
+      await expect(popover).toContainText("No approvals");
+      const box = await popover.boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+
+      await page.keyboard.press("Escape");
+      await expect(popover).toHaveCount(0);
+    });
+  }
 });

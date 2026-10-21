@@ -1,14 +1,17 @@
 """Bring-your-own provider keys for members and organizations."""
 
 import logging
+import os
 from typing import Any
 
 from agent_core.tools.safe_http import resolve_public_target
+from config_engine.crypto import CredentialCipher
 from fastapi import (
     APIRouter,
     HTTPException,
     Request,
 )
+from llm_gateway import PROVIDER_KEY_ENV_VARS
 from pydantic import BaseModel, Field
 
 from api.auth.access import _get_request_identity, _require_admin
@@ -34,6 +37,12 @@ class ModelKeyRequest(BaseModel):
         max_length=500,
         description="Endpoint for self-hosted or proxied providers (Ollama, vLLM, ...)",
     )
+
+
+class PlatformKeyView(BaseModel):
+    provider: str = Field(..., description="The provider the deployment's key is for")
+    env_var: str = Field(..., description="The environment variable that carries the key")
+    fingerprint: str = Field(..., description="A preview of the key, never the key itself")
 
 
 def _model_key_store(request: Request) -> ModelCredentialStore:
@@ -115,6 +124,25 @@ async def list_org_model_keys(request: Request) -> list[dict[str, Any]]:
     """Provider keys shared by the organization (administrators)."""
     org_id, _, _ = _require_admin(request)
     return [_stored_key_view(k) for k in await _model_key_store(request).list(org_id, None)]
+
+
+@router.get("/admin/model-keys/platform", response_model=list[PlatformKeyView])
+async def list_platform_model_keys(request: Request) -> list[PlatformKeyView]:
+    """Providers whose key the deployment itself holds in the environment (administrators).
+
+    Members use these when neither they nor the organization stored a key; an organization key
+    for the same provider replaces the deployment's for this organization only.
+    """
+    _require_admin(request)
+    return [
+        PlatformKeyView(
+            provider=provider,
+            env_var=env_var,
+            fingerprint=CredentialCipher.fingerprint(os.environ[env_var]),
+        )
+        for provider, env_var in PROVIDER_KEY_ENV_VARS.items()
+        if os.environ.get(env_var, "").strip()
+    ]
 
 
 @router.put("/admin/model-keys/{provider}")
