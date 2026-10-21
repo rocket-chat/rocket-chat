@@ -82,13 +82,15 @@ def test_while_a_turn_runs_a_queued_message_waits_and_can_be_withdrawn() -> None
             "/v1/sessions", json={"title": "Queue"}, headers=_headers()
         ).json()["session_id"]
 
-        async def running(*_: Any) -> None:
+        async def running() -> None:
             def busy(record: Any) -> None:
                 record.is_processing = True
 
             await app.state.session_store.mutate_session(session_id, "default_org", busy)
 
-        asyncio.run(running())
+        # On the client's own event loop: the app's database connections belong to it.
+        assert client.portal is not None
+        client.portal.call(running)
         reply = client.post(
             f"/v1/sessions/{session_id}/turns",
             json={"prompt": "then update the changelog", "delivery": "queue"},
