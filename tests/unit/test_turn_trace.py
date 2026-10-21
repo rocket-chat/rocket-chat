@@ -217,8 +217,8 @@ def test_the_turn_cost_is_reported_in_dollars() -> None:
     assert [call["cost_usd"] for call in finished.tokens["calls"]] == [0.0015] * 3
 
 
-def test_migration_042_converts_stored_turn_costs_to_dollars() -> None:
-    source = (MIGRATION.parent / "042_turn_trace_cost_in_dollars.py").read_text(encoding="utf-8")
+def test_migration_046_converts_stored_turn_costs_to_dollars() -> None:
+    source = (MIGRATION.parent / "046_turn_trace_cost_in_dollars.py").read_text(encoding="utf-8")
 
-    assert 'down_revision: str | None = "041_backfill_msg_timestamps"' in source
+    assert 'down_revision: str | None = "045_artifact_versions"' in source
     assert "/ 1000000" in source and "* 1000000" in source

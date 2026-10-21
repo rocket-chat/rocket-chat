@@ -1,7 +1,7 @@
 """Store each turn trace's ``tokens.usage.cost_usd`` in dollars.
 
-Revision ID: 042_turn_trace_cost_in_dollars
-Revises: 041_backfill_msg_timestamps
+Revision ID: 046_turn_trace_cost_in_dollars
+Revises: 045_artifact_versions
 Create Date: 2026-10-20 18:00:00.000000
 
 Traces written before this revision kept the turn total in integer micro-dollars under a key
@@ -14,8 +14,8 @@ from collections.abc import Sequence
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "042_turn_trace_cost_in_dollars"
-down_revision: str | None = "041_backfill_msg_timestamps"
+revision: str = "046_turn_trace_cost_in_dollars"
+down_revision: str | None = "045_artifact_versions"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
