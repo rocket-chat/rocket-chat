@@ -24,6 +24,7 @@ import anyio
 from fastapi import APIRouter, HTTPException, Query, WebSocket
 
 from api.auth.access import _check_session_access
+from api.auth.api_tokens import GUEST_TOKEN_SOURCE
 from api.auth.context import RequestContext
 from api.auth.identity import (
     attach_api_token_identity,
@@ -67,6 +68,9 @@ async def _authorise(websocket: WebSocket, session_id: str, token: str) -> Reque
         caller = await with_live_roles(caller, getattr(app_state, "db_manager", None))
     if caller is None:
         await websocket.close(code=1008, reason="Unauthorized: authentication required")
+        return None
+    if caller.source == GUEST_TOKEN_SOURCE:
+        await websocket.close(code=1008, reason="Forbidden: a guest token cannot open a terminal")
         return None
     # The tenant middleware only covers HTTP; bind the organization for row-level security.
     current_tenant_org_id.set(caller.org_id)

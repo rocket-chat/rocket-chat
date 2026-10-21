@@ -33,7 +33,7 @@ current surface. The machine-readable schema is [`openapi.json`](/api/openapi.js
 API also serves interactive documentation at `/docs` and `/redoc`.
 
 **Authentication.** Browsers use the session cookie set at sign-in; programmatic clients send
-`Authorization: Bearer <token>` with a personal API token (`POST /v1/user/api-tokens`). Every endpoint is scoped to the caller's organization.
+`Authorization: Bearer <token>` with a personal API token (`POST /v1/user/api-tokens`), or a guest token for a client without an account (`POST /v1/admin/api-tokens`). Every endpoint is scoped to the caller's organization.
 Endpoints under `/v1/admin` need an administrator; a *read-only* member can read but not change
 sessions. Errors are JSON `{"detail": ...}` with the usual HTTP status codes (`401` not signed
 in, `403` not allowed, `404` not found or not yours, `422` invalid input).

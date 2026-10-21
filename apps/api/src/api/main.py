@@ -11,6 +11,7 @@ from typing import Any
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slack_assistant.config import SlackAssistantSettings
 
 from api.bootstrap.background import BackgroundServices
@@ -175,6 +176,7 @@ async def establish_tenant_context(request: Request, call_next: Callable[[Reques
     otherwise read an empty result set or fail to write.
     """
     from api.auth.access import _get_request_identity
+    from api.auth.api_tokens import GUEST_TOKEN_SOURCE, guest_may_call
     from api.auth.identity import attach_api_token_identity
 
     org_id: str | None = None
@@ -186,6 +188,15 @@ async def establish_tenant_context(request: Request, call_next: Callable[[Reques
         org_id, user_id, _roles = _get_request_identity(request)
     except Exception as err:  # pragma: no cover - identity resolution must never 500
         logger.debug("Tenant context resolution skipped for %s: %s", request.url.path, err)
+
+    caller = getattr(request.state, "context", None)
+    if getattr(caller, "source", None) == GUEST_TOKEN_SOURCE and not guest_may_call(
+        request.method, request.url.path
+    ):
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Forbidden: a guest token can only hold conversations"},
+        )
 
     if org_id and user_id:
         await _provision_identity_if_enabled(request, org_id, user_id)
