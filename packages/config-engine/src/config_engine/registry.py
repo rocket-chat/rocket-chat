@@ -291,11 +291,25 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "",
             "org",
             _TURN,
-            "How much the model reasons before it acts (low, medium or high) when the agent does "
-            "not choose: less is faster and cheaper, and keeps an agent from deliberating for "
-            "minutes over a decision it could test. Empty leaves it to the provider (the platform "
+            "How much the model reasons before it acts when the agent does not choose: less is "
+            "faster and cheaper, and keeps an agent from deliberating for minutes over a decision "
+            "it could test. none turns reasoning off. An OpenRouter model that does not take the "
+            "level gets the nearest one it does. Empty leaves it to the provider (the platform "
             "uses medium for the reasoning models it knows).",
-            choices=("", "low", "medium", "high"),
+            choices=("", "none", "minimal", "low", "medium", "high", "xhigh", "max"),
+        ),
+        _spec(
+            "reasoning_step_limit_tokens",
+            "int",
+            8000,
+            "org",
+            _TURN,
+            "Reasoning tokens (estimated) a step may spend before it acts. Past it the step is "
+            "stopped once and asked again with reasoning off and a note to decide, so a model "
+            "that deliberates for minutes over a choice it could test gets on with it. It never "
+            "ends the turn. 0 turns the limit off.",
+            minimum=0,
+            maximum=200_000,
         ),
         _spec(
             "max_tokens",
@@ -1055,6 +1069,7 @@ _ADVANCED: dict[str, frozenset[str]] = {
             "custom_models",
             "output_tokens",
             "max_tokens",
+            "reasoning_step_limit_tokens",
             "temperature",
         }
     ),
@@ -1124,6 +1139,7 @@ _UNITS: dict[str, str] = {
     "tool_loading_threshold": "tools",
     "context_target_tokens": "tokens",
     "max_tokens": "tokens",
+    "reasoning_step_limit_tokens": "tokens",
     "monthly_budget_usd": "USD",
     "member_monthly_budget_usd": "USD",
     "session_budget_usd": "USD",

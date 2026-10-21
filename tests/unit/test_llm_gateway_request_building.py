@@ -58,6 +58,13 @@ def test_request_options_are_forwarded_and_override_the_default_retries(
     assert options["response_format"]["json_schema"]["strict"] is True
 
 
+def test_effort_none_is_sent_to_openrouter_to_switch_reasoning_off(gateway: LiteLLMGateway) -> None:
+    kwargs = gateway._completion_kwargs("openrouter/acme/model", _request(reasoning_effort="none"))
+
+    assert kwargs["extra_body"]["reasoning"] == {"effort": "none"}
+    assert "reasoning_effort" not in kwargs
+
+
 def test_usage_includes_prompt_cache_counts_from_either_provider_shape() -> None:
     anthropic_style = SimpleNamespace(
         usage=SimpleNamespace(

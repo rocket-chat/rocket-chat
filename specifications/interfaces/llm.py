@@ -195,7 +195,7 @@ class ModelRequest:
     temperature: float = 0.2
     max_tokens: int | None = None
     thinking_budget_tokens: int | None = None  # e.g., 4096 for Claude 3.7
-    reasoning_effort: str | None = None  # "low" | "medium" | "high" for OpenAI o1/o3
+    reasoning_effort: str | None = None  # none, minimal, low, medium, high, xhigh or max
     fallback_models: list[str] = field(default_factory=list)
     max_retries: int | None = None
     enable_prompt_cache: bool = True

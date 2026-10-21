@@ -127,7 +127,7 @@
                 "type": "null"
               }
             ],
-            "description": "Reasoning effort tier override ('low', 'medium', 'high')",
+            "description": "Reasoning effort override: none (off), minimal, low, medium, high, xhigh or max. An OpenRouter model that does not take the level gets the nearest one it does",
             "title": "Reasoning Effort"
           },
           "role_title": {

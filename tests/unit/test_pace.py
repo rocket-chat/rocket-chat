@@ -4,15 +4,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent_core.pace import BATCH_REMINDER_EVERY, RESEARCH_REMINDER_EVERY, pace_notice
+from agent_core.pace import (
+    BATCH_REMINDER_EVERY,
+    RESEARCH_REMINDER_EVERY,
+    pace_notice,
+)
 
 from specifications.interfaces.llm import ChatMessage
 from tests.turn_harness import run_turn
 
 
-def _step(*names: str, call_id: int = 0) -> list[ChatMessage]:
+def _step(*names: str, call_id: int = 0, arguments: str = "{}") -> list[ChatMessage]:
     calls = [
-        {"id": f"c{call_id}-{i}", "type": "function", "function": {"name": name, "arguments": "{}"}}
+        {
+            "id": f"c{call_id}-{i}",
+            "type": "function",
+            "function": {"name": name, "arguments": arguments},
+        }
         for i, name in enumerate(names)
     ]
     results = [
@@ -91,3 +99,32 @@ async def test_the_reminders_reach_the_model_at_the_end_of_the_request() -> None
     assert "ONE step" in tail[BATCH_REMINDER_EVERY], "after four single reads"
     assert "without changing anything" not in tail[RESEARCH_REMINDER_EVERY - 1]
     assert "without changing anything" in tail[RESEARCH_REMINDER_EVERY], "after ten steps"
+
+
+def _reading(path: str, count: int) -> list[ChatMessage]:
+    messages = [ChatMessage(role="user", content="Implement it.")]
+    for index in range(count):
+        messages += _step(
+            "file_read", "grep_search", call_id=index, arguments=f'{{"path": "{path}"}}'
+        )
+    return messages
+
+
+def test_reading_dependency_source_again_and_again_is_asked_to_stop() -> None:
+    path = "/root/go/pkg/mod/go.mongodb.org/mongo-driver@v1/bson/decoder.go"
+
+    notice = pace_notice(_reading(path, 2))
+
+    assert notice is not None and "third-party dependencies" in notice
+    assert "build it here in the sandbox" in notice
+    assert pace_notice(_reading(path, 1)) is None, "two reads are under the first multiple"
+    assert pace_notice(_reading("/work/app/main.go", 6)) is None, "the project's own code is free"
+
+
+def test_every_package_manager_cache_counts_as_dependency_source() -> None:
+    for path in (
+        "/app/node_modules/react/index.js",
+        "/usr/lib/python3.12/site-packages/httpx/_client.py",
+        "/root/.cargo/registry/src/serde/lib.rs",
+    ):
+        assert pace_notice(_reading(path, 2)) is not None, path

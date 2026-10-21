@@ -117,7 +117,7 @@ persona carries the stored id, which can differ from the proposed one.
 | memory_limit | string | no | Memory limit; empty inherits the org setting |
 | temperature | number | no | Sampling temperature override |
 | thinking_budget_tokens | integer | no | Extended thinking budget tokens override |
-| reasoning_effort | string | no | Reasoning effort tier override ('low', 'medium', 'high') |
+| reasoning_effort | string | no | Reasoning effort override: none (off), minimal, low, medium, high, xhigh or max. An OpenRouter model that does not take the level gets the nearest one it does |
 | max_turns | integer | no | Maximum reasoning steps per turn for this agent (0: no limit); empty inherits the organization's limit, and a value above it is refused |
 | tool_loading | `all` / `on_demand` / `pinned` / `auto` | no | Which allowed tools every step carries: all; on_demand (the platform's tools, and the MCP tools in active_tools; the other MCP tools are loaded when needed); pinned (only active_tools; every other tool is loaded when needed); or auto. Empty inherits the organization's setting |
 | active_tools | list of string | no | Tools always loaded, by name or pattern (mcp__signoz*__*search*). They keep MCP tools loaded in on_demand and auto, and are the only tools loaded in pinned |

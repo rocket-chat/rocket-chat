@@ -247,6 +247,18 @@ def isolate_app_state() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _no_openrouter_catalogue_fetch(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A turn on an OpenRouter model reads the reasoning efforts it takes; tests stay offline."""
+    from api.services import openrouter_efforts
+
+    async def offline() -> list[dict[str, object]]:
+        return []
+
+    monkeypatch.setattr(openrouter_efforts, "_fetch_catalogue", offline)
+    monkeypatch.setattr(openrouter_efforts.openrouter_efforts, "_expires", 0.0)
+
+
+@pytest.fixture(autouse=True)
 def _reset_process_local_settings() -> Iterator[None]:
     """Org/member settings written without a database live in process memory; isolate tests."""
     from api.services.settings import reset_memory_settings

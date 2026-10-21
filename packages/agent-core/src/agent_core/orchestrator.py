@@ -48,6 +48,11 @@ from agent_core.leaked_calls import (
 from agent_core.notes import automatic_turn_prompt, without_engine_notes
 from agent_core.pace import pace_notice
 from agent_core.progress import LoopDetectionResult, ProgressTracker
+from agent_core.reasoning_guard import (
+    StepReasoningOverrunError,
+    decisive_request,
+    reasoning_tokens_estimate,
+)
 from agent_core.retry_policy import execute_stream_with_retry
 from agent_core.standing import render_skills, skills_at_turn_start
 from agent_core.subagents import SubagentRunner
@@ -135,7 +140,9 @@ class _StreamCollector:
         session_id: str,
         event_queue: asyncio.Queue[AgentEvent | None],
         emit_answer: Callable[[str, asyncio.Queue[AgentEvent | None], str], Awaitable[None]],
+        reasoning_limit_tokens: int = 0,
     ) -> None:
+        self.reasoning_limit_tokens = reasoning_limit_tokens
         self.session_id = session_id
         self.event_queue = event_queue
         self.emit_answer = emit_answer
@@ -170,6 +177,7 @@ class _StreamCollector:
                 )
             )
             await asyncio.sleep(0)
+            self._check_reasoning_limit()
         if chunk.text_delta:
             self.text += chunk.text_delta
             await self.emit_answer(
@@ -178,6 +186,15 @@ class _StreamCollector:
             await asyncio.sleep(0)
         if chunk.tool_call_delta:
             self._add_tool_call_delta(chunk.tool_call_delta)
+
+    def _check_reasoning_limit(self) -> None:
+        acting = bool(self.text or self.tool_calls)
+        if (
+            self.reasoning_limit_tokens
+            and not acting
+            and reasoning_tokens_estimate(self.reasoning) > self.reasoning_limit_tokens
+        ):
+            raise StepReasoningOverrunError(self)
 
     def _add_tool_call_delta(self, delta: dict[str, Any]) -> None:
         index = delta.get("index", 0)
@@ -850,17 +867,85 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             region=exec_ctx.region if exec_ctx else "",
         )
 
-        stream, eff_model = await execute_stream_with_retry(
+        limit = generation.reasoning_step_limit_tokens if role == "react" else 0
+        try:
+            stream, eff_model = await self._execute_stream(request, session_id, event_queue, limit)
+        except StepReasoningOverrunError as overrun:
+            aborted = overrun.collector
+            assert isinstance(aborted, _StreamCollector)
+            await self._report_step_usage(
+                aborted,
+                request.model,
+                messages,
+                tools_for_request,
+                role,
+                exec_ctx,
+                session_id,
+                event_queue,
+                finish_reason="reasoning_limit",
+            )
+            await self._announce_decision_retry(session_id, event_queue, limit)
+            stream, eff_model = await self._execute_stream(
+                decisive_request(request, openrouter=request.model.startswith("openrouter/")),
+                session_id,
+                event_queue,
+                0,
+            )
+        await self._emit_answer_text(session_id, event_queue, stream.leak_filter.finish())
+        step_cost = await self._report_step_usage(
+            stream, eff_model, messages, tools_for_request, role, exec_ctx, session_id, event_queue
+        )
+        return stream.reply(cost_usd=step_cost)
+
+    async def _execute_stream(
+        self,
+        request: ModelRequest,
+        session_id: str,
+        event_queue: asyncio.Queue[AgentEvent | None],
+        reasoning_limit_tokens: int,
+    ) -> tuple[_StreamCollector, str]:
+        return await execute_stream_with_retry(
             gateway=self._gateway,
             request=request,
             collector_factory=lambda: _StreamCollector(
-                session_id, event_queue, self._emit_answer_text
+                session_id, event_queue, self._emit_answer_text, reasoning_limit_tokens
             ),
             feed_chunk=lambda collector, chunk: collector.feed(chunk),
             session_id=session_id,
             event_queue=event_queue,
         )
-        await self._emit_answer_text(session_id, event_queue, stream.leak_filter.finish())
+
+    @staticmethod
+    async def _announce_decision_retry(
+        session_id: str, event_queue: asyncio.Queue[AgentEvent | None], limit: int
+    ) -> None:
+        await event_queue.put(
+            AgentEvent(
+                event_type="thought",
+                session_id=session_id,
+                payload={
+                    "delta": (
+                        f"\n[Reasoned past {limit:,} tokens without acting: asking again with "
+                        "reasoning off so the step decides.]\n"
+                    ),
+                    "is_reasoning": True,
+                },
+            )
+        )
+
+    async def _report_step_usage(
+        self,
+        stream: _StreamCollector,
+        eff_model: str,
+        messages: list[ChatMessage],
+        tools_for_request: list[ToolDefinition],
+        role: str,
+        exec_ctx: ExecutionContext | None,
+        session_id: str,
+        event_queue: asyncio.Queue[AgentEvent | None],
+        finish_reason: str | None = None,
+    ) -> float:
+        """Record one call's usage in the ledger and publish its ``model_usage`` event."""
         reported_usage = stream.reported_usage
 
         # Record usage telemetry into gateway ledger for org and user accounting
@@ -920,12 +1005,11 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                     "cache_read_tokens": cache_read,
                     "cache_creation_tokens": cache_creation,
                     "cost_usd": step_cost,
-                    "finish_reason": stream.finish_reason or "stop",
+                    "finish_reason": finish_reason or stream.finish_reason or "stop",
                 },
             )
         )
-
-        return stream.reply(cost_usd=step_cost)
+        return step_cost
 
     @staticmethod
     async def _check_cache_collapse(

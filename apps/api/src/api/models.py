@@ -60,7 +60,11 @@ class AgentPersonaModel(BaseModel):
         default=None, description="Extended thinking budget tokens override"
     )
     reasoning_effort: str | None = Field(
-        default=None, description="Reasoning effort tier override ('low', 'medium', 'high')"
+        default=None,
+        description=(
+            "Reasoning effort override: none (off), minimal, low, medium, high, xhigh or max. "
+            "An OpenRouter model that does not take the level gets the nearest one it does"
+        ),
     )
     max_turns: int | None = Field(
         default=None,

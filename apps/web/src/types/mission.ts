@@ -458,7 +458,7 @@ export interface AgentPersonaConfig {
   memory_limit?: string;
   temperature?: number;
   thinking_budget_tokens?: number;
-  reasoning_effort?: "low" | "medium" | "high";
+  reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   /** Steps per turn for this agent; empty inherits the organization's limit, its ceiling. */
   max_turns?: number | null;
   /** Which allowed tools every step carries; empty inherits the organization's setting. */
