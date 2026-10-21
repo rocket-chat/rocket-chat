@@ -865,7 +865,7 @@ export default function AgentsSettingsPage() {
           {/* Which allowed tools every step carries; the rest wait for load_tools */}
           <Field
             label="Tool loading"
-            hint="On demand: tools that are not pinned are listed by name and loaded when the agent needs them, which keeps every step small. Automatic does this for MCP tools once the agent has many tools."
+            hint="On demand keeps the platform's tools loaded and lists the MCP tools that are not pinned by name, to be loaded when the agent needs them. Only pinned tools goes further: everything that is not pinned waits, the platform's tools included. Automatic does On demand once the agent has many tools."
           >
             {(control) => (
               <Select {...control}
@@ -882,7 +882,8 @@ export default function AgentsSettingsPage() {
               >
                 <option value="">Organization default</option>
                 <option value="auto">Automatic</option>
-                <option value="on_demand">On demand (pinned tools always loaded)</option>
+                <option value="on_demand">On demand (MCP tools load when needed; pinned ones stay loaded)</option>
+                <option value="pinned">Only pinned tools (everything else loads when needed)</option>
                 <option value="all">Load every allowed tool</option>
               </Select>
             )}
@@ -932,7 +933,7 @@ export default function AgentsSettingsPage() {
 
           <Field
             label="Always loaded"
-            hint="Pinned tools, and patterns such as mcp__signoz*__*search*, one per line. Use the pin on an allowed tool below."
+            hint="Pinned tools, and patterns such as mcp__signoz*__*search*, one per line. A pinned MCP tool stays loaded in On demand and Automatic; in Only pinned they are the only tools loaded. Use the pin on an allowed tool below."
           >
             {(control) => (
               <Textarea {...control}
@@ -1192,7 +1193,9 @@ export default function AgentsSettingsPage() {
                               {isChecked && loadingPreview && (
                                 <ToolLoadBadge deferred={deferredTools.has(tool.name)} />
                               )}
-                              {isChecked && (
+                              {/* A platform tool is loaded in every mode but "Only pinned tools", where
+                                  the pin is what loads it: elsewhere a pin would do nothing. */}
+                              {isChecked && loadingPreview?.mode === "pinned" && (
                                 <PinToggle
                                   tool={tool.name}
                                   pinned={(formData.active_tools || []).includes(tool.name)}
@@ -1280,7 +1283,7 @@ export default function AgentsSettingsPage() {
                                   {isChecked && loadingPreview && (
                                     <ToolLoadBadge deferred={deferredTools.has(toolId)} />
                                   )}
-                                  {isChecked && (
+                                  {isChecked && loadingPreview && loadingPreview.mode !== "all" && (
                                     <PinToggle
                                       tool={toolId}
                                       pinned={(formData.active_tools || []).includes(toolId)}

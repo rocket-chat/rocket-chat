@@ -74,7 +74,7 @@ DEFAULT_AGENT_PERSONAS: tuple[AgentPersonaModel, ...] = (
         max_turns=100,
         cpu_limit="4",
         memory_limit="8Gi",
-        tool_loading="on_demand",
+        tool_loading="pinned",
         whitelisted_tools=["*"],
         active_tools=[
             "file_read",

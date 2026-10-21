@@ -153,10 +153,10 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "org",
             _TOOL_LOADING,
             "Which tools are sent to the model with every step. all: every allowed tool. "
-            "on_demand: the platform's own tools (or an agent's 'Always loaded' list); the "
-            "others are listed by name and loaded when needed. auto: like all, until an agent "
-            "has more tools than tool_loading_threshold; then its MCP servers' tools are loaded "
-            "on demand. An agent can choose its own.",
+            "on_demand: the platform's own tools and an agent's pinned MCP tools; the other MCP "
+            "tools are listed by name and loaded when needed. auto: like all, until an agent "
+            "has more tools than tool_loading_threshold; then like on_demand. An agent can "
+            "choose its own, including 'pinned' (only its pinned tools).",
             choices=("auto", "all", "on_demand"),
         ),
         _spec(
