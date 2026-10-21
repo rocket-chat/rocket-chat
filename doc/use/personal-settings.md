@@ -5,7 +5,7 @@ description: Your identity, models, GitHub account and notifications.
 
 # Your settings
 
-Open **Settings** from the sidebar (or the **View** menu in a session). The list has three groups: *Personal* (only affects you), *Agent capabilities* (agents, subagents, MCP servers, skills, knowledge bases) and *Organization* (administrators; see [Administer](/administer/index)). When an administrator **locks** a setting you see it as *locked by organization* and cannot change it.
+Open **Settings** from the sidebar (or the **View** menu in a session). The list has three groups: *Personal* (only affects you), *Agent capabilities* (agents, subagents, MCP servers, skills, knowledge bases) and *Organization* (administrators; see [Administer](/administer/index)). When an administrator **locks** a setting you see it as *locked by organization* and cannot change it. The foot of the list shows the version of the running server (`v0.5.0`), or `dev` when it was built from source rather than from a release.
 
 **Saving.** A page never has a Save button per section. Edit as many fields as you like and a bar at the bottom shows how many changes are unsaved, with one **Save changes** and one **Discard**. Rarely changed settings are folded under **Advanced**, a number shows what it counts (minutes, USD, tokens), and **Reset to default** puts a changed value back.
 
@@ -33,6 +33,15 @@ The page shows which credential the sandbox will actually use (yours, or the app
 ## Models and keys
 
 If your organization allows it you can add **your own provider key** (OpenRouter, Anthropic, OpenAI, Gemini, DeepSeek): it is stored encrypted, used only for your sessions, never shown again, and your usage is billed to you. Your usage and spend are listed under *Token usage*.
+
+## API access
+
+**Settings → API access** creates the tokens that let a script or another tool call the API as you, without signing in through the browser.
+
+* **Create.** Give the token a name and a lifetime (30 days, 90 days or one year). The token is shown once, right after you create it: copy it then, because only a hash is stored. You can hold up to 20.
+* **Use.** Send `Authorization: Bearer rcpat_…` with any REST request, or `?token=rcpat_…` when opening the WebSocket. A token acts as you with the role you hold when it is used, and cannot create another token. The [API reference](/api/rest) lists every endpoint.
+* **Revoke.** The trash button stops a token at once. The table shows when each token was created, expires and was last used.
+* **Guest tokens (administrators).** For a client that has no account here, such as a bot. Each guest token acts as its own guest member, which can hold conversations and nothing else. They are listed and revoked in the second section of the same page.
 
 ## Slack
 

@@ -12,6 +12,7 @@ const PAGES = [
   "/settings/slack",
   "/settings/org",
   "/settings/user",
+  "/settings/user/api-tokens",
 ];
 
 for (const scheme of ["light", "dark"] as const) {
