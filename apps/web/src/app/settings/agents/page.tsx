@@ -15,6 +15,8 @@ import {
   KnowledgeBaseConfig,
 } from "../../../types/mission";
 import { MarkdownRenderer } from "../../../components/MarkdownRenderer";
+import { ToolLoadBadge, ToolLoadSummary } from "../../../components/settings/ToolLoadState";
+import { useToolLoadingPreview } from "../../../lib/useToolLoadingPreview";
 import {
   Bot,
   Plus,
@@ -198,6 +200,18 @@ export default function AgentsSettingsPage() {
 
   const isAllowAll = formData.whitelisted_tools?.includes("*");
 
+  // Every tool this agent could be given: the live catalog and what its MCP servers discovered.
+  const allToolIds = [
+    ...(toolCatalog.length ? toolCatalog.map((t) => t.name) : SYSTEM_TOOLS.map((t) => t.id)),
+    ...mcpServers.flatMap((s) => (s.tools || []).map((t) => mcpToolName(s.name, t.name))),
+  ];
+  const allowedToolIds = isAllowAll ? allToolIds : (formData.whitelisted_tools || []).filter((t) => t !== "*");
+  const { preview: loadingPreview, deferred: deferredTools, failed: loadingFailed } = useToolLoadingPreview({
+    toolLoading: formData.tool_loading ?? null,
+    activeTools: formData.active_tools || [],
+    toolNames: allowedToolIds,
+  });
+
   const handleToggleAllowAll = () => {
     if (!canEditCurrentAgent) return;
     if (isAllowAll) {
@@ -222,11 +236,7 @@ export default function AgentsSettingsPage() {
     if (!canEditCurrentAgent) return;
     const current = formData.whitelisted_tools || [];
     if (current.includes("*")) {
-      const allIds = [
-        ...(toolCatalog.length ? toolCatalog.map((t) => t.name) : SYSTEM_TOOLS.map((t) => t.id)),
-        ...mcpServers.flatMap((s) => (s.tools || []).map((t) => mcpToolName(s.name, t.name))),
-      ];
-      const updated = allIds.filter((t) => t !== toolId);
+      const updated = allToolIds.filter((t) => t !== toolId);
       setFormData({ ...formData, whitelisted_tools: updated });
       return;
     }
@@ -918,6 +928,8 @@ export default function AgentsSettingsPage() {
             )}
           </Field>
 
+          <ToolLoadSummary preview={loadingPreview} allowed={allowedToolIds.length} failed={loadingFailed} />
+
           <Field
             label="Always loaded"
             hint="Pinned tools, and patterns such as mcp__signoz*__*search*, one per line. Use the pin on an allowed tool below."
@@ -1177,6 +1189,9 @@ export default function AgentsSettingsPage() {
                                   {tool.toolset}
                                 </span>
                               )}
+                              {isChecked && loadingPreview && (
+                                <ToolLoadBadge deferred={deferredTools.has(tool.name)} />
+                              )}
                               {isChecked && (
                                 <PinToggle
                                   tool={tool.name}
@@ -1227,6 +1242,15 @@ export default function AgentsSettingsPage() {
                           </div>
                           <span className="text-[10px] text-muted-foreground">
                             {serverToolNames.length} tools
+                            {loadingPreview && (() => {
+                              const allowedHere = serverToolNames
+                                .map((t) => mcpToolName(server.name, t))
+                                .filter((id) => allowedToolIds.includes(id));
+                              const waiting = allowedHere.filter((id) => deferredTools.has(id)).length;
+                              return allowedHere.length
+                                ? ` · ${allowedHere.length - waiting} active, ${waiting} deferred`
+                                : "";
+                            })()}
                           </span>
                         </div>
 
@@ -1253,6 +1277,9 @@ export default function AgentsSettingsPage() {
                                     {isChecked && <Check className="w-2.5 h-2.5" />}
                                   </div>
                                   <span className="text-xs truncate flex-1">{toolName}</span>
+                                  {isChecked && loadingPreview && (
+                                    <ToolLoadBadge deferred={deferredTools.has(toolId)} />
+                                  )}
                                   {isChecked && (
                                     <PinToggle
                                       tool={toolId}

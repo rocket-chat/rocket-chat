@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import { Field, Input, Select, Textarea } from "../../ui/Field";
 import { Disclosure } from "../../ui/Disclosure";
+import { GuidanceEditor } from "./GuidanceEditor";
+import { MAX_GUIDANCE_CHARS } from "../../../lib/mcp-guidance";
 import { Modal } from "../../ui/Modal";
 import { MCP_PRESETS, type McpPreset } from "./presets";
 import { EnvEditor, type EnvRow } from "./EnvEditor";
@@ -251,6 +253,11 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
       return;
     }
 
+    if (guidance.length > MAX_GUIDANCE_CHARS) {
+      setFormError(`The guidance is ${guidance.length.toLocaleString()} characters; the limit is ${MAX_GUIDANCE_CHARS.toLocaleString()}.`);
+      return;
+    }
+
     setFormError(null);
     // Opened now, while the click still counts as the person's gesture (a tab opened after the
     // save would be blocked as a pop-up), and pointed at the sign-in once the server exists.
@@ -415,18 +422,12 @@ export const McpServerForm: React.FC<McpServerFormProps> = ({
                 </Field>
               </div>
 
-              <Disclosure summary="Guidance for the agent (optional)" testId="mcp-guidance-toggle">
-                <Field label="When and how to use this server" hint="Added to the agent's instructions whenever these tools are available.">
-                  {(control) => (
-                    <Textarea
-                      {...control}
-                      rows={2}
-                      placeholder="e.g. Always check the customer currency before creating charges. Never run destructive refunds without confirmation."
-                      value={guidance}
-                      onChange={(e) => setGuidance(e.target.value)}
-                    />
-                  )}
-                </Field>
+              <Disclosure
+                summary={guidance.trim() ? "Guidance for the agent" : "Guidance for the agent (optional)"}
+                testId="mcp-guidance-toggle"
+                defaultOpen={Boolean(guidance.trim())}
+              >
+                <GuidanceEditor value={guidance} onChange={setGuidance} />
               </Disclosure>
 
               {/* Auth Mode */}
