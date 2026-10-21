@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `orchestrator`:
+- `sandboxes`:
+- `api`:
+- `web`:
+- `settings`:
+- `git`:
+- `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.6.0] - 2026-10-21
+
+### Added
 - `api`, `web`: **queue a message for after the turn, and see where every message goes.** While a turn runs, **Send** (Enter) steers it as before and **Queue** (Alt+Enter) keeps the message for after it, as a turn of its own. Until a turn takes it, the message waits above the composer (*delivered at the next step* or *after this turn*) and can be withdrawn; it then enters the conversation where the agent read it, instead of appearing at once as if it were a new turn the agent ignored. Messages sent during a turn are stored (`session_queued_messages`, migration `052`, forced row-level security), so a restart or another replica loses none: when a turn ends, what it did not take runs as the next turns, in order, and a sweeper starts any left behind. New `delivery` on the `turn` frame and `POST /v1/sessions/{id}/turns`, `cancel_message` frame, `GET`/`DELETE /v1/sessions/{id}/queued-messages`, events `message_pending` and `message_cancelled`.
 - `api`, `web`: **repository setups.** Administrators define, per repository and folder (patterns allowed, `*` for each top-level folder of a monorepo), the commands that prepare it; the platform runs them right before the agent's first command there, once per workspace, with the agent's own access, and a failed setup stops the command with its output. **Settings → Organization → Sandboxes → Repository setups**, `/v1/repository-setups`, table `repository_setups` (migration `051`, forced row-level security). One agent had skipped a skill's setup step, so `make base` failed and it used CI as its test runner three times.
 - `api`, `web`: **warnings about an agent's prompt.** While a prompt is edited, `POST /v1/agents/lint` reports a prompt over 4,000 characters, a tool the platform does not have, or a call with an argument the tool does not take (a real prompt taught `wait_for(ci_status, pr=…)`); the page shows them under the prompt and never refuses the save.
@@ -24,13 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`, `api`: **Test & validate connection** starts an MCP server's guidance from the instructions the server gave when connecting (`instructions` in the validate response), when the guidance is empty; the administrator reviews it in the editor before it is saved.
 - `agent-core`, `web`: **guidance for MCP servers.** A server's markdown guidance (up to 8,000 characters, with a Write/Preview editor and a template) is now used: its first line, the *trigger*, is always in the agent's instructions so it can tell whether the server is relevant; the rest is put in effect once, when the agent loads one of the server's tools or calls the new `load_guidance`, and is re-rendered from the session's state on every later turn so pruning cannot lose it. A tool of a guided server is refused until its guidance is in effect; a server without guidance costs nothing (no line, no check, no tool). Until now the field was stored and shown but never reached the agent.
 - `web`, `api`: the agent configuration page shows which tools are **active** and which **deferred**, with a summary of the mode in force, whose choice it is and why, worked out by the new `POST /v1/tools/loading-preview` with the organization's current settings.
-- `orchestrator`:
-- `sandboxes`:
 - `api`: personal API tokens for scripts and other machine clients: `POST /v1/user/api-tokens` creates a token acting as the member with their current role (shown once, 1 to 365 days, at most 20 per member), `GET`/`DELETE /v1/user/api-tokens` list and revoke them, and administrators list and revoke the organization's under `/v1/admin/api-tokens`. Sent as `Authorization: Bearer` or `?token=` on the WebSocket. Only a hash is stored (`api_tokens`, migration `047_api_tokens`, forced row-level security); a token cannot create another one. Administrators also create guest tokens (`POST /v1/admin/api-tokens`) for clients without an account, as unlinked Slack users: each acts as its own guest member and can only hold conversations.
 - `web`: **Settings → API access** creates, lists and revokes your personal API tokens, explains how they authenticate and links to the API reference; administrators also manage the organization's guest tokens there. The settings navigation footer shows the running version (`v0.5.0`, or `dev` for a build that is not a tagged release), served by the new `GET /v1/version`; the release images set it through `ROCKET_VERSION`.
 - `settings`: `governance.question_timeout_seconds` closes a question the agent asked (`ask_question`) that nobody answered in time; the turn continues with the recommended option or the agent's best judgement, so a session driven through the API never waits forever. Empty (the default) keeps waiting.
-- `git`:
-- `helm`:
 
 ### Changed
 - `agent-core`, `api`, `web`: **every agent's steps carry the nineteen core tools and the ones it keeps active; everything else is loaded on demand.** A coding turn sent 74 tool definitions (45,000 characters) with every step, 82 with its MCP tools; it now sends 21 (16,600 characters), and the fixed part of a request fell from about 12,000 to 5,600 tokens (`tests/golden/request_budget.json`). The core set is `CORE_TOOLS`; tools the session or channel switches on for the turn (Slack's on a Slack turn, the browser of a browser sandbox) are sent too, and the loading tools are allowed whenever something is deferred; an agent keeps more active with the pin or a pattern, and the agent settings page shows *Core*, *Active* and *Deferred* badges, counts what every step carries and warns past 30. The four loading modes, the agents' mode and the `general.tool_loading` / `general.tool_loading_threshold` settings are removed (migration `050`; pins are kept as active tools). The platform prompt describes only the tools the request carries, tells the agent to treat messages arriving mid-work as steering and to run a skill's setup and test steps as written; the built-in *Backend Developer* keeps four tools active beside the core and no longer asks for `PLAN.md` and subagent ceremony.
