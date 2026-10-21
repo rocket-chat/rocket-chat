@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: the permission-modes explanation in the composer opens upward and stays inside the window; it opened below the composer, off-screen.
 - `web`: the organization section headers of Agents, Knowledge bases and the other settings pages no longer squeeze the title and the **Admin only** badge next to the action button, and the API token form lines its fields up.
 - `web`: the share dialog no longer undoes what you tick or type before it has loaded: the "Everyone in the organization" box and the e-mail list stay disabled until the current sharing state arrives, so a slow connection cannot make Save store the old value.
+- `web`: the pencil on a skill did nothing visible when the skill was far down the list: the edit form opened above the viewport. It now scrolls into view with its title field focused.
 - `api`: `POST /v1/sessions/{id}/turns` for a session that does not exist answers `404` instead of creating one in `default_org` with the caller-chosen id, bypassing the caller's organization, its privacy default and the sandbox choice. Create sessions with `POST /v1/sessions`.
 - `api`: a turn trace's `tokens.usage.cost_usd` is in dollars, like each call's `cost_usd`; it held integer micro-dollars. Migration `046_turn_trace_cost_in_dollars` converts the traces already stored.
 
