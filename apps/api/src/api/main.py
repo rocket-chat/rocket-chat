@@ -45,6 +45,7 @@ from api.routers.model_keys import router as model_keys_router
 from api.routers.models_catalog import router as models_catalog_router
 from api.routers.preview import router as preview_router
 from api.routers.processes import router as processes_router
+from api.routers.repository_setups import router as repository_setups_router
 from api.routers.sandboxes import router as sandboxes_router
 from api.routers.session_crud import router as session_crud_router
 from api.routers.session_turns import router as session_turns_router
@@ -302,6 +303,7 @@ app.include_router(slack_admin_router)
 app.include_router(slack_bots_router)
 app.include_router(subagents_router)
 app.include_router(api_tokens_router)
+app.include_router(repository_setups_router)
 app.include_router(version_router)
 app.include_router(workspace_router)
 app.include_router(webhooks_router, prefix="/v1")

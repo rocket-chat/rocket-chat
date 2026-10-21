@@ -134,3 +134,17 @@ async def test_another_organizations_calls_are_never_counted(client: TestClient)
     body = client.get(f"/v1/sessions/{session_id}/usage", headers=OWNER).json()
 
     assert body["totals"]["calls"] == 0
+
+
+def test_a_finished_turn_carries_its_metrics_and_a_running_one_none() -> None:
+    metrics = {"steps": 12, "model_ms": 60_000, "tool_ms": 9_000}
+    usage = summarize_session_usage(
+        "s",
+        [_event(150)],
+        [TurnWindow(1, 100, 200, "completed", metrics), TurnWindow(2, 300, None, "running")],
+    )
+
+    finished, running = usage.turns
+    assert finished.metrics is not None and finished.metrics.steps == 12
+    assert finished.metrics.model_ms == 60_000 and finished.metrics.compactions == 0
+    assert running.metrics is None

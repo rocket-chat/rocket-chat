@@ -28,6 +28,7 @@ class _MultiRepoDriver(FakeSandboxDriver):
         self.commands: list[tuple[str, str | None]] = []
         self.files: dict[str, str] = {}
         self.exec_responses: dict[str, ExecResult] = {}
+        self.branches: dict[str, str] = {}
 
     async def exec_command(
         self,
@@ -50,6 +51,14 @@ class _MultiRepoDriver(FakeSandboxDriver):
             # list_repositories probe expects @<relpath>
             output = "\n".join(f"@{posixpath.basename(r)}" for r in self.repo_list)
             return ExecResult(0, output, "", 1)
+
+        if "git -C" in command and "rev-parse --abbrev-ref HEAD" in command:
+            # The batched probe: one "path<TAB>branch" line per repository.
+            import re
+
+            paths = re.findall(r"printf '%s\\t' (\S+);", command)
+            branches = {p: self.branches.get(p, "main") for p in paths}
+            return ExecResult(0, "".join(f"{p}\t{b}\n" for p, b in branches.items()), "", 1)
 
         if "git rev-parse --abbrev-ref HEAD" in command:
             return ExecResult(0, "main\n", "", 1)
@@ -264,10 +273,13 @@ async def test_build_workspace_context() -> None:
     # Multi repos: returns <= 10 lines summary
     repos = [f"/workspace/repo-{i:02d}" for i in range(12)]
     driver_multi = _MultiRepoDriver(repos)
+    # The agent switched one repository to its own branch: that is what the note must say.
+    driver_multi.branches["/workspace/repo-01"] = "feat/rocket-SVC-21926"
     registry_multi = ToolRegistry(driver=driver_multi)
     ctx_multi = await registry_multi.build_workspace_context()
     lines = ctx_multi.splitlines()
     assert len(lines) <= 10
     assert "Workspace Repositories (12):" in lines[0]
     assert "- repo-00 (branch: main)" in ctx_multi
+    assert "- repo-01 (branch: feat/rocket-SVC-21926)" in ctx_multi
     assert "... and 4 more repositories" in ctx_multi

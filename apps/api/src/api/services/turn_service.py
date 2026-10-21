@@ -355,7 +355,7 @@ class TurnService:
                 locked="permission_mode" in resolved_prefs.locked_keys,
                 allow_bypass=bool(governance.get("allow_bypass_permissions")),
             ),
-            tool_loading=await tool_loading_for(db_mgr, org_id, agent),
+            tool_loading=tool_loading_for(agent),
             output_offload_threshold=int(general.get("output_offload_threshold", 6000)),
             max_turn_cost_usd=max_cost,
             sandbox_profile=sandbox_profile,

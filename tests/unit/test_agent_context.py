@@ -76,12 +76,10 @@ async def test_the_agent_is_told_the_sandbox_starts_blank_and_how_to_find_and_ge
         "`clone_repository`",
     ):
         assert expected in prompt, expected
-    assert {
-        "clone_repository",
-        "github_find_repositories",
-        "github_read_file",
-        "github_issues",
-    } <= set(tools)
+    assert "clone_repository" in set(tools)
+    # The repository-finding tools are deferred: listed by name in the prompt, loaded on demand.
+    for deferred in ("github_find_repositories", "github_read_file", "github_issues"):
+        assert deferred not in set(tools) and deferred in prompt, deferred
 
 
 async def test_asking_the_user_is_presented_as_a_blocking_last_resort() -> None:

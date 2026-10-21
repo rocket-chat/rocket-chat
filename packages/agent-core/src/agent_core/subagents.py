@@ -20,6 +20,7 @@ from llm_gateway.tokens import estimated_usage
 from agent_core.context import ContextManager, current_execution_ctx
 from agent_core.dispatcher import ToolDispatcher
 from agent_core.retry_policy import execute_stream_with_retry
+from agent_core.summarizer import model_summarizer
 from agent_core.tools.registry import ToolRegistry
 from agent_core.truncation import (
     MAX_EMPTY_RETRIES,
@@ -392,6 +393,7 @@ class _SubagentExecution:
         result = await self._runner.context_manager.enforce_hygiene_async(
             self._model,
             self._messages,
+            summarize=model_summarizer(self._runner.gateway, self._model, self._tools),
             tools=self._tools,
             overrides=generation.context_windows if generation else (),
             target_tokens=generation.context_target_tokens if generation else 0,

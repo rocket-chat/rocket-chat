@@ -331,8 +331,11 @@ async def test_compaction_never_splits_a_tool_call_from_its_result() -> None:
 async def test_model_summary_replaces_the_compacted_middle() -> None:
     manager = ContextManager()
 
-    async def summarize(middle: list[ChatMessage]) -> str:
-        return f"summary of {len(middle)} messages"
+    async def summarize(request: list[ChatMessage]) -> str:
+        return (
+            f"## Objective\n- summary of {len(request)} messages\n\n## Next Move\n1. carry on"
+            + "\n- detail" * 20
+        )
 
     compacted = await manager.compact_with_summary(
         _sample_transcript(), summarize, recent_turns_to_preserve=2
@@ -347,7 +350,8 @@ async def test_model_summary_replaces_the_compacted_middle() -> None:
     fallback = await manager.compact_with_summary(
         _sample_transcript(), broken, recent_turns_to_preserve=2
     )
-    assert any("Compacted" in (m.content or "") for m in fallback if m.role == "user")
+    bridge = "\n".join(m.content or "" for m in fallback if m.role == "user")
+    assert "Compacted" in bridge and "Rebuilt from the tool history" in bridge
 
 
 def test_recording_list_tracks_appends_but_not_compaction_rewrites() -> None:

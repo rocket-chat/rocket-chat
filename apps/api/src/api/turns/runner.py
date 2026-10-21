@@ -32,6 +32,7 @@ from api.services.git_signing import (
     member_signing_for_turn,
 )
 from api.services.mcp_turn import _mcp_tools_for_turn
+from api.services.queued_messages import QueuedMessageStore
 from api.services.redaction import RedactionPolicy, Redactor
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.session_env import agent_env_of, apply_session_env
@@ -705,6 +706,41 @@ class TurnRunner:
                 )
             except Exception:
                 pass
+            await self._start_queued_turns()
+
+    async def _start_queued_turns(self) -> None:
+        """Run what was sent during this turn and not taken by it: one turn each, in order.
+
+        Read from the store, not the orchestrator's memory, so a message that reached another
+        replica, or was sent just as the turn ended, is not lost.
+        """
+        req, org = self.req, self._org_id
+        if org is None:
+            return
+        try:
+            claimed = await QueuedMessageStore(req.db_mgr).claim_for_next_turn(org, req.session_id)
+        except Exception:
+            logger.exception("Could not read the messages queued on %s", req.session_id)
+            return
+        from api.turns.tasks import _spawn_background_turn
+
+        for message in claimed:
+            _spawn_background_turn(
+                session_id=req.session_id,
+                prompt=message.content,
+                orchestrator=req.orchestrator,
+                event_bus=req.event_bus,
+                driver=req.driver,
+                registry=req.registry,
+                store=req.store,
+                git_engine=req.git_engine,
+                db_mgr=req.db_mgr,
+                message_id=message.id,
+                author_user_id=message.author_user_id,
+                concurrency_gate=req.concurrency_gate,
+                session_locks=req.session_locks,
+                overlay=req.overlay,
+            )
 
     def _how_the_turn_ended(self) -> str:
         if self.state.turn_error:
@@ -793,7 +829,7 @@ def _chosen_agent(
 
 def _raw(binding: AgentBinding) -> AgentBinding:
     """A turn with no agent: the platform's generic prompt and every tool, all loaded."""
-    loading = replace(binding.policy.tool_loading, mode="all", active=())
+    loading = replace(binding.policy.tool_loading, send_all=True, active=())
     return replace(
         binding,
         id="",

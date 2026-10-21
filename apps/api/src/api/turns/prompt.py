@@ -29,7 +29,7 @@ from api.services.skills_lookup import list_visible_skills
 from api.services.subagents import load_subagent_configs
 from api.services.workspace_release import RELEASED_AT, released_notice
 from api.turns.context import TurnContext
-from specifications.interfaces.agent import GitPolicy, SystemPrompt, TurnPolicy
+from specifications.interfaces.agent import CORE_TOOLS, GitPolicy, SystemPrompt, TurnPolicy
 from specifications.interfaces.sandbox import SandboxStatus
 from specifications.interfaces.session import SessionRecord
 
@@ -58,6 +58,17 @@ class PromptTools:
 
     allowed: frozenset[str] | None = None
     denied: frozenset[str] = frozenset()
+    # Tools the agent keeps active besides the core set (names or patterns); ``None`` sends all.
+    active: tuple[str, ...] | None = ()
+
+    def sends(self, name: str) -> bool:
+        """Whether every request carries ``name``: guidance about a deferred tool would describe
+        a tool the agent has not loaded, so it arrives with the tool's own description instead."""
+        if not self.can(name):
+            return False
+        if self.active is None or name in CORE_TOOLS:
+            return True
+        return any(fnmatchcase(name, pattern) for pattern in self.active)
 
     def can(self, name: str) -> bool:
         if name in self.denied:
@@ -83,7 +94,9 @@ def prompt_tools(ctx: TurnContext) -> PromptTools:
         scoped = overlay.tool_scope(scope)
         scope = None if scoped is None else list(scoped)
     denied = frozenset(overlay.denied_tools or ()) if overlay is not None else frozenset()
-    return PromptTools(None if scope is None else frozenset(scope), denied)
+    loading = ctx.binding.policy.tool_loading
+    active = None if loading.send_all else tuple(loading.active)
+    return PromptTools(None if scope is None else frozenset(scope), denied, active)
 
 
 def _list_in_words(items: list[str]) -> str:
@@ -177,7 +190,7 @@ def workspace_guidance(tools: PromptTools) -> list[str]:
         )
     lines.append(
         "- Tool output is clamped (head and tail, with the hidden range marked). Search first "
-        "(`grep_search`, `glob_files`, `code_search`), then read only what you need: "
+        "(`grep_search`, `glob_files`), then read only what you need: "
         "`file_read` returns 400 numbered lines at a time and takes a line range; `web_fetch` "
         "pages long documents with `start`."
     )
@@ -195,10 +208,9 @@ def editing_guidance(tools: PromptTools) -> list[str]:
         )
     if tools.has(*CHECK_TOOLS):
         lines.append(
-            "- Verify what you changed with `run_tests`, `lint`, `typecheck` or `build` (or the "
-            "project's own commands) before you say it works. Report failures with their output "
-            "and never claim a check you did not run; run only checks that already work, and do "
-            "not set up a toolchain to run one."
+            "- Verify what you changed with the project's own build and test commands before you "
+            "say it works. Report failures with their output and never claim a check you did not "
+            "run; run only checks that already work, and do not set up a toolchain to run one."
         )
     return ["\n[Editing and verifying]", *lines] if lines else []
 
@@ -224,7 +236,7 @@ def working_style_guidance(tools: PromptTools) -> str:
         lines.append(
             "- Shell: `bash_exec` runs commands in bash (sh only in an image without bash)."
         )
-    if tools.can("env_set"):
+    if tools.sends("env_set"):
         lines.append(
             "- Environment variables every command needs (e.g. `GOPRIVATE`, `NODE_OPTIONS`): "
             "set them once with `env_set`; they apply to every later command, in this turn and "
@@ -241,13 +253,22 @@ def working_style_guidance(tools: PromptTools) -> str:
             "step, and never re-send an unchanged list) and settle it before you answer. Say you "
             "are nearly done only when the next step is the final answer."
         )
-    if tools.can("create_artifact"):
+    if tools.sends("create_artifact"):
         lines.append(
             "- Publish architecture designs, migration plans, investigation reports and diffs "
             "meant for review with `create_artifact`. Artifacts are kept with the session, appear "
             "in the cockpit's Artifacts drawer and in Slack, and keep long text out of your "
             "context (the content you write is still part of this request)."
         )
+    if tools.can("execute_skill"):
+        lines.append(
+            "- When a loaded skill gives setup, build or test steps, run them as written; if a "
+            "step fails, fix that step before working around it."
+        )
+    lines.append(
+        "- Messages that arrive while you work steer the current task: follow them, answer a "
+        "question briefly, and carry on, unless they clearly replace the task."
+    )
     lines.append(
         "- Do not open with an acknowledgement ('Understood', 'Noted') of a reminder or notice; "
         "go straight to the next tool call or to your answer."
@@ -259,18 +280,16 @@ def long_task_guidance(tools: PromptTools) -> str:
     lines: list[str] = []
     if tools.has("file_write", "file_edit", "bash_exec"):
         lines.append(
-            "- Working plan: for work that will span several turns, maintain `.rocket/PLAN.md` "
-            "(and optionally `PROGRESS.md`) with the goal, decisions and what remains; the "
-            "checklist tracks the steps. The file is given back to you at the start of every turn "
-            "and survives sandbox restarts, so update it when a decision or milestone changes, "
-            "not on every step."
+            "- For work that will span several turns, keep the goal, decisions and what remains "
+            "in `.rocket/PLAN.md`: it is given back to you at the start of every turn. Update it "
+            "when a decision or milestone changes, not on every step."
         )
     if tools.can("bash_exec"):
         lines.append(
             "- Never leave a rebase, merge conflict, or detached HEAD open at the end of a turn. "
             "Resolve or abort (`git rebase --abort`, `git merge --abort`) before you answer."
         )
-    if tools.can("git_checkpoint"):
+    if tools.sends("git_checkpoint"):
         lines.append(
             "- The platform snapshots the workspace before your first change of a turn. Before a "
             "sweeping edit, refactor or migration, add a named snapshot with `git_checkpoint` so "
@@ -286,7 +305,7 @@ def long_task_guidance(tools: PromptTools) -> str:
 
 def showing_work_guidance(tools: PromptTools) -> str:
     lines: list[str] = []
-    if tools.can("process_start"):
+    if tools.sends("process_start"):
         lines.append(
             "- Long-running commands: `bash_exec` waits for its command and kills it on timeout, "
             "so start servers, watchers and slow builds with `process_start` (it returns at "
@@ -411,7 +430,7 @@ async def _skills_guidance(ctx: TurnContext) -> list[str]:
 
 async def _subagents_guidance(ctx: TurnContext, tools: PromptTools) -> list[str]:
     """How to delegate, and which specialist roles the organization has."""
-    if not tools.has("delegate_subagent", "delegate_subagents_parallel"):
+    if not (tools.sends("delegate_subagent") or tools.sends("delegate_subagents_parallel")):
         return []
     lines = [
         "\n[Delegation]",

@@ -26,8 +26,7 @@ from agent_core.guidance import (
 )
 from agent_core.tools.registry import ToolRegistry
 from api.services.mcp_turn import McpTurnTools
-from api.services.settings import save_org_config
-from api.services.tool_loading import GUIDANCE_READ_KEY
+from api.services.tool_loading import GUIDANCE_READ_KEY, LOADED_TOOLS_KEY
 from api.turns import runner
 
 from specifications.interfaces.agent import McpGuidance, ServerGuidance
@@ -190,7 +189,7 @@ def _mentions(request: Any, text: str) -> int:
 
 
 async def _on_demand(org: str) -> str:
-    await save_org_config(None, org, "general", {"tool_loading": "on_demand"}, [])
+    # MCP tools are deferred unless an agent keeps them active: the default now.
     return org
 
 
@@ -274,11 +273,11 @@ async def test_long_guidance_is_not_in_the_prompt_even_for_a_loaded_tool(
     servers: _Servers,
 ) -> None:
     servers._guidance = [_guided("signoz", LONG)]
-    await save_org_config(None, "org_guidance_long", "general", {"tool_loading": "all"}, [])
 
     outcome = await run_turn(
         "org_guidance_long",
         script=[(SEARCH, {"q": "errors"}), ("load_guidance", {"server": "signoz"})],
+        metadata={LOADED_TOOLS_KEY: [SEARCH]},
     )
 
     requests = [r for r in outcome.model.requests if r.tools]
@@ -292,9 +291,11 @@ async def test_long_guidance_is_not_in_the_prompt_even_for_a_loaded_tool(
 async def test_short_guidance_of_an_already_loaded_tool_needs_no_reading(
     servers: _Servers,
 ) -> None:
-    await save_org_config(None, "org_guidance_short", "general", {"tool_loading": "all"}, [])
-
-    outcome = await run_turn("org_guidance_short", script=[(SEARCH, {"q": "errors"})])
+    outcome = await run_turn(
+        "org_guidance_short",
+        script=[(SEARCH, {"q": "errors"})],
+        metadata={LOADED_TOOLS_KEY: [SEARCH]},
+    )
 
     first = next(r for r in outcome.model.requests if r.tools)
     assert _mentions(first, "Never query") == 1

@@ -220,6 +220,27 @@ class GithubAccess:
     actor: str = ""
 
 
+@dataclass(frozen=True)
+class FolderSetupOutcome:
+    """What preparing a folder before a command did: a note for the agent, and whether the
+    command may run (a failed setup stops it, so the agent fixes the setup first)."""
+
+    note: str
+    ok: bool
+
+
+@dataclass(frozen=True)
+class WaitOutcome:
+    """What ``wait_for`` did: the note for the agent, and whether something will wake the session.
+
+    ``registered`` is false when the condition had already settled (CI finished on the commit,
+    no check will ever run): the turn goes on, and the agent acts on ``message`` at once.
+    """
+
+    message: str
+    registered: bool
+
+
 @dataclass
 class TurnCallbacks:
     """Collaborators one turn's tools need, scoped to that turn (never shared state).
@@ -269,8 +290,16 @@ class TurnCallbacks:
     github_watch: Callable[[str, int | None, str | None, bool], Awaitable[str]] | None = None
     # Stop following: (repo, pull request, branch) -> a note for the agent.
     github_unwatch: Callable[[str, int | None, str | None], Awaitable[str]] | None = None
-    # Durable wait for external events (CI status, PR review, process exit, time): (target, identifier, timeout_seconds) -> note
-    wait_for: Callable[[str, str, int | None], Awaitable[str]] | None = None
+    # Durable wait for external events (CI status, PR review, process exit, time):
+    # (target, identifier, timeout_seconds, commit sha or None) -> what happened. Only a wait
+    # that was registered ends the turn; one that settled at once is the agent's to act on.
+    wait_for: Callable[[str, str, int | None, str | None], Awaitable[WaitOutcome]] | None = None
+    # Called with (session id, "owner/repo", branch, head sha) after a branch was published, so
+    # a CI wait reads the commit just pushed, not the pull request's previous head.
+    branch_published: Callable[[str, str, str, str], Awaitable[None]] | None = None
+    # Called with (session id, absolute folder) before a command runs there: runs the
+    # organization's repository setups that apply and have not run, or returns None.
+    prepare_folder: Callable[[str, str], Awaitable[FolderSetupOutcome | None]] | None = None
     # Called after a background process tool ran so the tracker can mirror the sandbox's
     # processes into the database and announce changes.
     processes_changed: Callable[[str], Awaitable[None]] | None = None
@@ -454,27 +483,51 @@ def combine_step_limits(agent_limit: int | None, organization_limit: int) -> int
     return min(agent_limit, organization_limit)
 
 
-TOOL_LOADING_MODES = ("all", "on_demand", "pinned", "auto")
+# The tools every request of every agent carries (when the agent may use them). Everything else
+# an agent may use is deferred: listed by name in the cached prompt and loaded on demand. Long
+# turns re-send every definition at every step, and a model choosing among eighty tools chooses
+# worse than among twenty (opencode sends fifteen, Codex about ten).
+CORE_TOOLS: tuple[str, ...] = (
+    "bash_exec",
+    "file_read",
+    "file_edit",
+    "file_write",
+    "apply_patch",
+    "grep_search",
+    "glob_files",
+    "update_task_checklist",
+    "web_fetch",
+    "web_search",
+    "execute_skill",
+    "ask_question",
+    "clone_repository",
+    "git_commit",
+    "git_push",
+    "git_open_pr",
+    "github_pull_request",
+    "github_actions",
+    "wait_for",
+)
+# Past this many tools sent with every step (core, ticked and plumbing), the agent settings warn.
+ACTIVE_TOOLS_WARNING = 30
 
 
 @dataclass(frozen=True)
 class ToolLoading:
     """Which of the agent's tools every request carries, and which it loads when it needs them.
 
-    A deferred tool is *listed by name*; its definition is sent only once the agent loads it.
-    ``all`` sends every allowed tool. ``on_demand`` sends the platform's own tools (built-in and
-    toolset) and defers the MCP servers' tools except those in ``active``. ``pinned`` sends only
-    what ``active`` names and defers every other allowed tool, the platform's own included.
-    ``auto`` sends everything until the agent has more than ``threshold`` tools, then behaves
-    like ``on_demand``. ``active`` holds names or shell-style patterns
-    (``mcp__signoz*__*search*``); the loading tools are never deferred.
+    Every request carries ``CORE_TOOLS``, the loading tools, and what the agent keeps ``active``
+    (names or shell-style patterns such as ``mcp__signoz*__*search*``), each only when the agent
+    may use it. Every other allowed tool is deferred: *listed by name*, its definition sent once
+    the agent loads it. ``send_all`` sends every allowed tool: the default for an orchestrator
+    driven without the platform's policy, and for a turn with no agent (a model with every tool);
+    the platform builds every agent's policy with it off (``tool_loading_for``).
     """
 
-    mode: str = "all"
     active: tuple[str, ...] = ()
-    threshold: int = 60
     # Deferred tools the session already loaded; they stay loaded for later turns.
     loaded: tuple[str, ...] = ()
+    send_all: bool = True
 
 
 @dataclass(frozen=True)
@@ -676,6 +729,14 @@ class AgentOrchestratorProtocol(ABC):
     async def cancel_turn(self, session_id: str) -> None:
         """Halts the currently running turn immediately."""
         pass
+
+    def is_running(self, session_id: str) -> bool:
+        """Whether a turn of ``session_id`` runs in this process."""
+        return False
+
+    def withdraw_steering(self, session_id: str, message_id: str) -> None:
+        """Drop a steering message the running turn has not taken yet."""
+        return None
 
     def steer(self, session_id: str, message: SteeringMessage) -> bool:
         """Hand ``message`` to the session's running turn, if this process runs one.

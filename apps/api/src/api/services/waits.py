@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -260,3 +261,29 @@ async def claim_due_waits(
                     )
                 )
     return claimed
+
+
+def group_waits_by_session(waits: Sequence[SessionWait]) -> dict[str, list[SessionWait]]:
+    """Due waits by session, in the order they were claimed."""
+    grouped: dict[str, list[SessionWait]] = {}
+    for wait in waits:
+        grouped.setdefault(wait.session_id, []).append(wait)
+    return grouped
+
+
+def _expired_line(wait: SessionWait) -> str:
+    if wait.wake_prompt:
+        return wait.wake_prompt
+    if wait.kind in ("ci_status", "review"):
+        return (
+            f"No {wait.kind} result arrived for {wait.target} before the wait's deadline: read its "
+            "current state (`github_pull_request` checks, `github_actions` runs) before deciding "
+            "to wait again; a CI that never started may need the branch updated."
+        )
+    return f"Wait {wait.id} ({wait.kind} on {wait.target}) expired."
+
+
+def wake_prompt_for(waits: Sequence[SessionWait]) -> str:
+    """The one automatic turn's prompt for a session's due waits."""
+    lines = [_expired_line(wait) for wait in waits]
+    return "\n".join(lines) + "\nResuming execution."

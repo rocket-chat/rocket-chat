@@ -9,7 +9,7 @@ bound :class:`GitEngine` when one is available.
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -319,6 +319,7 @@ async def git_push(
     git_engine: CommitCapable | None = None,
     policy: GitPolicy | None = None,
     path: str | None = None,
+    published: Callable[[str, str, str, str], Awaitable[None]] | None = None,
 ) -> str:
     """Publish the branch: the one way commits leave the sandbox (see ``BranchPublisher``)."""
     if git_engine is None:
@@ -328,6 +329,8 @@ async def git_push(
         result = await git_engine.publish_branch(session_id, spec)
     except Exception as err:
         return f"Error: could not publish the branch: {err}"
+    if published is not None and result.head_sha:
+        await published(session_id, result.repository, result.branch, result.head_sha)
     return describe_publication(result)
 
 

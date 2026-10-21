@@ -238,6 +238,7 @@ def _register_git_publish_tools(registry: "ToolRegistry") -> None:
             registry._git_engine,
             policy=registry._git_policy(),
             path=folder,
+            published=registry._turn_callback("branch_published"),
         )
 
     @registry._tool(

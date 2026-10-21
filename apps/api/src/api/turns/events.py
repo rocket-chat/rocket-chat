@@ -6,10 +6,12 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from api.services.metrics import record_tool_call
+from api.services.queued_messages import QueuedMessageStore
 from api.services.session_support import _new_message_id
 from api.services.turn_trace import record_running_tool_call
 from api.turns.attention import update_attention
@@ -155,7 +157,7 @@ class TurnEventHandlers:
             "subagent_started": self._forward(EventType.SUBAGENT_STARTED),
             "subagent_progress": self._forward(EventType.SUBAGENT_PROGRESS),
             "subagent_completed": self._forward(EventType.SUBAGENT_COMPLETED),
-            "context_compacted": self._forward(EventType.CONTEXT_COMPACTED),
+            "context_compacted": self._context_compacted,
             "post_failure_synthesis": self._post_failure_synthesis,
             "user_steer": self._user_steer,
             "steering_untaken": self._steering_untaken,
@@ -237,6 +239,10 @@ class TurnEventHandlers:
         return forward
 
     # -- handlers -----------------------------------------------------------------------
+
+    async def _context_compacted(self, event: AgentEvent) -> None:
+        self.ctx.trace.record_compaction(event.payload)
+        await self._publish(EventType.CONTEXT_COMPACTED, event.payload)
 
     async def _model_usage(self, event: AgentEvent) -> None:
         # Per-turn token telemetry for cost attribution. Internal only: it is
@@ -535,6 +541,11 @@ class TurnEventHandlers:
             record.conversation_history.append(message)
 
         await ctx.req.store.mutate_session(ctx.session_id, ctx.session.tenant_org_id, split_turn)
+        if message_id := str(event.payload.get("message_id") or ""):
+            # Taken by this turn: the end of the turn must not run it again.
+            await QueuedMessageStore(ctx.req.db_mgr).mark_taken(
+                ctx.session.tenant_org_id, ctx.session_id, message_id
+            )
         state.earlier_reasoning.extend(state.reasoning_parts)
         state.reasoning_parts.clear()
         state.reasoning_attached = 0
@@ -553,26 +564,24 @@ class TurnEventHandlers:
         )
 
     async def _steering_untaken(self, event: AgentEvent) -> None:
-        """Messages that arrived as the turn ended run as the next turns, in order."""
-        from api.turns.tasks import _spawn_background_turn
-
-        req = self.ctx.req
+        """Messages that arrived as the turn ended: the runner starts them as the next turns
+        when this one has finished (``_start_queued_turns``), from the store. One handed to the
+        orchestrator without going through the store is recorded there now."""
+        ctx = self.ctx
+        org = ctx.session.tenant_org_id
+        store = QueuedMessageStore(ctx.req.db_mgr)
+        known = {m.id for m in await store.pending(org, ctx.session_id)}
         for message in event.payload.get("messages") or []:
-            _spawn_background_turn(
-                session_id=self.ctx.session_id,
-                prompt=str(message.get("content") or ""),
-                orchestrator=req.orchestrator,
-                event_bus=req.event_bus,
-                driver=req.driver,
-                registry=req.registry,
-                store=req.store,
-                git_engine=req.git_engine,
-                db_mgr=req.db_mgr,
-                message_id=message.get("message_id"),
-                author_user_id=message.get("author_user_id"),
-                concurrency_gate=req.concurrency_gate,
-                session_locks=req.session_locks,
-                overlay=req.overlay,
+            message_id = str(message.get("message_id") or "") or f"msg_{uuid.uuid4().hex[:16]}"
+            if message_id in known:
+                continue
+            await store.add(
+                org,
+                ctx.session_id,
+                message_id,
+                str(message.get("content") or ""),
+                "steer",
+                message.get("author_user_id"),
             )
 
     async def _post_failure_synthesis(self, event: AgentEvent) -> None:

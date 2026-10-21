@@ -19,7 +19,7 @@
         "description": "Custom Agent Persona configuration.",
         "properties": {
           "active_tools": {
-            "description": "Tools always loaded, by name or pattern (mcp__signoz*__*search*). They keep MCP tools loaded in on_demand and auto, and are the only tools loaded in pinned",
+            "description": "Tools sent with every step besides the core set, by name or pattern (mcp__signoz*__*search*); every other allowed tool is listed by name and loaded when the agent needs it",
             "items": {
               "type": "string"
             },
@@ -191,24 +191,6 @@
             ],
             "description": "Extended thinking budget tokens override",
             "title": "Thinking Budget Tokens"
-          },
-          "tool_loading": {
-            "anyOf": [
-              {
-                "enum": [
-                  "all",
-                  "on_demand",
-                  "pinned",
-                  "auto"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Which allowed tools every step carries: all; on_demand (the platform's tools, and the MCP tools in active_tools; the other MCP tools are loaded when needed); pinned (only active_tools; every other tool is loaded when needed); or auto. Empty inherits the organization's setting",
-            "title": "Tool Loading"
           },
           "user_id": {
             "anyOf": [
@@ -3591,6 +3573,93 @@
         "title": "PairRequest",
         "type": "object"
       },
+      "PendingMessageResponse": {
+        "properties": {
+          "author_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who sent it",
+            "title": "Author User Id"
+          },
+          "content": {
+            "description": "What the person wrote",
+            "title": "Content",
+            "type": "string"
+          },
+          "delivery": {
+            "description": "steer (next step of the running turn) or queue",
+            "title": "Delivery",
+            "type": "string"
+          },
+          "message_id": {
+            "description": "The message's id",
+            "title": "Message Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "delivery",
+          "content"
+        ],
+        "title": "PendingMessageResponse",
+        "type": "object"
+      },
+      "PersonaLintRequest": {
+        "properties": {
+          "system_prompt": {
+            "description": "The prompt to check",
+            "maxLength": 200000,
+            "title": "System Prompt",
+            "type": "string"
+          }
+        },
+        "required": [
+          "system_prompt"
+        ],
+        "title": "PersonaLintRequest",
+        "type": "object"
+      },
+      "PersonaLintResponse": {
+        "properties": {
+          "warnings": {
+            "description": "What to look at; a save is never refused for these",
+            "items": {
+              "$ref": "#/components/schemas/PersonaWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "title": "PersonaLintResponse",
+        "type": "object"
+      },
+      "PersonaWarning": {
+        "properties": {
+          "kind": {
+            "description": "too_long, unknown_tool or unknown_argument",
+            "title": "Kind",
+            "type": "string"
+          },
+          "message": {
+            "description": "What to fix, in a sentence",
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "message"
+        ],
+        "title": "PersonaWarning",
+        "type": "object"
+      },
       "PlatformKeyView": {
         "properties": {
           "env_var": {
@@ -3818,6 +3887,62 @@
           "files"
         ],
         "title": "RepositoryChangesResponse",
+        "type": "object"
+      },
+      "RepositorySetup": {
+        "description": "How to prepare a folder of a repository before the agent works there.",
+        "properties": {
+          "command": {
+            "description": "Bash commands, run in that folder",
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Command",
+            "type": "string"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "folder": {
+            "default": "",
+            "description": "Folder inside the repository, or a pattern such as * for each top-level folder; empty for the repository's root",
+            "maxLength": 255,
+            "title": "Folder",
+            "type": "string"
+          },
+          "id": {
+            "default": "",
+            "description": "Identifier; empty to create",
+            "title": "Id",
+            "type": "string"
+          },
+          "repository": {
+            "description": "owner/name, or a pattern such as acme/*",
+            "maxLength": 255,
+            "minLength": 3,
+            "title": "Repository",
+            "type": "string"
+          },
+          "timeout_seconds": {
+            "default": 900,
+            "maximum": 3600.0,
+            "minimum": 10.0,
+            "title": "Timeout Seconds",
+            "type": "integer"
+          },
+          "updated_at": {
+            "default": 0,
+            "description": "Last change, epoch seconds",
+            "title": "Updated At",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "repository",
+          "command"
+        ],
+        "title": "RepositorySetup",
         "type": "object"
       },
       "ResetSessionsResponse": {
@@ -5946,6 +6071,14 @@
       },
       "ToolLoadingPreview": {
         "properties": {
+          "core": {
+            "description": "The core tools, sent with every step when allowed",
+            "items": {
+              "type": "string"
+            },
+            "title": "Core",
+            "type": "array"
+          },
           "deferred": {
             "description": "Allowed tools listed by name, loaded on demand",
             "items": {
@@ -5954,42 +6087,33 @@
             "title": "Deferred",
             "type": "array"
           },
-          "mode": {
-            "description": "The mode in force: all, on_demand, pinned or auto",
-            "title": "Mode",
-            "type": "string"
-          },
           "reason": {
             "description": "What this means for the agent, in a sentence",
             "title": "Reason",
             "type": "string"
           },
-          "source": {
-            "description": "Whether the agent or the organization chose the mode",
-            "enum": [
-              "agent",
-              "organization"
-            ],
-            "title": "Source",
-            "type": "string"
-          },
-          "threshold": {
-            "description": "The organization's limit for the automatic mode",
-            "title": "Threshold",
+          "sent": {
+            "description": "Tools sent with every step: core, active and loading",
+            "title": "Sent",
             "type": "integer"
           },
           "total": {
-            "description": "Tools counted against the limit",
+            "description": "Tools the agent may use",
             "title": "Total",
+            "type": "integer"
+          },
+          "warning_at": {
+            "description": "Above this many tools sent, the page warns",
+            "title": "Warning At",
             "type": "integer"
           }
         },
         "required": [
-          "mode",
-          "source",
-          "threshold",
+          "core",
+          "sent",
           "total",
           "deferred",
+          "warning_at",
           "reason"
         ],
         "title": "ToolLoadingPreview",
@@ -5998,30 +6122,12 @@
       "ToolLoadingPreviewRequest": {
         "properties": {
           "active_tools": {
-            "description": "Always-loaded tool names or shell-style patterns",
+            "description": "Tools kept active besides the core set, or patterns",
             "items": {
               "type": "string"
             },
             "title": "Active Tools",
             "type": "array"
-          },
-          "tool_loading": {
-            "anyOf": [
-              {
-                "enum": [
-                  "all",
-                  "on_demand",
-                  "pinned",
-                  "auto"
-                ],
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The agent's own mode; empty inherits the organization's",
-            "title": "Tool Loading"
           },
           "tool_names": {
             "description": "The tools the agent may use",
@@ -6089,6 +6195,84 @@
           "entries"
         ],
         "title": "TreeResponse",
+        "type": "object"
+      },
+      "TurnMetricsModel": {
+        "properties": {
+          "compactions": {
+            "default": 0,
+            "description": "Context compactions",
+            "title": "Compactions",
+            "type": "integer"
+          },
+          "compactions_without_model_summary": {
+            "default": 0,
+            "description": "Compactions whose summary was rebuilt from the tool history",
+            "title": "Compactions Without Model Summary",
+            "type": "integer"
+          },
+          "max_step_reasoning_chars": {
+            "default": 0,
+            "description": "Longest reasoning of a single step, in characters",
+            "title": "Max Step Reasoning Chars",
+            "type": "integer"
+          },
+          "model_ms": {
+            "default": 0,
+            "description": "Time the model spent generating, ms",
+            "title": "Model Ms",
+            "type": "integer"
+          },
+          "overhead_tokens": {
+            "default": 0,
+            "description": "System prompt and tool definitions every request carries",
+            "title": "Overhead Tokens",
+            "type": "integer"
+          },
+          "pushes": {
+            "default": 0,
+            "description": "Pushes and pull requests opened",
+            "title": "Pushes",
+            "type": "integer"
+          },
+          "reasoning_chars": {
+            "default": 0,
+            "description": "Reasoning written, in characters",
+            "title": "Reasoning Chars",
+            "type": "integer"
+          },
+          "reasoning_limit_stops": {
+            "default": 0,
+            "description": "Steps stopped by the reasoning limit and asked to decide",
+            "title": "Reasoning Limit Stops",
+            "type": "integer"
+          },
+          "steps": {
+            "default": 0,
+            "description": "Model steps of the reason-and-act loop",
+            "title": "Steps",
+            "type": "integer"
+          },
+          "tool_calls": {
+            "default": 0,
+            "description": "Tool calls made",
+            "title": "Tool Calls",
+            "type": "integer"
+          },
+          "tool_loads": {
+            "default": 0,
+            "description": "Calls to load_tools",
+            "title": "Tool Loads",
+            "type": "integer"
+          },
+          "tool_ms": {
+            "default": 0,
+            "description": "Time tools spent running, ms",
+            "title": "Tool Ms",
+            "type": "integer"
+          }
+        },
+        "title": "TurnMetricsModel",
         "type": "object"
       },
       "TurnTracePage": {
@@ -6297,6 +6481,17 @@
             ],
             "description": "Turn end; null while it runs",
             "title": "Ended At"
+          },
+          "metrics": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TurnMetricsModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Steps, time and context figures; null until the turn ends"
           },
           "own_key_cost_usd": {
             "default": 0.0,
@@ -6720,6 +6915,16 @@
             },
             "title": "Attachment Ids",
             "type": "array"
+          },
+          "delivery": {
+            "default": "steer",
+            "description": "While a turn of the session runs: 'steer' joins it at its next step, 'queue' runs after it as a turn of its own. Ignored when no turn runs",
+            "enum": [
+              "steer",
+              "queue"
+            ],
+            "title": "Delivery",
+            "type": "string"
           },
           "mode": {
             "anyOf": [
@@ -9063,6 +9268,48 @@
         ]
       }
     },
+    "/v1/agents/lint": {
+      "post": {
+        "description": "Warnings about an agent's prompt: over 4,000 characters, a tool that does not exist, or\nan argument a tool does not take. For the agent editor; nothing is stored.",
+        "operationId": "lint_agent_prompt_v1_agents_lint_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonaLintRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonaLintResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Lint Agent Prompt",
+        "tags": [
+          "Agents"
+        ]
+      }
+    },
     "/v1/agents/{persona_id}": {
       "delete": {
         "description": "Delete a custom agent persona, or reset/disable a built-in persona.",
@@ -10296,6 +10543,119 @@
         "summary": "Readiness probe",
         "tags": [
           "Operations"
+        ]
+      }
+    },
+    "/v1/repository-setups": {
+      "get": {
+        "description": "The organization's repository setups, by repository and folder.",
+        "operationId": "list_repository_setups_v1_repository_setups_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RepositorySetup"
+                  },
+                  "title": "Response List Repository Setups V1 Repository Setups Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Repository Setups",
+        "tags": [
+          "repository-setups"
+        ]
+      },
+      "post": {
+        "description": "Create a repository setup, or update one (with its ``id``).",
+        "operationId": "save_repository_setup_v1_repository_setups_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepositorySetup"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RepositorySetup"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Repository Setup",
+        "tags": [
+          "repository-setups"
+        ]
+      }
+    },
+    "/v1/repository-setups/{setup_id}": {
+      "delete": {
+        "description": "Delete a repository setup; workspaces it already prepared stay as they are.",
+        "operationId": "delete_repository_setup_v1_repository_setups__setup_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "setup_id",
+            "required": true,
+            "schema": {
+              "title": "Setup Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Repository Setup V1 Repository Setups  Setup Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Repository Setup",
+        "tags": [
+          "repository-setups"
         ]
       }
     },
@@ -11998,6 +12358,109 @@
           }
         },
         "summary": "Answer Question",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/queued-messages": {
+      "get": {
+        "description": "Messages sent during a turn that no turn has taken yet, oldest first.",
+        "operationId": "list_queued_messages_v1_sessions__session_id__queued_messages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PendingMessageResponse"
+                  },
+                  "title": "Response List Queued Messages V1 Sessions  Session Id  Queued Messages Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Queued Messages",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/queued-messages/{message_id}": {
+      "delete": {
+        "description": "Withdraw a message sent during a turn (steering it or queued after it) that no turn has\ntaken yet.",
+        "operationId": "cancel_queued_message_v1_sessions__session_id__queued_messages__message_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Cancel Queued Message V1 Sessions  Session Id  Queued Messages  Message Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Queued Message",
         "tags": [
           "Sessions & Telemetry"
         ]
@@ -13838,7 +14301,7 @@
     },
     "/v1/tools/loading-preview": {
       "post": {
-        "description": "Which of an agent's tools are sent with every step and which wait to be loaded, under its\nsettings and the organization's current ones (the same rule a turn applies).",
+        "description": "Which of an agent's tools are sent with every step and which wait to be loaded (the same\nrule a turn applies).",
         "operationId": "preview_tool_loading_v1_tools_loading_preview_post",
         "requestBody": {
           "content": {

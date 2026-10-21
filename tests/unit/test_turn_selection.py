@@ -72,7 +72,7 @@ async def test_a_raw_turn_runs_no_agent_on_the_chosen_model_with_every_tool_load
 
     outcome = await run_turn(
         org,
-        metadata={"agent_id": reviewer, "tool_loading": "on_demand"},
+        metadata={"agent_id": reviewer},
         selection=TurnSelection(raw=True),
         model_choice="raw/model-z",
     )

@@ -130,6 +130,15 @@ async def get_session_usage(session_id: str, request: Request) -> SessionUsage:
     db_mgr = getattr(request.app.state, "db_manager", None)
     if db_mgr is not None:
         traces = await TurnTraceStore(db_mgr).list_for_session(session_id, org_id, limit=1000)
-        windows = [TurnWindow(t.turn_index, t.started_at, t.ended_at, t.status) for t in traces]
+        windows = [
+            TurnWindow(
+                t.turn_index,
+                t.started_at,
+                t.ended_at,
+                t.status,
+                (t.tokens or {}).get("metrics") if isinstance(t.tokens, dict) else None,
+            )
+            for t in traces
+        ]
     events = await _usage_ledger(request).session_events(org_id, session_id)
     return summarize_session_usage(session_id, events, windows)

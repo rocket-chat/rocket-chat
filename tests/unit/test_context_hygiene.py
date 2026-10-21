@@ -163,15 +163,22 @@ async def test_mid_turn_compaction_of_a_long_session_keeps_the_current_request()
         messages += _step(100 + step)
     seen: list[list[ChatMessage]] = []
 
-    async def summarize(middle: list[ChatMessage]) -> str:
-        seen.append(middle)
-        return "summary"
+    async def summarize(request: list[ChatMessage]) -> str:
+        seen.append(request)
+        return "## Objective\n- fix the login bug\n\n## Next Move\n1. run the login tests" + (
+            "\n- detail" * 20
+        )
 
     compacted = await manager.compact_with_summary(messages, summarize)
 
     assert (compacted[1].content or "").startswith("CURRENT: fix the login bug")
-    assert (seen[0][0].content or "").endswith("CURRENT: fix the login bug"), "goal given first"
+    # The summary is asked on the conversation itself, the summary prompt last.
+    assert seen[0][: len(messages)] == messages
+    assert (seen[0][-1].content or "").startswith("Summarize the conversation above")
     assert not any("old question 0" == m.content for m in compacted)
+    bridge = next(m.content or "" for m in compacted if "[Compacted" in (m.content or ""))
+    assert "> old question 0" in bridge, "the person's earlier messages are kept verbatim"
+    assert "## Next Move" in bridge
 
 
 async def test_a_step_with_eight_parallel_calls_is_never_split() -> None:

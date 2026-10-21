@@ -119,8 +119,7 @@ persona carries the stored id, which can differ from the proposed one.
 | thinking_budget_tokens | integer | no | Extended thinking budget tokens override |
 | reasoning_effort | string | no | Reasoning effort override: none (off), minimal, low, medium, high, xhigh or max. An OpenRouter model that does not take the level gets the nearest one it does |
 | max_turns | integer | no | Maximum reasoning steps per turn for this agent (0: no limit); empty inherits the organization's limit, and a value above it is refused |
-| tool_loading | `all` / `on_demand` / `pinned` / `auto` | no | Which allowed tools every step carries: all; on_demand (the platform's tools, and the MCP tools in active_tools; the other MCP tools are loaded when needed); pinned (only active_tools; every other tool is loaded when needed); or auto. Empty inherits the organization's setting |
-| active_tools | list of string | no | Tools always loaded, by name or pattern (mcp__signoz*__*search*). They keep MCP tools loaded in on_demand and auto, and are the only tools loaded in pinned |
+| active_tools | list of string | no | Tools sent with every step besides the core set, by name or pattern (mcp__signoz*__*search*); every other allowed tool is listed by name and loaded when the agent needs it |
 | default_permission_mode | string | no | Default permission mode ('plan', 'ask', 'auto_edit', 'auto', 'bypass'); empty inherits |
 
 **Responses:** `200`
@@ -128,6 +127,19 @@ persona carries the stored id, which can differ from the proposed one.
 ### `GET /v1/agents/limits`
 
 The ceilings an agent's own settings must stay under (today: steps per turn).
+
+**Responses:** `200`
+
+### `POST /v1/agents/lint`
+
+Warnings about an agent's prompt: over 4,000 characters, a tool that does not exist, or
+an argument a tool does not take. For the agent editor; nothing is stored.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| system_prompt | string | yes | The prompt to check |
 
 **Responses:** `200`
 
@@ -1082,6 +1094,44 @@ Stop Session Process
 
 **Responses:** `200`
 
+## repository-setups
+
+### `GET /v1/repository-setups`
+
+The organization's repository setups, by repository and folder.
+
+**Responses:** `200`
+
+### `POST /v1/repository-setups`
+
+Create a repository setup, or update one (with its ``id``).
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| id | string | no | Identifier; empty to create |
+| repository | string | yes | owner/name, or a pattern such as acme/* |
+| folder | string | no | Folder inside the repository, or a pattern such as * for each top-level folder; empty for the repository's root |
+| command | string | yes | Bash commands, run in that folder |
+| timeout_seconds | integer | no |  |
+| enabled | boolean | no |  |
+| updated_at | integer | no | Last change, epoch seconds |
+
+**Responses:** `200`
+
+### `DELETE /v1/repository-setups/{setup_id}`
+
+Delete a repository setup; workspaces it already prepared stay as they are.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| setup_id | path | yes | string |
+
+**Responses:** `200`
+
 ## Sandboxes
 
 ### `POST /v1/admin/sandboxes`
@@ -1527,6 +1577,32 @@ Submit choice or write-in to an in-stream Interactive Decision Card.
 
 **Responses:** `200`
 
+### `GET /v1/sessions/{session_id}/queued-messages`
+
+Messages sent during a turn that no turn has taken yet, oldest first.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `DELETE /v1/sessions/{session_id}/queued-messages/{message_id}`
+
+Withdraw a message sent during a turn (steering it or queued after it) that no turn has
+taken yet.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| message_id | path | yes | string |
+
+**Responses:** `200`
+
 ### `POST /v1/sessions/{session_id}/share`
 
 Share session across organization members or configure specific collaborators.
@@ -1561,6 +1637,7 @@ Dispatch user prompt to the ReAct engine in the background.
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | prompt | string | yes | Instruction or steer message for the agent |
+| delivery | `steer` / `queue` | no | While a turn of the session runs: 'steer' joins it at its next step, 'queue' runs after it as a turn of its own. Ignored when no turn runs |
 | model | string | no | Override LLM model name |
 | agent_id | string | no | The agent for this turn; empty keeps the session's |
 | mode | `agent` / `direct` | no | 'direct' runs this turn without an agent, on `model` with every tool; empty keeps the session's mode |
@@ -2215,15 +2292,14 @@ The full tool catalog (name, description, category, toolset).
 
 ### `POST /v1/tools/loading-preview`
 
-Which of an agent's tools are sent with every step and which wait to be loaded, under its
-settings and the organization's current ones (the same rule a turn applies).
+Which of an agent's tools are sent with every step and which wait to be loaded (the same
+rule a turn applies).
 
 **Request body**
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| tool_loading | `all` / `on_demand` / `pinned` / `auto` | no | The agent's own mode; empty inherits the organization's |
-| active_tools | list of string | no | Always-loaded tool names or shell-style patterns |
+| active_tools | list of string | no | Tools kept active besides the core set, or patterns |
 | tool_names | list of string | no | The tools the agent may use |
 
 **Responses:** `200`

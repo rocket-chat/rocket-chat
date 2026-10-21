@@ -6,7 +6,7 @@ import { useMissionStore } from "../lib/store";
 import { newMessageId } from "../lib/message-id";
 import { loadDraft, saveDraft } from "../lib/draft";
 import { useAuth } from "./AuthProvider";
-import { GitBranch, Rocket, ChevronDown, Check, Bot, Zap, Shield, Bug, Book, Search, Square, MessageSquarePlus, X, Paperclip, FileText, AlertTriangle } from "lucide-react";
+import { GitBranch, Rocket, ChevronDown, Check, Bot, Zap, Shield, Bug, Book, Search, Square, MessageSquarePlus, ListPlus, X, Paperclip, FileText, AlertTriangle } from "lucide-react";
 import { AgentPersonaConfig, ModelOption } from "../types/mission";
 import { PermissionModePicker } from "./PermissionModePicker";
 import { SandboxPicker } from "./SandboxPicker";
@@ -20,9 +20,12 @@ interface IgnitionConsoleProps {
     prompt: string,
     model?: string,
     messageId?: string,
-    attachmentIds?: string[]
+    attachmentIds?: string[],
+    delivery?: "steer" | "queue"
   ) => void;
   onCancel?: () => void;
+  /** Withdraw a message sent during the turn that no turn has taken yet. */
+  onCancelPending?: (messageId: string) => void;
   initialPrompt?: string;
   /** The conversation is still opening: typing waits until its draft is known. */
   loading?: boolean;
@@ -65,6 +68,7 @@ const SandboxState: React.FC<{ status?: string; isDraft: boolean }> = ({ status,
 export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
   onIgnite,
   onCancel,
+  onCancelPending,
   initialPrompt = "",
   loading = false,
 }) => {
@@ -138,8 +142,10 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     uploadAttachment,
     removeAttachment,
     clearAttachments,
+    pendingMessages,
+    addPendingMessage,
   } = useMissionStore(
-    useShallow((state) => ({ flightLog: state.flightLog, isExecuting: state.isExecuting, appendOwnUserMessage: state.appendOwnUserMessage, session: state.session, clearReasoning: state.clearReasoning, setIsExecuting: state.setIsExecuting, setStatusMessage: state.setStatusMessage, selectedModel: state.selectedModel, availableModels: state.availableModels, setAvailableModels: state.setAvailableModels, activeAgent: state.activeAgent, availableAgents: state.availableAgents, inferenceMode: state.inferenceMode, selectAgent: state.selectAgent, selectDirectModel: state.selectDirectModel, suggestedFollowup: state.suggestedFollowup, setSuggestedFollowup: state.setSuggestedFollowup, pendingAttachments: state.pendingAttachments, attachmentError: state.attachmentError, uploadAttachment: state.uploadAttachment, removeAttachment: state.removeAttachment, clearAttachments: state.clearAttachments }))
+    useShallow((state) => ({ flightLog: state.flightLog, isExecuting: state.isExecuting, appendOwnUserMessage: state.appendOwnUserMessage, session: state.session, clearReasoning: state.clearReasoning, setIsExecuting: state.setIsExecuting, setStatusMessage: state.setStatusMessage, selectedModel: state.selectedModel, availableModels: state.availableModels, setAvailableModels: state.setAvailableModels, activeAgent: state.activeAgent, availableAgents: state.availableAgents, inferenceMode: state.inferenceMode, selectAgent: state.selectAgent, selectDirectModel: state.selectDirectModel, suggestedFollowup: state.suggestedFollowup, setSuggestedFollowup: state.setSuggestedFollowup, pendingAttachments: state.pendingAttachments, attachmentError: state.attachmentError, uploadAttachment: state.uploadAttachment, removeAttachment: state.removeAttachment, clearAttachments: state.clearAttachments, pendingMessages: state.pendingMessages, addPendingMessage: state.addPendingMessage }))
   );
   const { user } = useAuth();
   const realSessionId = session && !session.is_draft && session.session_id !== "draft" ? session.session_id : null;
@@ -212,7 +218,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     stageFiles(e.dataTransfer?.files);
   };
 
-  const handleIgnite = () => {
+  const handleIgnite = (delivery: "steer" | "queue" = "steer") => {
     const trimmed = prompt.trim();
     if (!trimmed && pendingAttachments.length === 0) return;
 
@@ -245,15 +251,22 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     }
 
     const messageId = newMessageId();
-    appendOwnUserMessage({
-      messageId,
-      content: trimmed,
-      authorUserId: user?.user_id ?? null,
-      attachments: readyAttachments,
-    });
+    // During a turn the message waits above the composer until a turn takes it; it enters the
+    // conversation where the agent read it, not where it was typed.
+    const waitsForATurn = isExecuting && attachmentIds.length === 0;
+    if (waitsForATurn) {
+      addPendingMessage({ messageId, content: trimmed, delivery });
+    } else {
+      appendOwnUserMessage({
+        messageId,
+        content: trimmed,
+        authorUserId: user?.user_id ?? null,
+        attachments: readyAttachments,
+      });
+    }
 
     const targetModel = inferenceMode === "agent" ? activeAgent?.model || selectedModel : selectedModel;
-    onIgnite(trimmed, targetModel, messageId, attachmentIds.length ? attachmentIds : undefined);
+    onIgnite(trimmed, targetModel, messageId, attachmentIds.length ? attachmentIds : undefined, delivery);
     setPrompt("");
     saveDraft(draftSessionId, "");
     setSuggestedFollowup(null);
@@ -292,11 +305,11 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
       }
     }
 
-    // Enter or ⌘⏎ / Ctrl⏎ to run, or to send to the running turn
+    // Enter or ⌘⏎ / Ctrl⏎ to run, or to send to the running turn; Alt⏎ queues it after the turn
     if (e.key === "Enter") {
       if (!e.shiftKey) {
         e.preventDefault();
-        handleIgnite();
+        handleIgnite(isExecuting && e.altKey ? "queue" : "steer");
       }
     }
   };
@@ -418,6 +431,36 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
               </div>
             )}
           </div>
+        )}
+
+        {/* Messages sent during the turn, waiting for a turn to take them */}
+        {pendingMessages.length > 0 && (
+          <ul data-testid="pending-messages" aria-label="Messages waiting for the agent" className="flex flex-col gap-1.5 px-3 pt-3">
+            {pendingMessages.map((message) => (
+              <li
+                key={message.messageId}
+                data-testid={`pending-message-${message.delivery}`}
+                className="flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs"
+              >
+                <span className="shrink-0 font-medium text-foreground">
+                  {message.delivery === "queue" ? "Queued · after this turn" : "Steer · delivered at the next step"}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{message.content}</span>
+                {onCancelPending && (
+                  <button
+                    type="button"
+                    data-testid="pending-message-cancel"
+                    onClick={() => onCancelPending(message.messageId)}
+                    className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-elevated hover:text-foreground cursor-pointer"
+                    aria-label={`Withdraw the message: ${message.content}`}
+                    title="Withdraw it before the agent reads it"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
         )}
 
         {/* Text Input Area & Ghost Autocomplete Overlay */}
@@ -676,7 +719,24 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
             {isExecuting ? (
               <button
                 type="button"
-                onClick={handleIgnite}
+                onClick={() => handleIgnite("queue")}
+                disabled={!prompt.trim()}
+                data-testid="queue-button"
+                className={`relative px-3 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-all active:scale-95 border ${
+                  !prompt.trim()
+                    ? "border-border text-muted-foreground cursor-not-allowed"
+                    : "border-primary/50 text-foreground hover:bg-primary/10 cursor-pointer"
+                }`}
+                title="Run this after the current turn, as a turn of its own (Alt⏎)"
+              >
+                <ListPlus className="w-3.5 h-3.5" />
+                <span>Queue</span>
+              </button>
+            ) : null}
+            {isExecuting ? (
+              <button
+                type="button"
+                onClick={() => handleIgnite("steer")}
                 disabled={!prompt.trim()}
                 data-testid="steer-button"
                 className={`relative px-3.5 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 ${
@@ -692,7 +752,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
             ) : (
               <button
                 data-testid="ignite-button"
-                onClick={handleIgnite}
+                onClick={() => handleIgnite()}
                 disabled={!prompt.trim() && pendingAttachments.length === 0}
                 className={`relative px-4 py-1.5 rounded-xl font-medium text-xs flex items-center gap-1.5 transition-all shadow-sm active:scale-95 overflow-hidden ${
                   isThrustPulsing ? "animate-thrust-pulse" : ""

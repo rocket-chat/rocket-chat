@@ -1,0 +1,28 @@
+{
+  "tools": [
+    "apply_patch",
+    "ask_question",
+    "bash_exec",
+    "clone_repository",
+    "execute_skill",
+    "file_edit",
+    "file_read",
+    "file_write",
+    "git_commit",
+    "git_open_pr",
+    "git_push",
+    "github_actions",
+    "github_pull_request",
+    "glob_files",
+    "grep_search",
+    "load_tools",
+    "search_tools",
+    "update_task_checklist",
+    "wait_for",
+    "web_fetch",
+    "web_search"
+  ],
+  "tool_definition_chars": 16574,
+  "system_prompt_chars": 8177,
+  "overhead_tokens": 5583
+}

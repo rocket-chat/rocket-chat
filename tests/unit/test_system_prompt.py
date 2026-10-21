@@ -18,7 +18,7 @@ from api.store import InMemorySessionStore
 from api.turns import prompt
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
-from specifications.interfaces.agent import GitPolicy
+from specifications.interfaces.agent import GitPolicy, ToolLoading
 from specifications.interfaces.sandbox import SandboxStatus
 from specifications.interfaces.session import SessionRecord
 from tests.turn_harness import run_turn
@@ -89,7 +89,7 @@ async def test_the_stable_prompt_carries_no_per_turn_content() -> None:
     assert "[Workspace]" in first and "[Editing and verifying]" in first
     assert "[Long-running tasks and git hygiene]" in first
     assert "Never leave a rebase" in first
-    assert "maintain `.rocket/PLAN.md`" in first and "never re-send an" in first
+    assert "`.rocket/PLAN.md`" in first and "never re-send an" in first
     # Size budget assertion on stable platform prompt to prevent unbounded prompt inflation
     assert 2_000 < len(first) < 10_000
 
@@ -160,8 +160,8 @@ def test_a_read_only_agent_is_not_told_to_edit_run_or_publish() -> None:
 
 
 def test_a_tool_the_turn_denies_is_not_recommended() -> None:
-    everything = prompt.PromptTools()
-    no_artifacts = prompt.PromptTools(denied=frozenset({"create_artifact", "env_set"}))
+    everything = prompt.PromptTools(active=None)
+    no_artifacts = prompt.PromptTools(active=None, denied=frozenset({"create_artifact", "env_set"}))
 
     assert "create_artifact" in _guidance_text(everything)
     assert "create_artifact" not in _guidance_text(no_artifacts)
@@ -176,7 +176,7 @@ def test_tool_patterns_in_an_agents_list_allow_matching_tools() -> None:
 
 
 def test_verification_checkpoint_and_delegation_are_each_said_once() -> None:
-    text = _guidance_text(prompt.PromptTools())
+    text = _guidance_text(prompt.PromptTools(active=None))
 
     assert text.count("Verify what you changed") == 1
     assert text.count("git_checkpoint") == 1
@@ -194,13 +194,26 @@ async def test_a_denied_publishing_tool_is_explained_not_recommended() -> None:
                 dynamic="",
             )
         ),
-        binding=SimpleNamespace(whitelisted_tools=["*"]),
+        binding=SimpleNamespace(
+            whitelisted_tools=["*"], policy=SimpleNamespace(tool_loading=ToolLoading())
+        ),
     )
 
     tools = prompt.prompt_tools(ctx)  # type: ignore[arg-type]
 
     assert not tools.has(*prompt.PUBLISH_TOOLS)
     assert tools.has("bash_exec")
+
+
+def test_guidance_about_a_deferred_tool_arrives_with_the_tool_not_the_prompt() -> None:
+    core_only = _guidance_text(prompt.PromptTools())
+    kept = _guidance_text(prompt.PromptTools(active=("process_*",)))
+
+    for deferred in ("env_set", "create_artifact", "git_checkpoint", "process_start"):
+        assert deferred not in core_only, deferred
+    assert "process_start" in kept, "a tool the agent keeps active keeps its guidance"
+    assert "steer the current task" in core_only
+    assert "run them as written" in core_only
 
 
 def test_the_model_notice_is_plain_and_names_no_internals() -> None:

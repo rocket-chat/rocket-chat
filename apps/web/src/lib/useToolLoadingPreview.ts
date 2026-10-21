@@ -3,31 +3,32 @@
 import { useEffect, useMemo, useState } from "react";
 
 export interface ToolLoadingPreview {
-  mode: "all" | "on_demand" | "pinned" | "auto";
-  source: "agent" | "organization";
-  threshold: number;
+  /** The core tools: sent with every step whenever the agent may use them. */
+  core: string[];
+  /** Tools sent with every step: core, kept active, and the loading tools. */
+  sent: number;
   total: number;
   deferred: string[];
+  /** Above this many tools sent, the page warns. */
+  warning_at: number;
   reason: string;
 }
 
 interface Input {
-  toolLoading: string | null;
   activeTools: string[];
   toolNames: string[];
 }
 
 /**
  * Which of an agent's tools are active (sent with every step) and which are deferred, as the API
- * would decide it for these settings and the organization's current ones. The rule lives on the
- * server, so what the page shows is what a turn does.
+ * decides it. The rule lives on the server, so what the page shows is what a turn does.
  */
-export function useToolLoadingPreview({ toolLoading, activeTools, toolNames }: Input) {
+export function useToolLoadingPreview({ activeTools, toolNames }: Input) {
   const [preview, setPreview] = useState<ToolLoadingPreview | null>(null);
   const [failed, setFailed] = useState(false);
   const key = useMemo(
-    () => JSON.stringify([toolLoading, activeTools, toolNames]),
-    [toolLoading, activeTools, toolNames],
+    () => JSON.stringify([activeTools, toolNames]),
+    [activeTools, toolNames],
   );
 
   useEffect(() => {
@@ -37,7 +38,7 @@ export function useToolLoadingPreview({ toolLoading, activeTools, toolNames }: I
       fetch("/v1/tools/loading-preview", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tool_loading: toolLoading || null, active_tools: activeTools, tool_names: toolNames }),
+        body: JSON.stringify({ active_tools: activeTools, tool_names: toolNames }),
         signal: controller.signal,
       })
         .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
@@ -53,7 +54,7 @@ export function useToolLoadingPreview({ toolLoading, activeTools, toolNames }: I
       clearTimeout(timer);
       controller.abort();
     };
-    // `key` stands for the three inputs, which are arrays recreated on every render.
+    // `key` stands for the two inputs, which are arrays recreated on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 

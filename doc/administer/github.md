@@ -223,6 +223,14 @@ A session never starts from a repository: the workspace is always blank and the 
 
 A repository can prepare its own workspace. Right after the agent clones a repository (the `clone_repository` tool), Rocket Chat runs the setup of that repository once, in its folder: `.rocket/setup.sh` if it has one, otherwise the `onCreateCommand` and `postCreateCommand` of `.devcontainer/devcontainer.json` (string, list or named-object forms; comments allowed). Only those commands are honoured - the image, features and mounts of a dev container are the platform's choice (the sandbox catalogue). Setup runs as the sandbox user with the GitHub token removed from its environment, has 15 minutes, reports progress and failures in the session, and is not repeated while the file is unchanged. Organizations can turn it off with `sandboxes.run_repo_setup`.
 
+**Setups your organization defines.** A repository you cannot change, or a monorepo whose services each need their own preparation, gets its setup from **Settings → Organization → Sandboxes → Repository setups** (administrators). Each setup names a repository (`owner/name` or a pattern such as `acme/*`), a folder inside it (a path, `*` for each top-level folder, or empty for the root) and the bash commands that prepare it. The platform runs them in that folder right before the agent's first command there (`bash_exec`, tests, builds, package installs, background processes), once per workspace, and again when the commands change or the workspace was released; the agent sees one line saying it ran. If the setup fails, the agent's command does not run and the agent is shown the failing output, so it fixes the setup instead of building blind. These commands are written by your administrators, so unlike a repository's own `.rocket/setup.sh` they run with the agent's own access, private modules included. Example, for a Go monorepo whose services need generated code:
+
+```bash
+[ -d _tools ] || vendir sync -l
+go mod download
+make base && make mocks
+```
+
 **Dependency caching.** Installing dependencies on every new session is slow; the supported answer is an image that already has them: build your own from the devbox (`FROM ghcr.io/<owner>/sandbox`), add the toolchains and warm caches your repositories need, and add it to the sandbox catalogue (**Settings → Organization → Sandboxes**). A session's installed dependencies persist with its workspace across hibernation and restarts. There is deliberately no cache volume shared between sessions: a writable shared cache lets one session poison what another builds from, and needs ReadWriteMany storage.
 
 

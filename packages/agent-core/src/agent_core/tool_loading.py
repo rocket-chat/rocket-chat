@@ -1,10 +1,10 @@
 """Which tools a request carries, and which the agent loads when it needs them.
 
-Every tool definition is sent with every request, so an agent connected to several MCP servers
-pays tens of thousands of tokens per step for tools it rarely uses, and models choose worse
-among hundreds of tools. A deferred tool stays available: its name is listed (grouped by
-server, in the cacheable part of the system prompt) and ``load_tools`` adds its definition for
-the rest of the session. See ``ToolLoading`` for the modes.
+Every tool definition is sent with every request, so each step of a long turn pays for every
+tool the agent may use, and models choose worse among many. Requests carry the core set
+(``CORE_TOOLS``) and what the agent keeps active; a deferred tool stays available: its name is
+listed (grouped by server, in the cacheable part of the system prompt) and ``load_tools`` adds its
+definition for the rest of the session.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Sequence
 from fnmatch import fnmatchcase
 
-from specifications.interfaces.agent import ToolLoading
+from specifications.interfaces.agent import CORE_TOOLS, ToolLoading
 from specifications.interfaces.llm import ToolDefinition
 
 # Never deferred: how the agent finds and loads the rest.
@@ -27,25 +27,27 @@ def is_active(name: str, patterns: Iterable[str]) -> bool:
 def deferred_names(
     definitions: Sequence[ToolDefinition],
     loading: ToolLoading,
-    is_external: Callable[[str], bool],
+    enabled_for_turn: Callable[[str], bool] = lambda _name: False,
 ) -> frozenset[str]:
     """The tools of ``definitions`` the agent must load before their definition is sent.
 
-    ``on_demand`` keeps the platform's own tools loaded and defers the MCP servers' tools that
-    are not pinned; ``pinned`` loads only the pinned tools (and the loading tools) and defers
-    everything else. ``auto`` is ``on_demand`` once the agent has more tools than the threshold.
+    Every allowed tool that is neither core, nor kept active by the agent, nor a loading tool,
+    nor switched on for this turn by its session or transport (``enabled_for_turn``).
     """
-    if loading.mode == "pinned":
-        return frozenset(d.name for d in definitions if not is_active(d.name, loading.active))
-    if loading.mode == "on_demand" or (
-        loading.mode == "auto" and len(definitions) > loading.threshold
-    ):
-        return frozenset(
-            d.name
-            for d in definitions
-            if is_external(d.name) and not is_active(d.name, loading.active)
-        )
-    return frozenset()
+    if loading.send_all:
+        return frozenset()
+    return frozenset(
+        d.name
+        for d in definitions
+        if d.name not in CORE_TOOLS
+        and not is_active(d.name, loading.active)
+        and not enabled_for_turn(d.name)
+    )
+
+
+def sent_count(definitions: Sequence[ToolDefinition], loading: ToolLoading) -> int:
+    """How many of ``definitions`` every request carries under ``loading``."""
+    return len(definitions) - len(deferred_names(definitions, loading))
 
 
 def server_of(name: str) -> str:

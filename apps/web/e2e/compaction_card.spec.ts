@@ -59,6 +59,27 @@ test.describe("Compaction card", () => {
     await expect(page.getByTestId("compaction-summary")).toHaveCount(0);
   });
 
+  test("says when the summary had to be rebuilt from the tool history", async ({ page, request }) => {
+    const created = await request.post(`${API}/v1/sessions`, { data: { title: "Digest" } });
+    const sessionId: string = (await created.json()).session_id;
+    const socket = await routeSessionSocket(page, sessionId);
+
+    await page.goto(`/chat/${sessionId}`);
+    await socket.ready;
+    socket.emit("context_compacted", {
+      compacted_messages_count: 196,
+      tokens_before: 114312,
+      tokens_after: 35968,
+      summary: "(Rebuilt from the tool history.)\n\n## Files changed\n- `history/config/config.go`",
+      summary_status: "digest",
+    });
+
+    await expect(page.getByTestId("compaction-headline")).toHaveText(
+      "Compressed 196 messages from 114,312 to 35,968 tokens. " +
+        "The model's summary was unusable, so it was rebuilt from the tool history."
+    );
+  });
+
   test("a message that merely mentions compaction is not shown as one", async ({ page, request }) => {
     const created = await request.post(`${API}/v1/sessions`, { data: { title: "Not a compaction" } });
     const sessionId: string = (await created.json()).session_id;

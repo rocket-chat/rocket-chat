@@ -127,8 +127,8 @@ Reports one edit the agent made to a file, with its unified diff. It is also the
 The remaining catalogue uses the same envelope: `token`, `status_changed`,
 `plan_updated`, `post_failure_synthesis`, `subagent_started`,
 `subagent_progress`, `subagent_completed`, `followup_suggestion`,
-`session_updated`, `sandbox_state` (payload: `state`, `message`; `state: "failed"` means the sandbox could not start and `message` says why, for example an image that cannot be pulled), `decision_submitted`, `user_message`, `process_started`,
-`process_exited` (payload: `process_id`, `name`, `command`, `state`, `port`, `exit_code`), `github_event` (activity on a pull request the session follows; payload: `kind`, `repo`, `pr_number`, `summary`, `outcome`, `url`, `actor`, `at`, `woke`), `context_compacted` (payload: `tokens_before`, `tokens_after`, `compacted_messages_count`, `summary`), `goal_updated` (payload: `goal_id`, `description`, `status`, `consumed_tokens`, `consumed_cost_usd`, `continuation_count`, `max_continuations`, `stop_condition`), `continuation_scheduled` (payload: `continuation_index`, `max_continuations`, `reason`, `goal_id`), `wait_started` (payload: `wait_id`, `wait_type`, `target`, `timeout_seconds`), `wait_completed` (payload: `wait_id`, `wait_type`, `target`, `status`, `payload`), `artifact_created` (payload: `artifact_id`, `title`, `kind`, `path`), `artifact_updated` (payload: `artifact_id`, `title`, `kind`, `path`), `task_started` (payload: `task_id`, `command`, `state`), `task_completed` (payload: `task_id`, `exit_code`, `status`), and `error`.
+`session_updated`, `sandbox_state` (payload: `state`, `message`; `state: "failed"` means the sandbox could not start and `message` says why, for example an image that cannot be pulled), `decision_submitted`, `user_message`, `message_pending` (payload: `message_id`, `delivery`, `content`, `author_user_id`), `message_cancelled` (payload: `message_id`), `process_started`,
+`process_exited` (payload: `process_id`, `name`, `command`, `state`, `port`, `exit_code`), `github_event` (activity on a pull request the session follows; payload: `kind`, `repo`, `pr_number`, `summary`, `outcome`, `url`, `actor`, `at`, `woke`), `context_compacted` (payload: `tokens_before`, `tokens_after`, `compacted_messages_count`, `summary`, `summary_status`), `goal_updated` (payload: `goal_id`, `description`, `status`, `consumed_tokens`, `consumed_cost_usd`, `continuation_count`, `max_continuations`, `stop_condition`), `continuation_scheduled` (payload: `continuation_index`, `max_continuations`, `reason`, `goal_id`), `wait_started` (payload: `wait_id`, `wait_type`, `target`, `timeout_seconds`, `sha` for a CI wait on a named commit), `wait_completed` (payload: `wait_id`, `wait_type`, `target`, `status`, `payload`), `artifact_created` (payload: `artifact_id`, `title`, `kind`, `path`), `artifact_updated` (payload: `artifact_id`, `title`, `kind`, `path`), `task_started` (payload: `task_id`, `command`, `state`), `task_completed` (payload: `task_id`, `exit_code`, `status`), and `error`.
 
 ### E2. Replay After a Reconnect (`replay`)
 Sent in answer to a client `resume` frame (§3 F). It carries every retained event
@@ -270,13 +270,23 @@ reply, which it uses to detect half-open connections:
   "type": "ping"
 }
 ```
-`turn`/`action`, `cancel`/`interrupt`/`abort`, `share` and `terminal_input` are the other
-accepted client messages.
+`turn`/`action`, `cancel`/`interrupt`/`abort`, `cancel_message`, `share` and `terminal_input`
+are the other accepted client messages.
 
-A `turn` frame sent while the session's turn is running **steers** it: the running turn takes
-the message at its next step as a new user message (a `user_message` event is broadcast), so the
-agent can change course without the turn being cancelled. A message that arrives after the turn
-ended, or that reaches another replica, starts the next turn.
+A `turn` frame sent while a turn of the session runs (on any replica) is kept until a turn takes
+it, and announced with a `message_pending` event (`message_id`, `delivery`, `content`,
+`author_user_id`). Its `delivery` says what happens to it:
+
+* `"steer"` (the default): the running turn takes it at its next step as a new user message (a
+  `user_message` event is broadcast), so the agent can change course without the turn being
+  cancelled;
+* `"queue"`: it runs after the turn, as a turn of its own.
+
+A message the turn did not take, and every queued one, runs as the next turns, one each, in the
+order they were sent. They are stored, so a restart or another replica loses none. A
+`cancel_message` frame (`{"type": "cancel_message", "message_id": "..."}`, or
+`DELETE /v1/sessions/{id}/queued-messages/{message_id}`) withdraws one no turn has taken yet; a
+`message_cancelled` event (`message_id`) says so. A frame sent when no turn runs starts a turn.
 
 ### F. Resuming After a Reconnect
 A client that reconnects sends the last `seq` it applied to receive exactly the events it

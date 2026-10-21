@@ -1,7 +1,8 @@
-"""Tools an agent loads when it needs them: three states, the organization's settings, a turn.
+"""Tools an agent loads when it needs them: the core set, what the agent keeps active, a turn.
 
-A deferred tool is allowed but its definition is not sent: its name is listed in the cacheable
-prompt, ``load_tools`` (or calling it) loads it for the rest of the session.
+Every request carries the core tools and the ones the agent keeps active. Any other allowed tool
+is deferred: its definition is not sent, its name is listed in the cacheable prompt, and
+``load_tools`` (or calling it) loads it for the rest of the session.
 """
 
 from __future__ import annotations
@@ -11,11 +12,15 @@ from typing import Any
 import pytest
 from agent_core.tool_loading import catalogue, deferred_names
 from api.services.mcp_turn import McpTurnTools
-from api.services.settings import save_org_config
 from api.services.tool_loading import LOADED_TOOLS_KEY, tool_loading_for
 from api.turns import runner
 
-from specifications.interfaces.agent import ServerGuidance, ToolLoading
+from specifications.interfaces.agent import (
+    ACTIVE_TOOLS_WARNING,
+    CORE_TOOLS,
+    ServerGuidance,
+    ToolLoading,
+)
 from specifications.interfaces.llm import ToolDefinition
 from tests.turn_harness import run_turn
 
@@ -56,31 +61,28 @@ class _McpServers:
         return None
 
 
-def _rules(mode: str, active: tuple[str, ...] = (), threshold: int = 60) -> frozenset[str]:
-    platform = [_definition(n) for n in ("file_read", "bash_exec", "load_tools", "search_tools")]
-    definitions = platform + [_definition(n) for n in MCP]
-    return deferred_names(
-        definitions, ToolLoading(mode=mode, active=active, threshold=threshold), lambda n: n in MCP
-    )
+def _rules(active: tuple[str, ...] = (), send_all: bool = False) -> frozenset[str]:
+    names = ("file_read", "bash_exec", "git_status", "process_start", "load_tools", "search_tools")
+    definitions = [_definition(n) for n in (*names, *MCP)]
+    return deferred_names(definitions, ToolLoading(active=active, send_all=send_all))
 
 
-def test_the_four_modes() -> None:
-    platform = {"file_read", "bash_exec"}
-    assert _rules("all") == frozenset()
-    assert _rules("on_demand") == frozenset(MCP), "MCP tools wait, the platform's tools do not"
-    assert _rules("on_demand", active=("mcp__signoz*__*search*",)) == {AGGREGATE, QUERY}, (
-        "a pinned MCP tool is loaded and the platform's tools stay loaded"
+def test_the_core_set_and_the_active_tools_are_sent_and_the_rest_waits() -> None:
+    assert _rules() == {"git_status", "process_start", *MCP}, (
+        "core tools (file_read, bash_exec) and the loading tools are always sent"
     )
-    assert _rules("on_demand", active=("file_read",)) == frozenset(MCP), (
-        "pinning a platform tool changes nothing: it is loaded already"
-    )
-    assert _rules("pinned", active=("mcp__signoz*__*search*",)) == platform | {AGGREGATE, QUERY}, (
-        "pinned loads only the pins (and the loading tools)"
-    )
-    assert _rules("pinned") == platform | set(MCP), "with no pins only the loading tools are loaded"
-    assert _rules("auto", threshold=60) == frozenset(), "few tools: nothing deferred"
-    assert _rules("auto", threshold=5) == frozenset(MCP)
-    assert _rules("auto", active=(QUERY,), threshold=5) == {SEARCH, AGGREGATE}
+    assert _rules(active=("mcp__signoz*__*search*", "process_start")) == {
+        "git_status",
+        AGGREGATE,
+        QUERY,
+    }, "an active tool, by name or pattern, is sent too"
+    assert _rules(send_all=True) == frozenset(), "a turn with no agent sends everything"
+
+
+def test_the_core_set_is_the_reviewed_nineteen() -> None:
+    assert len(CORE_TOOLS) == 19 and len(set(CORE_TOOLS)) == 19
+    assert {"bash_exec", "clone_repository", "git_push", "wait_for"} <= set(CORE_TOOLS)
+    assert not {"process_start", "env_set", "workspace_status", "repo_foreach"} & set(CORE_TOOLS)
 
 
 def test_the_catalogue_lists_names_by_server() -> None:
@@ -107,12 +109,10 @@ def _names(request: Any) -> set[str]:
     return {t.name for t in request.tools or []}
 
 
-@pytest.mark.setting("general.tool_loading")
-async def test_on_demand_tools_are_listed_then_loaded_for_the_rest_of_the_session(
+async def test_deferred_tools_are_listed_then_loaded_for_the_rest_of_the_session(
     mcp: _McpServers,
 ) -> None:
     org = "org_tools_on_demand"
-    await save_org_config(None, org, "general", {"tool_loading": "on_demand"}, [])
 
     outcome = await run_turn(
         org,
@@ -136,53 +136,29 @@ async def test_on_demand_tools_are_listed_then_loaded_for_the_rest_of_the_sessio
     assert after_call.messages[0].content == system, "the cached prefix does not change"
 
 
-@pytest.mark.setting("general.tool_loading")
-async def test_loading_all_tools_sends_every_definition(mcp: _McpServers) -> None:
-    org = "org_tools_all"
-    await save_org_config(None, org, "general", {"tool_loading": "all"}, [])
-
-    outcome = await run_turn(org)
+async def test_the_core_tools_are_sent_and_the_rest_listed_in_a_real_turn(
+    mcp: _McpServers,
+) -> None:
+    outcome = await run_turn("org_tools_core")
 
     first = next(r for r in outcome.model.requests if r.tools)
-    assert set(MCP) <= _names(first)
-    assert "[Tools to load before use]" not in first.messages[0].content
+    sent = _names(first)
+    assert {"bash_exec", "file_edit", "clone_repository", "wait_for"} <= sent
+    assert not sent & {"process_start", "env_set", "repo_foreach", *MCP}
+    system = first.messages[0].content
+    assert "[Tools to load before use]" in system and "process_start" in system and QUERY in system
 
 
-@pytest.mark.setting("general.tool_loading_threshold")
-async def test_auto_defers_mcp_tools_only_past_the_threshold(mcp: _McpServers) -> None:
-    few, many = "org_tools_auto_high", "org_tools_auto_low"
-    await save_org_config(
-        None, few, "general", {"tool_loading": "auto", "tool_loading_threshold": 500}, []
-    )
-    await save_org_config(
-        None, many, "general", {"tool_loading": "auto", "tool_loading_threshold": 10}, []
-    )
-
-    under = next(r for r in (await run_turn(few)).model.requests if r.tools)
-    over = next(r for r in (await run_turn(many)).model.requests if r.tools)
-
-    assert set(MCP) <= _names(under)
-    assert not _names(over) & set(MCP) and "file_read" in _names(over)
-
-
-async def test_an_agent_overrides_the_organizations_mode_and_keeps_its_own_tools_loaded() -> None:
-    org = "org_tools_agent"
-    await save_org_config(None, org, "general", {"tool_loading": "all"}, [])
-
+def test_an_agent_keeps_its_own_tools_active() -> None:
     class Agent:
-        tool_loading = "on_demand"
         active_tools = ("mcp__signoz*",)
 
-    inherited = await tool_loading_for(None, org, None)
-    own = await tool_loading_for(None, org, Agent())
-
-    assert inherited.mode == "all" and inherited.threshold == 60
-    assert own.mode == "on_demand" and own.active == ("mcp__signoz*",)
+    assert tool_loading_for(None).active == ()
+    assert tool_loading_for(Agent()).active == ("mcp__signoz*",)
 
 
 async def test_a_session_keeps_what_it_loaded_for_its_next_turns(mcp: _McpServers) -> None:
     org = "org_tools_resume"
-    await save_org_config(None, org, "general", {"tool_loading": "on_demand"}, [])
 
     outcome = await run_turn(org, metadata={LOADED_TOOLS_KEY: [QUERY]})
 
@@ -207,80 +183,36 @@ _MEMBER = {"X-Tenant-Org-Id": "org_preview", "X-Tenant-User-Id": "u1", "X-User-R
 _TOOLS = ["file_read", "bash_exec", SEARCH, AGGREGATE, QUERY]
 
 
-@pytest.mark.setting("general.tool_loading")
-async def test_the_preview_applies_the_organizations_mode_to_an_agent_that_has_none(
-    preview_client: Any,
-) -> None:
-    await save_org_config(None, "org_preview", "general", {"tool_loading": "on_demand"}, [])
-
-    reply = preview_client.post(
-        "/v1/tools/loading-preview", json={"tool_names": _TOOLS}, headers=_MEMBER
-    ).json()
-
-    assert reply["mode"] == "on_demand" and reply["source"] == "organization"
-    assert reply["deferred"] == sorted(MCP), "MCP tools wait; the platform's do not"
-    assert "MCP tools are listed by name" in reply["reason"]
-
-
-async def test_the_preview_follows_the_agents_own_mode_and_pins(preview_client: Any) -> None:
-    await save_org_config(None, "org_preview", "general", {"tool_loading": "all"}, [])
-    pins = [SEARCH, "mcp__grafana*"]
-
-    additive = preview_client.post(
-        "/v1/tools/loading-preview",
-        json={"tool_loading": "on_demand", "active_tools": pins, "tool_names": _TOOLS},
-        headers=_MEMBER,
-    ).json()
-    only_pinned = preview_client.post(
-        "/v1/tools/loading-preview",
-        json={"tool_loading": "pinned", "active_tools": pins, "tool_names": _TOOLS},
-        headers=_MEMBER,
-    ).json()
-
-    assert additive["source"] == "agent" and only_pinned["source"] == "agent"
-    assert additive["deferred"] == [AGGREGATE], (
-        "the platform's tools stay loaded; pins add MCP tools"
-    )
-    assert only_pinned["deferred"] == sorted(["file_read", "bash_exec", AGGREGATE]), (
-        "with pinned only the pins (and the loading tools) stay loaded"
-    )
-    assert "2 pinned tools" in only_pinned["reason"] and "plus 2 pinned" in additive["reason"]
-
-
-@pytest.mark.setting("general.tool_loading_threshold")
-async def test_the_automatic_mode_is_decided_by_the_organizations_limit(
-    preview_client: Any,
-) -> None:
-    body = {"tool_loading": "auto", "tool_names": _TOOLS}
-    await save_org_config(None, "org_preview", "general", {"tool_loading_threshold": 500}, [])
-    within = preview_client.post("/v1/tools/loading-preview", json=body, headers=_MEMBER).json()
-    await save_org_config(None, "org_preview", "general", {"tool_loading_threshold": 3}, [])
-    over = preview_client.post("/v1/tools/loading-preview", json=body, headers=_MEMBER).json()
-
-    assert within["deferred"] == [] and "within the limit of 500" in within["reason"]
-    assert over["deferred"] == sorted(MCP) and "over the limit of 3" in over["reason"]
-    assert over["total"] == len(_TOOLS) + 2, "the loading tools count against the limit"
-
-
-async def test_the_preview_says_so_when_an_agent_is_over_the_limit_with_nothing_to_defer(
-    preview_client: Any,
-) -> None:
-    await save_org_config(None, "org_preview", "general", {"tool_loading_threshold": 2}, [])
-
+async def test_the_preview_counts_what_is_sent_and_lists_what_waits(preview_client: Any) -> None:
     reply = preview_client.post(
         "/v1/tools/loading-preview",
-        json={"tool_loading": "auto", "tool_names": ["file_read", "bash_exec", "git_status"]},
+        json={"active_tools": [SEARCH, "mcp__grafana*"], "tool_names": [*_TOOLS, "git_status"]},
         headers=_MEMBER,
     ).json()
 
-    assert reply["deferred"] == []
-    assert "over the limit of 2" in reply["reason"] and "no MCP tools to defer" in reply["reason"]
+    assert reply["deferred"] == sorted([AGGREGATE, "git_status"])
+    assert reply["sent"] == 6, "file_read, bash_exec, two active, two loading tools"
+    assert reply["total"] == len(_TOOLS) + 3 and reply["warning_at"] == ACTIVE_TOOLS_WARNING
+    assert "bash_exec" in reply["core"] and len(reply["core"]) == 19
+    assert "6 tools are sent with every step" in reply["reason"]
 
 
-def test_the_built_in_developer_keeps_its_lean_core_as_a_pinned_agent() -> None:
+async def test_the_preview_warns_past_the_active_limit(preview_client: Any) -> None:
+    many = [f"mcp__big__tool_{n}" for n in range(ACTIVE_TOOLS_WARNING + 5)]
+    reply = preview_client.post(
+        "/v1/tools/loading-preview",
+        json={"active_tools": ["mcp__big__*"], "tool_names": [*many, "git_status"]},
+        headers=_MEMBER,
+    ).json()
+
+    assert reply["sent"] > ACTIVE_TOOLS_WARNING
+    assert f"more than {ACTIVE_TOOLS_WARNING}" in reply["reason"]
+
+
+def test_the_built_in_developer_adds_only_a_few_tools_to_the_core() -> None:
     from api.services.personas import DEFAULT_AGENT_PERSONAS
 
     developer = next(p for p in DEFAULT_AGENT_PERSONAS if p.id == "persona-backend")
 
-    assert developer.tool_loading == "pinned"
-    assert "file_read" in developer.active_tools and "bash_exec" in developer.active_tools
+    assert not set(developer.active_tools) & set(CORE_TOOLS), "core tools need no pin"
+    assert len(developer.active_tools) + len(CORE_TOOLS) <= ACTIVE_TOOLS_WARNING

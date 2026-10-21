@@ -285,6 +285,31 @@ export class MissionWebSocket {
     if (frame.pending_decision) {
       this.applyEvent("decision_required", frame.pending_decision, this.sessionId);
     }
+    void this.loadPendingMessages();
+  }
+
+  /** The messages no turn has taken yet: kept by the server, so a reload still shows them. */
+  private async loadPendingMessages(): Promise<void> {
+    const sessionId = this.sessionId;
+    const headers: Record<string, string> = {};
+    if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
+    try {
+      const res = await fetch(`/v1/sessions/${sessionId}/queued-messages`, { headers });
+      if (!res.ok) return;
+      const pending: { message_id: string; delivery: string; content: string }[] = await res.json();
+      const store = useMissionStore.getState();
+      if (store.session?.session_id !== sessionId) return;
+      const held = pending.map((m) => ({
+        messageId: m.message_id,
+        content: m.content,
+        delivery: m.delivery === "queue" ? ("queue" as const) : ("steer" as const),
+      }));
+      // A message sent from this tab while the list was in flight is not in it yet: keep it.
+      const heldIds = new Set(held.map((m) => m.messageId));
+      store.setPendingMessages([...held, ...store.pendingMessages.filter((m) => !heldIds.has(m.messageId))]);
+    } catch {
+      // Pending messages are shown again by the next sync; nothing else depends on them.
+    }
   }
 
   /**
@@ -687,7 +712,9 @@ export class MissionWebSocket {
         store.appendFlightLog({
           id: `compacted-${eventKey}`,
           role: "SYSTEM",
-          content: `Context Compacted: Compressed ${count} messages from ${Number(tokensBefore).toLocaleString()} to ${Number(tokensAfter).toLocaleString()} tokens.\n\n${summary}`,
+          content: `Context Compacted: Compressed ${count} messages from ${Number(tokensBefore).toLocaleString()} to ${Number(tokensAfter).toLocaleString()} tokens.${
+            payload.summary_status === "digest" ? " The model's summary was unusable, so it was rebuilt from the tool history." : ""
+          }\n\n${summary}`,
           timestamp: eventTime,
         });
         break;
@@ -780,8 +807,26 @@ export class MissionWebSocket {
         break;
       }
 
+      case "message_pending": {
+        if (typeof payload.message_id === "string" && typeof payload.content === "string") {
+          store.addPendingMessage({
+            messageId: payload.message_id,
+            content: payload.content,
+            delivery: payload.delivery === "queue" ? "queue" : "steer",
+          });
+        }
+        break;
+      }
+
+      case "message_cancelled": {
+        if (typeof payload.message_id === "string") store.removePendingMessage(payload.message_id);
+        break;
+      }
+
       case "user_message": {
         const content = payload.content;
+        // Taken by a turn: it leaves the pending list and enters the conversation here.
+        if (typeof payload.message_id === "string") store.removePendingMessage(payload.message_id);
         if (typeof content === "string" && content.trim()) {
           store.ingestUserMessage({
             messageId: typeof payload.message_id === "string" ? payload.message_id : null,
@@ -798,11 +843,27 @@ export class MissionWebSocket {
     }
   }
 
+  /** Withdraw a message sent during a turn that no turn has taken yet. */
+  public cancelPendingMessage(messageId: string): void {
+    useMissionStore.getState().removePendingMessage(messageId);
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ type: "cancel_message", message_id: messageId }));
+      return;
+    }
+    const headers: Record<string, string> = {};
+    if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
+    void fetch(`/v1/sessions/${this.sessionId}/queued-messages/${encodeURIComponent(messageId)}`, {
+      method: "DELETE",
+      headers,
+    });
+  }
+
   public async sendTurn(
     content: string,
     model?: string,
     messageId?: string,
-    attachmentIds?: string[]
+    attachmentIds?: string[],
+    delivery: "steer" | "queue" = "steer"
   ): Promise<void> {
     const store = useMissionStore.getState();
     store.setIsExecuting(true);
@@ -840,6 +901,7 @@ export class MissionWebSocket {
             model,
             message_id: messageId,
             attachment_ids: ids,
+            delivery,
             ...choice,
           })
         );
@@ -863,6 +925,7 @@ export class MissionWebSocket {
           model,
           message_id: messageId,
           attachment_ids: ids,
+          delivery,
           ...choice,
         }),
       });

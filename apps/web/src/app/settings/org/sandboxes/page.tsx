@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { RepositorySetupsPanel } from "../../../../components/settings/RepositorySetupsPanel";
 import { SandboxCataloguePanel } from "../../../../components/settings/SandboxCataloguePanel";
 import { SchemaSettingsForm } from "../../../../components/settings/SchemaSettingsForm";
 
@@ -27,6 +28,7 @@ export default function Page() {
       <div className="flex-1 p-8">
         <div className="max-w-5xl mx-auto space-y-10">
           <SandboxCataloguePanel />
+          <RepositorySetupsPanel />
           <SchemaSettingsForm
             domain="sandboxes"
             mode="org"

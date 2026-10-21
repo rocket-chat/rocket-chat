@@ -26,6 +26,9 @@ class CompactionCheckpoint:
     tokens_before: int
     tokens_after: int
     created_at: int
+    # How the summary was made: "model", "model_retry" or "digest" (rebuilt from the tool
+    # history); "legacy" for checkpoints stored before summaries were checked.
+    summary_status: str = "legacy"
 
 
 class CompactionStoreProtocol(ABC):

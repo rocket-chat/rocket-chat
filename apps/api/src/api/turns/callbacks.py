@@ -10,17 +10,25 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any, TypedDict
 
+from agent_core.context import current_execution_ctx
 from git_engine.engine import pick_installation
 
 from api.services.artifacts import get_artifact_store
 from api.services.git_credentials import GitCredentialBundle, app_may_act_on
 from api.services.git_gateway_env import github_api_url_of
 from api.services.github_installations import installations_for_org
-from api.services.github_watches import GithubWatchStore, watch_callbacks
+from api.services.github_watches import (
+    GithubWatchStore,
+    pushed_head,
+    remember_pushed_head,
+    watch_callbacks,
+)
 from api.services.knowledge import search_knowledge
 from api.services.mcp_runtime import McpToolProvider
 from api.services.memory import MemoryService
 from api.services.process_tracker import ProcessTracker
+from api.services.repository_setups import RepositorySetupStore
+from api.services.repository_setups import prepare_folder as prepare_repository_folder
 from api.services.session_env import remember_agent_env
 from api.services.session_support import choose_active_repository, remember_active_repository
 from api.services.settings import effective_settings
@@ -37,7 +45,13 @@ from api.services.waits import get_wait_store, settle_waits
 from api.turns.context import TurnContext
 from api.turns.provisioning import provision_session_sandbox, run_repository_setup
 from api.turns.shared import _background_tasks
-from specifications.interfaces.agent import GithubAccess, SkillInstructions, TurnCallbacks
+from specifications.interfaces.agent import (
+    FolderSetupOutcome,
+    GithubAccess,
+    SkillInstructions,
+    TurnCallbacks,
+    WaitOutcome,
+)
 from specifications.interfaces.events import EventType, SessionEvent
 from specifications.interfaces.session import (
     ArtifactStoreProtocol,
@@ -169,25 +183,48 @@ NO_CHECKS_ATTEMPTS = 4
 
 
 async def _ci_already_settled(
-    ctx: TurnContext, git_bundle: GitCredentialBundle | None, repo: str, pr_num: int
+    ctx: TurnContext,
+    git_bundle: GitCredentialBundle | None,
+    repo: str,
+    pr_num: int,
+    expected_sha: str = "",
 ) -> str | None:
     """What to tell the agent instead of waiting, when CI has already finished or never runs.
 
     A wait on finished CI only woke the session at its timeout (30 minutes and more), and a
-    wait on a pull request with no CI at all could never end any other way.
+    wait on a pull request with no CI at all could never end any other way. Right after a push
+    the pull request still points at its previous head for a few seconds: that commit's result is
+    never reported, the wait is registered for the new one instead.
     """
+    status = ""
+    summary = ""
     for attempt in range(NO_CHECKS_ATTEMPTS):
-        status, summary, settled = await _check_github_ci_poll(ctx, git_bundle, repo, pr_num)
+        status, summary, settled = await _check_github_ci_poll(
+            ctx, git_bundle, repo, pr_num, expected_sha
+        )
         if settled:
             return f"{summary} No wait was registered: act on this result now."
-        if status != "none":
+        if status not in ("none", "stale"):
             return None
         if attempt < NO_CHECKS_ATTEMPTS - 1:
             await asyncio.sleep(NO_CHECKS_GRACE_SECONDS)
+    if status == "stale":
+        return None
     return (
         f"{summary} No wait was registered: read the pull request's state "
         "(`github_pull_request`) and decide what to do instead of waiting for CI."
     )
+
+
+async def _expected_head(ctx: TurnContext, repo: str, branch: str, sha: str | None) -> str:
+    """The commit a CI wait is about: the one named, else the one the session last pushed.
+
+    Read from the stored session, not the turn's snapshot: the push happened during this turn.
+    """
+    if sha:
+        return sha
+    record = await ctx.req.store.get_session(ctx.session_id)
+    return pushed_head(record.metadata if record is not None else None, repo, branch)
 
 
 async def _check_github_ci_poll(
@@ -195,7 +232,13 @@ async def _check_github_ci_poll(
     git_bundle: GitCredentialBundle | None,
     repo: str,
     pr_num: int,
+    expected_sha: str = "",
 ) -> tuple[str, str, bool]:
+    """(status, summary, settled) of CI on the commit the session waits for.
+
+    ``stale`` when the pull request does not point at that commit yet (GitHub moves its head a
+    few seconds after a push); the checks read are always those of the expected commit.
+    """
     if git_bundle is None:
         return "", "", False
     access_fn = _github_read_access(ctx, git_bundle)
@@ -206,9 +249,17 @@ async def _check_github_ci_poll(
         from agent_core.tools.github_client import request as gh_request
 
         pull = await gh_request(access, "GET", f"/repos/{repo}/pulls/{pr_num}")
-        head_sha = (pull.get("head") or {}).get("sha")
+        head = pull.get("head") or {}
+        head_sha = str(head.get("sha") or "")
         if not head_sha:
             return "", "", False
+        expected = await _expected_head(ctx, repo, str(head.get("ref") or ""), expected_sha)
+        if expected and not head_sha.startswith(expected) and not expected.startswith(head_sha):
+            return (
+                "stale",
+                f"{repo}#{pr_num} still points at {head_sha[:8]}, not {expected[:8]}",
+                False,
+            )
         runs_data = await gh_request(
             access, "GET", f"/repos/{repo}/commits/{head_sha}/check-runs", params={"per_page": 100}
         )
@@ -290,6 +341,7 @@ def _schedule_github_wake(
     timeout_seconds: int | None,
     git_bundle: GitCredentialBundle | None = None,
     wait_id: str = "",
+    sha: str | None = None,
 ) -> None:
     max_wait = float(timeout_seconds) if timeout_seconds else 1800.0
     repo, pr_num = _parse_repo_pr(
@@ -318,7 +370,7 @@ def _schedule_github_wake(
             if pr_num is not None:
                 if target == "ci_status":
                     status, summary, should_wake = await _check_github_ci_poll(
-                        ctx, git_bundle, repo, pr_num
+                        ctx, git_bundle, repo, pr_num, sha or ""
                     )
                 elif target == "review":
                     status, summary, should_wake = await _check_github_review_poll(
@@ -457,14 +509,85 @@ def _normalize_wait(
     return "", None, identifier, max(5, min(timeout_seconds or 600, 3600))
 
 
+async def _persist_wait(
+    ctx: TurnContext, wait_id: str, target: str, identifier: str, seconds: int, sha: str | None
+) -> None:
+    """Record the wait durably, replacing an earlier one on the same target."""
+    if not ctx.req.db_mgr:
+        return
+    try:
+        from api.services.waits import PostgresWaitStore, SessionWait
+
+        waits = PostgresWaitStore(ctx.req.db_mgr)
+        # One wait per target: a second wait_for on the same pull request replaces the first
+        # instead of waking the session twice.
+        await settle_waits(
+            waits,
+            ctx.session_id,
+            ctx.session.tenant_org_id,
+            status="cancelled",
+            kind=target,
+            target=identifier,
+        )
+        await waits.create_wait(
+            SessionWait(
+                id=wait_id,
+                session_id=ctx.session_id,
+                tenant_org_id=ctx.session.tenant_org_id,
+                kind=target,
+                target=identifier,
+                deadline=int(time.time()) + seconds,
+                status="waiting",
+                metadata={"sha": sha} if sha else {},
+            )
+        )
+    except Exception as err:
+        logger.warning("Could not persist durable wait %s: %s", wait_id, err)
+
+
+def _arm_wake(
+    ctx: TurnContext | None,
+    target: str,
+    identifier: str,
+    timeout: int,
+    wait_id: str,
+    git_bundle: GitCredentialBundle | None,
+    sha: str | None,
+) -> str:
+    """Start what will wake the session, and say so to the agent."""
+    if target in ("ci_status", "review"):
+        if ctx is not None:
+            _schedule_github_wake(
+                ctx, target, identifier, timeout, git_bundle=git_bundle, wait_id=wait_id, sha=sha
+            )
+        return (
+            f"Waiting for {target} on {identifier} (timeout: {timeout}s). Turn paused; "
+            "will automatically wake upon webhook arrival or timeout."
+        )
+    if target == "time":
+        if ctx is not None:
+            _schedule_time_wake(ctx, float(identifier), wait_id=wait_id)
+        return f"Waiting for timer delay of {identifier}s. Turn paused; will wake after delay."
+    if target == "process_exit":
+        if ctx is not None:
+            _schedule_process_wake(ctx, identifier, timeout, wait_id=wait_id)
+        return (
+            f"Waiting for background process {identifier} to exit. Turn paused; "
+            "will wake when process completes."
+        )
+    return f"Waiting for {target} ({identifier}). Turn entering waiting state."
+
+
 def _build_wait_for(
     session_id: str,
     event_bus: Any,
     github_watch: Any,
     ctx: TurnContext | None = None,
     git_bundle: GitCredentialBundle | None = None,
-) -> Callable[[str, str, int | None], Awaitable[str]]:
-    async def wait_for(target: str, identifier: str, timeout_seconds: int | None) -> str:
+) -> Callable[[str, str, int | None, str | None], Awaitable[WaitOutcome]]:
+    async def wait_for(
+        target: str, identifier: str, timeout_seconds: int | None, sha: str | None = None
+    ) -> WaitOutcome:
         wait_id = f"wait_{uuid.uuid4().hex[:12]}"
         default_repo = ""
         if ctx is not None and ctx.session.metadata:
@@ -475,83 +598,33 @@ def _build_wait_for(
         )
 
         if target == "ci_status" and pr_num is not None and ctx is not None:
-            if settled := await _ci_already_settled(ctx, git_bundle, repo, pr_num):
-                return settled
+            if settled := await _ci_already_settled(ctx, git_bundle, repo, pr_num, sha or ""):
+                return WaitOutcome(settled, registered=False)
         reason = f"{target} on {norm_identifier}"
+        payload: dict[str, Any] = {
+            "wait_id": wait_id,
+            "wait_type": target,
+            "target": norm_identifier,
+            "timeout_seconds": effective_timeout,
+            "reason": reason,
+        }
+        if sha:
+            payload["sha"] = sha
         await event_bus.publish(
-            SessionEvent(
-                session_id=session_id,
-                event_type=EventType.WAIT_STARTED,
-                payload={
-                    "wait_id": wait_id,
-                    "wait_type": target,
-                    "target": norm_identifier,
-                    "timeout_seconds": effective_timeout,
-                    "reason": reason,
-                },
-            )
+            SessionEvent(session_id=session_id, event_type=EventType.WAIT_STARTED, payload=payload)
         )
         if ctx is not None:
             ctx.state.is_waiting = True
             ctx.state.wait_target = reason
             ctx.state.wait_summary = f"Waiting for {reason}. Durable wait registered; turn paused."
-            if ctx.req.db_mgr:
-                try:
-                    from api.services.waits import PostgresWaitStore, SessionWait
-
-                    waits = PostgresWaitStore(ctx.req.db_mgr)
-                    # One wait per target: a second wait_for on the same pull request replaces
-                    # the first instead of waking the session twice.
-                    await settle_waits(
-                        waits,
-                        session_id,
-                        ctx.session.tenant_org_id,
-                        status="cancelled",
-                        kind=target,
-                        target=norm_identifier,
-                    )
-                    await waits.create_wait(
-                        SessionWait(
-                            id=wait_id,
-                            session_id=session_id,
-                            tenant_org_id=ctx.session.tenant_org_id,
-                            kind=target,
-                            target=norm_identifier,
-                            deadline=int(time.time()) + effective_timeout,
-                            status="waiting",
-                        )
-                    )
-                except Exception as err:
-                    logger.warning("Could not persist durable wait %s: %s", wait_id, err)
-
+            await _persist_wait(ctx, wait_id, target, norm_identifier, effective_timeout, sha)
         if target in ("ci_status", "review"):
             branch = ctx.session.git_branch if (ctx is not None and pr_num is None) else None
             await github_watch(repo, pr_num, branch=branch, wake=True)
-            if ctx is not None:
-                _schedule_github_wake(
-                    ctx,
-                    target,
-                    norm_identifier,
-                    effective_timeout,
-                    git_bundle=git_bundle,
-                    wait_id=wait_id,
-                )
-            return (
-                f"Waiting for {target} on {norm_identifier} (timeout: {effective_timeout}s). Turn paused; "
-                "will automatically wake upon webhook arrival or timeout."
-            )
-        if target == "time":
-            if ctx is not None:
-                _schedule_time_wake(ctx, float(norm_identifier), wait_id=wait_id)
-            return f"Waiting for timer delay of {norm_identifier}s. Turn paused; will wake after delay."
-        if target == "process_exit":
-            if ctx is not None:
-                _schedule_process_wake(ctx, norm_identifier, effective_timeout, wait_id=wait_id)
-            return (
-                f"Waiting for background process {norm_identifier} to exit. Turn paused; "
-                "will wake when process completes."
-            )
-        return f"Waiting for {target} ({norm_identifier}). Turn entering waiting state."
+        message = _arm_wake(
+            ctx, target, norm_identifier, effective_timeout, wait_id, git_bundle, sha
+        )
+        return WaitOutcome(message, registered=True)
 
     return wait_for
 
@@ -748,6 +821,8 @@ class _SessionRecordCallbacks(TypedDict):
     guidance_read: Callable[[str, dict[str, str]], Awaitable[None]]
     skills_read: Callable[[str, dict[str, str]], Awaitable[None]]
     agent_env_changed: Callable[[str, dict[str, str]], Awaitable[None]]
+    branch_published: Callable[[str, str, str, str], Awaitable[None]]
+    prepare_folder: Callable[[str, str], Awaitable[FolderSetupOutcome | None]] | None
 
 
 def _session_record_callbacks(ctx: TurnContext) -> _SessionRecordCallbacks:
@@ -791,6 +866,18 @@ def _session_record_callbacks(ctx: TurnContext) -> _SessionRecordCallbacks:
     async def agent_env_changed(target_session_id: str, env: dict[str, str]) -> None:
         await remember_agent_env(store, target_session_id, org, env)
 
+    async def branch_published(target_session_id: str, repo: str, branch: str, sha: str) -> None:
+        await store.mutate_session(target_session_id, org, remember_pushed_head(repo, branch, sha))
+
+    async def prepare_folder(target_session_id: str, folder: str) -> FolderSetupOutcome | None:
+        assert driver is not None
+        setups = await RepositorySetupStore(req.db_mgr).list(org)
+        if not setups:
+            return None
+        exec_ctx = current_execution_ctx.get()
+        env = dict(exec_ctx.agent_env) if exec_ctx is not None else {}
+        return await prepare_repository_folder(driver, target_session_id, setups, folder, env)
+
     return _SessionRecordCallbacks(
         repository_cloned=repository_cloned if driver else None,
         active_repository_chosen=active_repository_chosen if driver else None,
@@ -798,6 +885,8 @@ def _session_record_callbacks(ctx: TurnContext) -> _SessionRecordCallbacks:
         guidance_read=guidance_read,
         skills_read=skills_read,
         agent_env_changed=agent_env_changed,
+        branch_published=branch_published,
+        prepare_folder=prepare_folder if driver else None,
     )
 
 

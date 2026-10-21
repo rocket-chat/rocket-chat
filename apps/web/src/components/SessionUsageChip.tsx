@@ -4,7 +4,14 @@ import React, { useEffect, useRef, useState } from "react";
 import { Coins } from "lucide-react";
 import { useClampIntoViewport } from "../lib/useClampIntoViewport";
 import { useSessionUsage } from "../lib/useSessionUsage";
-import { cacheHitPercent, formatCount, formatUsd, type UsageTotals } from "../lib/session-usage";
+import {
+  cacheHitPercent,
+  describeTurnMetrics,
+  formatCount,
+  formatDuration,
+  formatUsd,
+  type UsageTotals,
+} from "../lib/session-usage";
 import { Badge } from "./ui/Badge";
 
 const Figures: React.FC<{ totals: UsageTotals }> = ({ totals }) => (
@@ -110,6 +117,7 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
                     <tr>
                       <th scope="col" className="px-2 py-1 font-medium">Turn</th>
                       <th scope="col" className="px-2 py-1 text-right font-medium">Calls</th>
+                      <th scope="col" className="px-2 py-1 text-right font-medium">Time</th>
                       <th scope="col" className="px-2 py-1 text-right font-medium">In</th>
                       <th scope="col" className="px-2 py-1 text-right font-medium">Out</th>
                       <th scope="col" className="px-2 py-1 text-right font-medium">Cost</th>
@@ -125,6 +133,13 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
                           )}
                         </td>
                         <td className="px-2 py-1 text-right font-mono">{turn.calls}</td>
+                        <td
+                          className="px-2 py-1 text-right font-mono"
+                          title={turn.metrics ? describeTurnMetrics(turn.metrics) : undefined}
+                          data-testid="session-usage-turn-time"
+                        >
+                          {turn.ended_at ? formatDuration(turn.ended_at - turn.started_at) : "…"}
+                        </td>
                         <td className="px-2 py-1 text-right font-mono">{formatCount(turn.prompt_tokens)}</td>
                         <td className="px-2 py-1 text-right font-mono">{formatCount(turn.completion_tokens)}</td>
                         <td className="px-2 py-1 text-right font-mono text-foreground">{formatUsd(turn.cost_usd)}</td>

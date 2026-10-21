@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
 from sqlalchemy import select
 
 from api.db.models import GithubWatchModel
+from specifications.interfaces.session import SessionRecord
 
 # A wake starts a turn on its own, so each watch can only do it a few times: a flapping CI must not
 # keep an agent working indefinitely.
@@ -270,3 +271,31 @@ def watch_callbacks(
 
 def reset_memory_watches() -> None:
     GithubWatchStore._MEMORY.clear()
+
+
+# The head each branch was last published at by the session, as "owner/repo@branch" -> sha. A CI
+# wait reads that commit's checks, and a CI webhook about another commit does not wake the session:
+# right after a push, the pull request still points at its previous head for a few seconds, whose
+# finished (often failed) run was reported as the new one's.
+PUSHED_HEADS_KEY = "pushed_heads"
+
+
+def pushed_head(metadata: Mapping[str, Any] | None, repository: str, branch: str) -> str:
+    """The sha the session last published ``branch`` of ``repository`` at, or ""."""
+    heads = (metadata or {}).get(PUSHED_HEADS_KEY)
+    if not isinstance(heads, dict) or not branch:
+        return ""
+    return str(heads.get(f"{repository.lower()}@{branch}") or "")
+
+
+def remember_pushed_head(repository: str, branch: str, sha: str) -> Callable[[SessionRecord], None]:
+    """A ``mutate_session`` step recording that ``branch`` was published at ``sha``."""
+
+    def record(target: SessionRecord) -> None:
+        metadata = dict(target.metadata) if isinstance(target.metadata, dict) else {}
+        heads = dict(metadata.get(PUSHED_HEADS_KEY) or {})
+        heads[f"{repository.lower()}@{branch}"] = sha
+        metadata[PUSHED_HEADS_KEY] = heads
+        target.metadata = metadata
+
+    return record

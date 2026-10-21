@@ -236,16 +236,29 @@ async def test_background_waits_sweeper() -> None:
         created_at=past - 10,
     )
     await wait_store.create_wait(due_wait)
+    # A CI wait of the same session falling due in the same sweep.
+    ci_wait = SessionWait(
+        id="wait-due-2",
+        session_id="test-session-1",
+        tenant_org_id="default_org",
+        kind="ci_status",
+        target="acme/lib#1111",
+        deadline=past,
+        status="waiting",
+        created_at=past - 10,
+    )
+    await wait_store.create_wait(ci_wait)
 
     with patch("api.bootstrap.background._spawn_background_turn") as mock_spawn:
-        # Manually invoke _wake_claimed_wait
-        claimed_waits = [due_wait]
-        for w in claimed_waits:
-            await bg._wake_claimed_wait(w, wait_store)
+        await bg._wake_claimed_waits([due_wait, ci_wait], wait_store)
 
-        assert mock_spawn.called
+        # One automatic turn for both, saying what to check rather than only "expired".
+        assert mock_spawn.call_count == 1
         assert mock_spawn.call_args[1]["session_id"] == "test-session-1"
+        prompt = mock_spawn.call_args[1]["prompt"]
+        assert "wait-due-1" in prompt and "No ci_status result arrived for acme/lib#1111" in prompt
 
-        resolved = await wait_store.get_wait("test-session-1", "wait-due-1", "default_org")
-        assert resolved is not None
-        assert resolved.status == "completed"
+        for wait_id in ("wait-due-1", "wait-due-2"):
+            resolved = await wait_store.get_wait("test-session-1", wait_id, "default_org")
+            assert resolved is not None
+            assert resolved.status == "completed"

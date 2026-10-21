@@ -206,6 +206,11 @@ class TestSubagentRunner:
 
         async def _mock_stream(req: ModelRequest) -> AsyncIterator[StreamChunk]:
             nonlocal calls
+            if req.tool_choice == "none" or not req.tools:
+                # The compaction's summary request, not a step of the delegate.
+                summary = "## Objective\n- keep going\n\n## Next Move\n1. more steps"
+                yield StreamChunk(text_delta=summary + "\n- step" * 20, is_finished=True)
+                return
             calls += 1
             if calls <= 12:
                 yield StreamChunk(

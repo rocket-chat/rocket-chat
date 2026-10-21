@@ -9,6 +9,7 @@ from fastapi import (
     Query,
     Request,
 )
+from pydantic import BaseModel, Field
 
 from api.auth.access import _get_request_identity, _require_admin
 from api.models import (
@@ -16,6 +17,7 @@ from api.models import (
     AgentPersonaModel,
     SubagentConfigModel,
 )
+from api.services.persona_lint import PersonaWarning, lint_persona
 from api.services.personas import (
     PersonaError,
     delete_persona,
@@ -69,6 +71,31 @@ async def create_or_update_agent(persona: AgentPersonaModel, request: Request) -
         )
     except PersonaError as err:
         raise HTTPException(status_code=err.status_code, detail=err.detail) from err
+
+
+class PersonaLintRequest(BaseModel):
+    system_prompt: str = Field(..., max_length=200_000, description="The prompt to check")
+
+
+class PersonaLintResponse(BaseModel):
+    warnings: list[PersonaWarning] = Field(
+        default_factory=list, description="What to look at; a save is never refused for these"
+    )
+
+
+@router.post("/agents/lint", response_model=PersonaLintResponse)
+async def lint_agent_prompt(body: PersonaLintRequest, request: Request) -> PersonaLintResponse:
+    """Warnings about an agent's prompt: over 4,000 characters, a tool that does not exist, or
+    an argument a tool does not take. For the agent editor; nothing is stored."""
+    _org_id, _user_id, roles = _get_request_identity(request)
+    if "readonly" in roles:
+        raise HTTPException(status_code=403, detail="Forbidden: Read-only role cannot edit agents")
+    registry = getattr(request.app.state, "tool_registry", None)
+    definitions = registry.get_tool_definitions() if registry is not None else []
+    tools = {
+        d.name: list((d.parameters_json_schema or {}).get("properties", {})) for d in definitions
+    }
+    return PersonaLintResponse(warnings=lint_persona(body.system_prompt, tools))
 
 
 @router.delete("/agents/{persona_id}")

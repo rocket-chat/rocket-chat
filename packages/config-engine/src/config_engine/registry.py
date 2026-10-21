@@ -91,7 +91,6 @@ _SANDBOX_CATALOGUE = "apps/api/src/api/services/sandbox_catalogue.py"
 _TURN_ROUTING = "apps/api/src/api/turns/routing.py"
 _TURN_PROMPT = "apps/api/src/api/turns/prompt.py"
 _TURN_LIMITS = "apps/api/src/api/services/turn_limits.py"
-_TOOL_LOADING = "apps/api/src/api/services/tool_loading.py"
 _TURN_FINALISE = "apps/api/src/api/turns/finalise.py"
 _MCP_SERVERS = "apps/api/src/api/routers/mcp_servers.py"
 _SESSION_CRUD = "apps/api/src/api/routers/session_crud.py"
@@ -145,30 +144,6 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             label="Max steps per turn",
             minimum=0,
             maximum=500,
-        ),
-        _spec(
-            "tool_loading",
-            "str",
-            "auto",
-            "org",
-            _TOOL_LOADING,
-            "Which tools are sent to the model with every step. all: every allowed tool. "
-            "on_demand: the platform's own tools and an agent's pinned MCP tools; the other MCP "
-            "tools are listed by name and loaded when needed. auto: like all, until an agent "
-            "has more tools than tool_loading_threshold; then like on_demand. An agent can "
-            "choose its own, including 'pinned' (only its pinned tools).",
-            choices=("auto", "all", "on_demand"),
-        ),
-        _spec(
-            "tool_loading_threshold",
-            "int",
-            60,
-            "org",
-            _TOOL_LOADING,
-            "With tool_loading auto: how many tools an agent may have before its MCP servers' "
-            "tools are loaded on demand.",
-            minimum=1,
-            maximum=1000,
         ),
         _spec(
             "output_offload_threshold",
@@ -1059,7 +1034,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
 
 # Presentation only: which settings a form folds under "Advanced", and what a number counts.
 _ADVANCED: dict[str, frozenset[str]] = {
-    "general": frozenset({"output_offload_threshold", "tool_loading", "tool_loading_threshold"}),
+    "general": frozenset({"output_offload_threshold"}),
     "models": frozenset(
         {
             "context_windows",
@@ -1136,7 +1111,6 @@ _ADVANCED: dict[str, frozenset[str]] = {
 _UNITS: dict[str, str] = {
     "max_turns": "steps",
     "output_offload_threshold": "characters",
-    "tool_loading_threshold": "tools",
     "context_target_tokens": "tokens",
     "max_tokens": "tokens",
     "reasoning_step_limit_tokens": "tokens",

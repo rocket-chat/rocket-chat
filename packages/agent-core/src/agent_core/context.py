@@ -25,7 +25,18 @@ from typing import Any
 import litellm
 from llm_gateway.tokens import request_tokens
 
+from agent_core.compaction_summary import (
+    CHECKPOINT_MARKER,
+    RETRY_NOTE,
+    SUMMARY_STATUS_DIGEST,
+    SUMMARY_STATUS_MODEL,
+    SUMMARY_STATUS_MODEL_RETRY,
+    summary_prompt,
+    tool_history_digest,
+    valid_summary,
+)
 from agent_core.notes import REMINDER_CLOSE, REMINDER_OPEN, render_notes
+from agent_core.skill_blocks import is_skill_result, skill_blocks
 from agent_core.transcript import repair_tool_pairs
 from specifications.interfaces.agent import AgentEvent, ServerGuidance, TurnCallbacks, TurnPolicy
 from specifications.interfaces.llm import (
@@ -35,6 +46,7 @@ from specifications.interfaces.llm import (
     ToolDefinition,
 )
 
+# Sends a summary request (the conversation, then the summary prompt) and returns the text.
 Summarizer = Callable[[list[ChatMessage]], Awaitable[str]]
 logger = logging.getLogger(__name__)
 
@@ -53,6 +65,9 @@ DEFAULT_MODEL_CONTEXT_LIMITS: dict[str, int] = {
     "gemini": 1_000_000,
 }
 FALLBACK_CONTEXT_LIMIT = 128_000
+# The person's earlier messages kept verbatim across a compaction (after Codex): about 20,000
+# tokens, newest first. A constraint they gave at the start must outlive the summary of it.
+EARLIER_REQUESTS_BUDGET_CHARS = 80_000
 
 
 @dataclass
@@ -120,6 +135,15 @@ class ExecutionContext:
     consecutive_low_cache_calls: int = 0
     # Turn index in session execution (used for offload outputs naming and traces)
     turn_index: int = 1
+    # Set by ``wait_for`` when it registered a wait that will wake the session: only then does
+    # the step end the turn (a wait that settled at once is acted on in the same turn).
+    wait_registered: bool = False
+    # The post-edit diagnostics said once this turn that the project is not set up; later edits
+    # with the same environment failure stay quiet.
+    setup_noted: bool = False
+    # Folders whose setups were checked this turn (``prepare_folder``): checked once, not before
+    # every command.
+    prepared_folders: set[str] = field(default_factory=set)
 
 
 current_execution_ctx: contextvars.ContextVar[ExecutionContext | None] = contextvars.ContextVar(
@@ -138,6 +162,7 @@ class CompactionResult(list[ChatMessage]):
         tokens_before: int = 0,
         tokens_after: int = 0,
         summary: str | None = None,
+        summary_status: str = "",
         compacted_count: int = 0,
         compacted_prefix: Sequence[ChatMessage] = (),
         tail_count: int = 0,
@@ -147,6 +172,7 @@ class CompactionResult(list[ChatMessage]):
         self.tokens_before = tokens_before
         self.tokens_after = tokens_after
         self.summary = summary
+        self.summary_status = summary_status
         self.compacted_count = compacted_count
         self.compacted_prefix = list(compacted_prefix)
         self.tail_count = tail_count
@@ -161,6 +187,7 @@ class _Compaction:
     tail: list[ChatMessage]
     bridge: ChatMessage
     summary: str | None
+    summary_status: str
     composed: list[ChatMessage]
 
 
@@ -241,6 +268,10 @@ class ContextManager:
         for idx, msg in enumerate(messages):
             if idx >= split_index:
                 pruned_messages.append(msg)
+            elif msg.role == "tool" and is_skill_result(
+                names.get(msg.tool_call_id or "", ""), msg.content
+            ):
+                pruned_messages.append(msg)
             elif msg.role == "tool" and msg.content:
                 lines = msg.content.splitlines()
                 if len(lines) > 5 or len(msg.content) > 300:
@@ -286,19 +317,21 @@ class ContextManager:
         current = _current_request(messages)
         anchored = current is not None and lead <= current < tail_start
         anchor_msgs: list[ChatMessage] = []
+        # An earlier bridge merged into the anchored request: it leaves the anchor, and goes to
+        # the middle, so the skills and messages it carried are carried again.
+        earlier_bridge: list[ChatMessage] = []
         if anchored and current is not None:
             anchor = messages[current]
             content = anchor.content or ""
             if REMINDER_OPEN in content and "[Compacted " in content:
-                cleaned = re.sub(
-                    rf"{re.escape(REMINDER_OPEN)}\s*\[Compacted[\s\S]*?{re.escape(REMINDER_CLOSE)}",
-                    "",
-                    content,
-                ).strip()
-                anchor = replace(anchor, content=cleaned)
+                pattern = _compacted_blocks()
+                earlier_bridge = [
+                    ChatMessage(role="user", content=block) for block in pattern.findall(content)
+                ]
+                anchor = replace(anchor, content=pattern.sub("", content).strip())
             anchor_msgs.append(anchor)
         head = [*messages[:lead], *anchor_msgs]
-        middle = [
+        middle = earlier_bridge + [
             message
             for index, message in enumerate(messages[lead:tail_start], start=lead)
             if not (anchored and index == current)
@@ -330,8 +363,20 @@ class ContextManager:
             f"[Compacted {len(middle)} intermediate conversational turns "
             "to respect context window boundaries.]"
         ]
+        earlier = _earlier_requests(middle)
+        if earlier:
+            parts.append(
+                f"{_EARLIER_HEADING}\n"
+                + "\n".join(f"> {' '.join(text.splitlines())}" for text in earlier)
+            )
+        skills = skill_blocks([m.content or "" for m in middle])
+        if skills:
+            parts.append(
+                "Skill instructions in effect (loaded earlier in this session):\n"
+                + "\n\n".join(reversed(list(skills.values())))
+            )
         if summary:
-            parts.append(f"Summary of the compacted work:\n{summary}")
+            parts.append(f"{CHECKPOINT_MARKER}\n{summary}")
         plan = self._latest_checklist(middle)
         if plan:
             parts.append(f"Active Task Checklist State: {plan}")
@@ -354,22 +399,11 @@ class ContextManager:
         if parts is None:
             return None
         head, middle, tail = parts
-        summary: str | None = None
-        if summarize is not None:
-            goal = [
-                replace(
-                    message,
-                    content=f"[The request being worked on, kept verbatim] {message.content}",
-                )
-                for message in head
-                if message.role == "user"
-            ]
-            try:
-                summary = (await summarize([*goal, *middle])).strip() or None
-            except Exception as err:
-                logger.warning("Summarising compaction failed, using the bridge only: %s", err)
+        summary, status = await _summarize(messages, middle, summarize)
         bridge = self._bridge(middle, summary, working_plan, progress_md)
-        return _Compaction(head, middle, tail, bridge, summary, _compose(head, bridge, tail))
+        return _Compaction(
+            head, middle, tail, bridge, summary, status, _compose(head, bridge, tail)
+        )
 
     async def compact_with_summary(
         self,
@@ -458,6 +492,7 @@ class ContextManager:
                     tokens_before=tokens_before,
                     tokens_after=self.count_tokens(model, compaction.composed, tools),
                     summary=compaction.summary,
+                    summary_status=compaction.summary_status,
                     compacted_count=len(compaction.middle),
                     compacted_prefix=_compose(compaction.head[lead:], compaction.bridge, []),
                     tail_count=len(compaction.tail),
@@ -524,6 +559,87 @@ def _prune_arguments(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
         }
         pruned.append({**call, "function": {**function, "arguments": json.dumps(shortened)}})
     return pruned
+
+
+async def _ask_for_summary(summarize: Summarizer, request: list[ChatMessage]) -> str | None:
+    try:
+        return (await summarize(request)).strip()
+    except Exception as err:
+        logger.warning("Summarising a compaction failed: %s", err)
+        return None
+
+
+async def _summarize(
+    messages: list[ChatMessage], middle: list[ChatMessage], summarize: Summarizer | None
+) -> tuple[str, str]:
+    """The checkpoint for ``middle`` and how it was made.
+
+    The model is asked on the conversation as it stands, then once more with a stricter note;
+    an answer that is empty, carries tool-call markup or lacks the headings is never kept. When
+    both fail, the digest of the tool history stands in, so a compaction never leaves nothing.
+    """
+    if summarize is not None:
+        prompt = summary_prompt(messages)
+        attempts = (
+            (prompt, SUMMARY_STATUS_MODEL),
+            (f"{prompt}\n\n{RETRY_NOTE}", SUMMARY_STATUS_MODEL_RETRY),
+        )
+        for text, status in attempts:
+            answer = await _ask_for_summary(
+                summarize, [*messages, ChatMessage(role="user", content=text)]
+            )
+            if valid_summary(answer):
+                return str(answer), status
+            logger.warning("Compaction summary rejected (%s chars)", len(answer or ""))
+    return tool_history_digest(middle), SUMMARY_STATUS_DIGEST
+
+
+_EARLIER_HEADING = "Earlier messages from the person, verbatim (oldest first):"
+
+
+def _compacted_blocks() -> re.Pattern[str]:
+    return re.compile(
+        rf"{re.escape(REMINDER_OPEN)}\s*\[Compacted[\s\S]*?{re.escape(REMINDER_CLOSE)}"
+    )
+
+
+def _quoted_requests(bridge: str) -> list[str]:
+    """The person's messages an earlier bridge kept verbatim (its ``> `` lines)."""
+    if _EARLIER_HEADING not in bridge:
+        return []
+    lines: list[str] = []
+    for line in bridge.split(_EARLIER_HEADING, 1)[1].strip().splitlines():
+        if not line.startswith("> "):
+            break
+        lines.append(line[2:].strip())
+    return lines
+
+
+def _earlier_requests(middle: list[ChatMessage]) -> list[str]:
+    """What the person wrote in ``middle``, oldest first, within the verbatim budget.
+
+    A bridge from an earlier compaction (alone, or merged into the message after it) carries the
+    messages it kept; they are kept again, and the bridge itself is never quoted.
+    """
+    pattern = _compacted_blocks()
+    texts: list[str] = []
+    for message in middle:
+        if message.role != "user":
+            continue
+        content = message.content or ""
+        for bridge in pattern.findall(content):
+            texts.extend(_quoted_requests(bridge))
+        own = pattern.sub("", content).strip()
+        if own and not own.startswith(REMINDER_OPEN):
+            texts.append(own)
+    kept: list[str] = []
+    used = 0
+    for text in reversed([t for t in texts if t]):
+        if used + len(text) > EARLIER_REQUESTS_BUDGET_CHARS:
+            break
+        kept.append(text)
+        used += len(text)
+    return list(reversed(kept))
 
 
 def _current_request(messages: list[ChatMessage]) -> int | None:

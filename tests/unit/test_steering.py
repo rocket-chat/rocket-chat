@@ -105,3 +105,34 @@ async def test_a_message_that_arrives_as_the_turn_ends_runs_as_the_next_turn(
     users = [m.content for m in outcome.session.conversation_history if m.role == "user"]
     assert users == ["Summarize the repo", STEER.content]
     assert outcome.session.conversation_history[-1].role == "assistant"
+
+
+async def test_a_message_queued_during_a_turn_runs_after_it_not_inside_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.services.queued_messages import QueuedMessageStore
+
+    org = "org_queued_after"
+    session_id = f"session_{org}"
+    original_stream = ScriptedModel.chat_stream
+
+    async def stream(self: ScriptedModel, request: Any) -> AsyncIterator[StreamChunk]:
+        if request.tools and sum(1 for r in self.requests if r.tools) == 1:
+            await QueuedMessageStore(None).add(
+                org, session_id, "m-queued", "Then update the changelog", "queue", "u1"
+            )
+        async for chunk in original_stream(self, request):
+            yield chunk
+
+    monkeypatch.setattr(ScriptedModel, "chat_stream", stream)
+
+    outcome = await run_turn(org, prompt="Fix the bug", script=[("list_dir", {"path": "."})])
+
+    steps = [r for r in outcome.model.requests if r.tools]
+    assert not any("update the changelog" in (m.content or "") for m in steps[1].messages)
+    for _ in range(200):
+        users = [m.content for m in outcome.session.conversation_history if m.role == "user"]
+        if users == ["Fix the bug", "Then update the changelog"]:
+            break
+        await asyncio.sleep(0.01)
+    assert users == ["Fix the bug", "Then update the changelog"], "the next turn ran it"

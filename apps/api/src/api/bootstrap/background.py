@@ -14,12 +14,13 @@ from sqlalchemy import select
 from api.bootstrap.core import CoreServices
 from api.bootstrap.runtime import cluster_bus_enabled
 from api.db.models import McpServerEntityModel
-from api.db.session import DatabaseSessionManager
+from api.db.session import DatabaseSessionManager, current_tenant_org_id
 from api.services.audit import RetentionPolicy, RetentionSweeper
 from api.services.cluster import LeaderElection
 from api.services.mcp_engine import probe_and_fetch_tools
 from api.services.mcp_runtime import REMOTE_TRANSPORTS, auth_headers, canonical_transport
 from api.services.missions import MissionStore, claim_due
+from api.services.queued_messages import stranded_sessions
 from api.services.settings import load_org_config
 from api.services.turn_resume import resume_interrupted_turns
 from api.services.turn_trace import (
@@ -30,13 +31,23 @@ from api.services.turn_trace import (
     recover_interrupted_turns,
     session_turn_activity,
 )
-from api.services.waits import SessionWait, claim_due_waits
+from api.services.waits import (
+    SessionWait,
+    claim_due_waits,
+    group_waits_by_session,
+    wake_prompt_for,
+)
 from api.services.workspace_release import (
     delay_resolver,
     idle_candidates,
     release_idle_workspaces,
 )
-from api.turns.tasks import _spawn_background_turn, launch_mission, resume_claimed_turn
+from api.turns.tasks import (
+    _spawn_background_turn,
+    launch_mission,
+    resume_claimed_turn,
+    start_queued_turns,
+)
 from specifications.interfaces.events import EventType, SessionEvent
 
 logger = logging.getLogger(__name__)
@@ -47,6 +58,8 @@ MCP_REFRESH_SECONDS = 900
 MISSION_POLL_SECONDS = 30
 WORKSPACE_RELEASE_SECONDS = 3600
 WAITS_SWEEP_SECONDS = 5.0
+# Stranded messages wait at least a minute (STRANDED_AFTER_SECONDS) anyway.
+QUEUED_SWEEP_SECONDS = 30.0
 
 
 async def _run_periodically(
@@ -105,8 +118,10 @@ class BackgroundServices:
             self._start_mcp_refresh(admin_manager)
             self._start_workspace_release(admin_manager)
             self._start_waits_sweeper(admin_manager)
+            self._start_queued_messages_sweeper(admin_manager)
         else:
             self._start_waits_sweeper(None)
+            self._start_queued_messages_sweeper(None)
         self._start_sandbox_reaper(admin_manager)
 
     async def stop(self) -> None:
@@ -267,49 +282,79 @@ class BackgroundServices:
             )
         )
 
+    def _start_queued_messages_sweeper(self, admin_manager: DatabaseSessionManager | None) -> None:
+        """Start the turns for messages no turn took because their replica stopped.
+
+        A session with a turn running anywhere is left alone: that turn starts them when it ends.
+        """
+
+        async def _sweep() -> None:
+            locks = getattr(self._app.state, "session_write_locks", None)
+            for org_id, session_id in await stranded_sessions(admin_manager):
+                record = await self._session_record(org_id, session_id)
+                if record is None or record.is_processing:
+                    continue
+                if locks is not None and locks.is_locked(session_id):
+                    continue
+                await start_queued_turns(self._app, org_id, session_id)
+
+        self._spawn(_run_periodically("Queued messages sweeper", QUEUED_SWEEP_SECONDS, _sweep))
+
+    async def _session_record(self, org_id: str, session_id: str) -> Any:
+        store = getattr(self._app.state, "session_store", None)
+        if store is None:
+            return None
+        token = current_tenant_org_id.set(org_id)
+        try:
+            return await store.get_session(session_id)
+        finally:
+            current_tenant_org_id.reset(token)
+
     def _start_waits_sweeper(self, admin_manager: DatabaseSessionManager | None) -> None:
         async def _sweep_waits() -> None:
             wait_store = getattr(self._app.state, "wait_store", None)
             if not wait_store:
                 return
             claimed = await claim_due_waits(admin_manager, wait_store)
-            for wait in claimed:
+            for session_id, waits in group_waits_by_session(claimed).items():
                 try:
-                    await self._wake_claimed_wait(wait, wait_store)
+                    await self._wake_claimed_waits(waits, wait_store)
                 except Exception as err:
-                    logger.exception(
-                        "Failed to wake session %s for wait %s: %s", wait.session_id, wait.id, err
-                    )
+                    logger.exception("Failed to wake session %s for its waits: %s", session_id, err)
 
         self._spawn(_run_periodically("Waits sweeper", WAITS_SWEEP_SECONDS, _sweep_waits))
 
-    async def _wake_claimed_wait(self, wait: SessionWait, wait_store: Any) -> None:
+    async def _wake_claimed_waits(self, waits: list[SessionWait], wait_store: Any) -> None:
+        """Resolve a session's due waits and wake it once for all of them.
+
+        Each used to start its own automatic turn, so two waits falling due together woke the
+        agent twice, seconds apart, each with the same history to re-read.
+        """
         event_bus = getattr(self._app.state, "event_bus", None)
         orchestrator = getattr(self._app.state, "orchestrator", None)
         store = getattr(self._app.state, "session_store", None)
         if event_bus is None or orchestrator is None or store is None:
             return
-
-        await event_bus.publish(
-            SessionEvent(
-                session_id=wait.session_id,
-                event_type=EventType.WAIT_COMPLETED,
-                payload={
-                    "wait_id": wait.id,
-                    "wait_type": wait.kind,
-                    "target": wait.target,
-                    "status": "completed",
-                    "summary": f"Wait {wait.id} reached deadline or completed.",
-                },
+        for wait in waits:
+            await event_bus.publish(
+                SessionEvent(
+                    session_id=wait.session_id,
+                    event_type=EventType.WAIT_COMPLETED,
+                    payload={
+                        "wait_id": wait.id,
+                        "wait_type": wait.kind,
+                        "target": wait.target,
+                        "status": "completed",
+                        "summary": f"Wait {wait.id} reached deadline or completed.",
+                    },
+                )
             )
-        )
-        await wait_store.resolve_wait(
-            wait.session_id, wait.id, wait.tenant_org_id, status="completed"
-        )
-        prompt = wait.wake_prompt or f"Wait {wait.id} ({wait.kind}) expired. Resuming execution."
+            await wait_store.resolve_wait(
+                wait.session_id, wait.id, wait.tenant_org_id, status="completed"
+            )
         _spawn_background_turn(
-            session_id=wait.session_id,
-            prompt=prompt,
+            session_id=waits[0].session_id,
+            prompt=wake_prompt_for(waits),
             orchestrator=orchestrator,
             event_bus=event_bus,
             driver=getattr(self._app.state, "sandbox_driver", None),

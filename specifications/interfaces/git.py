@@ -135,6 +135,9 @@ class RepoEvent:
     # The author is a repository insider; only their events may start a turn on their own.
     trusted: bool = False
     installation_id: int | None = None
+    # The commit a CI event is about: a run for an older commit must not wake a session that
+    # has pushed since.
+    head_sha: str = ""
 
 
 class GitEngineProtocol(ABC):

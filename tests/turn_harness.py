@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from agent_core.orchestrator import AsyncReActOrchestrator
+from agent_core.summarizer import FLATTENED_SUMMARY_SYSTEM
 from agent_core.tools.registry import ToolRegistry
 from api.db.session import current_tenant_org_id
 from api.events import AsyncIOEventBus
@@ -25,6 +26,18 @@ from sandbox_driver.fake_driver import FakeSandboxDriver
 
 from specifications.interfaces.llm import LLMGatewayProtocol, StreamChunk, current_model_scope
 from specifications.interfaces.session import SessionRecord
+
+SCRIPTED_SUMMARY = (
+    "## Objective\n- the scripted task\n\n## Work State\n### Completed\n- scripted steps\n\n"
+    "## Next Move\n1. continue the script\n\n## Important Context\n- scripted summary"
+)
+
+
+def _is_summary_request(request: Any) -> bool:
+    if getattr(request, "tool_choice", None) == "none":
+        return True
+    messages = getattr(request, "messages", None) or []
+    return bool(messages) and messages[0].content == FLATTENED_SUMMARY_SYSTEM
 
 
 @dataclass
@@ -42,6 +55,8 @@ class ScriptedModel(LLMGatewayProtocol):
     leaked: int = 0
     steps: list[Any] = field(default_factory=list)
     step_index: int = 0
+    summary_text: str = SCRIPTED_SUMMARY
+    summary_requests: int = 0
 
     @property
     def last_request(self) -> Any:
@@ -59,6 +74,11 @@ class ScriptedModel(LLMGatewayProtocol):
     async def chat_stream(self, request: Any) -> AsyncIterator[StreamChunk]:
         self.requests.append(request)
         self.scopes.append(current_model_scope.get())
+        if _is_summary_request(request):
+            # A compaction's summary, not a step: it consumes no step of the script.
+            self.summary_requests += 1
+            yield StreamChunk(text_delta=self.summary_text, is_finished=True)
+            return
         if self.leaked < len(self.leaks):
             text = self.leaks[self.leaked]
             self.leaked += 1
