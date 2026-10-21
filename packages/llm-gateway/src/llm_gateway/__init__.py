@@ -1,7 +1,7 @@
 """LLM Gateway Subsystem."""
 
 from llm_gateway.errors import is_retryable_provider_error
-from llm_gateway.gateway import LiteLLMGateway
+from llm_gateway.gateway import PROVIDER_KEY_ENV_VARS, LiteLLMGateway
 from llm_gateway.pricing import estimate_cost_usd
 from llm_gateway.reasoning import ReasoningStreamFilter
 from llm_gateway.structured import StructuredOutputError, generate_structured
@@ -16,6 +16,7 @@ from specifications.interfaces.llm import (
 )
 
 __all__ = [
+    "PROVIDER_KEY_ENV_VARS",
     "BYOKCredentials",
     "ChatMessage",
     "DeterministicStubGateway",

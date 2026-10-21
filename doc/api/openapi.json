@@ -3537,6 +3537,32 @@
         "title": "PairRequest",
         "type": "object"
       },
+      "PlatformKeyView": {
+        "properties": {
+          "env_var": {
+            "description": "The environment variable that carries the key",
+            "title": "Env Var",
+            "type": "string"
+          },
+          "fingerprint": {
+            "description": "A preview of the key, never the key itself",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "provider": {
+            "description": "The provider the deployment's key is for",
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "env_var",
+          "fingerprint"
+        ],
+        "title": "PlatformKeyView",
+        "type": "object"
+      },
       "PreviewLink": {
         "properties": {
           "expires_at": {
@@ -6540,7 +6566,7 @@
       "VersionInfo": {
         "properties": {
           "version": {
-            "description": "The release this server was built from (`0.5.0`), or `dev` for any build that is not a tagged release",
+            "description": "The release this server was built from (`0.5.0`), `dev-DDMMYYYY-HHMM` for a published development image, or `dev` for any other build",
             "title": "Version",
             "type": "string"
           }
@@ -7544,6 +7570,32 @@
           }
         },
         "summary": "List Org Model Keys",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/admin/model-keys/platform": {
+      "get": {
+        "description": "Providers whose key the deployment itself holds in the environment (administrators).\n\nMembers use these when neither they nor the organization stored a key; an organization key\nfor the same provider replaces the deployment's for this organization only.",
+        "operationId": "list_platform_model_keys_v1_admin_model_keys_platform_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlatformKeyView"
+                  },
+                  "title": "Response List Platform Model Keys V1 Admin Model Keys Platform Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Platform Model Keys",
         "tags": [
           "Sessions & Telemetry"
         ]
