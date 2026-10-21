@@ -70,16 +70,17 @@ Each agent can set **Max steps per turn**, from 1 up to the organization's ceili
 
 Every tool definition an agent can use is sent to the model at every step. An agent connected to several MCP servers can pay tens of thousands of tokens per step for tools it rarely uses, and choose worse among hundreds of them. Each allowed tool can therefore be:
 
-* **always loaded:** its definition is sent at every step;
-* **loaded on demand:** its name is listed, grouped by server, and the agent loads its definition with `load_tools` when it needs it (calling it by name loads it too). It then stays loaded for the rest of the session;
+* **active:** its definition is sent at every step;
+* **deferred (loaded on demand):** its name is listed, grouped by server, and the agent loads its definition with `load_tools` when it needs it (calling it by name loads it too). It then stays loaded for the rest of the session;
 * **not allowed:** unchecked.
 
 The agent's **Tool loading** chooses how:
 
 | Mode | What every step carries |
 | :--- | :--- |
-| **Automatic** | Everything, until the agent has more tools than the organization's threshold; then its MCP servers' tools are loaded on demand, except pinned ones. |
-| **On demand** | The platform's own tools (built-in and Slack) and the pinned tools; MCP tools are loaded on demand. Once you pin or list tools, only those are always loaded. |
+| **Automatic** | Everything, until the agent has more tools than the organization's threshold; then it behaves like *On demand*. |
+| **On demand** | The platform's own tools (built-in and Slack) and the MCP tools you pinned; the other MCP tools are loaded on demand. Pinning a platform tool changes nothing, so the page does not offer it. |
+| **Only pinned tools** | Just the tools you pinned; every other allowed tool, the platform's own included, is loaded on demand. Keep it for a lean agent that works with a short, known list of tools (the built-in *Backend Developer* does). |
 | **Load every allowed tool** | Everything, as before. |
 | **Organization default** | The organization's choice: `general.tool_loading` (`auto` by default) and `general.tool_loading_threshold` (60), in **Settings > Organization**. |
 

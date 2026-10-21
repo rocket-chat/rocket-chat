@@ -74,15 +74,21 @@ def describe_loading(loading: ToolLoading, total: int, deferred: int) -> str:
     pinned = len(loading.active)
     if loading.mode == "all":
         return "Every allowed tool is sent with every step."
-    if loading.mode == "on_demand":
-        if pinned:
-            return (
-                "Only the pinned tools are sent with every step; every other allowed tool is "
-                "listed by name and loaded when the agent needs it."
-            )
+    if loading.mode == "pinned":
+        which = (
+            f"Only the {pinned} pinned tool{'s' if pinned != 1 else ''} (and the loading tools)"
+            if pinned
+            else "No tool is pinned, so only the loading tools"
+        )
         return (
-            "The platform's own tools are sent with every step; MCP tools are listed by name "
-            "and loaded when the agent needs them."
+            f"{which} are sent with every step; every other allowed tool is listed by name "
+            "and loaded when the agent needs it."
+        )
+    if loading.mode == "on_demand":
+        pins = f", plus {pinned} pinned" if pinned else ""
+        return (
+            f"The platform's own tools{pins} are sent with every step; the other MCP tools are "
+            "listed by name and loaded when the agent needs them."
         )
     if total > loading.threshold:
         waiting = (

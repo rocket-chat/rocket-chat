@@ -119,8 +119,8 @@ persona carries the stored id, which can differ from the proposed one.
 | thinking_budget_tokens | integer | no | Extended thinking budget tokens override |
 | reasoning_effort | string | no | Reasoning effort tier override ('low', 'medium', 'high') |
 | max_turns | integer | no | Maximum reasoning steps per turn for this agent (0: no limit); empty inherits the organization's limit, and a value above it is refused |
-| tool_loading | `all` / `on_demand` / `auto` | no | Which allowed tools every step carries: all, on_demand (the platform's tools and active_tools; the others are loaded when needed) or auto; empty inherits the organization's setting |
-| active_tools | list of string | no | Tools always loaded, by name or pattern (mcp__signoz*__*search*); with on_demand, only these and the loading tools are, when set |
+| tool_loading | `all` / `on_demand` / `pinned` / `auto` | no | Which allowed tools every step carries: all; on_demand (the platform's tools, and the MCP tools in active_tools; the other MCP tools are loaded when needed); pinned (only active_tools; every other tool is loaded when needed); or auto. Empty inherits the organization's setting |
+| active_tools | list of string | no | Tools always loaded, by name or pattern (mcp__signoz*__*search*). They keep MCP tools loaded in on_demand and auto, and are the only tools loaded in pinned |
 | default_permission_mode | string | no | Default permission mode ('plan', 'ask', 'auto_edit', 'auto', 'bypass'); empty inherits |
 
 **Responses:** `200`
@@ -2206,7 +2206,7 @@ settings and the organization's current ones (the same rule a turn applies).
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| tool_loading | `all` / `on_demand` / `auto` | no | The agent's own mode; empty inherits the organization's |
+| tool_loading | `all` / `on_demand` / `pinned` / `auto` | no | The agent's own mode; empty inherits the organization's |
 | active_tools | list of string | no | Always-loaded tool names or shell-style patterns |
 | tool_names | list of string | no | The tools the agent may use |
 
