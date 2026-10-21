@@ -4,7 +4,7 @@ import { Button } from "../../../components/ui/Button";
 import { PageHeader } from "../../../components/ui/PageHeader";
 
 import { Field, Input, Textarea } from "../../../components/ui/Field";
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { CustomSkillConfig } from "../../../types/mission";
 import {
   Code2,
@@ -36,6 +36,8 @@ export default function SkillsSettingsPage() {
   // Form state
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
+  // The form is above the lists: opened from a row far down the page it would be out of sight.
+  const formRef = useRef<HTMLDivElement>(null);
   const [formScope, setFormScope] = useState<"user" | "org">("user");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -64,6 +66,13 @@ export default function SkillsSettingsPage() {
   useEffect(() => {
     fetchSkills();
   }, [fetchSkills]);
+
+  useEffect(() => {
+    if (!showAddForm) return;
+    formRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+    // Not the first input: that one is the hidden file picker of the SKILL.md import.
+    formRef.current?.querySelector<HTMLInputElement>('input:not([type="file"])')?.focus({ preventScroll: true });
+  }, [showAddForm, editingSkillId]);
 
   const userSkills = skills.filter((s) => s.scope === "user" || !s.scope || s.user_id != null);
   const orgSkills = skills.filter((s) => s.scope === "org" && s.user_id == null);
@@ -281,7 +290,11 @@ export default function SkillsSettingsPage() {
 
       {/* Add New Skill Drawer / Form */}
       {showAddForm && (
-        <div className="p-5 rounded-lg border border-brand/40 bg-surface space-y-4 shadow-xl">
+        <div
+          ref={formRef}
+          data-testid="skill-form"
+          className="scroll-mt-4 p-5 rounded-lg border border-brand/40 bg-surface space-y-4 shadow-xl"
+        >
           <div className="flex items-center justify-between border-b border-border/60 pb-2">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-brand">
