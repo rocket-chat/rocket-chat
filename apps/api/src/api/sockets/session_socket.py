@@ -14,6 +14,7 @@ from agent_core.tools.registry import ToolRegistry
 from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 
 from api.auth.access import _check_session_access
+from api.auth.api_tokens import GUEST_TOKEN_SOURCE
 from api.auth.identity import (
     attach_api_token_identity,
     resolve_identity,
@@ -86,7 +87,7 @@ class SessionSocket:
         self._user_id = ""
         self._org_id = ""
         self._can_write = False
-        self._is_owner = False
+        self._can_share = False
         self._is_admin = False
         self._stored_decision: dict[str, Any] | None = None
         self._running_turn: dict[str, Any] | None = None
@@ -160,7 +161,10 @@ class SessionSocket:
             await self._ws.close(code=1008, reason="Forbidden: Access to session denied")
             return False
         self._session = session
-        self._is_owner = session.tenant_user_id == self._user_id
+        # A guest token holds its conversations but does not share them.
+        self._can_share = self._is_admin or (
+            session.tenant_user_id == self._user_id and caller.source != GUEST_TOKEN_SOURCE
+        )
         return True
 
     async def _read_stored_decision(self) -> dict[str, Any] | None:
@@ -273,7 +277,7 @@ class SessionSocket:
         if frame in WRITE_FRAMES and not self._can_write:
             await self._error("Forbidden: read-only role cannot steer a session")
             return
-        if frame == "share" and not (self._is_owner or self._is_admin):
+        if frame == "share" and not self._can_share:
             await self._error("Forbidden: only the owner or an admin can share")
             return
         if frame not in self._handlers:

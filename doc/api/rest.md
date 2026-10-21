@@ -10,7 +10,7 @@ current surface. The machine-readable schema is [`openapi.json`](/api/openapi.js
 API also serves interactive documentation at `/docs` and `/redoc`.
 
 **Authentication.** Browsers use the session cookie set at sign-in; programmatic clients send
-`Authorization: Bearer <token>` with a personal API token (`POST /v1/user/api-tokens`). Every endpoint is scoped to the caller's organization.
+`Authorization: Bearer <token>` with a personal API token (`POST /v1/user/api-tokens`), or a guest token for a client without an account (`POST /v1/admin/api-tokens`). Every endpoint is scoped to the caller's organization.
 Endpoints under `/v1/admin` need an administrator; a *read-only* member can read but not change
 sessions. Errors are JSON `{"detail": ...}` with the usual HTTP status codes (`401` not signed
 in, `403` not allowed, `404` not found or not yours, `422` invalid input).
@@ -199,6 +199,21 @@ Delete a custom subagent role or reset/disable an overridden built-in role.
 Every member's API tokens in the organization (administrators).
 
 **Responses:** `200`
+
+### `POST /v1/admin/api-tokens`
+
+Create a guest token (administrators), for a client without a Rocket account, as a Slack
+user who never linked theirs. It acts as its own guest member, which owns the sessions it
+starts, and can only hold conversations. The token is in this response only.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | yes | What the token is for, to recognise it |
+| expires_in_days | integer | no | Days until the token stops working |
+
+**Responses:** `201`
 
 ### `DELETE /v1/admin/api-tokens/{token_id}`
 

@@ -12,6 +12,7 @@ import pytest
 from api.auth.api_tokens import (
     ApiTokens,
     format_token,
+    guest_may_call,
     hash_secret,
     is_api_token,
     parse_token,
@@ -24,6 +25,7 @@ from api.db.session import DatabaseSessionManager
 from api.main import app
 from fastapi.testclient import TestClient
 from sqlalchemy import select, update
+from starlette.websockets import WebSocketDisconnect
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "")
 needs_postgres = pytest.mark.skipif(not TEST_DATABASE_URL, reason="API tokens need PostgreSQL")
@@ -56,6 +58,45 @@ def test_only_a_hash_of_the_secret_is_kept() -> None:
 
 def test_the_synchronous_resolver_never_accepts_an_api_token() -> None:
     assert resolve_token_identity(format_token("o", "id", "secret")) is None
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "/v1/agents"),
+        ("POST", "/v1/sessions"),
+        ("GET", "/v1/sessions/"),
+        ("GET", "/v1/sessions/s1"),
+        ("POST", "/v1/sessions/s1/turns"),
+        ("DELETE", "/v1/sessions/s1/turns"),
+        ("POST", "/v1/sessions/s1/questions/q1"),
+        ("POST", "/v1/sessions/s1/approvals/a1"),
+        ("POST", "/v1/sessions/s1/attachments"),
+        ("GET", "/v1/sessions/s1/artifacts/a1/raw"),
+    ],
+)
+def test_a_guest_token_may_hold_conversations(method: str, path: str) -> None:
+    assert guest_may_call(method, path)
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("POST", "/v1/agents"),
+        ("POST", "/v1/sessions/cleanup"),
+        ("DELETE", "/v1/sessions/s1"),
+        ("PATCH", "/v1/sessions/s1"),
+        ("POST", "/v1/sessions/s1/share"),
+        ("PUT", "/v1/sessions/s1/workspace/file"),
+        ("POST", "/v1/sessions/s1/processes/p1/stop"),
+        ("GET", "/v1/user/api-tokens"),
+        ("GET", "/v1/admin/api-tokens"),
+        ("GET", "/v1/settings"),
+        ("GET", "/v1/sessions/s1/turns/../../../settings"),
+    ],
+)
+def test_a_guest_token_may_not_call_anything_else(method: str, path: str) -> None:
+    assert not guest_may_call(method, path)
 
 
 def test_without_postgres_api_tokens_are_unavailable() -> None:
@@ -230,6 +271,95 @@ def test_a_token_opens_the_session_websocket_with_the_query_parameter(
 
     with client.websocket_connect(f"/v1/sessions/{session_id}/ws?token={token}") as ws:
         assert ws.receive_json()["type"] == "sync"
+
+
+def _create_guest(client: TestClient, org: str, admin: str) -> dict[str, object]:
+    client.get("/v1/sessions", headers=_member(org, admin))  # provisions the admin
+    _set_role(admin, "admin")
+    res = client.post("/v1/admin/api-tokens", json={"name": "bot"}, headers=_member(org, admin))
+    assert res.status_code == 201, res.text
+    body: dict[str, object] = res.json()
+    return body
+
+
+@needs_postgres
+def test_only_an_administrator_creates_a_guest_token(client: TestClient) -> None:
+    org, alice, _ = _ids()
+    client.get("/v1/sessions", headers=_member(org, alice))
+
+    res = client.post("/v1/admin/api-tokens", json={"name": "bot"}, headers=_member(org, alice))
+
+    assert res.status_code == 403
+
+
+@needs_postgres
+def test_a_guest_token_holds_its_own_conversations_and_nothing_else(client: TestClient) -> None:
+    org, alice, admin = _ids()
+    created = _create_guest(client, org, admin)
+    guest = _bearer(str(created["token"]))
+    private = client.post(
+        "/v1/sessions", json={"title": "alice's", "is_shared": False}, headers=_member(org, alice)
+    ).json()["session_id"]
+
+    session = client.post("/v1/sessions", json={"title": "from a bot"}, headers=guest)
+    listed = client.get("/v1/admin/api-tokens", headers=_member(org, admin)).json()
+
+    assert created["guest"] is True and str(created["user_id"]).startswith("apitoken:")
+    assert session.status_code == 200 and session.json()["tenant_user_id"] == created["user_id"]
+    assert (
+        client.get(f"/v1/sessions/{session.json()['session_id']}", headers=guest).status_code == 200
+    )
+    assert [t["guest"] for t in listed if t["id"] == created["id"]] == [True]
+    assert client.get(f"/v1/sessions/{private}", headers=guest).status_code == 403
+    assert client.get("/v1/settings", headers=guest).status_code == 403
+    assert client.get("/v1/user/api-tokens", headers=guest).status_code == 403
+    assert client.get("/v1/admin/api-tokens", headers=guest).status_code == 403
+    assert (
+        client.post(
+            "/v1/agents", json={"name": "x", "system_prompt": "y"}, headers=guest
+        ).status_code
+        == 403
+    )
+
+
+@needs_postgres
+def test_a_guest_token_keeps_the_guest_role_and_cannot_share_or_open_a_terminal(
+    client: TestClient,
+) -> None:
+    org, _, admin = _ids()
+    created = _create_guest(client, org, admin)
+    token = str(created["token"])
+    _set_role(str(created["user_id"]), "admin")
+    session_id = client.post(
+        "/v1/sessions", json={"title": "scripted"}, headers=_bearer(token)
+    ).json()["session_id"]
+
+    assert client.get("/v1/admin/api-tokens", headers=_bearer(token)).status_code == 403
+    with client.websocket_connect(f"/v1/sessions/{session_id}/ws?token={token}") as ws:
+        assert ws.receive_json()["type"] == "sync"
+        ws.send_json({"type": "share", "is_shared": True, "collaborators": []})
+        assert "only the owner or an admin" in ws.receive_json()["detail"]
+    with (
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect(f"/v1/sessions/{session_id}/terminal?token={token}") as ws,
+    ):
+        ws.receive_json()
+
+
+@needs_postgres
+def test_revoking_a_guest_token_keeps_its_conversations(client: TestClient) -> None:
+    org, _, admin = _ids()
+    created = _create_guest(client, org, admin)
+    token = str(created["token"])
+    session_id = client.post(
+        "/v1/sessions", json={"title": "kept", "is_shared": False}, headers=_bearer(token)
+    ).json()["session_id"]
+
+    revoked = client.delete(f"/v1/admin/api-tokens/{created['id']}", headers=_member(org, admin))
+
+    assert revoked.status_code == 200
+    assert client.get("/v1/sessions", headers=_bearer(token)).status_code == 401
+    assert client.get(f"/v1/sessions/{session_id}", headers=_member(org, admin)).status_code == 200
 
 
 @needs_postgres

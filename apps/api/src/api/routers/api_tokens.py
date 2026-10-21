@@ -34,6 +34,7 @@ class ApiTokenView(BaseModel):
     id: str = Field(..., description="Token id (the secret is never shown again)")
     name: str
     user_id: str = Field(..., description="The member the token acts as")
+    guest: bool = Field(default=False, description="A guest token, acting as its own guest member")
     created_at: int = Field(..., description="Unix seconds")
     expires_at: int = Field(..., description="Unix seconds")
     last_used_at: int | None = Field(
@@ -63,6 +64,7 @@ def _view(token: StoredToken) -> ApiTokenView:
         id=token.id,
         name=token.name,
         user_id=token.user_id,
+        guest=token.guest,
         created_at=token.created_at,
         expires_at=token.expires_at,
         last_used_at=token.last_used_at,
@@ -125,6 +127,19 @@ async def list_org_api_tokens(request: Request) -> list[ApiTokenView]:
     """Every member's API tokens in the organization (administrators)."""
     org_id, _, _ = _require_admin(request)
     return [_view(t) for t in await _tokens(request).list(org_id, None)]
+
+
+@router.post("/admin/api-tokens", response_model=CreatedApiToken, status_code=201)
+async def create_guest_api_token(body: CreateApiTokenRequest, request: Request) -> CreatedApiToken:
+    """Create a guest token (administrators), for a client without a Rocket account, as a Slack
+    user who never linked theirs. It acts as its own guest member, which owns the sessions it
+    starts, and can only hold conversations. The token is in this response only."""
+    org_id, admin_user, _ = _require_admin(request)
+    stored, token = await _tokens(request).create_guest(
+        org_id, body.name, body.expires_in_days, admin_user
+    )
+    await _audit(request, org_id, admin_user, f"created guest API token {body.name!r}", stored.id)
+    return CreatedApiToken(**_view(stored).model_dump(), token=token)
 
 
 @router.delete("/admin/api-tokens/{token_id}", response_model=RevokedApiToken)
