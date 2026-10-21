@@ -54,6 +54,7 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | `ROCKET_EVENT_BUS` | enum | `memory` | `memory` keeps events in-process (one replica). `postgres` shares events, per-session sequence numbers and approval/answer/cancel decisions between replicas over PostgreSQL `LISTEN`/`NOTIFY`, so a WebSocket on one replica follows a turn running on another. The Helm chart selects it automatically when more than one replica can run. |
 | `ROCKET_RUN_MIGRATIONS` | bool | `true` | The container entrypoint applies Alembic migrations before starting. The Helm chart sets `false` and migrates in an init container instead. |
 | `ROCKET_AUTO_CREATE_SCHEMA` | bool | `false` | Development/test only: create tables with `create_all` at startup instead of requiring Alembic. Ignored when `ENVIRONMENT=production`. |
+| `ROCKET_VERSION` | string | `dev` | The release number the settings console shows. Set by the release images; leave it unset for a build from source, which reports `dev`. |
 
 ### Authentication & Single Sign-On (OIDC / OAuth)
 

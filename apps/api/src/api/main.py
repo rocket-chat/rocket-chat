@@ -62,6 +62,7 @@ from api.routers.terminal import router as terminal_router
 from api.routers.tools import router as tools_router
 from api.routers.turns import router as turns_router
 from api.routers.usage import router as usage_router
+from api.routers.version import router as version_router
 from api.routers.webhooks import router as webhooks_router
 from api.routers.workspace import router as workspace_router
 from api.security_guards import enforce_production_config
@@ -301,6 +302,7 @@ app.include_router(slack_admin_router)
 app.include_router(slack_bots_router)
 app.include_router(subagents_router)
 app.include_router(api_tokens_router)
+app.include_router(version_router)
 app.include_router(workspace_router)
 app.include_router(webhooks_router, prefix="/v1")
 app.include_router(webhooks_router, prefix="/api/v1")
