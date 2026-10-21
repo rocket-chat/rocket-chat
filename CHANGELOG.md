@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `orchestrator`:
 - `sandboxes`:
-- `api`: personal API tokens for scripts and other machine clients: `POST /v1/user/api-tokens` creates a token acting as the member with their current role (shown once, 1 to 365 days, at most 20 per member), `GET`/`DELETE /v1/user/api-tokens` list and revoke them, and administrators list and revoke the organization's under `/v1/admin/api-tokens`. Sent as `Authorization: Bearer` or `?token=` on the WebSocket. Only a hash is stored (`api_tokens`, migration `043_api_tokens`, forced row-level security); a token cannot create another one. Administrators also create guest tokens (`POST /v1/admin/api-tokens`) for clients without an account, as unlinked Slack users: each acts as its own guest member and can only hold conversations.
+- `api`: personal API tokens for scripts and other machine clients: `POST /v1/user/api-tokens` creates a token acting as the member with their current role (shown once, 1 to 365 days, at most 20 per member), `GET`/`DELETE /v1/user/api-tokens` list and revoke them, and administrators list and revoke the organization's under `/v1/admin/api-tokens`. Sent as `Authorization: Bearer` or `?token=` on the WebSocket. Only a hash is stored (`api_tokens`, migration `047_api_tokens`, forced row-level security); a token cannot create another one. Administrators also create guest tokens (`POST /v1/admin/api-tokens`) for clients without an account, as unlinked Slack users: each acts as its own guest member and can only hold conversations.
 - `web`: **Settings → API access** creates, lists and revokes your personal API tokens, explains how they authenticate and links to the API reference; administrators also manage the organization's guest tokens there. The settings navigation footer shows the running version (`v0.5.0`, or `dev` for a build that is not a tagged release), served by the new `GET /v1/version`; the release images set it through `ROCKET_VERSION`.
 - `settings`: `governance.question_timeout_seconds` closes a question the agent asked (`ask_question`) that nobody answered in time; the turn continues with the recommended option or the agent's best judgement, so a session driven through the API never waits forever. Empty (the default) keeps waiting.
 - `git`:
@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `api`: `POST /v1/sessions/{id}/turns` for a session that does not exist answers `404` instead of creating one in `default_org` with the caller-chosen id, bypassing the caller's organization, its privacy default and the sandbox choice. Create sessions with `POST /v1/sessions`.
-- `api`: a turn trace's `tokens.usage.cost_usd` is in dollars, like each call's `cost_usd`; it held integer micro-dollars. Migration `042_turn_trace_cost_in_dollars` converts the traces already stored.
+- `api`: a turn trace's `tokens.usage.cost_usd` is in dollars, like each call's `cost_usd`; it held integer micro-dollars. Migration `046_turn_trace_cost_in_dollars` converts the traces already stored.
 
 ### Security
 

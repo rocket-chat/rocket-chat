@@ -1,4 +1,4 @@
-"""Migration 042 converts the turn cost already stored in micro-dollars to dollars and back."""
+"""Migration 046 converts the turn cost already stored in micro-dollars to dollars and back."""
 
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 pytestmark = pytest.mark.skipif(not ADMIN_URL, reason="ADMIN_DATABASE_URL not configured")
 
-_BEFORE = "041_backfill_msg_timestamps"
-_AFTER = "042_turn_trace_cost_in_dollars"
+_BEFORE = "045_artifact_versions"
+_AFTER = "046_turn_trace_cost_in_dollars"
 
 
 async def _alembic(url: str, *args: str) -> None:
@@ -37,7 +37,7 @@ async def _alembic(url: str, *args: str) -> None:
 
 
 @pytest.fixture
-async def database_at_041() -> AsyncIterator[tuple[str, DatabaseSessionManager]]:
+async def database_at_045() -> AsyncIterator[tuple[str, DatabaseSessionManager]]:
     name = f"rocket_cost_{uuid.uuid4().hex[:8]}"
     base = make_url(ADMIN_URL)
     server = DatabaseSessionManager(base.set(database="postgres").render_as_string(False))
@@ -80,9 +80,9 @@ async def _costs(manager: DatabaseSessionManager) -> dict[str, object]:
 
 @pytest.mark.asyncio
 async def test_stored_turn_costs_become_dollars_and_the_downgrade_restores_them(
-    database_at_041: tuple[str, DatabaseSessionManager],
+    database_at_045: tuple[str, DatabaseSessionManager],
 ) -> None:
-    url, manager = database_at_041
+    url, manager = database_at_045
     async with manager.session() as session:
         for statement in (
             "INSERT INTO organizations (id, name, slug, created_at, settings) "

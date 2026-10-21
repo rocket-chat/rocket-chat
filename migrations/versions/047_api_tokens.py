@@ -1,7 +1,7 @@
 """Personal API tokens with Row-Level Security.
 
-Revision ID: 043_api_tokens
-Revises: 042_turn_trace_cost_in_dollars
+Revision ID: 047_api_tokens
+Revises: 046_turn_trace_cost_in_dollars
 Create Date: 2026-10-20 19:00:00.000000
 
 A member's tokens for scripts and other machine clients. Only a SHA-256 hash of each token's
@@ -14,8 +14,8 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "043_api_tokens"
-down_revision: str | None = "042_turn_trace_cost_in_dollars"
+revision: str = "047_api_tokens"
+down_revision: str | None = "046_turn_trace_cost_in_dollars"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
