@@ -175,7 +175,9 @@ def _resolve_model_generation(
         max_tokens = int(models["max_tokens"]) if models.get("max_tokens") else None
 
     thinking_budget = getattr(agent, "thinking_budget_tokens", None)
-    effort = getattr(agent, "reasoning_effort", None)
+    effort = getattr(agent, "reasoning_effort", None) or (
+        str(models.get("default_reasoning_effort") or "") or None
+    )
     reasoning_policy: ReasoningPolicy | None = None
     if spec and spec.supports_reasoning:
         if effort is None and thinking_budget is None:
