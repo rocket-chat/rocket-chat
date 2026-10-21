@@ -71,6 +71,30 @@ test.describe("Sharing a session", () => {
     await expect(page.getByTestId("share-create-link")).toHaveCount(0);
   });
 
+  test("the form waits for the current sharing state instead of being overwritten by it", async ({ page, request }) => {
+    const created = await request.post(`${API}/v1/sessions`, { data: { title: "Slow Load" } });
+    const sessionId: string = (await created.json()).session_id;
+
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    await page.route(`**/v1/sessions/${sessionId}/sharing`, async (route) => {
+      if (route.request().method() === "GET") await gate;
+      await route.continue();
+    });
+
+    await page.goto(`/chat/${sessionId}`);
+    await page.getByTestId("share-trigger").click();
+    await expect(page.getByTestId("share-org-wide")).toBeDisabled();
+    await expect(page.getByTestId("share-emails")).toBeDisabled();
+
+    release();
+    await expect(page.getByTestId("share-org-wide")).toBeEnabled();
+    await page.getByTestId("share-org-wide").check();
+    await page.getByTestId("share-save").click();
+    await expect(page.getByTestId("share-dialog")).toContainText("Saved.");
+    expect((await (await request.get(`${API}/v1/sessions/${sessionId}/sharing`)).json()).org_wide).toBe(true);
+  });
+
   test("shares with the whole organization", async ({ page, request }) => {
     const created = await request.post(`${API}/v1/sessions`, { data: { title: "Org Wide" } });
     const sessionId: string = (await created.json()).session_id;

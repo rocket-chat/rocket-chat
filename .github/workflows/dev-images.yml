@@ -14,12 +14,25 @@ permissions:
   packages: write
 
 jobs:
+  # The version the settings console shows for this build, such as dev-21102026-1036 for 21
+  # October 2026 at 10:36 UTC; one value shared by every architecture of the image.
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      version: ${{ steps.stamp.outputs.version }}
+    steps:
+      - id: stamp
+        run: echo "version=dev-$(date -u +%d%m%Y-%H%M)" >> "$GITHUB_OUTPUT"
+
   backend:
+    needs: version
     uses: ./.github/workflows/image.yml
     with:
       image: backend
       file: deploy/docker/Dockerfile.backend
       tags: ${{ inputs.tag || 'dev' }}
+      build-args: ROCKET_VERSION=${{ needs.version.outputs.version }}
 
   frontend:
     uses: ./.github/workflows/image.yml

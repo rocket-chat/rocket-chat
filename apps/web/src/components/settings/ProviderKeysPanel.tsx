@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { KeyRound, Trash2, AlertCircle, CheckCircle2 } from "lucide-react";
 
 interface StoredKey {
@@ -11,16 +11,26 @@ interface StoredKey {
   created_at: number;
 }
 
+/** A key the deployment holds in its environment: shown, never revealed, and replaceable. */
+interface PlatformKey {
+  provider: string;
+  env_var: string;
+  fingerprint: string;
+}
+
 const COMMON_PROVIDERS = ["openrouter", "anthropic", "openai", "gemini", "deepseek", "ollama"];
 
 /**
  * Bring-your-own provider keys. A member's key is used for their own calls; an
- * organization key is the fallback for everyone (subject to the organization's BYOK policy).
- * The secret is write-only: the server only ever returns a fingerprint.
+ * organization key is the fallback for everyone (subject to the organization's BYOK policy), and
+ * replaces the deployment's own key, set in the environment, for that provider. The secret is
+ * write-only: the server only ever returns a fingerprint.
  */
 export function ProviderKeysPanel({ mode }: { mode: "user" | "org" }) {
   const base = mode === "user" ? "/v1/user/model-keys" : "/v1/admin/model-keys";
   const [keys, setKeys] = useState<StoredKey[]>([]);
+  const [platformKeys, setPlatformKeys] = useState<PlatformKey[]>([]);
+  const apiKeyInput = useRef<HTMLInputElement>(null);
   const [provider, setProvider] = useState("openrouter");
   const [apiKey, setApiKey] = useState("");
   const [apiBase, setApiBase] = useState("");
@@ -32,10 +42,14 @@ export function ProviderKeysPanel({ mode }: { mode: "user" | "org" }) {
     try {
       const res = await fetch(base);
       if (res.ok) setKeys(await res.json());
+      if (mode === "org") {
+        const platform = await fetch("/v1/admin/model-keys/platform");
+        if (platform.ok) setPlatformKeys(await platform.json());
+      }
     } catch {
       /* the panel simply stays empty */
     }
-  }, [base]);
+  }, [base, mode]);
 
   useEffect(() => {
     load();
@@ -72,6 +86,14 @@ export function ProviderKeysPanel({ mode }: { mode: "user" | "org" }) {
     await load();
   };
 
+  const override = (name: string) => {
+    setProvider(name);
+    apiKeyInput.current?.focus();
+  };
+
+  // One row per provider: the organization's own key where there is one, else the deployment's.
+  const providers = Array.from(new Set([...keys.map((k) => k.provider), ...platformKeys.map((k) => k.provider)])).sort();
+
   return (
     <section className="bg-surface-card rounded-xl border border-surface-border p-6 space-y-4" data-testid={`provider-keys-${mode}`}>
       <div>
@@ -82,7 +104,7 @@ export function ProviderKeysPanel({ mode }: { mode: "user" | "org" }) {
         <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
           {mode === "user"
             ? "Calls you make use your own key when one is stored for the model's provider; that spend is not charged to the organization budget."
-            : "Used by every member without a key of their own. Set a base URL to reach a private vLLM or Ollama server."}
+            : "Used by every member without a key of their own. A key set in the deployment's environment is listed here; save a key for the same provider to use it for this organization instead. Set a base URL to reach a private vLLM or Ollama server."}
         </p>
       </div>
 
@@ -100,23 +122,60 @@ export function ProviderKeysPanel({ mode }: { mode: "user" | "org" }) {
       )}
 
       <ul className="divide-y divide-surface-border">
-        {keys.length === 0 && <li className="py-2 text-xs text-neutral-500">No keys stored.</li>}
-        {keys.map((k) => (
-          <li key={k.provider} className="py-2 flex items-center justify-between text-xs">
-            <span>
-              <strong>{k.provider}</strong> {k.fingerprint}
-              {k.api_base ? ` - ${k.api_base}` : ""}
-            </span>
-            <button
-              type="button"
-              aria-label={`Remove ${k.provider} key`}
-              onClick={() => remove(k.provider)}
-              className="text-rose-400 hover:text-rose-300"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </li>
-        ))}
+        {providers.length === 0 && <li className="py-2 text-xs text-neutral-500">No keys stored.</li>}
+        {providers.map((name) => {
+          const own = keys.find((k) => k.provider === name);
+          const deployment = platformKeys.find((k) => k.provider === name);
+          return (
+            <li key={name} data-testid={`provider-key-${name}`} className="py-2 flex items-center justify-between gap-3 text-xs">
+              <span className="min-w-0">
+                <strong>{name}</strong>{" "}
+                {own ? (
+                  <>
+                    <span className="text-neutral-500 dark:text-neutral-400">
+                      {mode === "org" ? "Organization key" : "Your key"}
+                    </span>{" "}
+                    {own.fingerprint}
+                    {own.api_base ? ` - ${own.api_base}` : ""}
+                    {deployment && (
+                      <span className="block text-neutral-500 dark:text-neutral-400">
+                        Replaces the deployment&apos;s key ({deployment.env_var}) for this organization.
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  deployment && (
+                    <>
+                      <span className="text-neutral-500 dark:text-neutral-400">Deployment key</span> {deployment.fingerprint}
+                      <span className="block text-neutral-500 dark:text-neutral-400">
+                        Set by the environment variable {deployment.env_var}.
+                      </span>
+                    </>
+                  )
+                )}
+              </span>
+              {own ? (
+                <button
+                  type="button"
+                  aria-label={`Remove ${name} key`}
+                  onClick={() => remove(name)}
+                  className="text-rose-400 hover:text-rose-300"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label={`Override the ${name} key for this organization`}
+                  onClick={() => override(name)}
+                  className="shrink-0 rounded-lg border border-surface-border px-2 py-1 text-[11px] text-foreground hover:border-brand/50"
+                >
+                  Override
+                </button>
+              )}
+            </li>
+          );
+        })}
       </ul>
 
       <div className="grid gap-2 md:grid-cols-[10rem_1fr_1fr_auto]">
@@ -133,6 +192,7 @@ export function ProviderKeysPanel({ mode }: { mode: "user" | "org" }) {
           ))}
         </datalist>
         <input
+          ref={apiKeyInput}
           type="password"
           autoComplete="off"
           aria-label="API key"

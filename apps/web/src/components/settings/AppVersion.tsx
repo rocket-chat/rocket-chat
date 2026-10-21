@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 
-/** The release the server runs: `v0.5.0`, or `dev` for a build that is not a tagged release. */
+/** The build the server runs: `v0.5.0` for a release, `dev` or `dev-21102026-1036` for any other build. */
 export const AppVersion: React.FC = () => {
   const [version, setVersion] = useState<string | null>(null);
 
@@ -16,7 +16,7 @@ export const AppVersion: React.FC = () => {
   if (!version) return null;
   return (
     <span data-testid="app-version" title="Version of the running server">
-      {version === "dev" ? "dev" : `v${version}`}
+      {/^\d/.test(version) ? `v${version}` : version}
     </span>
   );
 };

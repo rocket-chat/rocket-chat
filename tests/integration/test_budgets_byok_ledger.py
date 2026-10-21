@@ -248,6 +248,22 @@ async def test_platform_keys_are_used_when_nobody_stored_one(
 
 
 @pytest.mark.asyncio
+async def test_an_organization_key_replaces_the_deployments_environment_key(
+    provider: list[dict[str, Any]], stack: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gateway, _, _, store = stack
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-DEPLOYMENT-1111")
+
+    await _call(gateway)
+    await store.put(ORG, None, "openrouter", "sk-or-ORG-KEY-1234")
+    store._cache.clear()
+    await _call(gateway)
+
+    assert "api_key" not in provider[0], "the environment key is litellm's own fallback"
+    assert provider[1]["api_key"] == "sk-or-ORG-KEY-1234"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("policy", "expected"),
     [("platform_only", None), ("org_key", "ORG"), ("user_keys", "USER")],

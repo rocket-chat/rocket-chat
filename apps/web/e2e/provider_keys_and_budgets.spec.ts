@@ -21,6 +21,37 @@ test.describe("Provider keys and budgets", () => {
     await expect(panel.getByText("No keys stored.")).toBeVisible();
   });
 
+  test("a key set in the deployment's environment is shown, and the organization can override it", async ({ page }) => {
+    await page.route("**/v1/admin/model-keys/platform", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify([{ provider: "mistral", env_var: "MISTRAL_API_KEY", fingerprint: "sk-...9999" }]),
+      })
+    );
+    await page.goto("/settings/org/models");
+    const panel = page.getByTestId("provider-keys-org");
+    const row = panel.getByTestId("provider-key-mistral");
+
+    await expect(row).toContainText("Deployment key");
+    await expect(row).toContainText("MISTRAL_API_KEY");
+    await expect(row).toContainText("sk-...9999");
+
+    await row.getByRole("button", { name: "Override the mistral key for this organization" }).click();
+    await expect(panel.getByLabel("Provider")).toHaveValue("mistral");
+    await expect(panel.getByLabel("API key")).toBeFocused();
+
+    await panel.getByLabel("API key").fill("sk-org-OVERRIDE-VALUE-2468");
+    await panel.getByRole("button", { name: "Save key" }).click();
+    await expect(row).toContainText("Organization key");
+    await expect(row).toContainText("sk-...2468");
+    await expect(row).toContainText("Replaces the deployment's key (MISTRAL_API_KEY)");
+    await expect(page.getByText("OVERRIDE-VALUE")).toHaveCount(0);
+
+    await panel.getByRole("button", { name: "Remove mistral key" }).click();
+    await expect(row).toContainText("Deployment key");
+  });
+
   test("the organization budget and key policy are editable settings", async ({ page }) => {
     await page.goto("/settings/org/models");
     await expect(page.getByText("Budgets & provider keys")).toBeVisible();

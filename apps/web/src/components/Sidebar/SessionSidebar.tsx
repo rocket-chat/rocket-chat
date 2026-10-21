@@ -31,6 +31,8 @@ import {
   Plus,
   CircleAlert,
   Copy,
+  Share2,
+  Slack,
 } from "lucide-react";
 import { ago, groupSessions, STATUS_LABEL, statusOf, type SessionStatus } from "../../lib/session-groups";
 
@@ -151,6 +153,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
 
   const visibleSessions = sessions
     .filter((s) => !s.is_draft && s.session_id !== "draft" && s.session_id !== "new")
+    // Archived sessions are listed only in their own view, and leave the default one the moment
+    // they are archived instead of waiting for the next fetch.
+    .filter((s) => Boolean(s.is_archived) === showArchived)
     .filter((s) => (filter === "shared" ? Boolean(s.is_shared) : filter === "slack" ? isSlackSession(s) : true))
     .filter((s) => {
       const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -223,11 +228,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
       >
         <div className="flex flex-col h-full overflow-hidden">
           {/* Brand & Toggle Header */}
-          <div className="p-3.5 flex items-center justify-between border-b border-surface-borderSubtle">
-            <Link href="/" className="flex items-center gap-2.5 group">
-              <div className="w-7 h-7 rounded-md bg-brand/10 border border-brand/30 flex items-center justify-center text-brand transition-colors group-hover:bg-brand group-hover:text-white">
-                <RocketChatIcon className="w-4 h-4" />
-              </div>
+          <div className="flex items-center justify-between border-b border-surface-borderSubtle px-3 py-2.5">
+            <Link href="/" className="group flex items-center gap-2">
+              {/* Bare artwork, no frame around it; a hairline appears on hover. */}
+              <RocketChatIcon
+                size={32}
+                className="h-8 w-8 rounded-[22%] ring-1 ring-transparent transition-shadow duration-200 group-hover:ring-brand/50"
+              />
               <span className="font-display font-semibold text-sm tracking-tight text-foreground">Rocket Chat</span>
             </Link>
             <button
@@ -269,32 +276,47 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
               />
             </div>
 
-            <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter conversations">
+            <div className="flex items-center gap-1.5" role="group" aria-label="Filter conversations">
               <button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")} className={chip(filter === "all")}>All</button>
-              <button type="button" aria-pressed={filter === "shared"} onClick={() => setFilter(filter === "shared" ? "all" : "shared")} className={chip(filter === "shared")}>Shared</button>
-              <button type="button" aria-pressed={filter === "slack"} onClick={() => setFilter(filter === "slack" ? "all" : "slack")} className={chip(filter === "slack")}>Slack</button>
-              <button
-                type="button"
-                data-testid="toggle-archived-btn"
-                aria-pressed={showArchived}
-                title={showArchived ? "Hide archived sessions" : "Show archived sessions"}
-                onClick={handleToggleArchivedView}
-                className={chip(showArchived)}
+              <IconButton
+                label="Shared"
+                title="Shared: conversations shared with you, or that you shared"
+                pressed={filter === "shared"}
+                onClick={() => setFilter(filter === "shared" ? "all" : "shared")}
+                className="h-7 w-7"
               >
-                Archived
-              </button>
+                <Share2 className="h-3.5 w-3.5" />
+              </IconButton>
+              <IconButton
+                label="Slack"
+                title="Slack: conversations started from Slack"
+                pressed={filter === "slack"}
+                onClick={() => setFilter(filter === "slack" ? "all" : "slack")}
+                className="h-7 w-7"
+              >
+                <Slack className="h-3.5 w-3.5" />
+              </IconButton>
+              <IconButton
+                label="Archived"
+                title={showArchived ? "Archived: back to your active conversations" : "Archived: show only archived conversations"}
+                data-testid="toggle-archived-btn"
+                pressed={showArchived}
+                onClick={handleToggleArchivedView}
+                className="h-7 w-7"
+              >
+                <Archive className="h-3.5 w-3.5" />
+              </IconButton>
               {isAdmin && (
-                <button
-                  type="button"
+                <IconButton
+                  label="Everyone"
+                  title={showingOrganization ? "Everyone: back to your sessions and those shared with you" : "Everyone: show every session in the organization"}
                   data-testid="toggle-org-sessions-btn"
-                  aria-pressed={showingOrganization}
-                  title={showingOrganization ? "Show only your sessions and those shared with you" : "Show every session in the organization"}
+                  pressed={showingOrganization}
                   onClick={handleToggleOrganizationView}
-                  className={chip(showingOrganization)}
+                  className="h-7 w-7"
                 >
-                  <Users className="mr-1 inline h-3 w-3" aria-hidden="true" />
-                  Everyone
-                </button>
+                  <Users className="h-3.5 w-3.5" />
+                </IconButton>
               )}
             </div>
           </div>
@@ -303,7 +325,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
           <div className="flex-1 overflow-y-auto px-2 py-2">
             {groups.length === 0 && (
               <p className="px-3 py-6 text-center text-xs text-neutral-500">
-                {query || filter !== "all" ? "No conversation matches." : "No conversations yet. Start one above."}
+                {showArchived ? "No archived conversations." : query || filter !== "all" ? "No conversation matches." : "No conversations yet. Start one above."}
               </p>
             )}
             {groups.map((group) => (
