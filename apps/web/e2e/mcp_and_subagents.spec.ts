@@ -75,7 +75,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
 
     // Guidance is optional, so it sits behind a disclosure
     await page.getByTestId("mcp-guidance-toggle").click();
-    const guidanceInput = page.getByPlaceholder(/Always check the customer currency/i);
+    const guidanceInput = page.getByTestId("guidance-input");
     await guidanceInput.fill("Use this server to fetch exception tracebacks.");
 
     // Select Custom Headers auth mode
