@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `agent-core`, `web`, `api`: **tool loading has a new mode, `pinned`**, and `on_demand` is now additive. *On demand* always loads the platform's own tools and keeps the MCP tools you pinned loaded; before, pinning any tool made the pins the only loaded tools and silently deferred `file_read`, `bash_exec` and the rest. *Only pinned tools* is that old behaviour, now explicit. Migration `048_pinned_tool_loading` moves every agent that had pinned tools under `on_demand` (its own mode, or an `on_demand` organization default it inherited) to `pinned`, so no existing agent loads different tools; the built-in *Backend Developer* is one of them. The page offers a pin on a platform tool only in *Only pinned tools*.
 - `api`: the unused per-tool `guidance` field of MCP tool listings is removed; a server's guidance is the server's, and each tool's own documentation already reaches the agent. Stored values are ignored.
 
 ### Fixed

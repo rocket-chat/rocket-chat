@@ -89,7 +89,7 @@ async def list_tools(request: Request) -> ToolCatalogResponse:
 
 
 class ToolLoadingPreviewRequest(BaseModel):
-    tool_loading: Literal["all", "on_demand", "auto"] | None = Field(
+    tool_loading: Literal["all", "on_demand", "pinned", "auto"] | None = Field(
         default=None, description="The agent's own mode; empty inherits the organization's"
     )
     active_tools: list[str] = Field(
@@ -101,7 +101,7 @@ class ToolLoadingPreviewRequest(BaseModel):
 
 
 class ToolLoadingPreview(BaseModel):
-    mode: str = Field(..., description="The mode in force: all, on_demand or auto")
+    mode: str = Field(..., description="The mode in force: all, on_demand, pinned or auto")
     source: Literal["agent", "organization"] = Field(
         ..., description="Whether the agent or the organization chose the mode"
     )

@@ -446,18 +446,20 @@ def combine_step_limits(agent_limit: int | None, organization_limit: int) -> int
     return min(agent_limit, organization_limit)
 
 
-TOOL_LOADING_MODES = ("all", "on_demand", "auto")
+TOOL_LOADING_MODES = ("all", "on_demand", "pinned", "auto")
 
 
 @dataclass(frozen=True)
 class ToolLoading:
     """Which of the agent's tools every request carries, and which it loads when it needs them.
 
+    A deferred tool is *listed by name*; its definition is sent only once the agent loads it.
     ``all`` sends every allowed tool. ``on_demand`` sends the platform's own tools (built-in and
-    toolset) plus ``active``; every other allowed tool is *deferred*: listed by name, its
-    definition sent only once the agent loads it. ``auto`` sends everything until the agent has
-    more than ``threshold`` tools, then defers the tools from MCP servers that are not in
-    ``active``. ``active`` holds names or shell-style patterns (``mcp__signoz*__*search*``).
+    toolset) and defers the MCP servers' tools except those in ``active``. ``pinned`` sends only
+    what ``active`` names and defers every other allowed tool, the platform's own included.
+    ``auto`` sends everything until the agent has more than ``threshold`` tools, then behaves
+    like ``on_demand``. ``active`` holds names or shell-style patterns
+    (``mcp__signoz*__*search*``); the loading tools are never deferred.
     """
 
     mode: str = "all"

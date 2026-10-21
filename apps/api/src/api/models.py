@@ -5,7 +5,7 @@ from typing import Any, Literal
 from agent_core.guidance import MAX_GUIDANCE_CHARS
 from pydantic import BaseModel, Field, model_validator
 
-ToolLoadingMode = Literal["all", "on_demand", "auto"]
+ToolLoadingMode = Literal["all", "on_demand", "pinned", "auto"]
 
 
 class AgentPersonaModel(BaseModel):
@@ -74,16 +74,17 @@ class AgentPersonaModel(BaseModel):
     tool_loading: ToolLoadingMode | None = Field(
         default=None,
         description=(
-            "Which allowed tools every step carries: all, on_demand (the platform's tools and "
-            "active_tools; the others are loaded when needed) or auto; empty inherits the "
-            "organization's setting"
+            "Which allowed tools every step carries: all; on_demand (the platform's tools, and "
+            "the MCP tools in active_tools; the other MCP tools are loaded when needed); pinned "
+            "(only active_tools; every other tool is loaded when needed); or auto. Empty "
+            "inherits the organization's setting"
         ),
     )
     active_tools: list[str] = Field(
         default_factory=list,
         description=(
-            "Tools always loaded, by name or pattern (mcp__signoz*__*search*); with on_demand, "
-            "only these and the loading tools are, when set"
+            "Tools always loaded, by name or pattern (mcp__signoz*__*search*). They keep MCP "
+            "tools loaded in on_demand and auto, and are the only tools loaded in pinned"
         ),
     )
     default_permission_mode: str | None = Field(

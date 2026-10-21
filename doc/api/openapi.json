@@ -19,7 +19,7 @@
         "description": "Custom Agent Persona configuration.",
         "properties": {
           "active_tools": {
-            "description": "Tools always loaded, by name or pattern (mcp__signoz*__*search*); with on_demand, only these and the loading tools are, when set",
+            "description": "Tools always loaded, by name or pattern (mcp__signoz*__*search*). They keep MCP tools loaded in on_demand and auto, and are the only tools loaded in pinned",
             "items": {
               "type": "string"
             },
@@ -198,6 +198,7 @@
                 "enum": [
                   "all",
                   "on_demand",
+                  "pinned",
                   "auto"
                 ],
                 "type": "string"
@@ -206,7 +207,7 @@
                 "type": "null"
               }
             ],
-            "description": "Which allowed tools every step carries: all, on_demand (the platform's tools and active_tools; the others are loaded when needed) or auto; empty inherits the organization's setting",
+            "description": "Which allowed tools every step carries: all; on_demand (the platform's tools, and the MCP tools in active_tools; the other MCP tools are loaded when needed); pinned (only active_tools; every other tool is loaded when needed); or auto. Empty inherits the organization's setting",
             "title": "Tool Loading"
           },
           "user_id": {
@@ -5827,7 +5828,7 @@
             "type": "array"
           },
           "mode": {
-            "description": "The mode in force: all, on_demand or auto",
+            "description": "The mode in force: all, on_demand, pinned or auto",
             "title": "Mode",
             "type": "string"
           },
@@ -5883,6 +5884,7 @@
                 "enum": [
                   "all",
                   "on_demand",
+                  "pinned",
                   "auto"
                 ],
                 "type": "string"
