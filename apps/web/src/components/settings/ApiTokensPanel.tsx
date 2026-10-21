@@ -166,7 +166,7 @@ export const ApiTokensPanel: React.FC<{ scope: TokenScope }> = ({ scope }) => {
       )}
 
       <form onSubmit={create} className="grid gap-3 sm:grid-cols-[1fr_9rem_auto] sm:items-end">
-        <Field label="Name" hint="What the token is for, so you can recognise it later.">
+        <Field label="Name">
           {(control) => (
             <Input
               {...control}
@@ -189,10 +189,13 @@ export const ApiTokensPanel: React.FC<{ scope: TokenScope }> = ({ scope }) => {
             </Select>
           )}
         </Field>
-        <Button type="submit" variant="primary" disabled={busy || !name.trim()} className="sm:mb-[1.4rem]">
+        <Button type="submit" variant="primary" disabled={busy || !name.trim()}>
           Create token
         </Button>
       </form>
+      <p className="-mt-2 text-xs text-neutral-500 dark:text-neutral-400">
+        The name says what the token is for, so you can recognise it later.
+      </p>
 
       {tokens !== null && tokens.length === 0 ? (
         <EmptyState title={`No ${wording.noun} tokens`} description={wording.empty} />
