@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { ShieldCheck, Info } from "lucide-react";
+import { useClampIntoViewport } from "../lib/useClampIntoViewport";
 import { useMissionStore } from "../lib/store";
 import { PermissionMode } from "../types/mission";
 
@@ -96,17 +97,8 @@ export const PermissionModePicker: React.FC<{ disabled?: boolean; bare?: boolean
     };
   }, [showTooltip]);
 
-  // The picker sits at the left of the composer, wherever the attach button and the window
-  // leave it: shift the popover back inside the window instead of letting it run off the edge.
-  useLayoutEffect(() => {
-    const popover = tooltipRef.current;
-    if (!showTooltip || !popover) return;
-    popover.style.transform = "";
-    const { left, right } = popover.getBoundingClientRect();
-    const margin = 8;
-    const shift = right > window.innerWidth - margin ? window.innerWidth - margin - right : left < margin ? margin - left : 0;
-    if (shift) popover.style.transform = `translateX(${shift}px)`;
-  }, [showTooltip]);
+  // The picker sits at the left of the composer, wherever the attach button and the window leave it.
+  useClampIntoViewport(tooltipRef, showTooltip);
 
   return (
     <div className="relative inline-flex items-center">

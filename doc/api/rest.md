@@ -1580,6 +1580,22 @@ Halt current autonomous execution immediately.
 
 **Responses:** `200`
 
+### `GET /v1/sessions/{session_id}/usage`
+
+Tokens and cost of one session: in total, per turn and per model.
+
+From the usage ledger, which records each model call as it happens, so a turn that is still
+running is included. Per-turn figures need the PostgreSQL store (they come from the turns'
+start times); without it only the totals are returned.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
 ### `GET /v1/settings-schema`
 
 Every settings domain's fields (type, scope, default, constraints) for form rendering.

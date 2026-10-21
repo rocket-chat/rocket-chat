@@ -3,6 +3,8 @@
 import { CheckpointsPanel } from "./CheckpointsPanel";
 import React, { useCallback, useEffect, useState } from "react";
 import { useMissionStore } from "../lib/store";
+import { useSessionUsage } from "../lib/useSessionUsage";
+import type { TurnUsage } from "../lib/session-usage";
 import { TurnTrace, TurnTracePage } from "../types/mission";
 import {
   AlertTriangle,
@@ -58,11 +60,14 @@ function formatDuration(started: number, ended: number | null): string {
 /** One persisted turn row, with its reasoning collapsed by default like the flight stream. */
 const TurnRow: React.FC<{
   turn: TurnTrace;
+  /** The turn's calls as the usage ledger has them: a turn still running has no tokens in its trace yet. */
+  ledger?: TurnUsage;
   sessionId: string;
   retryPrompt: string | null;
   onRetry: (prompt: string) => void;
 }> = ({
   turn,
+  ledger,
   sessionId,
   retryPrompt,
   onRetry,
@@ -83,6 +88,7 @@ const TurnRow: React.FC<{
   const cacheReadTokens = typeof usage.cache_read_tokens === "number" ? usage.cache_read_tokens : (typeof tokenRecord.cache_read_tokens === "number" ? tokenRecord.cache_read_tokens : undefined);
   const rawCost = typeof usage.cost_usd === "number" ? usage.cost_usd : (typeof tokenRecord.cost_usd === "number" ? tokenRecord.cost_usd : undefined);
   const costUsd = typeof rawCost === "number" ? (rawCost > 100 ? rawCost / 1_000_000 : rawCost) : null;
+  const fromLedger = typeof promptTokens !== "number" && ledger && ledger.calls > 0 ? ledger : null;
   const cacheRatio =
     typeof usage.cache_hit_ratio === "number"
       ? Math.round(usage.cache_hit_ratio * 100)
@@ -180,6 +186,17 @@ const TurnRow: React.FC<{
           <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
             <ShieldCheck className="w-3 h-3" />
             {approvalCount} {approvalCount === 1 ? "approval" : "approvals"}
+          </span>
+        )}
+        {fromLedger && (
+          <span
+            data-testid="turn-live-usage"
+            className="inline-flex items-center gap-1.5"
+            title="Counted call by call while the turn runs"
+          >
+            <span>{fromLedger.prompt_tokens.toLocaleString()} in</span>
+            <span>{fromLedger.completion_tokens.toLocaleString()} out</span>
+            <span className="text-emerald-400 font-medium">${fromLedger.cost_usd.toFixed(4)}</span>
           </span>
         )}
         {typeof promptTokens === "number" && (
@@ -363,6 +380,8 @@ export const TurnInspector: React.FC<TurnInspectorProps> = ({ onRetryTurn }) => 
   const setIsOpen = useMissionStore((s) => s.setIsTurnInspectorOpen);
   const session = useMissionStore((s) => s.session);
   const sessionId = session && !session.is_draft ? session.session_id : null;
+  const isExecuting = useMissionStore((s) => s.isExecuting);
+  const usage = useSessionUsage(sessionId ?? undefined, isExecuting);
 
   const [turns, setTurns] = useState<TurnTrace[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -467,6 +486,7 @@ export const TurnInspector: React.FC<TurnInspectorProps> = ({ onRetryTurn }) => 
               <TurnRow
                 key={turn.id}
                 turn={turn}
+                ledger={usage?.turns.find((t) => t.turn_index === turn.turn_index)}
                 sessionId={sessionId || ""}
                 retryPrompt={retryPrompt}
                 onRetry={onRetryTurn}

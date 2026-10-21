@@ -3513,6 +3513,68 @@
         "title": "ModelKeyRequest",
         "type": "object"
       },
+      "ModelUsage": {
+        "properties": {
+          "cache_creation_tokens": {
+            "default": 0,
+            "description": "Tokens written to the cache",
+            "title": "Cache Creation Tokens",
+            "type": "integer"
+          },
+          "cache_read_tokens": {
+            "default": 0,
+            "description": "Of the prompt tokens, those served from the provider's cache",
+            "title": "Cache Read Tokens",
+            "type": "integer"
+          },
+          "calls": {
+            "default": 0,
+            "description": "Model calls",
+            "title": "Calls",
+            "type": "integer"
+          },
+          "completion_tokens": {
+            "default": 0,
+            "description": "Tokens generated, reasoning included",
+            "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "cost_usd": {
+            "default": 0.0,
+            "description": "Cost billed by the provider, in dollars",
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "model": {
+            "description": "The model the calls went to",
+            "title": "Model",
+            "type": "string"
+          },
+          "own_key_cost_usd": {
+            "default": 0.0,
+            "description": "Of the cost, what a member's own provider key paid",
+            "title": "Own Key Cost Usd",
+            "type": "number"
+          },
+          "prompt_tokens": {
+            "default": 0,
+            "description": "Tokens sent, cached ones included",
+            "title": "Prompt Tokens",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "default": 0,
+            "description": "Prompt and completion tokens",
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "title": "ModelUsage",
+        "type": "object"
+      },
       "PairRequest": {
         "properties": {
           "code": {
@@ -4726,6 +4788,45 @@
           "sandbox_status"
         ],
         "title": "SessionResponse",
+        "type": "object"
+      },
+      "SessionUsage": {
+        "properties": {
+          "before_first_turn": {
+            "$ref": "#/components/schemas/UsageTotals",
+            "description": "Calls made before the first recorded turn started"
+          },
+          "models": {
+            "description": "Per model, dearest first",
+            "items": {
+              "$ref": "#/components/schemas/ModelUsage"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "session_id": {
+            "description": "The session",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/UsageTotals",
+            "description": "Everything the session has used"
+          },
+          "turns": {
+            "description": "Per turn, oldest first; empty without turn traces",
+            "items": {
+              "$ref": "#/components/schemas/TurnUsage"
+            },
+            "title": "Turns",
+            "type": "array"
+          }
+        },
+        "required": [
+          "session_id",
+          "totals"
+        ],
+        "title": "SessionUsage",
         "type": "object"
       },
       "ShareSessionRequest": {
@@ -6153,6 +6254,92 @@
         "title": "TurnTraceResponse",
         "type": "object"
       },
+      "TurnUsage": {
+        "properties": {
+          "cache_creation_tokens": {
+            "default": 0,
+            "description": "Tokens written to the cache",
+            "title": "Cache Creation Tokens",
+            "type": "integer"
+          },
+          "cache_read_tokens": {
+            "default": 0,
+            "description": "Of the prompt tokens, those served from the provider's cache",
+            "title": "Cache Read Tokens",
+            "type": "integer"
+          },
+          "calls": {
+            "default": 0,
+            "description": "Model calls",
+            "title": "Calls",
+            "type": "integer"
+          },
+          "completion_tokens": {
+            "default": 0,
+            "description": "Tokens generated, reasoning included",
+            "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "cost_usd": {
+            "default": 0.0,
+            "description": "Cost billed by the provider, in dollars",
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Turn end; null while it runs",
+            "title": "Ended At"
+          },
+          "own_key_cost_usd": {
+            "default": 0.0,
+            "description": "Of the cost, what a member's own provider key paid",
+            "title": "Own Key Cost Usd",
+            "type": "number"
+          },
+          "prompt_tokens": {
+            "default": 0,
+            "description": "Tokens sent, cached ones included",
+            "title": "Prompt Tokens",
+            "type": "integer"
+          },
+          "started_at": {
+            "description": "Turn start, epoch seconds",
+            "title": "Started At",
+            "type": "integer"
+          },
+          "status": {
+            "description": "running, completed, error or interrupted",
+            "title": "Status",
+            "type": "string"
+          },
+          "total_tokens": {
+            "default": 0,
+            "description": "Prompt and completion tokens",
+            "title": "Total Tokens",
+            "type": "integer"
+          },
+          "turn_index": {
+            "description": "1-based turn number within the session",
+            "title": "Turn Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "turn_index",
+          "started_at",
+          "status"
+        ],
+        "title": "TurnUsage",
+        "type": "object"
+      },
       "UpdateOrgSettingsRequest": {
         "description": "Payload to update organization defaults and locked keys for a domain.",
         "properties": {
@@ -6344,6 +6531,60 @@
           "overrides"
         ],
         "title": "UpdateUserSettingsRequest",
+        "type": "object"
+      },
+      "UsageTotals": {
+        "properties": {
+          "cache_creation_tokens": {
+            "default": 0,
+            "description": "Tokens written to the cache",
+            "title": "Cache Creation Tokens",
+            "type": "integer"
+          },
+          "cache_read_tokens": {
+            "default": 0,
+            "description": "Of the prompt tokens, those served from the provider's cache",
+            "title": "Cache Read Tokens",
+            "type": "integer"
+          },
+          "calls": {
+            "default": 0,
+            "description": "Model calls",
+            "title": "Calls",
+            "type": "integer"
+          },
+          "completion_tokens": {
+            "default": 0,
+            "description": "Tokens generated, reasoning included",
+            "title": "Completion Tokens",
+            "type": "integer"
+          },
+          "cost_usd": {
+            "default": 0.0,
+            "description": "Cost billed by the provider, in dollars",
+            "title": "Cost Usd",
+            "type": "number"
+          },
+          "own_key_cost_usd": {
+            "default": 0.0,
+            "description": "Of the cost, what a member's own provider key paid",
+            "title": "Own Key Cost Usd",
+            "type": "number"
+          },
+          "prompt_tokens": {
+            "default": 0,
+            "description": "Tokens sent, cached ones included",
+            "title": "Prompt Tokens",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "default": 0,
+            "description": "Prompt and completion tokens",
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "title": "UsageTotals",
         "type": "object"
       },
       "UserPage": {
@@ -12316,6 +12557,49 @@
           }
         },
         "summary": "Start Session Turn",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/usage": {
+      "get": {
+        "description": "Tokens and cost of one session: in total, per turn and per model.\n\nFrom the usage ledger, which records each model call as it happens, so a turn that is still\nrunning is included. Per-turn figures need the PostgreSQL store (they come from the turns'\nstart times); without it only the totals are returned.",
+        "operationId": "get_session_usage_v1_sessions__session_id__usage_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUsage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Usage",
         "tags": [
           "Sessions & Telemetry"
         ]

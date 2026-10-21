@@ -338,6 +338,33 @@ async def test_the_ledger_survives_a_restart_and_is_tenant_isolated(tenant_rows:
     assert await restarted.spend_usd("usage_org", since=0) == 0.0, "another tenant sees nothing"
 
 
+@pytest.mark.skipif(not TEST_DB_URL, reason="TEST_DATABASE_URL not configured")
+@pytest.mark.asyncio
+async def test_a_sessions_calls_come_back_in_order_and_only_for_its_organization(
+    tenant_rows: None,
+) -> None:
+    from api.db.session import DatabaseSessionManager
+
+    manager = DatabaseSessionManager(TEST_DB_URL)
+    ledger = UsageLedger(manager)
+    for at, session_id, org in (
+        (30, "sess_usage_a", "test_org"),
+        (10, "sess_usage_a", "test_org"),
+        (20, "sess_usage_b", "test_org"),
+        (15, "sess_usage_a", "usage_org"),
+    ):
+        await ledger.record(
+            UsageEvent(org, "member_user", "m", 100, 10, 0.5, session_id, 40, 0, "platform", at)
+        )
+
+    events = await ledger.session_events("test_org", "sess_usage_a")
+
+    assert [e["created_at"] for e in events] == [10, 30], "oldest first, this session only"
+    assert events[0]["cache_read_tokens"] == 40 and events[0]["cost_usd"] == 0.5
+    assert await ledger.session_events("usage_org", "sess_usage_a") != events, "per organization"
+    await manager.close()
+
+
 # -- through the real turn pipeline ---------------------------------------------------------
 
 
