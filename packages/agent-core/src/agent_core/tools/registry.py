@@ -5,7 +5,7 @@ import json
 import logging
 import posixpath
 import shlex
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
 from fnmatch import fnmatch
 from typing import Any, ClassVar, cast
 
@@ -19,6 +19,7 @@ from sandbox_driver.workspace import (
 )
 
 from agent_core.context import current_execution_ctx
+from agent_core.guidance import awaiting_read, put_in_effect
 from agent_core.permissions import (
     ACTION_CLASSIFIED_TOOLS,
     SLACK_READ_TOOLS,
@@ -26,7 +27,7 @@ from agent_core.permissions import (
     is_read_call,
     touches_workspace,
 )
-from agent_core.tool_loading import server_of
+from agent_core.tool_loading import MCP_PREFIX, server_of
 from agent_core.tools import git_tools, memory_tools
 from agent_core.tools.builtin import register_all
 from agent_core.tools.schema import definition_from_tool
@@ -37,6 +38,7 @@ from specifications.interfaces.agent import (
     FileDiff,
     GithubAccess,
     GitPolicy,
+    ServerGuidance,
 )
 from specifications.interfaces.llm import ToolDefinition
 from specifications.interfaces.sandbox import SandboxDriverProtocol
@@ -559,6 +561,15 @@ class ToolRegistry:
                 f"Blocked: the tool '{name}' belongs to a toolset that is not enabled for "
                 "this session. Enable the toolset on the session or agent before use."
             )
+        if unread := self.guidance_unread(name):
+            # Before the approval below: a person is never asked to approve a call that is
+            # refused anyway. Enforced, not advisory: the instructions are only worth anything
+            # to an agent that has them in front of it.
+            return (
+                f"Blocked: before using '{name}', read the usage guidance of its MCP server "
+                f"'{unread.server}': call `load_guidance` with that server name, then repeat "
+                "this call."
+            )
         refusal = await self._permission_refusal(name, arguments)
         if refusal is not None:
             return refusal
@@ -618,6 +629,27 @@ class ToolRegistry:
         """Whether ``name`` is allowed this turn but not loaded yet."""
         ctx = current_execution_ctx.get()
         return ctx is not None and name in ctx.deferred_tools and name not in ctx.loaded_tools
+
+    @staticmethod
+    def guidance_unread(name: str) -> ServerGuidance | None:
+        """The usage guidance of ``name``'s MCP server, if it has some not yet in effect."""
+        ctx = current_execution_ctx.get()
+        if ctx is None or not name.startswith(MCP_PREFIX):
+            return None
+        return awaiting_read(ctx, server_of(name))
+
+    async def put_guidance_in_effect(self, servers: Iterable[str]) -> list[ServerGuidance]:
+        """Put the servers' guidance in effect; the guidance that was not already (each is given
+        to the agent once per session, however many of the server's tools it loads)."""
+        ctx = current_execution_ctx.get()
+        if ctx is None:
+            return []
+        fresh = [e for server in dict.fromkeys(servers) if (e := put_in_effect(ctx, server))]
+        # A subagent keeps its own, shorter-lived record; saving it would replace the session's.
+        if fresh and not ctx.guidance_in_result:
+            if remember := self._turn_callback("guidance_read"):
+                await remember(ctx.session_id, dict(ctx.guidance_in_effect))
+        return fresh
 
     async def load(self, names: list[str]) -> list[str]:
         """Load deferred tools for the rest of the session; returns the ones newly loaded."""

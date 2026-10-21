@@ -254,6 +254,9 @@ class TurnCallbacks:
     # Called with (session id, tool names) when the agent loads deferred tools, so later turns
     # send them too.
     tools_loaded: Callable[[str, list[str]], Awaitable[None]] | None = None
+    # Called with (session id, server -> digest of the guidance the agent has read) when the agent
+    # puts a server's usage guidance in effect, so later turns carry it too.
+    guidance_read: Callable[[str, dict[str, str]], Awaitable[None]] | None = None
     # Called with (session id, every variable the agent set) after ``env_set``/``env_unset``,
     # so later turns' commands get them too.
     agent_env_changed: Callable[[str, dict[str, str]], Awaitable[None]] | None = None
@@ -465,6 +468,28 @@ class ToolLoading:
 
 
 @dataclass(frozen=True)
+class ServerGuidance:
+    """What the organization tells the agent about one MCP server beyond its tools.
+
+    Only servers with a ``text`` appear: a server without guidance costs the agent nothing.
+    """
+
+    server: str  # the <server> of ``mcp__<server>__<tool>``
+    trigger: str  # one line: when to use the server (the first line of ``text``)
+    text: str  # how to use it, in markdown; may be long
+    digest: str  # of ``text``: an edited guidance has to be read again
+
+
+@dataclass(frozen=True)
+class McpGuidance:
+    """The usage guidance of the turn's MCP servers, and which the session has already read."""
+
+    servers: tuple[ServerGuidance, ...] = ()
+    # server -> digest of the guidance the agent put in effect earlier in the session.
+    read: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class TurnPolicy:
     """Organization/agent policy applied to one turn (carried on the execution context)."""
 
@@ -486,6 +511,7 @@ class TurnPolicy:
     sandbox_env_names: tuple[str, ...] = ()
     agent_env: Mapping[str, str] = field(default_factory=dict)
     tool_loading: ToolLoading = field(default_factory=ToolLoading)
+    mcp_guidance: McpGuidance = field(default_factory=McpGuidance)
     output_offload_threshold: int = 6_000
     max_turn_cost_usd: float | None = None
     sandbox_profile: str = ""

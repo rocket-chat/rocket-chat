@@ -15,6 +15,9 @@ import {
   Zap,
 } from "lucide-react";
 import { McpMemberEnv } from "./McpMemberEnv";
+import { MarkdownRenderer } from "../../MarkdownRenderer";
+import { Disclosure } from "../../ui/Disclosure";
+import { triggerOf } from "../../../lib/mcp-guidance";
 import { McpRunnerStatus, McpServerConfig } from "../../../types/mission";
 
 function TransportIcon({ transport: t }: { transport: string }) {
@@ -68,6 +71,8 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
 
   return (
     <div
+      data-testid="mcp-server-card"
+      data-server-name={server.name}
       className="rounded-lg border border-border bg-surface-card hover:border-brand/30 transition-all overflow-hidden"
     >
       <div className="p-3.5 flex items-center justify-between gap-3">
@@ -205,14 +210,21 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
             <McpMemberEnv serverId={server.id} onChanged={onMemberEnvChanged} />
           )}
           {server.guidance && (
-            <div>
-              <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
-                Custom Agent Guidance:
-              </span>
-              <p className="text-xs text-neutral-300 mt-0.5 bg-surface-card p-2 rounded-lg border border-border/60">
-                {server.guidance}
-              </p>
-            </div>
+            <Disclosure
+              summary={
+                <span className="text-xs">
+                  <span className="font-medium text-neutral-600 dark:text-neutral-300">Agent guidance:</span>{" "}
+                  <span data-testid="mcp-guidance-trigger" className="text-neutral-600 dark:text-neutral-400">
+                    {triggerOf(server.guidance)}
+                  </span>
+                </span>
+              }
+              testId="mcp-guidance-card-toggle"
+            >
+              <div className="rounded-lg border border-border/60 bg-surface-card p-3 text-sm" data-testid="mcp-guidance-body">
+                <MarkdownRenderer content={server.guidance} />
+              </div>
+            </Disclosure>
           )}
 
           <div>

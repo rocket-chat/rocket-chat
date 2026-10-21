@@ -329,7 +329,6 @@ export interface McpToolSchema {
   name: string;
   description: string;
   parameters_summary?: string;
-  guidance?: string;
 }
 
 export interface McpHeaderConfig {

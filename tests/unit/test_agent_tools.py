@@ -277,6 +277,8 @@ async def test_search_tools_lists_and_filters_the_available_tools() -> None:
     filtered = await registry.call_tool("search_tools", {"query": "web"})
     nothing = await registry.call_tool("search_tools", {"query": "zzzz-nope"})
 
-    assert "- file_read:" in everything and "- search_tools:" in everything
+    # The unfiltered listing stops at its cap, so a tool near the end is asked for by name.
+    assert "- file_read:" in everything
+    assert "- search_tools:" in await registry.call_tool("search_tools", {"query": "search_tools"})
     assert "web_fetch" in filtered and "file_read" not in filtered
     assert "No tool matches" in nothing

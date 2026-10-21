@@ -312,7 +312,14 @@ class _SubagentExecution:
         turn_ctx = current_execution_ctx.get()
         token = None
         if turn_ctx is not None:
-            sub_ctx = dataclasses.replace(turn_ctx)
+            # A copy shares the parent's mutable state, and guidance the parent has in effect
+            # is not in the subagent's own conversation: it reads its own.
+            sub_ctx = dataclasses.replace(
+                turn_ctx,
+                guidance_in_effect={},
+                guidance_pending=[],
+                guidance_in_result=True,
+            )
             if self._is_writer and turn_ctx.active_repository:
                 await self._setup_worktree(turn_ctx.active_repository)
                 if self._worktree_dir:

@@ -7,9 +7,11 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, NotRequired, TypedDic
 from pydantic import Field
 
 from agent_core.context import current_execution_ctx
+from agent_core.guidance import servers_of_tools
 from specifications.interfaces.agent import (
     APPROVAL_GRANTED_PREFIX,
     AgentEvent,
+    ServerGuidance,
     SubagentTaskRequest,
     SubagentTaskResult,
 )
@@ -99,7 +101,8 @@ def _register_discovery_tools(registry: ToolRegistry) -> None:
         if not matches:
             return f"No tool matches '{query}'. Call search_tools with no query to list them all."
         lines = [
-            f"- {d.name}{' [load_tools first]' if registry.is_deferred(d.name) else ''}: "
+            f"- {d.name}{' [load_tools first]' if registry.is_deferred(d.name) else ''}"
+            f"{' [read its guidance first]' if registry.guidance_unread(d.name) else ''}: "
             f"{(d.description.strip().splitlines() or [''])[0][:120]}"
             for d in matches[:MAX_TOOLS_LISTED]
         ]
@@ -120,6 +123,11 @@ def _register_discovery_tools(registry: ToolRegistry) -> None:
     ) -> str:
         loaded = await registry.load(names)
         known = {d.name: d for d in registry.get_tool_definitions()}
+        # Loading a server's tool is the decision to use the server: its guidance comes with it,
+        # once, and not again for the next tool of the same server.
+        fresh_guidance = await registry.put_guidance_in_effect(
+            servers_of_tools(n for n in names if n in known)
+        )
         lines = [
             f"- {name}: {(known[name].description.strip().splitlines() or [''])[0][:160]}"
             for name in loaded
@@ -134,7 +142,49 @@ def _register_discovery_tools(registry: ToolRegistry) -> None:
             parts.append(
                 "No such tool: " + ", ".join(unknown) + ". Check the names with search_tools."
             )
+        if fresh_guidance:
+            parts.append(_guidance_given(fresh_guidance))
         return "\n".join(parts) or "Nothing to load."
+
+    @registry._tool(
+        description=(
+            "Put the usage instructions of an MCP server in effect before you use its tools. "
+            "Needed for the servers listed under 'MCP server guidance' in your instructions; "
+            "they stay in effect for the whole session, so call it once per server."
+        )
+    )
+    async def load_guidance(
+        server: Annotated[
+            str, Field(description="The server name exactly as listed, e.g. 'github'.")
+        ],
+    ) -> str:
+        ctx = current_execution_ctx.get()
+        guided = sorted(ctx.guidance_by_server) if ctx is not None else []
+        wanted = server.strip().lower()
+        name = next((g for g in guided if g.lower() == wanted), None)
+        if name is None:
+            known = ", ".join(guided) or "none"
+            return f"No MCP server named '{server}' has usage guidance. Servers that do: {known}."
+        fresh = await registry.put_guidance_in_effect([name])
+        if not fresh:
+            return f"The guidance for '{name}' is already in effect: it is in your instructions."
+        return _guidance_given(fresh)
+
+
+def _guidance_given(entries: list[ServerGuidance]) -> str:
+    """What the agent is told once guidance is put in effect.
+
+    The text itself reaches the agent's instructions from its next step (and again on every later
+    turn, so it is never lost to pruning); a subagent has no such place and gets it here.
+    """
+    ctx = current_execution_ctx.get()
+    names = ", ".join(f"'{e.server}'" for e in entries)
+    if ctx is not None and ctx.guidance_in_result:
+        return "\n\n".join(f"Usage guidance for '{e.server}':\n\n{e.text}" for e in entries)
+    return (
+        f"Usage guidance for {names} is now in effect: it is in your instructions from your next "
+        "step and stays there for the whole session. Follow it."
+    )
 
 
 def _register_dialogue_tools(registry: ToolRegistry) -> None:

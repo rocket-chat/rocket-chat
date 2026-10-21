@@ -85,6 +85,7 @@ async def _rows_with_member_tokens(
                 "transport": _row_value(row, "transport"),
                 "scope": "org",
                 "endpoint_or_command": _row_value(row, "endpoint_or_command"),
+                "guidance": _row_value(row, "guidance") or "",
                 "is_builtin": False,
                 "updated_at": _row_value(row, "updated_at") or 0,
                 "encrypted_auth": {
@@ -124,6 +125,7 @@ async def _rows_with_member_env(
                 "transport": _row_value(row, "transport"),
                 "scope": "org",
                 "endpoint_or_command": _row_value(row, "endpoint_or_command"),
+                "guidance": _row_value(row, "guidance") or "",
                 "is_builtin": False,
                 "updated_at": _row_value(row, "updated_at") or 0,
                 "encrypted_auth": merged,

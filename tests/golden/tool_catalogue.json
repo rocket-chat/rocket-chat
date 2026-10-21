@@ -80,6 +80,22 @@
     }
   },
   {
+    "description": "Put the usage instructions of an MCP server in effect before you use its tools. Needed for the servers listed under 'MCP server guidance' in your instructions; they stay in effect for the whole session, so call it once per server.",
+    "name": "load_guidance",
+    "parameters": {
+      "properties": {
+        "server": {
+          "description": "The server name exactly as listed, e.g. 'github'.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "server"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "description": "Prompt the human user with a structured single- or multi-choice decision card when user intent is underspecified, requirements conflict, or multiple valid architectural trade-offs exist (e.g. library choice, breaking API changes, destructive actions). Always provide clear, distinct options with a recommended default. In the Web Cockpit and Slack, this renders an interactive button/radio decision card and pauses the turn until the user makes a selection.",
     "name": "ask_question",
     "parameters": {

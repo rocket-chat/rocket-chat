@@ -27,7 +27,7 @@ from llm_gateway.tokens import request_tokens
 
 from agent_core.notes import REMINDER_CLOSE, REMINDER_OPEN, render_notes
 from agent_core.transcript import repair_tool_pairs
-from specifications.interfaces.agent import AgentEvent, TurnCallbacks, TurnPolicy
+from specifications.interfaces.agent import AgentEvent, ServerGuidance, TurnCallbacks, TurnPolicy
 from specifications.interfaces.llm import (
     AttachmentRef,
     ChatMessage,
@@ -77,6 +77,15 @@ class ExecutionContext:
     deferred_tools: frozenset[str] = frozenset()
     loaded_tools: set[str] = field(default_factory=set)
     loaded_tools_order: list[str] = field(default_factory=list)
+    # MCP servers with usage guidance this turn, and the guidance the agent has in effect so far
+    # (server -> digest). ``guidance_pending`` holds what was put in effect during the turn and is
+    # not in the request yet; the orchestrator moves it into the turn's context note.
+    guidance_by_server: dict[str, ServerGuidance] = field(default_factory=dict)
+    guidance_in_effect: dict[str, str] = field(default_factory=dict)
+    guidance_pending: list[ServerGuidance] = field(default_factory=list)
+    # A subagent has a conversation of its own and no context note: it reads guidance in the
+    # result of ``load_guidance`` instead.
+    guidance_in_result: bool = False
     # Model data governance for every request this turn makes: propagated
     # onto each ModelRequest so the gateway can pass it to the provider.
     zero_retention: bool = False

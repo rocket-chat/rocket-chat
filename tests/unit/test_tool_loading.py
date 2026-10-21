@@ -15,7 +15,7 @@ from api.services.settings import save_org_config
 from api.services.tool_loading import LOADED_TOOLS_KEY, tool_loading_for
 from api.turns import runner
 
-from specifications.interfaces.agent import ToolLoading
+from specifications.interfaces.agent import ServerGuidance, ToolLoading
 from specifications.interfaces.llm import ToolDefinition
 from tests.turn_harness import run_turn
 
@@ -44,6 +44,9 @@ class _McpServers:
 
     def owns(self, name: str) -> bool:
         return name in MCP
+
+    def guidance(self) -> list[ServerGuidance]:
+        return []
 
     async def call(self, name: str, arguments: dict[str, Any]) -> str:
         self.calls.append(name)
@@ -177,3 +180,84 @@ async def test_a_session_keeps_what_it_loaded_for_its_next_turns(mcp: _McpServer
 
     first = next(r for r in outcome.model.requests if r.tools)
     assert QUERY in _names(first) and SEARCH not in _names(first)
+
+
+# -- the preview the agent settings page shows ------------------------------------------------
+
+
+@pytest.fixture
+def preview_client() -> Any:
+    from api.main import app
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as client:
+        app.state.db_manager = None
+        yield client
+
+
+_MEMBER = {"X-Tenant-Org-Id": "org_preview", "X-Tenant-User-Id": "u1", "X-User-Role": "developer"}
+_TOOLS = ["file_read", "bash_exec", SEARCH, AGGREGATE, QUERY]
+
+
+@pytest.mark.setting("general.tool_loading")
+async def test_the_preview_applies_the_organizations_mode_to_an_agent_that_has_none(
+    preview_client: Any,
+) -> None:
+    await save_org_config(None, "org_preview", "general", {"tool_loading": "on_demand"}, [])
+
+    reply = preview_client.post(
+        "/v1/tools/loading-preview", json={"tool_names": _TOOLS}, headers=_MEMBER
+    ).json()
+
+    assert reply["mode"] == "on_demand" and reply["source"] == "organization"
+    assert reply["deferred"] == sorted(MCP), "MCP tools wait; the platform's do not"
+    assert "MCP tools are listed by name" in reply["reason"]
+
+
+async def test_the_preview_follows_the_agents_own_mode_and_pins(preview_client: Any) -> None:
+    await save_org_config(None, "org_preview", "general", {"tool_loading": "all"}, [])
+
+    reply = preview_client.post(
+        "/v1/tools/loading-preview",
+        json={
+            "tool_loading": "on_demand",
+            "active_tools": [SEARCH, "mcp__grafana*"],
+            "tool_names": _TOOLS,
+        },
+        headers=_MEMBER,
+    ).json()
+
+    assert reply["source"] == "agent"
+    assert reply["deferred"] == sorted(["file_read", "bash_exec", AGGREGATE]), (
+        "with pins only they (and the loading tools) stay loaded"
+    )
+
+
+@pytest.mark.setting("general.tool_loading_threshold")
+async def test_the_automatic_mode_is_decided_by_the_organizations_limit(
+    preview_client: Any,
+) -> None:
+    body = {"tool_loading": "auto", "tool_names": _TOOLS}
+    await save_org_config(None, "org_preview", "general", {"tool_loading_threshold": 500}, [])
+    within = preview_client.post("/v1/tools/loading-preview", json=body, headers=_MEMBER).json()
+    await save_org_config(None, "org_preview", "general", {"tool_loading_threshold": 3}, [])
+    over = preview_client.post("/v1/tools/loading-preview", json=body, headers=_MEMBER).json()
+
+    assert within["deferred"] == [] and "within the limit of 500" in within["reason"]
+    assert over["deferred"] == sorted(MCP) and "over the limit of 3" in over["reason"]
+    assert over["total"] == len(_TOOLS) + 2, "the loading tools count against the limit"
+
+
+async def test_the_preview_says_so_when_an_agent_is_over_the_limit_with_nothing_to_defer(
+    preview_client: Any,
+) -> None:
+    await save_org_config(None, "org_preview", "general", {"tool_loading_threshold": 2}, [])
+
+    reply = preview_client.post(
+        "/v1/tools/loading-preview",
+        json={"tool_loading": "auto", "tool_names": ["file_read", "bash_exec", "git_status"]},
+        headers=_MEMBER,
+    ).json()
+
+    assert reply["deferred"] == []
+    assert "over the limit of 2" in reply["reason"] and "no MCP tools to defer" in reply["reason"]

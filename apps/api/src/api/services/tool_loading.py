@@ -17,6 +17,7 @@ from specifications.interfaces.session import SessionRecord
 logger = logging.getLogger(__name__)
 
 LOADED_TOOLS_KEY = "loaded_tools"
+GUIDANCE_READ_KEY = "guidance_read"
 
 
 async def tool_loading_for(db_mgr: Any, org_id: str, agent: Any) -> ToolLoading:
@@ -48,3 +49,51 @@ def remember_loaded(names: list[str]) -> Any:
         record.metadata = metadata
 
     return add
+
+
+def guidance_read_of(session: SessionRecord) -> dict[str, str]:
+    """The MCP servers whose usage guidance the agent put in effect, with the version it read."""
+    metadata = session.metadata if isinstance(session.metadata, dict) else {}
+    read = metadata.get(GUIDANCE_READ_KEY)
+    return {str(k): str(v) for k, v in read.items()} if isinstance(read, dict) else {}
+
+
+def remember_guidance_read(read: dict[str, str]) -> Any:
+    """A ``mutate_session`` step recording the guidance in effect, in the order it was read."""
+
+    def record(target: SessionRecord) -> None:
+        metadata = dict(target.metadata) if isinstance(target.metadata, dict) else {}
+        metadata[GUIDANCE_READ_KEY] = dict(read)
+        target.metadata = metadata
+
+    return record
+
+
+def describe_loading(loading: ToolLoading, total: int, deferred: int) -> str:
+    """In a sentence, what the tool loading does for an agent with ``total`` tools."""
+    pinned = len(loading.active)
+    if loading.mode == "all":
+        return "Every allowed tool is sent with every step."
+    if loading.mode == "on_demand":
+        if pinned:
+            return (
+                "Only the pinned tools are sent with every step; every other allowed tool is "
+                "listed by name and loaded when the agent needs it."
+            )
+        return (
+            "The platform's own tools are sent with every step; MCP tools are listed by name "
+            "and loaded when the agent needs them."
+        )
+    if total > loading.threshold:
+        waiting = (
+            "MCP tools that are not pinned are listed by name and loaded when the agent needs them."
+            if deferred
+            else "but it has no MCP tools to defer, so every tool is sent with every step."
+        )
+        return f"Automatic: {total} tools is over the limit of {loading.threshold}, " + (
+            f"so {waiting}" if deferred else waiting
+        )
+    return (
+        f"Automatic: {total} tools is within the limit of {loading.threshold}, so every tool "
+        "is sent with every step. Past the limit, MCP tools that are not pinned would wait."
+    )

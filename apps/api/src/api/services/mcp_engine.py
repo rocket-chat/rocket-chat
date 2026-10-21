@@ -23,6 +23,7 @@ from api.services.mcp_runner import connect_stdio, runner_config
 from api.services.mcp_runtime import (
     REMOTE_TRANSPORTS,
     McpServerTarget,
+    ProbedTools,
     auth_headers,
     canonical_transport,
     probe_target,
@@ -282,6 +283,7 @@ async def _probe_command(
         async with asyncio.timeout(max(timeout_seconds, 700.0 if install_command else 30.0)):
             async with connect_stdio(config, org_id, report)(target) as client:
                 result = await client.list_tools()
+                instructions = client.instructions
     except TimeoutError:
         return "offline", [], "The command did not answer the MCP handshake in time."
     except RunnerError as err:
@@ -289,7 +291,7 @@ async def _probe_command(
     except Exception as err:  # the SDK wraps transport failures in exception groups
         reason = report.describe() or "; ".join(_leaf_messages(err)) or str(err)
         return "error", [], f"The command did not start an MCP server. {reason}".strip()
-    return "connected", [summarize_tool(t) for t in result.tools], None
+    return "connected", ProbedTools((summarize_tool(t) for t in result.tools), instructions), None
 
 
 def _leaf_messages(error: BaseException) -> list[str]:
