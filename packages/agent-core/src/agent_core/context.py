@@ -86,6 +86,12 @@ class ExecutionContext:
     # A subagent has a conversation of its own and no context note: it reads guidance in the
     # result of ``load_guidance`` instead.
     guidance_in_result: bool = False
+    # Skill instructions the agent has in effect (skill -> digest, and the texts), and standing
+    # text added this turn that is not in the request yet (skills, a cloned repository's
+    # AGENTS.md): the orchestrator moves it into the turn's context note.
+    skills_in_effect: dict[str, str] = field(default_factory=dict)
+    skill_texts: dict[str, str] = field(default_factory=dict)
+    standing_pending: list[str] = field(default_factory=list)
     # Model data governance for every request this turn makes: propagated
     # onto each ModelRequest so the gateway can pass it to the provider.
     zero_retention: bool = False

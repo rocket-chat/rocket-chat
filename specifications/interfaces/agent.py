@@ -232,7 +232,12 @@ class TurnCallbacks:
     ensure_sandbox: Callable[[str], Awaitable[None]] | None = None
     rename: Callable[[str, str], Awaitable[None]] | None = None
     kb_search: Callable[[str, str | None, int], Awaitable[str]] | None = None
-    execute_skill: Callable[[str, dict[str, Any]], Awaitable[str]] | None = None
+    # Runs a code skill (its output) or loads an instruction skill, whose instructions come back
+    # as ``SkillInstructions`` so the engine keeps them in effect instead of in a tool result.
+    execute_skill: Callable[[str, dict[str, Any]], Awaitable[str | SkillInstructions]] | None = None
+    # Called with (session id, skill -> digest of the instructions in effect) when the agent puts
+    # a skill in effect, so later turns carry it too.
+    skills_read: Callable[[str, dict[str, str]], Awaitable[None]] | None = None
     question: Callable[[str, list[str], bool, str | None], Awaitable[str]] | None = None
     approval: Callable[[str, str, str], Awaitable[str]] | None = None
     diff: Callable[[FileDiff], None] | None = None
@@ -483,6 +488,24 @@ class ServerGuidance:
 
 
 @dataclass(frozen=True)
+class SkillInstructions:
+    """The instructions of an instruction skill: kept in effect for the session, not in a result."""
+
+    name: str
+    body: str
+
+
+@dataclass(frozen=True)
+class SkillsInEffect:
+    """The skills whose instructions the session put in effect, as of the start of a turn."""
+
+    # skill -> digest of the instructions the agent read, in the order it read them.
+    read: Mapping[str, str] = field(default_factory=dict)
+    # skill -> its instructions as they are now, for the skills in ``read`` the member can still use.
+    texts: Mapping[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class McpGuidance:
     """The usage guidance of the turn's MCP servers, and which the session has already read."""
 
@@ -514,6 +537,7 @@ class TurnPolicy:
     agent_env: Mapping[str, str] = field(default_factory=dict)
     tool_loading: ToolLoading = field(default_factory=ToolLoading)
     mcp_guidance: McpGuidance = field(default_factory=McpGuidance)
+    skills: SkillsInEffect = field(default_factory=SkillsInEffect)
     output_offload_threshold: int = 6_000
     max_turn_cost_usd: float | None = None
     sandbox_profile: str = ""

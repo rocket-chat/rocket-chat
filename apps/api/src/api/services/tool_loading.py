@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 LOADED_TOOLS_KEY = "loaded_tools"
 GUIDANCE_READ_KEY = "guidance_read"
+SKILLS_READ_KEY = "skills_read"
 
 
 async def tool_loading_for(db_mgr: Any, org_id: str, agent: Any) -> ToolLoading:
@@ -103,3 +104,21 @@ def describe_loading(loading: ToolLoading, total: int, deferred: int) -> str:
         f"Automatic: {total} tools is within the limit of {loading.threshold}, so every tool "
         "is sent with every step. Past the limit, MCP tools that are not pinned would wait."
     )
+
+
+def skills_read_of(session: SessionRecord) -> dict[str, str]:
+    """The skills whose instructions the agent put in effect, with the version it read."""
+    metadata = session.metadata if isinstance(session.metadata, dict) else {}
+    read = metadata.get(SKILLS_READ_KEY)
+    return {str(k): str(v) for k, v in read.items()} if isinstance(read, dict) else {}
+
+
+def remember_skills_read(read: dict[str, str]) -> Any:
+    """A ``mutate_session`` step recording the skills in effect, in the order they were read."""
+
+    def record(target: SessionRecord) -> None:
+        metadata = dict(target.metadata) if isinstance(target.metadata, dict) else {}
+        metadata[SKILLS_READ_KEY] = dict(read)
+        target.metadata = metadata
+
+    return record

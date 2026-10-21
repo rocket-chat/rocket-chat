@@ -69,6 +69,17 @@ def _register_clone(registry: "ToolRegistry") -> None:
                 f"\n{outcome.folder} is now the active repository: git, test and build tools "
                 "use it when you name no folder."
             )
+        if outcome.instructions:
+            # In effect from the next step and rebuilt every turn, not left in this result where
+            # the output clamp would cut it and pruning would take it away. A subagent has no
+            # context note of its own, so it reads them here.
+            if registry.add_standing_note(outcome.instructions):
+                message += (
+                    "\nThe repository's own instructions (AGENTS.md) are now in effect: they are "
+                    "in your instructions from your next step. Follow them."
+                )
+            else:
+                message += f"\n{outcome.instructions}"
         cloned = registry._turn_callback("repository_cloned")
         if outcome.folder and cloned:
             if note := await cloned(session_id, outcome.folder):

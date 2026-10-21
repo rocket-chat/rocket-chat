@@ -319,6 +319,9 @@ class _SubagentExecution:
                 guidance_in_effect={},
                 guidance_pending=[],
                 guidance_in_result=True,
+                skills_in_effect={},
+                skill_texts={},
+                standing_pending=[],
             )
             if self._is_writer and turn_ctx.active_repository:
                 await self._setup_worktree(turn_ctx.active_repository)

@@ -28,12 +28,16 @@ from api.services.skills import test_skill_execution
 from api.services.skills_lookup import _find_visible_skill
 from api.services.subagent_transcripts import get_subagent_transcript_store
 from api.services.subagents import load_subagent_configs
-from api.services.tool_loading import remember_guidance_read, remember_loaded
+from api.services.tool_loading import (
+    remember_guidance_read,
+    remember_loaded,
+    remember_skills_read,
+)
 from api.services.waits import get_wait_store, settle_waits
 from api.turns.context import TurnContext
 from api.turns.provisioning import provision_session_sandbox, run_repository_setup
 from api.turns.shared import _background_tasks
-from specifications.interfaces.agent import GithubAccess, TurnCallbacks
+from specifications.interfaces.agent import GithubAccess, SkillInstructions, TurnCallbacks
 from specifications.interfaces.events import EventType, SessionEvent
 from specifications.interfaces.session import (
     ArtifactStoreProtocol,
@@ -665,7 +669,7 @@ async def build_turn_callbacks(
                 allowed_kb_ids=binding.knowledge_base_ids,
             )
 
-    async def execute_skill(skill_name: str, args: dict[str, Any]) -> str:
+    async def execute_skill(skill_name: str, args: dict[str, Any]) -> str | SkillInstructions:
         skill = await _find_visible_skill(
             db_mgr,
             session.tenant_org_id,
@@ -683,7 +687,9 @@ async def build_turn_callbacks(
                 driver, ctx.session_id, skill_name, skill.code, args
             )
             return out if ok else f"Skill execution error: {out}"
-        return skill.body or f"Skill '{skill_name}' has no content."
+        if not skill.body.strip():
+            return f"Skill '{skill_name}' has no content."
+        return SkillInstructions(skill_name, skill.body)
 
     github_watch, github_unwatch = watch_callbacks(
         GithubWatchStore(db_mgr), session.tenant_org_id, ctx.session_id, session.tenant_user_id
@@ -740,6 +746,7 @@ class _SessionRecordCallbacks(TypedDict):
     active_repository_chosen: Callable[[str, str], Awaitable[None]] | None
     tools_loaded: Callable[[str, list[str]], Awaitable[None]]
     guidance_read: Callable[[str, dict[str, str]], Awaitable[None]]
+    skills_read: Callable[[str, dict[str, str]], Awaitable[None]]
     agent_env_changed: Callable[[str, dict[str, str]], Awaitable[None]]
 
 
@@ -778,6 +785,9 @@ def _session_record_callbacks(ctx: TurnContext) -> _SessionRecordCallbacks:
     async def guidance_read(target_session_id: str, read: dict[str, str]) -> None:
         await store.mutate_session(target_session_id, org, remember_guidance_read(read))
 
+    async def skills_read(target_session_id: str, read: dict[str, str]) -> None:
+        await store.mutate_session(target_session_id, org, remember_skills_read(read))
+
     async def agent_env_changed(target_session_id: str, env: dict[str, str]) -> None:
         await remember_agent_env(store, target_session_id, org, env)
 
@@ -786,6 +796,7 @@ def _session_record_callbacks(ctx: TurnContext) -> _SessionRecordCallbacks:
         active_repository_chosen=active_repository_chosen if driver else None,
         tools_loaded=tools_loaded,
         guidance_read=guidance_read,
+        skills_read=skills_read,
         agent_env_changed=agent_env_changed,
     )
 

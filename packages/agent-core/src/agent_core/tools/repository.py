@@ -157,6 +157,9 @@ class CloneOutcome:
 
     message: str
     folder: str | None = None
+    # The repository's own AGENTS.md / CLAUDE.md of a fresh clone, as a prompt section. Kept apart
+    # from the message: a tool result is clamped and pruned, instructions are meant to stay.
+    instructions: str | None = None
 
 
 async def clone_repository(
@@ -167,9 +170,8 @@ async def clone_repository(
     directory: str | None = None,
     depth: int | None = None,
 ) -> str:
-    return (
-        await clone_into_workspace(driver, session_id, repository, branch, directory, depth)
-    ).message
+    outcome = await clone_into_workspace(driver, session_id, repository, branch, directory, depth)
+    return f"{outcome.message}\n{outcome.instructions}" if outcome.instructions else outcome.message
 
 
 async def clone_into_workspace(
@@ -207,7 +209,7 @@ async def clone_into_workspace(
         f"echo ALREADY_CLONED; "
         f"git -C {folder} config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' 2>/dev/null; "
         f"git -C {folder} fetch {shallow}origin 2>&1 | tail -3; "
-        f"else git clone --filter=blob:none --no-tags {shallow}{branch_option}"
+        f"else git clone --quiet --filter=blob:none --no-tags {shallow}{branch_option}"
         f"{shlex.quote(repo.url)} {folder} 2>&1; fi "
         # Grouped: without the parentheses the summary's own `;` would run even after a failed clone.
         f"&& cd {folder} && ( {_SUMMARY} )"
@@ -227,8 +229,7 @@ async def clone_into_workspace(
     message = f"{head} {repo.slug} into {target}\nbranch / last commit / top level:\n{body}"
     # The repository's own instructions come with a fresh clone, once: a repeat call would only
     # repeat what the agent already has in its context.
-    if not already and (
-        instructions := await read_instructions(driver, session_id, instruction_paths(target))
-    ):
-        message += f"\n{instructions}"
-    return CloneOutcome(message, target)
+    instructions = (
+        None if already else await read_instructions(driver, session_id, instruction_paths(target))
+    )
+    return CloneOutcome(message, target, instructions)

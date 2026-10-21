@@ -27,6 +27,7 @@ from agent_core.permissions import (
     is_read_call,
     touches_workspace,
 )
+from agent_core.standing import put_skill_in_effect
 from agent_core.tool_loading import MCP_PREFIX, server_of
 from agent_core.tools import git_tools, memory_tools
 from agent_core.tools.builtin import register_all
@@ -650,6 +651,32 @@ class ToolRegistry:
             if remember := self._turn_callback("guidance_read"):
                 await remember(ctx.session_id, dict(ctx.guidance_in_effect))
         return fresh
+
+    async def put_skill_in_effect(self, name: str, body: str) -> bool:
+        """Put an instruction skill in effect for the session; whether it was not already.
+
+        Kept as state and rendered into each turn's context note, not left in a tool result that
+        pruning and compaction would take away. A subagent has no note: it reads the text in the
+        result, and its own record never replaces the session's.
+        """
+        ctx = current_execution_ctx.get()
+        if ctx is None or ctx.guidance_in_result:
+            return False
+        if not put_skill_in_effect(ctx, name, body):
+            return False
+        if remember := self._turn_callback("skills_read"):
+            await remember(ctx.session_id, dict(ctx.skills_in_effect))
+        return True
+
+    @staticmethod
+    def add_standing_note(text: str) -> bool:
+        """Add text to the turn's context note from the next step on (it is rebuilt from the
+        session's state on later turns); ``False`` when there is no such note to add it to."""
+        ctx = current_execution_ctx.get()
+        if ctx is None or ctx.guidance_in_result or not text.strip():
+            return False
+        ctx.standing_pending.append(text.strip())
+        return True
 
     async def load(self, names: list[str]) -> list[str]:
         """Load deferred tools for the rest of the session; returns the ones newly loaded."""

@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from agent_core.context import ExecutionContext, current_execution_ctx
 from agent_core.permissions import approval_needed
+from agent_core.tools.project_instructions import MAX_INSTRUCTION_BYTES, clamp_instructions
 from agent_core.tools.registry import ToolRegistry
 from agent_core.tools.repository import clone_into_workspace, clone_repository
 from sandbox_driver.fake_driver import FakeSandboxDriver
@@ -45,7 +46,7 @@ async def test_a_repository_is_cloned_into_its_own_folder_and_described() -> Non
     assert "abc1234 Initial" in result and "README.md" in result
     command = driver.commands[-1]
     assert (
-        "git clone --filter=blob:none --no-tags https://github.com/acme/api.git /workspace/api"
+        "git clone --quiet --filter=blob:none --no-tags https://github.com/acme/api.git /workspace/api"
         in command
     )
     assert "ALREADY_CLONED" in command, "an existing clone is fetched, not an error"
@@ -269,3 +270,73 @@ async def test_clone_fetches_all_branches_and_heals_old_clones(tmp_path: Path) -
     assert "Already cloned" in res_healed.message
     code_after, _, _ = await _run_cmd("git", "-C", str(single_target), "rev-parse", "origin/beta")
     assert code_after == 0
+
+
+# -- the repository's instructions stay in effect instead of riding in a clamped result ----------
+
+
+async def _driver_with_instructions(text: str = "Run `make test` before committing.") -> _Driver:
+    from specifications.interfaces.sandbox import WorkspaceSpec
+
+    driver = _Driver()
+    await driver.ensure_workspace(WorkspaceSpec("s1", "org", "user", "img"))
+    await driver.write_file("s1", "/workspace/api/AGENTS.md", text)
+    return driver
+
+
+async def test_the_instructions_are_kept_apart_from_the_clone_message() -> None:
+    driver = await _driver_with_instructions()
+
+    outcome = await clone_into_workspace(driver, "s1", "acme/api")
+
+    assert "make test" not in outcome.message and "Project Instructions" not in outcome.message
+    assert outcome.instructions is not None and "make test" in outcome.instructions
+
+
+async def test_the_agent_gets_the_instructions_as_standing_text_and_not_in_the_result() -> None:
+    driver = await _driver_with_instructions()
+    registry = ToolRegistry(driver=driver, session_id="s1")
+    ctx = _context()
+
+    token = current_execution_ctx.set(ctx)
+    try:
+        result = await registry.call_tool("clone_repository", {"repository": "acme/api"})
+    finally:
+        current_execution_ctx.reset(token)
+
+    assert "now in effect" in result and "make test" not in result
+    assert len(ctx.standing_pending) == 1 and "make test" in ctx.standing_pending[0]
+
+
+async def test_a_subagent_reads_the_instructions_in_the_result() -> None:
+    driver = await _driver_with_instructions()
+    registry = ToolRegistry(driver=driver, session_id="s1")
+    ctx = _context(guidance_in_result=True)
+
+    token = current_execution_ctx.set(ctx)
+    try:
+        result = await registry.call_tool("clone_repository", {"repository": "acme/api"})
+    finally:
+        current_execution_ctx.reset(token)
+
+    assert "make test" in result and ctx.standing_pending == []
+
+
+def test_a_long_instructions_file_keeps_its_start_and_says_where_the_rest_is() -> None:
+    sections = [f"## Section {n}\n" + "Rule about building. " * 12 + "\n" for n in range(1, 120)]
+    document = "# Guide\n\nTable of contents\n\n" + "".join(sections) + "## Last words\nThe end.\n"
+
+    clamped = clamp_instructions(document, "/workspace/api/AGENTS.md")
+
+    assert len(clamped.encode()) <= MAX_INSTRUCTION_BYTES + 400
+    assert clamped.startswith("# Guide") and "## Section 1\n" in clamped, "the start is kept"
+    assert clamped.rstrip().endswith("The end."), "and the end"
+    assert "## Section 60\n" not in clamped
+    assert "in /workspace/api/AGENTS.md with `file_read`" in clamped
+
+
+def test_a_short_instructions_file_is_untouched_and_one_huge_line_is_cut() -> None:
+    assert (
+        clamp_instructions("Be brief.\nRun tests.\n", "/p/AGENTS.md") == "Be brief.\nRun tests.\n"
+    )
+    assert len(clamp_instructions("x" * 50_000, "/p/AGENTS.md")) < 3_000

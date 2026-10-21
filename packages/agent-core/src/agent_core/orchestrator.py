@@ -46,8 +46,10 @@ from agent_core.leaked_calls import (
     strip_leaked_calls,
 )
 from agent_core.notes import automatic_turn_prompt, without_engine_notes
+from agent_core.pace import pace_notice
 from agent_core.progress import LoopDetectionResult, ProgressTracker
 from agent_core.retry_policy import execute_stream_with_retry
+from agent_core.standing import render_skills, skills_at_turn_start
 from agent_core.subagents import SubagentRunner
 from agent_core.tool_loading import catalogue, deferred_names
 from agent_core.tool_slot import human_wait
@@ -1210,6 +1212,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         exec_ctx.loaded_tools = set(loading.loaded) & deferred
         exec_ctx.loaded_tools_order = [n for n in loading.loaded if n in deferred]
         self._settle_guidance(exec_ctx, allowed)
+        self._settle_skills(exec_ctx)
         listed = "".join(
             (
                 catalogue(deferred),
@@ -1244,6 +1247,13 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             + list(exec_ctx.loaded_tools)
         )
         exec_ctx.guidance_in_effect = in_effect_at_turn_start(usable, loaded)
+
+    @staticmethod
+    def _settle_skills(exec_ctx: ExecutionContext) -> None:
+        """The skills the turn starts with: those the session put in effect and can still use."""
+        chosen = skills_at_turn_start(exec_ctx.policy.skills)
+        exec_ctx.skill_texts = dict(chosen)
+        exec_ctx.skills_in_effect = {name: exec_ctx.policy.skills.read[name] for name in chosen}
 
     @staticmethod
     def _bounded_observation_summary(
@@ -1467,25 +1477,35 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
 
     @staticmethod
     def _guidance_note(exec_ctx: ExecutionContext | None) -> str:
-        """The usage guidance the turn starts with, rendered from the session's state."""
-        if exec_ctx is None or not exec_ctx.guidance_in_effect:
+        """The standing instructions the turn starts with, rendered from the session's state:
+        the guidance of MCP servers and the skills the agent put in effect."""
+        if exec_ctx is None:
             return ""
-        return render_note(
-            exec_ctx.guidance_by_server[server]
-            for server in exec_ctx.guidance_in_effect
-            if server in exec_ctx.guidance_by_server
-        )
+        parts: list[str] = []
+        if exec_ctx.guidance_in_effect:
+            parts.append(
+                render_note(
+                    exec_ctx.guidance_by_server[server]
+                    for server in exec_ctx.guidance_in_effect
+                    if server in exec_ctx.guidance_by_server
+                )
+            )
+        if exec_ctx.skill_texts:
+            parts.append(render_skills(exec_ctx.skill_texts))
+        return "\n\n".join(part for part in parts if part)
 
     @staticmethod
     def _add_pending_guidance(run: _TurnRun) -> None:
-        """Move guidance the agent put in effect this step into the turn's context note, where the
-        next request carries it and later turns rebuild it from the session's state."""
+        """Move what the agent put in effect this step (MCP guidance, skills, a cloned
+        repository's instructions) into the turn's context note, where the next request carries
+        it and later turns rebuild it from the session's state."""
         ctx = run.exec_ctx
-        if ctx is None or not ctx.guidance_pending:
+        if ctx is None or not (ctx.guidance_pending or ctx.standing_pending):
             return
-        added = render_note(ctx.guidance_pending, added=True)
-        ctx.guidance_pending = []
-        run.context_note = f"{run.context_note}\n\n{added}".strip()
+        added = [render_note(ctx.guidance_pending, added=True), *ctx.standing_pending]
+        ctx.guidance_pending, ctx.standing_pending = [], []
+        extra = "\n\n".join(part for part in added if part)
+        run.context_note = f"{run.context_note}\n\n{extra}".strip()
 
     async def _emit(self, run: _TurnRun, event_type: str, payload: dict[str, Any]) -> None:
         await run.event_queue.put(
@@ -1570,6 +1590,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             )
         if reminder := stale_notice(run.conversation):
             run.next_notes.append(reminder)
+        plan_mode = run.exec_ctx is not None and run.exec_ctx.plan_mode
+        if pace := pace_notice(run.conversation, may_edit=not plan_mode):
+            run.next_notes.append(pace)
         try:
             reply = await self._model_step(run)
         except ContextWindowExceededError:
