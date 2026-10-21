@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { ShieldCheck, Info } from "lucide-react";
 import { useMissionStore } from "../lib/store";
 import { PermissionMode } from "../types/mission";
@@ -80,7 +80,6 @@ export const PermissionModePicker: React.FC<{ disabled?: boolean; bare?: boolean
   const [showTooltip, setShowTooltip] = useState(false);
   const tooltipRef = useRef<HTMLDivElement>(null);
 
-  // Close tooltip on outside click
   useEffect(() => {
     if (!showTooltip) return;
     const handleOutside = (e: MouseEvent) => {
@@ -88,14 +87,31 @@ export const PermissionModePicker: React.FC<{ disabled?: boolean; bare?: boolean
         setShowTooltip(false);
       }
     };
+    const handleEscape = (e: KeyboardEvent) => e.key === "Escape" && setShowTooltip(false);
     document.addEventListener("mousedown", handleOutside);
-    return () => document.removeEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [showTooltip]);
+
+  // The picker sits at the left of the composer, wherever the attach button and the window
+  // leave it: shift the popover back inside the window instead of letting it run off the edge.
+  useLayoutEffect(() => {
+    const popover = tooltipRef.current;
+    if (!showTooltip || !popover) return;
+    popover.style.transform = "";
+    const { left, right } = popover.getBoundingClientRect();
+    const margin = 8;
+    const shift = right > window.innerWidth - margin ? window.innerWidth - margin - right : left < margin ? margin - left : 0;
+    if (shift) popover.style.transform = `translateX(${shift}px)`;
   }, [showTooltip]);
 
   return (
     <div className="relative inline-flex items-center">
       <label
-        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-muted-foreground transition-colors ${
+        className={`flex items-center gap-1 px-2 py-1 text-muted-foreground transition-colors sm:gap-1.5 sm:px-2.5 sm:py-1.5 ${
           bare ? "rounded-l-xl focus-within:bg-elevated" : "rounded-lg bg-surface border border-border focus-within:border-primary/60"
         }`}
         title={selected ? `${selected.label}: ${selected.hint}` : "Supervision follows your organization's default."}
@@ -126,9 +142,9 @@ export const PermissionModePicker: React.FC<{ disabled?: boolean; bare?: boolean
       <button
         type="button"
         aria-label="Permission modes explanation"
-        onClick={() => setShowTooltip((v) => !v)}
+        onClick={() => setShowTooltip(true)}
         onMouseEnter={() => setShowTooltip(true)}
-        className="ml-1 p-1 rounded hover:bg-surface-elevated text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
+        className="ml-0.5 p-1 rounded hover:bg-surface-elevated text-muted-foreground hover:text-foreground transition-colors focus:outline-none"
         title="View permission modes explanation"
       >
         <Info className="w-3.5 h-3.5" />
@@ -136,10 +152,14 @@ export const PermissionModePicker: React.FC<{ disabled?: boolean; bare?: boolean
 
       {/* Detailed Tooltip Popover */}
       {showTooltip && (
+        // Opens upward: the composer sits at the bottom of the screen, so below it is off-screen.
         <div
           ref={tooltipRef}
+          role="dialog"
+          aria-label="Permission modes"
+          data-testid="permission-modes-popover"
           onMouseLeave={() => setShowTooltip(false)}
-          className="absolute left-0 top-full mt-2 w-80 sm:w-96 p-3.5 rounded-xl bg-surface-elevated border border-border shadow-xl z-50 text-xs text-foreground backdrop-blur-md"
+          className="absolute bottom-full left-0 mb-2 w-[min(24rem,calc(100vw-1rem))] p-3.5 rounded-xl bg-surface-elevated border border-border shadow-xl z-50 text-xs text-foreground backdrop-blur-md"
         >
           <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
             <span className="font-semibold text-xs tracking-wide uppercase text-muted-foreground">
@@ -148,7 +168,7 @@ export const PermissionModePicker: React.FC<{ disabled?: boolean; bare?: boolean
             <span className="text-[10px] text-muted-foreground">Supervision Levels</span>
           </div>
 
-          <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+          <div className="space-y-2.5 max-h-[min(20rem,50vh)] overflow-y-auto pr-1">
             {PERMISSION_MODE_OPTIONS.map((opt) => {
               const isActive = opt.value === permissionMode;
               return (

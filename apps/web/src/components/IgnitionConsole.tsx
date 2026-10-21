@@ -42,21 +42,22 @@ const getAgentIcon = (iconName?: string) => {
   }
 };
 
-/** Whether the workspace is awake: what the next message will do to it. */
+/**
+ * What the next message will do to the workspace, shown only when it is not the usual case: a
+ * running or not-yet-created sandbox is the norm and needs no label.
+ */
 const SandboxState: React.FC<{ status?: string; isDraft: boolean }> = ({ status, isDraft }) => {
-  const running = status === "running";
+  if (isDraft || !status || status === "non_existent" || status === "running") return null;
   const asleep = status === "hibernated" || status === "stopped" || status === "paused";
-  const label = isDraft || !status || status === "non_existent"
-    ? "Sandbox starts when needed"
-    : running
-      ? "Sandbox ready"
-      : asleep
-        ? "Sandbox asleep, wakes on send"
-        : `Sandbox ${status.replace(/_/g, " ")}`;
+  const label = asleep ? "Sandbox asleep, wakes on send" : `Sandbox ${status.replace(/_/g, " ")}`;
   return (
-    <span data-testid="sandbox-state" className="hidden items-center gap-1.5 px-2.5 py-1.5 text-[11px] text-muted-foreground sm:flex">
-      <span className={`h-1.5 w-1.5 rounded-full ${running ? "bg-emerald-500" : asleep ? "bg-amber-500" : "bg-neutral-400"}`} aria-hidden="true" />
-      {label}
+    <span
+      data-testid="sandbox-state"
+      title={label}
+      className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground sm:px-2.5 sm:py-1.5"
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${asleep ? "bg-amber-500" : "bg-neutral-400"}`} aria-hidden="true" />
+      <span className="sr-only sm:not-sr-only">{label}</span>
     </span>
   );
 };
@@ -470,9 +471,9 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
         </div>
 
         {/* Console Parameter Deck & Trigger Button */}
-        <div className="mt-2.5 pt-2 border-t border-border/50 flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="mt-1.5 pt-1.5 sm:mt-2.5 sm:pt-2 border-t border-border/50 flex flex-wrap items-center justify-between gap-1.5 sm:gap-2 text-xs">
           {/* Controls: Mode Selector (Agent OR Direct Model) */}
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -488,7 +489,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
               type="button"
               data-testid="attach-button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-surface hover:bg-elevated border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-2 py-1 sm:px-2.5 sm:py-1.5 rounded-lg bg-surface hover:bg-elevated border border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors cursor-pointer"
               title="Attach a screenshot or log file (or drag / paste)"
             >
               <Paperclip className="w-3.5 h-3.5" />
@@ -504,13 +505,13 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                 aria-label="Agent or model for your next message"
                 aria-expanded={isModeDropdownOpen}
                 onClick={() => setIsModeDropdownOpen(!isModeDropdownOpen)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 text-foreground hover:bg-elevated transition-colors cursor-pointer select-none first:rounded-l-xl"
+                className="flex items-center gap-1 px-2 py-1 text-foreground hover:bg-elevated transition-colors cursor-pointer select-none first:rounded-l-xl sm:gap-1.5 sm:px-2.5 sm:py-1.5"
                 title="Agent or model for your next message"
               >
                 {inferenceMode === "agent" ? (
                   <>
                     {getAgentIcon(activeAgent?.icon)}
-                    <span className="font-medium text-xs truncate max-w-[140px] sm:max-w-[200px]">
+                    <span className="font-medium text-xs truncate max-w-[92px] sm:max-w-[200px]">
                       {activeAgent?.name || "Agent"}
                     </span>
                     <span className="text-[10px] text-muted-foreground font-mono hidden md:inline">
@@ -520,7 +521,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                 ) : (
                   <>
                     <Zap className="w-3.5 h-3.5 text-amber" />
-                    <span className="font-medium text-xs truncate max-w-[140px] sm:max-w-[200px]">
+                    <span className="font-medium text-xs truncate max-w-[92px] sm:max-w-[200px]">
                       {currentModelObj.name}
                     </span>
                     <span className="text-[10px] text-muted-foreground font-mono hidden md:inline">
