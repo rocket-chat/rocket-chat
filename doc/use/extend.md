@@ -59,7 +59,8 @@ Administrators can edit the built-in agents for the whole organization (prompt, 
 
 Under **Settings → Agents**, you can configure fine-grained model execution parameters for each persona:
 
-* **Reasoning effort**: for reasoning models (Anthropic Claude 3.7 Sonnet with thinking, OpenAI o1/o3-mini, Gemini 2.5 Pro with thinking). Choose `low` for fast, cost-conscious responses, `medium` for balanced engineering, or `high` for deep architectural refactors and complex migrations.
+* **Reasoning effort**: for reasoning models (Anthropic Claude 3.7 Sonnet with thinking, OpenAI o1/o3-mini, Gemini 2.5 Pro with thinking, DeepSeek through OpenRouter). Choose `none` to switch reasoning off, `low` for fast, cost-conscious responses, `medium` for balanced engineering, or `high` for deep architectural refactors and complex migrations; `minimal`, `xhigh` and `max` are there for models that offer them. An OpenRouter model takes only the levels it lists (DeepSeek V4 Pro takes `max`, `high`, `low` and `none`), so the platform uses the nearest one it takes, rounding down. The levels do not always differ in cost; `none` is the one that reliably spends no reasoning tokens.
+* **Reasoning limit per step**: a step that reasons past the organization's limit (`models.reasoning_step_limit_tokens`, 8,000 tokens by default) without acting is stopped once and asked again with reasoning off and a note to decide. The turn is never ended or shortened by it. Set the limit to 0 to turn it off.
 * **Sampling temperature**: overrides the model's default sampling temperature (`0.0` is deterministic; `1.0+` is creative). Leave empty to inherit the model default. (Note: reasoning models typically enforce temperature `1.0` or ignore this parameter).
 
 ### Max steps per turn

@@ -366,6 +366,9 @@ class GenerationParams:
     thinking_budget_tokens: int | None = None
     reasoning_effort: str | None = None
     reasoning: ReasoningPolicy | None = None
+    # Estimated reasoning tokens a step may spend before it acts; past it the step is asked
+    # again with reasoning off (0: no limit).
+    reasoning_step_limit_tokens: int = 0
     fallback_models: tuple[str, ...] = ()
     # The organization's own context-window sizes, as (model name or fnmatch pattern, tokens),
     # for models the provider library does not know (a BYOK or self-hosted model).

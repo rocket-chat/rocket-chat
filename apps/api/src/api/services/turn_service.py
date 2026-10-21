@@ -19,6 +19,7 @@ from config_engine.cascading import RoutingPolicy, model_is_allowed
 
 from api.services.github_installations import installations_for_org
 from api.services.model_catalogue import default_catalogue
+from api.services.openrouter_efforts import ReasoningSupport, map_effort, openrouter_efforts
 from api.services.settings import effective_settings, resolve_settings
 from api.services.tool_loading import tool_loading_for
 from specifications.interfaces.agent import (
@@ -155,6 +156,7 @@ def _resolve_model_generation(
     agent: Any,
     models: dict[str, Any],
     fallbacks: tuple[str, ...],
+    efforts: ReasoningSupport | None = None,
 ) -> GenerationParams:
     """Resolve generation params with output budget ceiling and reasoning policy."""
     agent_temp = getattr(agent, "temperature", None)
@@ -178,8 +180,16 @@ def _resolve_model_generation(
     effort = getattr(agent, "reasoning_effort", None) or (
         str(models.get("default_reasoning_effort") or "") or None
     )
+    reasoning_off = effort == "none"
+    if reasoning_off:
+        # Only OpenRouter takes "none" as an effort; for any other provider, off is no effort
+        # and no thinking budget, and the reasoning default below must not turn it back on.
+        thinking_budget = None
+        effort = effort if model and model.startswith("openrouter/") else None
+    elif effort is not None:
+        effort = map_effort(effort, efforts)
     reasoning_policy: ReasoningPolicy | None = None
-    if spec and spec.supports_reasoning:
+    if spec and spec.supports_reasoning and not reasoning_off:
         if effort is None and thinking_budget is None:
             effort = "medium"
             if model and ("claude" in model.lower() or "anthropic" in model.lower()):
@@ -194,6 +204,7 @@ def _resolve_model_generation(
         thinking_budget_tokens=thinking_budget,
         reasoning_effort=effort,
         reasoning=reasoning_policy,
+        reasoning_step_limit_tokens=int(models.get("reasoning_step_limit_tokens") or 0),
         fallback_models=fallbacks,
         context_windows=_context_windows(models.get("context_windows")),
         context_target_tokens=_context_target(models.get("context_target_tokens")),
@@ -308,7 +319,8 @@ class TurnService:
                 forbidden_models=policy.forbidden_models,
             )
         )
-        generation = _resolve_model_generation(model, agent, models, fallbacks)
+        support = await openrouter_efforts.support_for(model) if model else None
+        generation = _resolve_model_generation(model, agent, models, fallbacks, support)
         git = GitPolicy(
             authorship=str(github["commit_authorship_policy"]),
             pr_creation=str(github["pr_creation_policy"]),

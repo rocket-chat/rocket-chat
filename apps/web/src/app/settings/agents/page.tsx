@@ -687,7 +687,7 @@ export default function AgentsSettingsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Field
               label="Reasoning effort"
-              hint="For reasoning models (o1, o3-mini, Claude 3.7 Sonnet). Controls thinking depth."
+              hint="For reasoning models. A model that does not take the level gets the nearest one it does."
             >
               {(control) => (
                 <Select
@@ -704,9 +704,13 @@ export default function AgentsSettingsPage() {
                   className="w-full"
                 >
                   <option value="">Model / organization default</option>
+                  <option value="none">Off (no reasoning, fastest)</option>
+                  <option value="minimal">Minimal</option>
                   <option value="low">Low (faster, budget-friendly)</option>
                   <option value="medium">Medium (balanced reasoning)</option>
                   <option value="high">High (deep architectural thinking)</option>
+                  <option value="xhigh">Extra high</option>
+                  <option value="max">Max</option>
                 </Select>
               )}
             </Field>
