@@ -10,7 +10,7 @@ current surface. The machine-readable schema is [`openapi.json`](/api/openapi.js
 API also serves interactive documentation at `/docs` and `/redoc`.
 
 **Authentication.** Browsers use the session cookie set at sign-in; programmatic clients send
-`Authorization: Bearer <token>`. Every endpoint is scoped to the caller's organization.
+`Authorization: Bearer <token>` with a personal API token (`POST /v1/user/api-tokens`). Every endpoint is scoped to the caller's organization.
 Endpoints under `/v1/admin` need an administrator; a *read-only* member can read but not change
 sessions. Errors are JSON `{"detail": ...}` with the usual HTTP status codes (`401` not signed
 in, `403` not allowed, `404` not found or not yours, `422` invalid input).
@@ -189,6 +189,58 @@ Delete a custom subagent role or reset/disable an overridden built-in role.
 | :--- | :--- | :--- | :--- |
 | subagent_id | path | yes | string |
 | disable | query | no | boolean |
+
+**Responses:** `200`
+
+## API tokens
+
+### `GET /v1/admin/api-tokens`
+
+Every member's API tokens in the organization (administrators).
+
+**Responses:** `200`
+
+### `DELETE /v1/admin/api-tokens/{token_id}`
+
+Revoke any member's API token in the organization (administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| token_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/user/api-tokens`
+
+The signed-in member's API tokens (never their secrets).
+
+**Responses:** `200`
+
+### `POST /v1/user/api-tokens`
+
+Create an API token acting as the signed-in member, with the role they hold when it is
+used. The token is in this response only. An API token cannot create another one.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | yes | What the token is for, to recognise it |
+| expires_in_days | integer | no | Days until the token stops working |
+
+**Responses:** `201`
+
+### `DELETE /v1/user/api-tokens/{token_id}`
+
+Revoke one of the signed-in member's API tokens; it stops working at once.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| token_id | path | yes | string |
 
 **Responses:** `200`
 

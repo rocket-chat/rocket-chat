@@ -8,19 +8,28 @@ Precedence: identity already attached by the middleware, then tenant headers (on
 a trusted proxy or the explicit development bypass is enabled), then credentials
 (signed session token or cookie, OIDC bearer JWT, legacy NextAuth cookie), then the
 development fallback identity (development bypass only). Anything else is anonymous.
+
+A personal API token needs a database lookup, so this synchronous resolver ignores it:
+``attach_api_token_identity`` verifies it first and attaches the identity, which every later
+call then returns.
 """
 
 from __future__ import annotations
 
 import logging
 import os
+from typing import TYPE_CHECKING
 
 from starlette.requests import HTTPConnection
 
+from api.auth.api_tokens import ApiTokens, is_api_token
 from api.auth.context import RequestContext
 from api.auth.jwt_validator import JWTValidationError, JWTValidator
 from api.auth.nextauth_cookie import extract_nextauth_context
 from api.auth.session_manager import extract_session_context, verify_session_token
+
+if TYPE_CHECKING:
+    from api.db.session import DatabaseSessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +77,8 @@ def _header_context(conn: HTTPConnection) -> RequestContext | None:
 
 
 def _bearer_context(token: str, validator: JWTValidator | None) -> RequestContext | None:
+    if is_api_token(token):
+        return None
     signed = verify_session_token(token)
     if signed is not None:
         return signed
@@ -113,3 +124,19 @@ def resolve_identity(
 def resolve_token_identity(token: str) -> RequestContext | None:
     """Identity for a credential passed outside headers (WebSocket ``?token=``)."""
     return _bearer_context(token, None) if token else None
+
+
+async def attach_api_token_identity(
+    conn: HTTPConnection, db_mgr: DatabaseSessionManager | None, token: str = ""
+) -> None:
+    """Verify a personal API token (the ``Authorization`` header, else ``token``) and attach
+    the member it acts as to the connection. Tenant headers keep their precedence."""
+    if isinstance(getattr(conn.state, "context", None), RequestContext) or _header_context(conn):
+        return
+    auth_header = conn.headers.get("Authorization", "")
+    raw = auth_header[7:].strip() if auth_header.startswith("Bearer ") else token
+    if not is_api_token(raw):
+        return
+    context = await ApiTokens(db_mgr).authenticate(raw)
+    if context is not None:
+        conn.state.context = context

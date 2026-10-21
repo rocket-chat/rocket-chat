@@ -22,6 +22,7 @@ from api.middleware.auth import AuthMiddleware
 from api.routers.admin_audit import router as admin_audit_router
 from api.routers.admin_users import router as admin_users_router
 from api.routers.agents import router as agents_router
+from api.routers.api_tokens import router as api_tokens_router
 from api.routers.artifacts import router as artifacts_router
 from api.routers.attachments import router as attachments_router
 from api.routers.auth import router as auth_router
@@ -174,10 +175,14 @@ async def establish_tenant_context(request: Request, call_next: Callable[[Reques
     otherwise read an empty result set or fail to write.
     """
     from api.auth.access import _get_request_identity
+    from api.auth.identity import attach_api_token_identity
 
     org_id: str | None = None
     user_id: str | None = None
     try:
+        # This middleware runs before AuthMiddleware: a personal API token is verified here, before
+        # anything resolves the caller.
+        await attach_api_token_identity(request, getattr(request.app.state, "db_manager", None))
         org_id, user_id, _roles = _get_request_identity(request)
     except Exception as err:  # pragma: no cover - identity resolution must never 500
         logger.debug("Tenant context resolution skipped for %s: %s", request.url.path, err)
@@ -284,6 +289,7 @@ app.include_router(turns_router)
 app.include_router(slack_admin_router)
 app.include_router(slack_bots_router)
 app.include_router(subagents_router)
+app.include_router(api_tokens_router)
 app.include_router(workspace_router)
 app.include_router(webhooks_router, prefix="/v1")
 app.include_router(webhooks_router, prefix="/api/v1")

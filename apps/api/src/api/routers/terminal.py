@@ -25,7 +25,11 @@ from fastapi import APIRouter, HTTPException, Query, WebSocket
 
 from api.auth.access import _check_session_access
 from api.auth.context import RequestContext
-from api.auth.identity import resolve_identity, resolve_token_identity
+from api.auth.identity import (
+    attach_api_token_identity,
+    resolve_identity,
+    resolve_token_identity,
+)
 from api.auth.roles import with_live_roles
 from api.db.session import current_tenant_org_id
 from api.services.audit import AuditService
@@ -57,6 +61,7 @@ async def _refuse(websocket: WebSocket, code: str, detail: str) -> None:
 async def _authorise(websocket: WebSocket, session_id: str, token: str) -> RequestContext | None:
     """The caller when they may write to this session; otherwise the socket is closed."""
     app_state = websocket.app.state
+    await attach_api_token_identity(websocket, getattr(app_state, "db_manager", None), token)
     caller = resolve_identity(websocket) or resolve_token_identity(token)
     if caller is not None:
         caller = await with_live_roles(caller, getattr(app_state, "db_manager", None))
