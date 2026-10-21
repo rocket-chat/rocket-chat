@@ -75,7 +75,7 @@ Your organization can also set a policy that approves or denies by risk level, a
 
 ## The conversation list
 
-The sidebar groups conversations by **Needs you** (a turn waits for your approval or an answer, with a pulsing dot), **Pinned**, **Today**, **Yesterday**, **This week** and **Earlier**. A spinner means it is working, a blue dot that it waits for CI or a review, a red dot that its last turn failed. Search by title or repository, filter to **Shared**, **Slack** or **Archived**, and right-click a conversation for pin, archive, copy link and delete. Collapse the sidebar and a rail keeps *New conversation*, the count of conversations that need you, Missions and Settings in reach.
+The sidebar groups conversations by **Needs you** (a turn waits for your approval or an answer, with a pulsing dot), **Pinned**, **Today**, **Yesterday**, **This week** and **Earlier**. A spinner means it is working, a blue dot that it waits for CI or a review, a red dot that its last turn failed. Search by title or repository, and filter with the icons beside **All**: **Shared**, **Slack** and **Archived** (hover one for what it shows; administrators also get **Everyone**). Archived conversations are hidden everywhere else and leave the list the moment you archive them; the **Archived** filter shows only them. Right-click a conversation for pin, archive, copy link and delete. Collapse the sidebar and a rail keeps *New conversation*, the count of conversations that need you, Missions and Settings in reach.
 
 ## The composer
 
