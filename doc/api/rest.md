@@ -2121,6 +2121,14 @@ Get detailed transcript and messages for a delegated subagent
 
 **Responses:** `200`
 
+## System
+
+### `GET /v1/version`
+
+The running release, or `dev` for a build that is not a tagged release.
+
+**Responses:** `200`
+
 ## Templates
 
 ### `GET /v1/templates`

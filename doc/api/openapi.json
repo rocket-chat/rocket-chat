@@ -269,6 +269,61 @@
         "title": "AnswerQuestionRequest",
         "type": "object"
       },
+      "ApiTokenView": {
+        "properties": {
+          "created_at": {
+            "description": "Unix seconds",
+            "title": "Created At",
+            "type": "integer"
+          },
+          "expires_at": {
+            "description": "Unix seconds",
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "guest": {
+            "default": false,
+            "description": "A guest token, acting as its own guest member",
+            "title": "Guest",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Token id (the secret is never shown again)",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unix seconds, to the minute; null if never used",
+            "title": "Last Used At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "The member the token acts as",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "user_id",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "ApiTokenView",
+        "type": "object"
+      },
       "ApprovalRequestModel": {
         "description": "Payload approving or denying a decision gate.",
         "properties": {
@@ -966,6 +1021,30 @@
         "title": "CompactionSummaryResponse",
         "type": "object"
       },
+      "CreateApiTokenRequest": {
+        "properties": {
+          "expires_in_days": {
+            "default": 90,
+            "description": "Days until the token stops working",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Expires In Days",
+            "type": "integer"
+          },
+          "name": {
+            "description": "What the token is for, to recognise it",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CreateApiTokenRequest",
+        "type": "object"
+      },
       "CreateCheckpointRequest": {
         "properties": {
           "label": {
@@ -1207,6 +1286,67 @@
           }
         },
         "title": "CreateSessionRequest",
+        "type": "object"
+      },
+      "CreatedApiToken": {
+        "properties": {
+          "created_at": {
+            "description": "Unix seconds",
+            "title": "Created At",
+            "type": "integer"
+          },
+          "expires_at": {
+            "description": "Unix seconds",
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "guest": {
+            "default": false,
+            "description": "A guest token, acting as its own guest member",
+            "title": "Guest",
+            "type": "boolean"
+          },
+          "id": {
+            "description": "Token id (the secret is never shown again)",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unix seconds, to the minute; null if never used",
+            "title": "Last Used At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "token": {
+            "description": "The token to send as `Authorization: Bearer <token>`; shown only once",
+            "title": "Token",
+            "type": "string"
+          },
+          "user_id": {
+            "description": "The member the token acts as",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "user_id",
+          "created_at",
+          "expires_at",
+          "token"
+        ],
+        "title": "CreatedApiToken",
         "type": "object"
       },
       "CustomSkillCreateRequest": {
@@ -3719,6 +3859,19 @@
           "path"
         ],
         "title": "RevertRequest",
+        "type": "object"
+      },
+      "RevokedApiToken": {
+        "properties": {
+          "revoked": {
+            "title": "Revoked",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "revoked"
+        ],
+        "title": "RevokedApiToken",
         "type": "object"
       },
       "RewindRequest": {
@@ -6384,6 +6537,20 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VersionInfo": {
+        "properties": {
+          "version": {
+            "description": "The release this server was built from (`0.5.0`), or `dev` for any build that is not a tagged release",
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version"
+        ],
+        "title": "VersionInfo",
+        "type": "object"
+      },
       "WaitResponse": {
         "properties": {
           "claimed_at": {
@@ -7048,6 +7215,115 @@
         "summary": "Prometheus metrics",
         "tags": [
           "Operations"
+        ]
+      }
+    },
+    "/v1/admin/api-tokens": {
+      "get": {
+        "description": "Every member's API tokens in the organization (administrators).",
+        "operationId": "list_org_api_tokens_v1_admin_api_tokens_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ApiTokenView"
+                  },
+                  "title": "Response List Org Api Tokens V1 Admin Api Tokens Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Org Api Tokens",
+        "tags": [
+          "API tokens"
+        ]
+      },
+      "post": {
+        "description": "Create a guest token (administrators), for a client without a Rocket account, as a Slack\nuser who never linked theirs. It acts as its own guest member, which owns the sessions it\nstarts, and can only hold conversations. The token is in this response only.",
+        "operationId": "create_guest_api_token_v1_admin_api_tokens_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedApiToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Guest Api Token",
+        "tags": [
+          "API tokens"
+        ]
+      }
+    },
+    "/v1/admin/api-tokens/{token_id}": {
+      "delete": {
+        "description": "Revoke any member's API token in the organization (administrators).",
+        "operationId": "revoke_org_api_token_v1_admin_api_tokens__token_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token_id",
+            "required": true,
+            "schema": {
+              "title": "Token Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedApiToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Org Api Token",
+        "tags": [
+          "API tokens"
         ]
       }
     },
@@ -13134,6 +13410,115 @@
         ]
       }
     },
+    "/v1/user/api-tokens": {
+      "get": {
+        "description": "The signed-in member's API tokens (never their secrets).",
+        "operationId": "list_my_api_tokens_v1_user_api_tokens_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ApiTokenView"
+                  },
+                  "title": "Response List My Api Tokens V1 User Api Tokens Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List My Api Tokens",
+        "tags": [
+          "API tokens"
+        ]
+      },
+      "post": {
+        "description": "Create an API token acting as the signed-in member, with the role they hold when it is\nused. The token is in this response only. An API token cannot create another one.",
+        "operationId": "create_my_api_token_v1_user_api_tokens_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedApiToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create My Api Token",
+        "tags": [
+          "API tokens"
+        ]
+      }
+    },
+    "/v1/user/api-tokens/{token_id}": {
+      "delete": {
+        "description": "Revoke one of the signed-in member's API tokens; it stops working at once.",
+        "operationId": "revoke_my_api_token_v1_user_api_tokens__token_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token_id",
+            "required": true,
+            "schema": {
+              "title": "Token Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedApiToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke My Api Token",
+        "tags": [
+          "API tokens"
+        ]
+      }
+    },
     "/v1/user/credentials/github": {
       "delete": {
         "description": "Unlink and delete stored GitHub credentials for the current user.",
@@ -13513,6 +13898,28 @@
         "summary": "Put My Model Key",
         "tags": [
           "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/version": {
+      "get": {
+        "description": "The running release, or `dev` for a build that is not a tagged release.",
+        "operationId": "get_version_v1_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Version",
+        "tags": [
+          "System"
         ]
       }
     },

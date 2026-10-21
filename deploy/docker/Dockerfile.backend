@@ -62,6 +62,9 @@ WORKDIR /app
 # Copy virtualenv and application artifacts from builder
 COPY --from=builder /app /app
 
+ARG ROCKET_VERSION=""
+ENV ROCKET_VERSION=${ROCKET_VERSION}
+
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app:/app/apps/api/src" \
     PYTHONUNBUFFERED=1

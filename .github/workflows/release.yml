@@ -59,6 +59,7 @@ jobs:
       image: backend
       file: deploy/docker/Dockerfile.backend
       tags: ${{ needs.verify.outputs.tags }}
+      build-args: ROCKET_VERSION=${{ needs.verify.outputs.version }}
 
   frontend:
     needs: verify
