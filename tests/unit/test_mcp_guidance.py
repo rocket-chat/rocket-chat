@@ -24,6 +24,7 @@ from agent_core.guidance import (
     server_guidance,
     trigger_of,
 )
+from agent_core.tool_loading import ESSENTIAL_TOOLS
 from agent_core.tools.registry import ToolRegistry
 from api.services.mcp_turn import McpTurnTools
 from api.services.tool_loading import GUIDANCE_READ_KEY, LOADED_TOOLS_KEY
@@ -338,6 +339,47 @@ async def test_a_subagent_reads_the_guidance_in_the_result_and_never_overwrites_
 
     assert "Never query" in reply
     assert saved == [], "a subagent's record is its own"
+
+
+def test_the_essential_tools_are_the_ones_a_platform_gate_sends_the_agent_to() -> None:
+    assert ESSENTIAL_TOOLS == {"load_tools", "search_tools", "load_guidance", "exit_plan_mode"}
+
+
+@pytest.mark.parametrize("name", sorted(ESSENTIAL_TOOLS))
+def test_no_tool_list_takes_an_essential_tool_away(name: str) -> None:
+    registry = ToolRegistry()
+    ctx = ExecutionContext(
+        session_id="s",
+        event_queue=None,  # type: ignore[arg-type]
+        parent_model="m",
+        allowed_tools=frozenset({"file_read"}),
+    )
+    token = current_execution_ctx.set(ctx)
+    try:
+        assert registry._scope_tool_blocked(name) is False
+        assert registry._scope_tool_blocked("bash_exec") is True, "the list still holds"
+    finally:
+        current_execution_ctx.reset(token)
+
+
+async def test_an_agent_list_without_load_guidance_still_reads_the_guidance() -> None:
+    registry = ToolRegistry()
+    ctx = ExecutionContext(
+        session_id="s",
+        event_queue=None,  # type: ignore[arg-type]
+        parent_model="m",
+        allowed_tools=frozenset({SEARCH, "file_read"}),
+    )
+    ctx.guidance_by_server = {"signoz": _guided("signoz", SHORT)}
+    token = current_execution_ctx.set(ctx)
+    try:
+        reply = await registry.call_tool("load_guidance", {"server": "signoz"})
+        refused = await registry.call_tool("bash_exec", {"command": "ls"})
+    finally:
+        current_execution_ctx.reset(token)
+
+    assert "now in effect" in reply
+    assert refused.startswith("Blocked") and "tool scope" in refused
 
 
 # -- the prompt cache --------------------------------------------------------------------------

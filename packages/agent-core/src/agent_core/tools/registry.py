@@ -28,7 +28,7 @@ from agent_core.permissions import (
     touches_workspace,
 )
 from agent_core.standing import put_skill_in_effect
-from agent_core.tool_loading import MCP_PREFIX, server_of
+from agent_core.tool_loading import ESSENTIAL_TOOLS, MCP_PREFIX, server_of
 from agent_core.tools import git_tools, memory_tools
 from agent_core.tools.builtin import register_all
 from agent_core.tools.schema import definition_from_tool
@@ -537,7 +537,11 @@ class ToolRegistry:
             return False
         if name in ctx.denied_tools:
             return True
-        return ctx.allowed_tools is not None and name not in ctx.allowed_tools
+        return (
+            ctx.allowed_tools is not None
+            and name not in ctx.allowed_tools
+            and name not in ESSENTIAL_TOOLS
+        )
 
     def _is_known_tool(self, name: str) -> bool:
         provider = self._external_provider()
@@ -582,11 +586,18 @@ class ToolRegistry:
         if self._scope_tool_blocked(name):
             # Enforced, not advisory: an unauthenticated Slack caller cannot reach a tool
             # the workspace restricted, even if the model asks for it directly.
+            ctx = current_execution_ctx.get()
+            if ctx is not None and name in ctx.denied_tools:
+                return (
+                    f"Blocked: the tool '{name}' is not permitted in this Slack workspace. "
+                    "The workspace administrator restricted it for unauthenticated callers; "
+                    "ask them to allow it, or use the web cockpit where the full toolset is "
+                    "available."
+                )
             return (
-                f"Blocked: the tool '{name}' is not permitted in this Slack workspace. "
-                "The workspace administrator restricted it for unauthenticated callers; "
-                "ask them to allow it, or use the web cockpit where the full toolset is "
-                "available."
+                f"Blocked: the tool '{name}' is outside this turn's tool scope (the agent's tool "
+                "list or the Slack workspace's allowlist). Ask an administrator to allow it, or "
+                "use the web cockpit where the full toolset is available."
             )
         if self._toolset_blocked(name):
             return (
@@ -798,6 +809,27 @@ class ToolRegistry:
                 key=lambda definition: (server_of(definition.name), definition.name),
             ),
         ]
+
+    def argument_hint(self, name: str, limit: int = 500) -> str:
+        """The tool's parameters on one short line, for a call whose arguments could not be read.
+
+        A model that wrote broken arguments once tends to repeat them (a real one pasted another
+        tool's ``names`` list into a ``start`` field); the parser's message alone does not say
+        what the arguments should have been.
+        """
+        definition = next((d for d in self.get_tool_definitions() if d.name == name), None)
+        schema = definition.parameters_json_schema if definition is not None else {}
+        properties = schema.get("properties")
+        if not isinstance(properties, dict) or not properties:
+            return ""
+        required = set(schema.get("required") or [])
+        parts = [
+            f"{key} ({spec.get('type', 'any') if isinstance(spec, dict) else 'any'}"
+            f"{', required' if key in required else ''})"
+            for key, spec in properties.items()
+        ]
+        line = "Its parameters: " + ", ".join(parts)
+        return line if len(line) <= limit else line[: limit - 1] + "…"
 
     def _external_provider(self) -> ExternalToolProvider | None:
         ctx = current_execution_ctx.get()

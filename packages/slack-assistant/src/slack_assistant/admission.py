@@ -6,6 +6,8 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from agent_core.tool_loading import ESSENTIAL_TOOLS
+
 from slack_assistant.guardrails import (
     DEFAULT_BLOCKED_TOOLS,
     QuotaDecision,
@@ -105,7 +107,8 @@ class SlackAdmissionMixin(SlackAssistantState):
         blocked = parse_tool_csv(self.settings.slack_blocked_tools) or frozenset(
             DEFAULT_BLOCKED_TOOLS
         )
-        return (None if "*" in allowed else allowed), blocked
+        # A blocklist cannot take away what a platform gate sends the agent to.
+        return (None if "*" in allowed else allowed), blocked - ESSENTIAL_TOOLS
 
     def _slack_whitelisted_tools(
         self,
