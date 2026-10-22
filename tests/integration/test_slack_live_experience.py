@@ -70,6 +70,26 @@ async def test_a_turn_streams_its_current_step_then_the_answer_in_the_same_reply
 
 
 @pytest.mark.asyncio
+async def test_an_answer_that_mentions_someone_is_posted_as_a_new_message() -> None:
+    stack = Stack(
+        ScriptedModel(
+            script=[("think", {"thought": "plan"})],
+            final_text="Régression du code. <!subteam^SC3TQP58T> à vous.",
+        )
+    )
+    client = _live(stack)
+    client.chat_startStream.return_value = {"ts": "9.9"}
+
+    await stack.send()
+
+    summary, answer = client.chat_stopStream.call_args.kwargs["chunks"]
+    assert summary["status"] == "complete" and "subteam" not in answer["text"]
+    posted = stack.say.call_args.kwargs
+    assert "<!subteam^SC3TQP58T>" in posted["text"] and posted["thread_ts"] == THREAD[1]
+    assert f"https://rocket.example/chat/{SESSION_ID}" in json.dumps(posted["blocks"])
+
+
+@pytest.mark.asyncio
 async def test_a_turn_without_tools_answers_with_a_plain_reply() -> None:
     stack = Stack(ScriptedModel(final_text="Hello there."))
     client = _live(stack)

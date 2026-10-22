@@ -38,6 +38,63 @@ def _unwrap(response: Any) -> dict[str, Any]:
     return {}
 
 
+def _object_text(obj: Any) -> str:
+    """The text of a Block Kit text object, or of a context element that carries one."""
+    if isinstance(obj, dict) and obj.get("type") in ("mrkdwn", "plain_text"):
+        return str(obj.get("text") or "").strip()
+    return ""
+
+
+def _blocks_text(blocks: Any) -> str:
+    """What a message's header, section and context blocks show, one line per block."""
+    if not isinstance(blocks, list):
+        return ""
+    lines: list[str] = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        kind = block.get("type")
+        if kind == "header":
+            text = _object_text(block.get("text"))
+            lines.append(f"*{text}*" if text else "")
+        elif kind == "section":
+            lines.append(_object_text(block.get("text")))
+            lines.extend(_object_text(field) for field in block.get("fields") or [])
+        elif kind == "context":
+            lines.append(" · ".join(t for t in map(_object_text, block.get("elements") or []) if t))
+        elif kind == "divider":
+            lines.append("---")
+    return "\n".join(line for line in lines if line)
+
+
+def _attachments_text(attachments: Any) -> str:
+    """What a message's legacy attachments show (alerting bots still post them)."""
+    if not isinstance(attachments, list):
+        return ""
+    parts: list[str] = []
+    for attachment in attachments:
+        if not isinstance(attachment, dict):
+            continue
+        lines = [str(attachment.get(key) or "").strip() for key in ("pretext", "title", "text")]
+        for field in attachment.get("fields") or []:
+            if isinstance(field, dict) and (field.get("title") or field.get("value")):
+                lines.append(f"{field.get('title') or ''}: {field.get('value') or ''}".strip(": "))
+        lines.append(_blocks_text(attachment.get("blocks")))
+        if not any(lines):
+            lines.append(str(attachment.get("fallback") or "").strip())
+        parts.append("\n".join(line for line in lines if line))
+    return "\n".join(part for part in parts if part)
+
+
+def message_text(raw: dict[str, Any]) -> str:
+    """What a Slack message shows: its blocks when it has some, as Slack then only keeps
+    ``text`` for notifications, else its text, followed by its attachments. Messages typed
+    by people carry their text as rich_text blocks, which ``text`` already renders."""
+    body = _blocks_text(raw.get("blocks")) or str(raw.get("text") or "")
+    attachments = _attachments_text(raw.get("attachments"))
+    return "\n".join(part for part in (body.strip(), attachments) if part)
+
+
 def _to_messages(raw_messages: Any, bot_user_id: str | None = None) -> list[SlackMessage]:
     """Convert raw Slack API message payloads into normalized ``SlackMessage`` objects."""
     if not isinstance(raw_messages, list):
@@ -52,7 +109,7 @@ def _to_messages(raw_messages: Any, bot_user_id: str | None = None) -> list[Slac
             SlackMessage(
                 ts=str(raw.get("ts", "")),
                 user=user,
-                text=raw.get("text", "") or "",
+                text=message_text(raw),
                 is_bot=is_bot,
             )
         )

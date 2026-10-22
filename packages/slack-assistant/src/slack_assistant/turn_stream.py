@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -319,7 +320,11 @@ class SlackTurnStreamMixin(SlackAssistantState):
         link = open_in_rocket_context(view.link_url, detail)
         stream = view.stream
         if stream is not None and stream.started:
-            if await self._finish_stream(view, stream, final_text, link, use_files, org_policy):
+            if _MENTION.search(markdown_to_slack_mrkdwn(final_text)):
+                # Slack notifies the mentions of a new message, not those written into the
+                # reply the stream opened: the card closes and the answer follows it.
+                await stream.finish("", [])
+            elif await self._finish_stream(view, stream, final_text, link, use_files, org_policy):
                 return
 
         if outcome.diffs:
@@ -444,6 +449,12 @@ class SlackTurnStreamMixin(SlackAssistantState):
                 content=data,
                 title="Screenshot",
             )
+
+
+# A user, a user group or @here, @channel, @everyone, as Slack mrkdwn writes them.
+_MENTION = re.compile(
+    r"<@[UW][A-Z0-9]+(?:\|[^>]*)?>|<!subteam\^S[A-Z0-9]+(?:\|[^>]*)?>|<!(?:here|channel|everyone)\b"
+)
 
 
 def _with_footer(text: str, footer: dict[str, Any] | None) -> list[dict[str, Any]]:

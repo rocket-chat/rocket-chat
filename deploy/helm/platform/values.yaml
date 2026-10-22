@@ -138,6 +138,8 @@ backend:
     # Bounded Slack thread context auto-injected into the agent system prompt.
     threadContextLimit: 20
     threadContextMaxChars: 6000
+    # Character budget of the on-demand slack_read_thread and slack_read_channel_history tools.
+    readToolMaxChars: 24000
     # Maximum messages returned by the on-demand slack_read_channel_history tool.
     channelHistoryLimit: 50
     # Unauthenticated-path hardening. The allowlist/blocklist and all limits
