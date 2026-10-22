@@ -105,7 +105,7 @@ jobs:
       - run: scripts/ci/provision_postgres.sh
       # `-rs` prints skip reasons, so an unexpectedly skipped suite is visible in the log.
       - name: Unit, contract and concurrency tests
-        run: uv run pytest tests/unit tests/contract tests/concurrency --shard=${{ matrix.shard }}/2 -rs -q
+        run: uv run pytest tests/unit tests/contract tests/concurrency --shard=${{ matrix.shard }}/2 -rs -q -v -o faulthandler_timeout=300
       # The golden set scores task completion, TTFT and cache metrics against the real
       # orchestrator with the stub model and fake sandbox, and must be byte-stable between runs.
       - name: Golden-set evaluation
@@ -149,7 +149,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup-backend
       - run: scripts/ci/provision_postgres.sh
-      - run: uv run pytest tests/integration tests/security --shard=${{ matrix.shard }}/2 -rs -q
+      - run: uv run pytest tests/integration tests/security --shard=${{ matrix.shard }}/2 -rs -q -v -o faulthandler_timeout=300
 
   # The name branch protection requires; the jobs above do the work in parallel.
   backend:
