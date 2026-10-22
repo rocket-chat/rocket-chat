@@ -32,6 +32,8 @@ os.environ.setdefault("ROCKET_VALIDATE_EVENTS", "1")
 # The application defaults to the Docker driver; unit and integration tests run on the fake
 # driver so they need no daemon. Tests of the Docker driver build it explicitly.
 os.environ.setdefault("DEFAULT_SANDBOX_DRIVER", "fake")
+# Tests never reach the provider's public model listing: context windows come from fixtures.
+os.environ.setdefault("ROCKET_PROVIDER_CATALOGUE", "0")
 # Reading a setting the registry does not declare fails the test instead of silently using the
 # code's fallback (api.services.settings.DeclaredSettings).
 os.environ.setdefault("ROCKET_STRICT_SETTINGS", "1")
