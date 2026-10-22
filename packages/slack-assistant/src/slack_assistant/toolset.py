@@ -321,7 +321,7 @@ class SlackToolsetMixin(SlackDirectoryMixin):
                 target[1],
                 self._resolve_slack_user_name,
                 limit=limit,
-                max_chars=self.settings.slack_thread_context_max_chars,
+                max_chars=self.settings.slack_read_tool_max_chars,
                 bot_user_id=self.bot_user_id,
             )
             return transcript or "The Slack thread is empty."
@@ -345,7 +345,7 @@ class SlackToolsetMixin(SlackDirectoryMixin):
                 self._resolve_slack_user_name,
                 limit=limit,
                 latest=before_ts,
-                max_chars=self.settings.slack_thread_context_max_chars,
+                max_chars=self.settings.slack_read_tool_max_chars,
                 bot_user_id=self.bot_user_id,
             )
             return transcript or "No recent channel history was found."

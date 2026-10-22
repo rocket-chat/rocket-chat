@@ -38,6 +38,13 @@ class SlackAssistantSettings(BaseSettings):
         default=6000,
         description="Character budget for the auto-injected Slack thread transcript.",
     )
+    slack_read_tool_max_chars: int = Field(
+        default=24000,
+        description=(
+            "Character budget for the transcripts the on-demand slack_read_thread and "
+            "slack_read_channel_history tools return."
+        ),
+    )
     slack_channel_history_limit: int = Field(
         default=50,
         description=(

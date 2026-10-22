@@ -142,6 +142,7 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 | `SLACK_APP_TOKEN` | string | `""` | *(Ignored)* Each bot's app-level token is entered in **Settings → Slack**. |
 | `SLACK_THREAD_CONTEXT_LIMIT` | int | `20` | Number of recent messages from the current Slack thread auto-injected into the agent system prompt. |
 | `SLACK_THREAD_CONTEXT_MAX_CHARS` | int | `6000` | Character budget for the injected Slack thread transcript (freshest messages kept). |
+| `SLACK_READ_TOOL_MAX_CHARS` | int | `24000` | Character budget for the transcripts the on-demand `slack_read_thread` and `slack_read_channel_history` tools return. |
 | `SLACK_CHANNEL_HISTORY_LIMIT` | int | `50` | Maximum messages returned by the on-demand `slack_read_channel_history` tool. |
 | `SLACK_TEAM_ID` | string | `""` | *(Deprecated)* Workspace id. Discovered automatically via `auth.test` on bot connection. |
 | `SLACK_ALLOWED_TOOLS` | string | `*` | *(Deprecated)* Tool allowlist; use the organization's `slack.allowed_tools` setting or a bot's **Policy**. |

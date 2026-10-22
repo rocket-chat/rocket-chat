@@ -94,6 +94,7 @@ data:
   {{- if .Values.backend.slack }}
   SLACK_THREAD_CONTEXT_LIMIT: {{ .Values.backend.slack.threadContextLimit | default 20 | quote }}
   SLACK_THREAD_CONTEXT_MAX_CHARS: {{ .Values.backend.slack.threadContextMaxChars | default 6000 | quote }}
+  SLACK_READ_TOOL_MAX_CHARS: {{ .Values.backend.slack.readToolMaxChars | default 24000 | quote }}
   SLACK_CHANNEL_HISTORY_LIMIT: {{ .Values.backend.slack.channelHistoryLimit | default 50 | quote }}
   SLACK_TEAM_ID: {{ .Values.backend.slack.teamId | default "" | quote }}
   SLACK_ALLOWED_TOOLS: {{ .Values.backend.slack.allowedTools | default "*" | quote }}

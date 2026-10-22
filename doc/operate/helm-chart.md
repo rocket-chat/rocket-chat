@@ -55,6 +55,7 @@ backend:
     # Bots and their tokens are added in the cockpit (Settings -> Slack), not here.
     threadContextLimit: 20      # Recent thread messages auto-injected into the agent prompt
     threadContextMaxChars: 6000 # Character budget for the injected transcript
+    readToolMaxChars: 24000     # Character budget of the slack_read_thread and slack_read_channel_history tools
     channelHistoryLimit: 50     # Max messages for the slack_read_channel_history tool
 
 sandbox:
