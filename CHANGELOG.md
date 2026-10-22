@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `slack`: **A mention in the agent's answer notified nobody once the turn had used a tool**: the answer was written into the reply the stream opened at the first tool call, and Slack only notifies the mentions of a new message. An answer that mentions a user, a user group or `@here` now closes the stream on its summary card and follows it as a new message.
 
 ### Security
-- `deps`: patched `aiohttp` 3.14.5 and `certifi` 2026.10.19; pinned patched `axios`, `adm-zip`, `@modelcontextprotocol/sdk`, `sharp`, `js-yaml`, `qs`, `fflate`, `postcss-selector-parser` and `katex` in the docs tooling's `pnpm.overrides` (`braces` has no fixed release yet).
+- `deps`: patched `aiohttp` 3.14.5 and `certifi` 2026.10.19; pinned patched `axios`, `adm-zip`, `@modelcontextprotocol/sdk`, `js-yaml`, `qs` and `fflate`, and `sharp` and `katex` for the docs tooling only's `pnpm.overrides` (`braces` has no fixed release yet; `postcss-selector-parser` is left alone because Tailwind 3 in the web app needs 6.x).
 
 ## [0.6.0] - 2026-10-21
 

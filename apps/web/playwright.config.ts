@@ -36,7 +36,7 @@ export default defineConfig({
           // Always start our own server locally: a stale dev server would run with
           // different env, so reusing one would silently change test behaviour.
           reuseExistingServer: false,
-          timeout: 120000,
+          timeout: 60000,
           cwd: "../..",
           env: {
             // Deterministic model + sandbox: no provider calls, no Docker.
@@ -62,7 +62,7 @@ export default defineConfig({
           command: "uv run python -m mcp_runner",
           url: "http://127.0.0.1:8100/health",
           reuseExistingServer: false,
-          timeout: 120000,
+          timeout: 60000,
           cwd: "../..",
           env: {
             MCP_RUNNER_TOKEN: "e2e-runner-token-0123456789",
@@ -76,7 +76,7 @@ export default defineConfig({
           // Also always fresh: the app must run with PLAYWRIGHT_TEST=true, so a
           // pre-existing dev server without it would redirect every test to /login.
           reuseExistingServer: false,
-          timeout: 120000,
+          timeout: 60000,
           env: {
             PLAYWRIGHT_TEST: "true",
             NEXTAUTH_URL: "http://localhost:3000",

@@ -10,12 +10,14 @@ overrides:
   axios: '>=1.20.0'
   adm-zip: '>=0.6.1'
   '@modelcontextprotocol/sdk': '>=1.32.1'
-  sharp: '>=0.35.5'
   js-yaml: '>=4.3.2 <5'
   qs: '>=6.16.1'
   fflate: '>=0.8.3'
-  postcss-selector-parser: '>=7.1.7'
-  katex: '>=0.19.0'
+  '@mintlify/prebuild>sharp': '>=0.35.5'
+  favicons>sharp: '>=0.35.5'
+  sharp-ico>sharp: '>=0.35.5'
+  micromark-extension-math>katex: '>=0.19.0'
+  rehype-katex>katex: '>=0.19.0'
 
 importers:
 
@@ -3224,6 +3226,10 @@ packages:
     resolution: {integrity: sha512-ZZow9HBI5O6EPgSJLUb8n2NKgmVWTwCvHGwFuJlMjvLFqlGG6pjirPhtdsseaLZjSibD8eegzmYpUZwoIlj2cQ==}
     engines: {node: '>=4.0'}
 
+  katex@0.18.10:
+    resolution: {integrity: sha512-/B6p9eY9DX7aHBfpkHdpirDTZ5QH9xTwL9y837PWuzuv41O5jFdqNQwVQEQsimY0/iVNkwBY4+4hMfhQ7d4Dbw==}
+    hasBin: true
+
   katex@0.19.0:
     resolution: {integrity: sha512-v6Tznz3zJ7u3niRCoDTsumM2+HA2XXcCu+WAacCeHD2z3p9A9Ks987o5FzfTGBN0e8A0vjEgIDvLbICrXpdw/Q==}
     hasBin: true
@@ -3961,8 +3967,8 @@ packages:
     peerDependencies:
       postcss: '>=8.5.23'
 
-  postcss-selector-parser@7.1.7:
-    resolution: {integrity: sha512-wWBro/7hJ40ye6TPiXkUQoXKCw23xSsjriUvqd7Uls9Sso3oLiON1flc18cCdnjgCRXw4fBVqUJJeOdDTh3P3g==}
+  postcss-selector-parser@6.1.4:
+    resolution: {integrity: sha512-bIoJLOmjCO1S9XdY/DcnR5hJxvrDir1PbGChrzXG3vw0/FOliy/fA3dmdhQ441kah4gKv+TwckGzex6wNS5cnQ==}
     engines: {node: '>=4'}
 
   postcss-value-parser@4.2.0:
@@ -8845,6 +8851,10 @@ snapshots:
       object.assign: 4.1.7
       object.values: 1.2.1
 
+  katex@0.18.10:
+    dependencies:
+      commander: 15.0.0
+
   katex@0.19.0:
     dependencies:
       commander: 15.0.0
@@ -9215,7 +9225,7 @@ snapshots:
       dompurify: 3.4.17
       elkjs: 0.9.3
       es-toolkit: 1.52.0
-      katex: 0.19.0
+      katex: 0.18.10
       khroma: 2.1.0
       marked: 16.4.2
       roughjs: 4.6.6
@@ -9923,9 +9933,9 @@ snapshots:
   postcss-nested@6.2.0(postcss@8.5.28):
     dependencies:
       postcss: 8.5.28
-      postcss-selector-parser: 7.1.7
+      postcss-selector-parser: 6.1.4
 
-  postcss-selector-parser@7.1.7:
+  postcss-selector-parser@6.1.4:
     dependencies:
       cssesc: 3.0.0
       util-deprecate: 1.0.2
@@ -10853,7 +10863,7 @@ snapshots:
       postcss-js: 4.1.0(postcss@8.5.28)
       postcss-load-config: 4.0.2(postcss@8.5.28)
       postcss-nested: 6.2.0(postcss@8.5.28)
-      postcss-selector-parser: 7.1.7
+      postcss-selector-parser: 6.1.4
       resolve: 1.22.12
       sucrase: 3.35.1
     transitivePeerDependencies:
@@ -10880,7 +10890,7 @@ snapshots:
       postcss-js: 4.1.0(postcss@8.5.28)
       postcss-load-config: 6.0.1(jiti@1.21.7)(postcss@8.5.28)(yaml@2.8.3)
       postcss-nested: 6.2.0(postcss@8.5.28)
-      postcss-selector-parser: 7.1.7
+      postcss-selector-parser: 6.1.4
       resolve: 1.22.12
       sucrase: 3.35.1
     transitivePeerDependencies:
