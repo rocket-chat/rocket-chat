@@ -14,11 +14,30 @@ const OUT = path.resolve(__dirname, "../../../../doc/assets/screenshots");
 
 test.use({ viewport: { width: 1440, height: 900 }, colorScheme: "light" });
 
+// The cockpit shows its keyboard shortcuts once per browser; a fresh test browser is always a
+// first visit, so mark them seen or every empty-state image would carry the popover.
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    try {
+      localStorage.setItem("rocket.composerHintsSeen", "1");
+    } catch {
+      // Storage blocked: nothing to mark.
+    }
+  });
+});
+
+// Every image shows one conversation: the ones a test seeded are removed when it ends.
+const seeded: string[] = [];
+test.afterEach(async ({ request }) => {
+  for (const id of seeded.splice(0)) await request.delete(`${BACKEND}/v1/sessions/${id}`);
+});
+
 async function seedConversation(request: APIRequestContext): Promise<string> {
   const created = await request.post(`${BACKEND}/v1/sessions`, {
     data: { title: "Fix the refund rounding bug" },
   });
   const { session_id: sessionId } = await created.json();
+  seeded.push(sessionId);
   await request.post(`${BACKEND}/v1/dev/sessions/${sessionId}/transcript`, {
     data: {
       messages: [
@@ -44,9 +63,9 @@ async function seedConversation(request: APIRequestContext): Promise<string> {
             {
               id: "c2",
               name: "bash_exec",
-              arguments: { command: "cd billing-api && uv run pytest tests/test_refunds.py -q" },
-              result: "1 failed, 11 passed",
-              status: "error",
+              arguments: { command: "cd billing-api && grep -n round billing/refunds.py" },
+              result: "14:    return sum(round(item.amount, 2) for item in items)",
+              status: "success",
             },
             {
               id: "c3",

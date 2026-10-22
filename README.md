@@ -1,330 +1,127 @@
 <p align="center">
-  <picture>
-    <img src="doc/assets/logo.svg" alt="Rocket Chat Logo" width="540">
-  </picture>
+  <img src="doc/assets/banner.svg" alt="Rocket Chat: engineering agents for your team, on your infrastructure. Self-hosted, a sandbox per conversation, browser, Slack and GitHub." width="100%">
 </p>
 
 <p align="center">
-  <strong>Autonomous AI Pair-Programming Platform &amp; Mission Control Cockpit</strong>
+  <a href="https://github.com/rocket-chat/rocket-chat/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-GPL--3.0-green?style=flat-square" alt="License: GPL-3.0"></a>
+  <img src="https://img.shields.io/badge/self--hosted-Docker%20%7C%20Kubernetes-ff5722?style=flat-square" alt="Self-hosted on Docker or Kubernetes">
+  <a href="https://artifacthub.io/packages/helm/rocket-chat/rocket-chat"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fartifacthub.io%2Fbadge%2Frepository%2Frocket-chat&style=flat-square" alt="Artifact Hub"></a>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Next.js-15-black?style=flat-square&logo=next.js" alt="Next.js">
-  <img src="https://img.shields.io/badge/Python-3.12+-blue?style=flat-square&logo=python" alt="Python">
-  <img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fartifacthub.io%2Fbadge%2Frepository%2Frocket-chat&style=flat-square" alt="Artifact Hub">
-  <img src="https://img.shields.io/badge/License-GPL--3.0-green?style=flat-square" alt="License: GPL-3.0">
-  <img src="https://img.shields.io/badge/Theme-Rocket_Dark%2FLight-f97316?style=flat-square" alt="Theme">
-  <img src="https://img.shields.io/badge/Sandboxes-Docker_%7C_K8s-ff5722?style=flat-square" alt="Sandboxes">
+  <img src="doc/assets/demo.gif" alt="A request typed in the cockpit, the agent working in its sandbox, the result and its diff" width="860">
 </p>
 
 ---
 
-## Overview
+Rocket Chat is a platform of **software-engineering agents** for your team. Every conversation gets its own **sandbox**: a disposable machine that already has the tools the work needs, where an agent reads the code, runs the commands and the tests, edits files, starts the apps it builds and publishes signed commits, while you watch, steer and approve. Your team talks to its agents from the **browser** or from **Slack**; you run it on **your** Docker host or Kubernetes cluster, with **your** models.
 
-**Rocket Chat** is an autonomous AI pair-programming platform designed for engineering teams that require safe, observable, and isolated agent execution. It couples a multi-tenant agent execution engine with pluggable compute sandboxes (Docker and Kubernetes), an LLM Gateway with Bring-Your-Own-Key (BYOK) routing, Slack Assistant integration via Socket Mode, and a Next.js 15 developer cockpit with native dark/light modes.
+## Try it in two minutes
 
-> **Note on AI Context:** "Rocket" is the platform's visual identity and UI theme. The underlying AI agents are strictly general-purpose software engineers, application security auditors, and technical writers.
-
-### Key Capabilities
-
-- **Isolated Compute Sandboxes:** Pluggable execution driver implementing `SandboxDriverProtocol` supporting local Docker daemon containers and Kubernetes multi-tenant Pods with non-root security contexts.
-- **Modern Pair-Programming Cockpit:** Next.js 15 interface featuring continuous flight streams, real-time collapsible thinking/reasoning blocks, in-stream decision gates, side-by-side Monaco diffs, streaming virtual terminal output, drag-drop attachment uploads, a session sidebar with server-side search/pin/archive/fork, a durable turn inspector, and a memory inspector.
-- **Durable Session Continuity:** A monotonic per-event `seq`, a bounded replay buffer, and a browser cursor mean a reconnect loses nothing; every completed turn is persisted as a queryable trace, and turns interrupted by a crash are flagged on startup so the cockpit can offer a retry.
-- **Multimodal & Memory:** Screenshots, logs, PDFs and office documents reach the model through a content-addressed attachment pipeline (web and Slack), and the agent deliberately `remember`s/`recall`s tenant-scoped long-term knowledge.
-- **Hierarchical Agent Core:** ReAct agent engine with a line-accurate tool suite (`file_read`, `file_edit`, `apply_patch`, `apply_diff_file`, `bash_exec`, `grep_search`, `git_log`, `package_manager`, `run_tests`, `ask_question`, `remember`/`recall`, …), bounded tool fan-out, context compaction, and loop guards.
-- **Universal LLM Gateway:** Unified LiteLLM proxy router supporting Anthropic, OpenAI, DeepSeek, and OpenRouter with BYOK AES-256 encryption, model-routing precedence (`preferred_model` > user > org policy > default), task-aware `frontier`/`balanced`/`economy` routing, and JSON-schema structured outputs.
-- **Governance & Observability:** A durable, RLS-scoped audit trail, configurable redaction/retention and provider/egress policy, plus production probes, Prometheus `/metrics`, graceful drain, PDB/HPA and reproducible SBOMs.
-- **Embedded Slack Assistant:** Socket Mode integration enabling team members to summon autonomous agents directly in workspace threads, bounded by per-workspace quotas, rate limits and enforced tool allowlists.
-
----
-
-## Monorepo Structure
-
-```text
-rocket-chat/
-├── apps/
-│   ├── api/                 # FastAPI REST & WebSocket Control Plane (Python 3.12+)
-│   └── web/                 # Next.js 15 Cosmic Telemetry Cockpit (TypeScript, Tailwind)
-├── packages/
-│   ├── agent-core/          # Autonomous reasoning loop & tool executor
-│   ├── config-engine/       # Layered configuration & environment resolution
-│   ├── git-engine/          # Git driver with atomic commits & co-authors
-│   ├── llm-gateway/         # LiteLLM proxy router with encrypted BYOK tenancy
-│   ├── mcp-runner/          # Dedicated pod that runs command (stdio) MCP servers
-│   ├── sandbox-driver/      # Pluggable Docker & Kubernetes sandboxes
-│   └── slack-assistant/     # Slack Socket Mode bot integration
-├── specifications/
-│   └── interfaces/          # Subsystem protocols & abstract contracts (Single Source of Truth)
-├── deploy/                  # Docker Compose stacks, Kind manifests, & Helm charts
-├── doc/                     # User documentation site (Mintlify)
-├── dev/                     # Architecture and security design for contributors
-└── tests/                   # Automated unit, integration, and E2E test suites
-```
-
----
-
-## Installation Guides
-
-You can run Rocket Chat using **Docker Compose** (recommended for quick evaluation), a **Local Development Stack** (for active coding with hot-reloading), or a **Local Kubernetes Cluster** (Kind + Helm).
-
-### Prerequisites
-
-| Tool | Minimum Version | Requirement |
-| :--- | :--- | :--- |
-| **Docker Engine** | 24.0+ | Required for sandboxed code execution (`/var/run/docker.sock`) |
-| **Python** | 3.12+ | Required for backend local development |
-| **`uv`** | Latest | Fast Python workspace and package manager |
-| **Node.js** | 22+ | Required for frontend local development |
-| **`pnpm`** | 9+ | Monorepo package manager for web cockpit |
-
----
-
-### Option A: All-in-One Quick Start (Docker Compose)
-
-The fastest way to spin up the entire platform (PostgreSQL with `pgvector`, FastAPI backend, and Next.js frontend):
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/rocket-chat/rocket-chat.git
-   cd rocket-chat
-   ```
-
-2. **Configure environment variables:**
-   ```bash
-   # Supply an LLM API key (e.g. OPENROUTER_API_KEY or ANTHROPIC_API_KEY) in the environment
-   export OPENROUTER_API_KEY=...
-   ```
-
-3. **Launch all services:**
-   ```bash
-   docker compose -f deploy/docker-compose.yml up -d --build
-   ```
-
-4. **Verify running containers:**
-   ```bash
-   docker compose -f deploy/docker-compose.yml ps
-   ```
-
-5. **Access the platform:**
-   - **Mission Control Cockpit:** [http://localhost:3000](http://localhost:3000)
-   - **FastAPI Control Plane & Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
-   - **Liveness:** [http://localhost:8000/health](http://localhost:8000/health) · **Readiness:** [http://localhost:8000/v1/ready](http://localhost:8000/v1/ready) · **Metrics:** [http://localhost:8000/metrics](http://localhost:8000/metrics)
-
-To tear down the containers:
-```bash
-docker compose -f deploy/docker-compose.yml down
-```
-
----
-
-### Option B: Local Development Setup (Hot-Reloading)
-
-For developing the backend and web frontend with instant hot-reloading:
-
-1. **Install backend dependencies with `uv`:**
-   ```bash
-   uv sync
-   ```
-
-2. **Install frontend dependencies with `pnpm`:**
-   ```bash
-   pnpm install
-   ```
-
-3. **Start the local PostgreSQL container (pgvector + Row Level Security):**
-   ```bash
-   docker compose -f deploy/docker-compose.dev.yml up -d
-   ```
-
-4. **Run database schema migrations:**
-   ```bash
-   uv run alembic upgrade head
-   ```
-
-5. **Start the FastAPI backend (Terminal 1):**
-   ```bash
-   DEFAULT_SANDBOX_DRIVER=docker uv run uvicorn api.main:app --app-dir apps/api/src --reload --port 8000
-   ```
-
-6. **Start the Next.js Mission Control frontend (Terminal 2):**
-   ```bash
-   pnpm --filter web dev
-   ```
-
-7. **Start the documentation server (Optional, Terminal 3):**
-   ```bash
-   pnpm run docs:dev
-   ```
-   Live docs will be served at [http://localhost:3333](http://localhost:3333) using Mintlify.
-
----
-
-### Option C: Local Kubernetes Orchestration (Kind + Helm)
-
-To test the Kubernetes sandbox driver and full multi-tenant isolation locally:
-
-1. **Ensure `kind`, `kubectl`, and `helm` are installed.**
-2. **Execute the automated Makefile orchestration target:**
-   ```bash
-   make dev-cluster
-   ```
-   This automatically:
-   - Provisions a Kind cluster with host port mappings (`8000`, `3000`).
-   - Builds backend and frontend multi-stage container images.
-   - Sideloads images directly into the Kind containerd runtime.
-   - Deploys the production Helm chart under the `rocket-chat` namespace.
-
-3. **Tear down the Kind cluster when finished:**
-   ```bash
-   make cluster-down
-   ```
-
----
-
-### Option D: Production Helm Deployment (Artifact Hub / GHCR OCI)
-
-Deploy directly using the published OCI chart listed on [Artifact Hub](https://artifacthub.io/packages/helm/rocket-chat/rocket-chat):
+You need Docker and a model key (any of OpenRouter, Anthropic, OpenAI, Gemini, DeepSeek).
 
 ```bash
-# Log in to GitHub Container Registry (if private or rate-limited)
-helm registry login ghcr.io -u <YOUR_GITHUB_USERNAME>
-
-# Install or upgrade Rocket Chat from GHCR OCI
-helm upgrade --install rocket-chat oci://ghcr.io/rocket-chat/charts/rocket-chat \
-  --version 0.6.1 \
-  --namespace rocket-chat \
-  --create-namespace \
-  --set models.openrouter.apiKey="$OPENROUTER_API_KEY" \
-  --set sandbox.storageClass="gp3"
+curl -sSL https://raw.githubusercontent.com/rocket-chat/rocket-chat/main/deploy/docker-compose.yml -o docker-compose.yml
+export OPENROUTER_API_KEY=sk-or-...        # or ANTHROPIC_API_KEY, OPENAI_API_KEY, ...
+docker compose up -d
 ```
 
----
+Open **http://localhost:3000**, sign in with the developer login, and ask for something:
 
-## Configuration Reference
+> *Clone acme/billing-api, find why `test_refund_rounding` fails and fix it. Run the tests when you are done.*
 
-The full, authoritative variable catalogue — sandbox drivers, code-index bounds, attachment
-limits, Slack hardening, routing, governance and operational probes — lives in the
-[configuration reference](doc/install/configuration.md). The most common
-options configurable via `.env` or system environment variables are:
+That stack uses throwaway secrets: it is for trying Rocket Chat on your own machine. Step by step, with what to expect: **[Quickstart](doc/quickstart.md)**.
 
-| Variable | Default Value | Description |
-| :--- | :--- | :--- |
-| `DEFAULT_SANDBOX_DRIVER` | `docker` | Sandbox engine: `docker` or `k8s` |
-| `ROCKET_DEFAULT_MODEL` | `openrouter/deepseek/deepseek-v4.1-flash` | Default LLM model identifier |
-| `DATABASE_URL` | `postgresql+asyncpg://...` | Application database connection string with RLS |
-| `ADMIN_DATABASE_URL` | `postgresql+asyncpg://...` | Superuser database string used for schema migrations |
-| `ENCRYPTION_MASTER_KEY` | *(32-byte hex string)* | AES-256 master key for BYOK encryption |
-| `OPENROUTER_API_KEY` | `""` | OpenRouter gateway authentication key |
-| `ANTHROPIC_API_KEY` | `""` | Direct Anthropic Claude API key |
-| `OPENAI_API_KEY` | `""` | Direct OpenAI API key |
+## Why Rocket Chat
 
----
+| | |
+| :--- | :--- |
+| **A sandbox of its own, ready on arrival** | Each conversation runs in its own isolated, disposable environment built from an image *you* control: your toolchains, your variables, your repositories prepared. Scales with your cluster. [More below.](#every-conversation-gets-its-own-sandbox) |
+| **A team of agents, shaped to your work** | Built-in agents (a general engineer, a backend specialist, a security auditor), editable, or define your own: each with its own instructions, model, tools, skills, knowledge, step budget and sandbox. Agents delegate to parallel subagents. |
+| **A team's platform, not a personal tool** | Sign-in with your identity provider, roles, shared sessions, per-person and organization budgets, an audit trail. Included in the one open-source edition. |
+| **Yours to run** | Your servers, your cluster, your network. Code and prompts go only to the model you choose, or to none with a self-hosted one ([air-gapped installs](doc/install/air-gapped.md)). |
+| **Browser and Slack, both first-class** | Several Slack bots, each mapped to an agent; questions and approvals as buttons; work in the open or privately. Every Slack thread is also a session in the browser. |
+| **GitHub, end to end** | Pull requests, review threads, CI logs, PR following, webhooks, and **signed commits** (GitHub's Verified badge, or a member's own key that never enters the sandbox). |
+| **Your internal tools, safely** | MCP servers, remote or command-line (stdio). Command servers run on a dedicated locked-down runner, with install scripts and per-member credentials. |
+| **You decide how much to trust it** | From read-only *Plan* to *Ask* (approve every edit and command) to *Auto*, with checkpoints to rewind. Approvals wait as long as you need. |
+| **Any model** | Your own keys (members can bring theirs), routing by task, fallbacks, spend caps. No lock-in. |
+| **Built for long work** | A turn can run for hours: durable waits for CI and reviews, resume after a restart, parallel subagents. |
 
-## Usage Guide
+[Why it exists and who it is for](doc/why-rocket-chat.md) · [How it compares with Claude Code, Codex, OpenCode, Cursor, GitHub Copilot's agent, Devin and OpenHands](doc/compare.md)
 
-### 1. Web Mission Control Cockpit
+## Every conversation gets its own sandbox
 
-Open [http://localhost:3000](http://localhost:3000) in your browser:
+> *Give your agents their own ephemeral, customized, powerful environment, with all their tools already in it.*
 
-1. **Select an Agent Persona:** Click the persona selector in the left navigation sidebar:
-   - **General Pair Programmer:** Full-stack implementation, bug fixes, refactoring.
-   - **Security Auditor:** OWASP vulnerability scanning, dependency reviews, secret sanitization.
-   - **Bug Hunter:** Reproducing test failures and surgical bug mitigation.
-   - **Documentation Specialist:** Architecture diagrams, API specs, living docs.
-2. **Select Target Repository & Branch:** Pick your active workspace and git branch from the avionics header.
-3. **Launch an Autonomous Mission:** Type your task into the bottom **Ignition Console** (e.g., *"Refactor the Docker container pool to enforce 5s timeouts and write unit tests"*).
-4. **Monitor Real-Time Telemetry:**
-   - **Flight Log Stream:** Inspect the agent's real-time reasoning steps, tool calls, and execution latencies.
-   - **In-Stream Decision Gates:** When the agent invokes `ask_question`, an interactive decision card renders in-stream for single/multi-choice approval before proceeding.
-   - **Telemetry Inspector:** Switch between side-by-side **Monaco Diff Viewer** (to review pending code modifications) and the **Streaming Terminal** (to watch live `pytest`, `npm`, or compiler stdout).
+- **Customized.** Build an image with your languages and CLIs, set encrypted secrets and variables, and have every repository prepared right after it is cloned (`.rocket/setup.sh`, a dev container, or setups you define). The agent starts working instead of installing. → [Build your agents' sandbox](doc/administer/custom-sandboxes.md)
+- **Powerful.** CPU, memory and disk per sandbox type or per agent; node pools and placement profiles; a stronger isolation boundary with a runtime class such as gVisor or Kata; a real shell, live previews of the apps it starts, and a browser to check them.
+- **Ephemeral.** It starts with the first command that needs it, sleeps when idle, and releases its volume when the work is long over.
+- **Autoscalable.** On Kubernetes a sandbox is a pod with its own volume: capacity follows your cluster, autoscalers never evict a sandbox that is mid-command, and the control plane scales with the Helm chart.
+- **Contained.** It never holds your GitHub credentials, runs as non-root, and reaches only the network you allow.
 
----
+## What is built in
 
-### 2. Slack Assistant (Socket Mode)
+The agents come with a large toolset, so a new organization can do real work on day one:
 
-Once a bot is added in **Settings → Slack** (its Slack app's two tokens; see `doc/administer/slack.md`):
+| | |
+| :--- | :--- |
+| **Code** | Read, search, edit and patch files; `grep`, `glob` and symbol search; run builds, tests, lint and type checks; a package manager. |
+| **Shell and processes** | A real shell in the sandbox; background servers and watchers with their logs; a live **Preview** of a running app; an interactive terminal. |
+| **Git** | Branches, commits with co-author trailers, diffs, checkpoints and rewind, multi-repository workspaces. |
+| **GitHub** | Pull requests (diffs, review threads, replies, merge), Actions runs and failed-job logs, issues, releases, code search, a watch on a pull request that wakes the agent when CI finishes or a review lands. Publishing with **signed commits**: `github_app` (GitHub-verified), `gpg_key` (a member's own key, stored encrypted, never in the sandbox) or unsigned. |
+| **Slack** | Read the thread, channels and user groups; find people; link messages; post, message and react under your policy. Attachments are read; long answers and diffs are attached as files. |
+| **The web** | Fetch and search the web; a browser that opens the page the agent built and reports its text, console errors and failed requests. |
+| **Working like an engineer** | A task checklist the team can follow, durable waits (`wait_for` CI, a review, a process), long-term memory, knowledge-base search, plan mode, questions as decision cards. |
+| **Delegation** | Subagents, in parallel, each in its own git worktree. |
+| **Extensions** | Skills, knowledge bases, **MCP servers** (remote or stdio), your own agents. |
 
-1. Invite `@RocketChat` to any channel:
-   ```text
-   /invite @RocketChat
-   ```
-2. Mention the bot with a task or thread reference:
-   ```text
-   @RocketChat investigate the intermittent 502 error in tests/integration/test_gateway.py
-   ```
-3. Rocket Chat will provision an isolated sandbox, run tests, diagnose the root cause, apply surgical patches, and respond in-thread with the commit hash and diff summary.
+## Slack, built for teams
 
----
+Several bots, each mapped to an agent (`@RocketDev`, `@RocketOps`, `@RocketTriage`), each with its own slash command. Mention a bot in a thread and it answers there, showing the step it is on and ending with a summary and a link to the session; or work **privately** and share the result when you choose. Questions and approvals are buttons only the requester can press, and they survive a restart. See [Slack](doc/use/slack.md) and [Connect Slack](doc/administer/slack.md).
 
-### 3. REST & WebSocket Control Plane
+## GitHub, with signed commits
 
-The backend exposes full programmatic control for automation and CI/CD pipelines:
+An organization GitHub App does the platform's own work; each member's linked account lets the agent act as them. The sandbox holds neither: it clones through a read-only gateway, and commits leave through a publishing step that applies your signing policy. Label an issue and an agent can reproduce it, fix it on a branch and open the pull request. See [GitHub](doc/administer/github.md).
 
-- **Interactive API Documentation:** Explore OpenAPI endpoints at [http://localhost:8000/docs](http://localhost:8000/docs).
-- **Session Lifecycle:**
-  ```bash
-  # Create a new agent session
-  curl -X POST http://localhost:8000/v1/sessions \
-    -H "Content-Type: application/json" \
-    -d '{"repo_url": "https://github.com/org/repo.git", "branch": "main"}'
+## Install your way
 
-  # Inspect the persisted turn traces (tool calls, approvals, routing, cost)
-  curl http://localhost:8000/v1/sessions/{session_id}/turns
-  ```
-- **Real-Time Telemetry Stream:** Connect via WebSocket to stream events:
-  ```text
-  ws://localhost:8000/v1/sessions/{session_id}/ws?session_id={session_id}
-  ```
-  Send `{"type": "resume", "last_seq": <n>}` on reconnect to receive exactly the events missed
-  during the gap (see the [WebSocket protocol](doc/api/websocket.md)).
+| You want to | Start here |
+| :--- | :--- |
+| **Try it** on your laptop | [Quickstart](doc/quickstart.md) (Docker, two minutes) |
+| **Run it for a team** on one server | [Docker Compose for production](doc/install/docker-compose.md) |
+| **Run it for many people**, with autoscaling | [Kubernetes with Helm](doc/install/kubernetes.md) and the [Helm chart reference](doc/operate/helm-chart.md) |
+| **Try the Kubernetes setup** locally | [Local Kubernetes with Kind](doc/install/local-kubernetes.md) |
+| **Use a self-hosted model**, or no internet | [Self-hosted models and air-gapped installs](doc/install/air-gapped.md) |
+| **Hack on it**, or run it from source | [Run from source](doc/install/from-source.md) |
 
----
+Every setting, environment variable and Helm value is in the [configuration reference](doc/install/configuration.md).
 
-## Verification & Quality Checks
+## What you can ask it
 
-Run the automated test and linting suites locally before committing changes:
+Anything you would hand to a capable engineer who has a terminal and a morning:
 
-```bash
-# 1. Backend Linting & Formatting
-uv run ruff check .
-uv run ruff format --check .
-
-# 2. Type Checking
-uv run mypy packages apps/api
-pnpm --filter web type-check
-
-# 3. Unit & Integration Test Suites
-uv run pytest tests/unit/
-uv run pytest tests/integration/
-
-# 4. Frontend Lint & Build
-pnpm --filter web lint
-pnpm --filter web build
-
-# 5. Documentation Validation
-pnpm run docs:check
-```
-
----
+- *Fix this failing test and open a pull request.*
+- *Review this PR for bugs and missing tests, and reply on the threads you are sure about.*
+- *Upgrade the framework in these three services and tell me what broke.*
+- *Why is this endpoint slow? Reproduce it, profile it, propose a fix.*
+- *Every Monday, check the repos for dependency advisories and summarise.*
 
 ## Documentation
 
-Installation, usage, administration, operations and the API reference are on the documentation site:
+**[The documentation site](https://rocket-chat.mintlify.site/)** is organised by what you are doing:
 
-- **Official Documentation:** **[https://rocket-chat.mintlify.site/](https://rocket-chat.mintlify.site/)**
-- **Local Documentation:** Maintained directly in `doc/` via Mintlify. Run `pnpm run docs:dev` locally to preview changes.
-- **For contributors:** [`AGENTS.md`](AGENTS.md) (rules and workflow), [`dev/architecture.md`](dev/architecture.md) and [`dev/security-and-tenancy.md`](dev/security-and-tenancy.md).
+| | |
+| :--- | :--- |
+| [Install](doc/install/index.md) | Docker Compose, Kubernetes, local clusters, from source, air-gapped. |
+| [Use](doc/use/index.md) | Your first session, supervision, Slack, templates, schedules, skills. |
+| [Administer](doc/administer/index.md) | Sign-in, models and budgets, GitHub, Slack, sandboxes, security and audit. |
+| [Operate](doc/operate/index.md) | Helm values, hardening, backups, monitoring, troubleshooting. |
+| [API](doc/api/index.md) | REST and the live WebSocket protocol, to build on top of it. |
 
----
+## Contributing and security
 
-## Contributing
-
-We welcome community contributions! Please review **[CONTRIBUTING.md](CONTRIBUTING.md)** for instructions on our development workflow, strict typing guidelines, commit conventions, and architectural standards.
-
----
+Contributions are welcome: start with [CONTRIBUTING.md](CONTRIBUTING.md); the working rules are in [AGENTS.md](AGENTS.md). Report security issues privately to `contact@nathp.fr`, not in a public issue.
 
 ## License
 
-Rocket Chat is free and open-source software licensed under the **[GNU General Public License v3.0 (GPL-3.0)](LICENSE)**.
-
-Under this reciprocal copyleft license, any distributed forks, derivative works, or modifications must remain free, open source, and publicly available under the GNU GPL-3.0, with prominent attribution and reference to the upstream repository.
+Rocket Chat is free software under the **[GNU General Public License v3.0](LICENSE)**. Modified versions you distribute must stay open under the same license, with attribution to this project.

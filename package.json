@@ -13,7 +13,8 @@
     "version:check": "python3 scripts/release.py check",
     "version:prepare": "python3 scripts/release.py prepare",
     "version:notes": "python3 scripts/release.py notes",
-    "docs:screenshots": "pnpm --filter web docs:screenshots"
+    "docs:screenshots": "pnpm --filter web docs:screenshots",
+    "docs:demo": "pnpm --filter web docs:demo && uv run --with pillow python scripts/make_demo_gif.py"
   },
   "devDependencies": {
     "mintlify": "^4.2.988"

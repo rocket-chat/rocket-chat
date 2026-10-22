@@ -13,13 +13,15 @@
       {
         "tab": "Install",
         "groups": [
-          { "group": "Welcome", "pages": ["index"] },
+          { "group": "Welcome", "pages": ["index", "quickstart", "why-rocket-chat", "compare"] },
           {
             "group": "Install",
             "pages": [
               "install/index",
               "install/docker-compose",
               "install/kubernetes",
+              "install/local-kubernetes",
+              "install/from-source",
               "install/configuration",
               "install/air-gapped"
             ]
@@ -51,6 +53,7 @@
               "administer/index",
               "administer/organization",
               "administer/sandboxes",
+              "administer/custom-sandboxes",
               "administer/sso",
               "administer/github",
               "administer/slack",
