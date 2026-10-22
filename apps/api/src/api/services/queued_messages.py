@@ -18,6 +18,7 @@ from typing import Any, Literal
 from sqlalchemy import select, update
 
 from api.db.models import SessionQueuedMessageModel
+from api.services.turn_trace import session_running_turn
 from specifications.interfaces.agent import SteeringMessage
 from specifications.interfaces.events import EventType, SessionEvent
 
@@ -173,6 +174,23 @@ async def stranded_sessions(admin_db: Any, now: int | None = None) -> list[tuple
         return [(str(org), str(session_id)) for org, session_id in result.all()]
 
 
+async def _turn_running(
+    session_store: Any, orchestrator: Any, db_manager: Any, org_id: str, session_id: str
+) -> bool:
+    """Whether a turn of the session runs, here or on another replica.
+
+    With a database, the turn's own trace says so: the session's busy flag is cleared only when
+    a turn ends, so one whose process died would hold every later message for a turn that does
+    not exist. Without one (an in-memory deployment) the flag is all there is.
+    """
+    if orchestrator.is_running(session_id):
+        return True
+    if db_manager is not None:
+        return await session_running_turn(db_manager, session_id, org_id) is not None
+    record = await session_store.get_session(session_id)
+    return record is not None and record.is_processing
+
+
 async def hold_for_running_turn(
     *,
     session_store: Any,
@@ -191,10 +209,7 @@ async def hold_for_running_turn(
     Whether it was kept; ``False`` means no turn runs and the caller starts one now. A steering
     message is also handed to a turn running in this process, which takes it at its next step.
     """
-    record = await session_store.get_session(session_id)
-    if not orchestrator.is_running(session_id) and not (
-        record is not None and record.is_processing
-    ):
+    if not await _turn_running(session_store, orchestrator, db_mgr, org_id, session_id):
         return False
     kept_id = message_id or f"msg_{uuid.uuid4().hex[:16]}"
     await QueuedMessageStore(db_mgr).add(

@@ -120,7 +120,7 @@ Attach a screenshot, or ask the agent to look at an image it created (`view_imag
 
 * The live connection resumes after a drop without losing or repeating anything, and opening a session mid-turn shows the answer as it is being written.
 * A question that was waiting when the server restarted is still waiting; answering it continues the work.
-* A turn the server lost mid-flight is flagged and continued automatically once, so it does not simply vanish.
+* A turn the server lost mid-flight is flagged and continued automatically (up to twice by default), so it does not simply vanish. What it had done (tool calls, their results and the thoughts between them) stays in the conversation, followed by a note that the server restarted, and the agent is told where it stopped. A call that was running when the server stopped is shown as interrupted; the step the model was writing at that moment is the only part that is not kept.
 
 ## Limits you may meet
 

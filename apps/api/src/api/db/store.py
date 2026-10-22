@@ -396,6 +396,50 @@ class TurnTraceStore:
                 current_calls.append(dict(tool_data))
                 model.tool_calls = current_calls
 
+    async def get(self, trace_id: str, tenant_org_id: str) -> TurnTraceRecord | None:
+        """One trace by id, or ``None``."""
+        async with self.manager.session(tenant_org_id=tenant_org_id) as session:
+            model = await session.get(TurnTraceModel, trace_id)
+            return self._model_to_record(model) if model else None
+
+    async def interrupted_since(self, since: int) -> list[TurnTraceRecord]:
+        """Turns interrupted at or after ``since`` (administrative connection, every tenant)."""
+        async with self.manager.session() as session:
+            result = await session.execute(
+                select(TurnTraceModel)
+                .where(
+                    TurnTraceModel.status == TURN_STATUS_INTERRUPTED,
+                    TurnTraceModel.ended_at >= since,
+                )
+                .order_by(TurnTraceModel.started_at)
+            )
+            return [self._model_to_record(model) for model in result.scalars()]
+
+    async def sessions_stuck_processing(self, *, older_than: int) -> list[tuple[str, str]]:
+        """``(org_id, session_id)`` marked as processing while no turn of theirs runs.
+
+        A turn clears the flag when it ends, so a process that died mid-turn leaves it set: the
+        session then looks busy forever and what its owner sends is queued for a turn that does
+        not exist. Administrative connection.
+        """
+        running = (
+            select(1)
+            .where(
+                TurnTraceModel.session_id == SessionModel.id,
+                TurnTraceModel.status == TURN_STATUS_RUNNING,
+            )
+            .exists()
+        )
+        async with self.manager.session() as session:
+            result = await session.execute(
+                select(SessionModel.org_id, SessionModel.id).where(
+                    SessionModel.is_processing.is_(True),
+                    SessionModel.updated_at < older_than,
+                    ~running,
+                )
+            )
+            return [(org_id, session_id) for org_id, session_id in result.all()]
+
     async def running_turn(self, session_id: str, tenant_org_id: str) -> TurnTraceRecord | None:
         """Return the active running turn trace for the session, if any."""
         async with self.manager.session(tenant_org_id=tenant_org_id) as session:

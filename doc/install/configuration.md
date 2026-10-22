@@ -38,7 +38,7 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | `ROCKET_SESSION_LOCK_CAPACITY` | int | `256` | Maximum number of per-session single-writer locks retained (bounded registry). |
 | `ROCKET_DB_PING_TIMEOUT_SECONDS` | int | `2` | Deadline for the `/v1/ready` PostgreSQL ping. |
 | `ROCKET_DOCKER_THREADS` | int | `64` | Size of the Docker driver's private thread pool for the blocking Docker SDK (a long command holds a thread for its whole run). When full, further Docker calls queue; the rest of the API is unaffected. Watch `rocket_docker_blocking_calls`. |
-| `ROCKET_TURN_AUTO_RESUME_ATTEMPTS` | int | `1` | How many times a task is resumed automatically after a restart interrupted it (`0` disables). Organizations can also opt out with `governance.auto_resume_turns`. |
+| `ROCKET_TURN_AUTO_RESUME_ATTEMPTS` | int | `2` | How many times a task is resumed automatically after a restart interrupted it (`0` disables). Organizations can also opt out with `governance.auto_resume_turns`. |
 | `ROCKET_SEARCH_PROVIDER` | enum | `duckduckgo` | `web_search` backend: `duckduckgo` (zero-config HTML fallback, fragile), `searxng` (your own instance; set `ROCKET_SEARXNG_URL`, enable the `json` format) or `brave` (set `ROCKET_BRAVE_API_KEY`). A misconfigured provider is reported to the model, never silently replaced. |
 | `ROCKET_SEARXNG_URL` | url | – | Base URL of the SearXNG instance (operator-configured, so a private address is fine). |
 | `ROCKET_BRAVE_API_KEY` | secret | – | Brave Search API key, sent as a header only. |

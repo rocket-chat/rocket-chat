@@ -103,7 +103,7 @@ backend:
     ROCKET_ATTACHMENT_INLINE_BYTES: "65536"
     # How many times a task is resumed automatically after a restart interrupted it
     # (0 disables; organizations can also opt out under governance.auto_resume_turns).
-    ROCKET_TURN_AUTO_RESUME_ATTEMPTS: "1"
+    ROCKET_TURN_AUTO_RESUME_ATTEMPTS: "2"
     # Knowledge-base ingestion limits per document (characters / embedded chunks).
     ROCKET_KB_MAX_DOCUMENT_CHARS: "2000000"
     ROCKET_KB_MAX_CHUNKS_PER_DOCUMENT: "2000"

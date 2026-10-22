@@ -17,6 +17,7 @@ from api.db.models import McpServerEntityModel
 from api.db.session import DatabaseSessionManager, current_tenant_org_id
 from api.services.audit import RetentionPolicy, RetentionSweeper
 from api.services.cluster import LeaderElection
+from api.services.interrupted_work import clear_stuck_processing, save_interrupted_turns
 from api.services.mcp_engine import probe_and_fetch_tools
 from api.services.mcp_runtime import REMOTE_TRANSPORTS, auth_headers, canonical_transport
 from api.services.missions import MissionStore, claim_due
@@ -189,7 +190,17 @@ class BackgroundServices:
     def _start_turn_recovery(self, admin_manager: DatabaseSessionManager) -> None:
         """Continue turns the previous process left interrupted, and keep recovering in a cluster."""
 
+        async def _settle_interrupted_turns() -> None:
+            """Show what interrupted turns did, and free the sessions they left looking busy."""
+            sessions = getattr(self._app.state, "session_store", None)
+            if sessions is None:
+                return
+            transcripts = getattr(self._app.state, "transcript_store", None)
+            await save_interrupted_turns(admin_manager, sessions, transcripts)
+            await clear_stuck_processing(admin_manager, sessions)
+
         async def _resume_claimed_turns() -> None:
+            await _settle_interrupted_turns()
             await resume_interrupted_turns(
                 admin_manager,
                 self._core.db_manager,
@@ -290,6 +301,10 @@ class BackgroundServices:
 
         async def _sweep() -> None:
             locks = getattr(self._app.state, "session_write_locks", None)
+            store = getattr(self._app.state, "session_store", None)
+            if admin_manager is not None and store is not None:
+                # Without this a session whose process died stays "busy" and queues for nothing.
+                await clear_stuck_processing(admin_manager, store)
             for org_id, session_id in await stranded_sessions(admin_manager):
                 record = await self._session_record(org_id, session_id)
                 if record is None or record.is_processing:
