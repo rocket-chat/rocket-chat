@@ -37,6 +37,10 @@ STALE_FLAG_SECONDS = 120
 NOTICE_ARGUMENT_CHARS = 300
 NOTICE_REASONING_CHARS = 1200
 NOTICE_RECENT_CALLS = 4
+# The notice rides every step of the resumed turn, so neither the calls it lists nor its whole
+# length grows with the turn: a turn that ran 200 calls costs the same as one that ran two.
+NOTICE_MAX_IN_FLIGHT = 5
+NOTICE_MAX_CHARS = 4000
 NO_RESULT = "No result: the server restarted while this tool was running. Check what it did."
 
 INTERRUPTED_NOTE = (
@@ -106,7 +110,9 @@ def build_interrupted_work(
         (call for call in trace.tool_calls if str(call.get("id")) not in already),
         key=lambda call: (call.get("seq") or 0, call.get("created_at") or 0),
     )
-    done = {str(call.get("id")) for call in trace.tool_calls} | already
+    # A call that has a result in the transcript finished, whatever the trace or the clock say.
+    answered = {str(m.tool_call_id) for m in transcript if m.role == "tool" and m.tool_call_id}
+    done = {str(call.get("id")) for call in trace.tool_calls} | already | answered
     work = InterruptedWork(trace_id=trace.id, executed=[dict(call) for call in executed])
     start, end = trace.started_at - 1, (trace.ended_at or int(time.time())) + 1
     texts: list[str] = []
@@ -155,7 +161,8 @@ def resume_notice(base: str, work: InterruptedWork | None) -> str:
     """The follow-up turn's instruction: the generic one plus where the last turn stopped.
 
     Kept short on purpose (everything here is re-sent on every step of a turn that may run for
-    hours): the agent's own transcript already holds the detail, this only points at it.
+    hours): the agent's own transcript already holds the detail, this only points at it. The
+    calls listed and the whole text are bounded, whatever the interrupted turn did.
     """
     if work is None or work.is_empty:
         return base
@@ -168,7 +175,10 @@ def resume_notice(base: str, work: InterruptedWork | None) -> str:
         lines.append(
             f"Before it stopped you had completed {len(work.executed)} tool calls; the last: {recent}."
         )
-    for call in work.in_flight:
+    shown = work.in_flight[-NOTICE_MAX_IN_FLIGHT:]
+    if hidden := len(work.in_flight) - len(shown):
+        lines.append(f"{hidden} earlier calls also have no recorded result; check the workspace.")
+    for call in shown:
         lines.append(
             f"Stopped while running `{call.get('name')}` with {_brief(call.get('arguments'))}: "
             "it has no result, so check whether it took effect before repeating it."
@@ -177,9 +187,11 @@ def resume_notice(base: str, work: InterruptedWork | None) -> str:
         (str(call["reasoning"]) for call in reversed(work.in_flight) if call.get("reasoning")), ""
     )
     if thought:
-        tail = thought[-NOTICE_REASONING_CHARS:]
-        lines.append(f"Your last reasoning before the restart ended with: …{tail}")
-    return "\n".join(lines)
+        budget = NOTICE_MAX_CHARS - sum(len(line) + 1 for line in lines) - 80
+        tail = thought[-min(NOTICE_REASONING_CHARS, max(0, budget)) :] if budget > 0 else ""
+        if tail:
+            lines.append(f"Your last reasoning before the restart ended with: …{tail}")
+    return "\n".join(lines)[:NOTICE_MAX_CHARS]
 
 
 async def gather_interrupted_work(
