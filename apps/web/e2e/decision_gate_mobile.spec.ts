@@ -6,7 +6,7 @@ const DECISION_FRAME = {
     question_id: "q_e2e_1",
     question_text: "Which repository should I clone, and with which credentials should I authenticate?",
     options: [
-      "Clone birotaio/backend-services with my linked GitHub account",
+      "Clone acme/backend-services with my linked GitHub account",
       "Clone it with the GitHub App installation token",
       "Skip cloning and continue without the repository",
       "Ask me for a different repository",

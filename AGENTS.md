@@ -216,7 +216,7 @@ Also required: a `README.md` in every package and application (what it does, ins
 
 * Trunk-based: branch from `main`, small atomic commits, **Conventional Commits** (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`), a linear history (rebase or squash; no merge commits).
 * Open a pull request against `main`; it merges only when every gate is green. Update `CHANGELOG.md` in the same pull request.
-* Security issues are reported privately to `security@rocket-chat.dev`, not in public issues. Contributions are licensed GPL-3.0 (see `CONTRIBUTING.md`).
+* Security issues are reported privately to `contact@nathp.fr`, not in public issues. Contributions are licensed GPL-3.0 (see `CONTRIBUTING.md`).
 
 ---
 

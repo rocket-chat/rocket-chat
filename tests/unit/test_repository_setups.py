@@ -18,21 +18,21 @@ from tests.turn_harness import run_turn
 
 PER_SERVICE = RepositorySetup(
     id="s1",
-    repository="birotaio/backend-services",
+    repository="acme/backend-services",
     folder="*",
     command="vendir sync -l && make base",
 )
-ROOT = RepositorySetup(id="s2", repository="birotaio/*", folder="", command="go mod download")
+ROOT = RepositorySetup(id="s2", repository="acme/*", folder="", command="go mod download")
 
 
 def test_a_pattern_folder_applies_to_the_top_level_folder_a_command_runs_in() -> None:
-    found = matching_folders([PER_SERVICE, ROOT], "birotaio/backend-services", "history/service")
+    found = matching_folders([PER_SERVICE, ROOT], "acme/backend-services", "history/service")
 
     assert [(s.id, folder) for s, folder in found] == [("s2", ""), ("s1", "history")]
-    assert matching_folders([PER_SERVICE], "birotaio/backend-services", "") == []
+    assert matching_folders([PER_SERVICE], "acme/backend-services", "") == []
     assert matching_folders([PER_SERVICE], "acme/other", "history") == []
     disabled = PER_SERVICE.model_copy(update={"enabled": False})
-    assert matching_folders([disabled], "birotaio/backend-services", "history") == []
+    assert matching_folders([disabled], "acme/backend-services", "history") == []
 
 
 class _Sandbox(FakeSandboxDriver):
@@ -47,7 +47,7 @@ class _Sandbox(FakeSandboxDriver):
     async def exec_command(self, session_id: str, command: str, *a: Any, **k: Any) -> ExecResult:
         workdir = k.get("workdir")
         if command == "git remote get-url origin":
-            return ExecResult(0, "https://github.com/birotaio/backend-services.git\n", "", 1)
+            return ExecResult(0, "https://github.com/acme/backend-services.git\n", "", 1)
         if command.startswith("cat /workspace/.rocket/setup-"):
             marker = command.split()[1]
             return ExecResult(

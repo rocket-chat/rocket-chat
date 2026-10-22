@@ -165,7 +165,7 @@ test.describe("Long content on an iPhone", () => {
           {
             role: "assistant",
             content: [
-              "A reasonable place to look is `birotaio/mongodb-gcs-backup-with-a-really-long-repository-name-that-cannot-wrap` today.",
+              "A reasonable place to look is `acme/mongodb-gcs-backup-with-a-really-long-repository-name-that-cannot-wrap` today.",
               "",
               "```bash",
               `docker compose up --build --force-recreate --remove-orphans ${wide}`,
@@ -173,9 +173,9 @@ test.describe("Long content on an iPhone", () => {
               "",
               "| Repository | Language | Description of what it does in detail |",
               "| --- | --- | --- |",
-              `| birotaio/mongodb-gcs-backup | Shell | ${wide} |`,
+              `| acme/mongodb-gcs-backup | Shell | ${wide} |`,
               "",
-              `https://github.com/birotaio/backend-services/blob/main/${wide}`,
+              `https://github.com/acme/backend-services/blob/main/${wide}`,
             ].join("\\n"),
           },
         ],

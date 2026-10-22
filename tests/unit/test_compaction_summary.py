@@ -99,7 +99,7 @@ def test_the_digest_lists_files_commands_and_publications_from_the_tool_history(
         ),
         ChatMessage(
             role="tool",
-            content="Opened https://github.com/birotaio/backend-services/pull/3823",
+            content="Opened https://github.com/acme/backend-services/pull/3823",
             tool_call_id="5",
         ),
     ]
@@ -111,7 +111,7 @@ def test_the_digest_lists_files_commands_and_publications_from_the_tool_history(
     assert "`make test` (exit 2)" in digest
     assert "commit: feat(history): checkpoint the resume token" in digest
     assert "pushed head 2955ddfd3efb" in digest
-    assert "https://github.com/birotaio/backend-services/pull/3823" in digest
+    assert "https://github.com/acme/backend-services/pull/3823" in digest
 
 
 async def _compact(answers: list[str]) -> tuple[list[ChatMessage], str, int]:

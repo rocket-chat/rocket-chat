@@ -73,10 +73,10 @@ async def test_lsp_diagnostics_skips_unsupported_extension() -> None:
 
 # What `go vet` printed after each edit in session_3116245f7a, whose `make base` had not run.
 UNGENERATED = (
-    "go: finding module for package github.com/birotaio/backend-services/generated_pb/history\n"
-    "watcher.go:12:2: module github.com/birotaio/backend-services/generated_pb@latest found "
+    "go: finding module for package github.com/acme/backend-services/generated_pb/history\n"
+    "watcher.go:12:2: module github.com/acme/backend-services/generated_pb@latest found "
     "(v0.0.0-00010101000000-000000000000, replaced by ./generated_pb), but does not contain "
-    "package github.com/birotaio/backend-services/generated_pb/history\n"
+    "package github.com/acme/backend-services/generated_pb/history\n"
 )
 
 

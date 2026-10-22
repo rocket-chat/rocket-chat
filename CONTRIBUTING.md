@@ -21,4 +21,4 @@ By contributing you agree that your contributions are licensed under GPL-3.0.
 ## Reporting problems
 
 - **Bugs:** open a GitHub issue with logs, reproduction steps and your environment (Docker or Kubernetes).
-- **Security vulnerabilities:** do not open a public issue; email `security@rocket-chat.dev`.
+- **Security vulnerabilities:** do not open a public issue; email `contact@nathp.fr`.
