@@ -11,12 +11,23 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterable, Sequence
+from dataclasses import replace
 from typing import Any, cast
 
 import litellm
+from agent_core.context import (
+    FALLBACK_CONTEXT_LIMIT,
+    LIMIT_DEFAULT,
+    LIMIT_FAMILY,
+    LIMIT_LITELLM,
+    LIMIT_OVERRIDE,
+    LIMIT_PROVIDER,
+    family_context_limit,
+)
 from config_engine.cascading import model_is_allowed
 
 from api.services.model_credentials import ModelCredentialStore
+from api.services.provider_catalogue import provider_catalogue
 from api.services.settings import effective_settings
 from specifications.interfaces.llm import (
     ModelCatalogueProtocol,
@@ -52,12 +63,18 @@ def _lookup_litellm_info(model: str) -> dict[str, Any] | None:
 
 
 def resolve_model_spec(model: str) -> ModelSpec:
-    """Derive context window, max output tokens, and reasoning support for a model."""
+    """Derive context window, max output tokens, and reasoning support for a model.
+
+    The window comes from the provider's live catalogue first, then LiteLLM's table, then the
+    model's family; ``context_source`` says which, and is ``default`` only when none knew it.
+    """
     clean_id = (model or "").strip()
     reasoning = is_reasoning_model(clean_id)
     info = _lookup_litellm_info(clean_id)
+    live = provider_catalogue.get(clean_id)
 
-    context_window = 128_000
+    context_window = FALLBACK_CONTEXT_LIMIT
+    context_source = LIMIT_DEFAULT
     max_output = REASONING_OUTPUT_CEILING if reasoning else DEFAULT_MAX_OUTPUT
     provider = clean_id.split("/")[0] if "/" in clean_id else ""
 
@@ -65,10 +82,16 @@ def resolve_model_spec(model: str) -> ModelSpec:
         provider = str(info.get("litellm_provider") or provider)
         ctx = info.get("max_input_tokens") or info.get("max_tokens")
         if isinstance(ctx, (int, float)) and ctx > 0:
-            context_window = int(ctx)
+            context_window, context_source = int(ctx), LIMIT_LITELLM
         out = info.get("max_output_tokens") or info.get("max_tokens")
         if isinstance(out, (int, float)) and out > 0:
             max_output = int(out)
+    if context_source == LIMIT_DEFAULT and (family := family_context_limit(clean_id)):
+        context_window, context_source = family, LIMIT_FAMILY
+    if live is not None:
+        context_window, context_source = live.context_window, LIMIT_PROVIDER
+        if live.max_output_tokens:
+            max_output = live.max_output_tokens
 
     if reasoning:
         # Standard reasoning ceiling: up to 64k, bounded if provider catalog explicitly has lower
@@ -85,6 +108,7 @@ def resolve_model_spec(model: str) -> ModelSpec:
         context_window=context_window,
         max_output_tokens=max_output_tokens,
         supports_reasoning=reasoning,
+        context_source=context_source,
     )
 
 
@@ -95,7 +119,8 @@ class ModelCatalogue(ModelCatalogueProtocol):
         self._overrides: dict[str, ModelSpec] = {}
 
     def register(self, spec: ModelSpec) -> None:
-        self._overrides[spec.id] = spec
+        # What an operator registers is not a guess, whatever the spec says about its source.
+        self._overrides[spec.id] = replace(spec, context_source=LIMIT_OVERRIDE)
 
     def get_model_spec(self, model: str) -> ModelSpec:
         if model in self._overrides:

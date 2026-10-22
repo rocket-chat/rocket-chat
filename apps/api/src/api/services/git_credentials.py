@@ -6,7 +6,7 @@ import logging
 import os
 import shlex
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -399,6 +399,33 @@ _LEGACY_SIGNING_CLEANUP = (
 )
 
 
+def _gateway_environment(
+    session_id: str, org_id: str, user_id: str, api_url: str
+) -> dict[str, str]:
+    capability = git_gateway_token.mint(session_id, org_id, user_id)
+    return sandbox_git_environment(capability, api_url)
+
+
+def _capability_refresher(
+    session_id: str, org_id: str, user_id: str, api_url: str
+) -> Callable[[], dict[str, str] | None]:
+    """A callback for the driver: a new gateway environment once the capability is nearly spent.
+
+    Called before every command of the session. Minting is a signature, not a network call, so
+    asking is cheap; the capability lasts an hour and a turn can outlast it.
+    """
+    valid_until = time.time() + git_gateway_token.GIT_GATEWAY_TTL_SECONDS
+
+    def refresh() -> dict[str, str] | None:
+        nonlocal valid_until
+        if valid_until - time.time() > git_gateway_token.RENEW_BEFORE_SECONDS:
+            return None
+        valid_until = time.time() + git_gateway_token.GIT_GATEWAY_TTL_SECONDS
+        return _gateway_environment(session_id, org_id, user_id, api_url)
+
+    return refresh
+
+
 async def inject_git_credentials_into_sandbox(
     driver: SandboxDriverProtocol | None,
     session_id: str,
@@ -413,15 +440,20 @@ async def inject_git_credentials_into_sandbox(
     The sandbox receives no GitHub credential. Its git reaches GitHub through the gateway, which
     adds the credential on the platform; the sandbox only holds a session-scoped, read-only
     gateway capability, handed to the driver as per-session environment (supplied to each command,
-    never written to the workspace). Called at every turn start, so the capability is renewed
-    before its hour runs out.
+    never written to the workspace). Called at every turn start; the driver then asks a refresher
+    before every command, so the capability is renewed whenever less than twenty minutes of its
+    hour are left, however long the turn runs.
     """
     if not driver:
         return
 
     try:
-        capability = git_gateway_token.mint(session_id, org_id, user_id)
-        driver.set_session_env(session_id, sandbox_git_environment(capability, api_url))
+        driver.set_session_env(
+            session_id, _gateway_environment(session_id, org_id, user_id, api_url)
+        )
+        driver.set_session_env_refresher(
+            session_id, _capability_refresher(session_id, org_id, user_id, api_url)
+        )
         setup = " && ".join(
             [
                 f"git config --global user.name {shlex.quote(bundle.author_name)}",

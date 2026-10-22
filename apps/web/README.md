@@ -18,6 +18,7 @@ This application serves as the primary Mission Control cockpit for developers. R
    - Write-in custom steering instructions.
 4. **The Ignition Console (`IgnitionConsole.tsx`):**
    - Bottom-docked launch deck with hotkey trigger `⌘⏎` / `Ctrl+Enter` and hyper-orange `[IGNITE MISSION]` button.
+   - The first message of a session lifts the brand's rocket out of the Run button (`LaunchRocket.tsx`): `launchRocket(origin)` asks, `LaunchRocketHost` in the root layout draws the flight, so it outlives the page change that sending the message causes. Nothing is drawn for reduced motion.
 5. **Monaco DiffEditor Panel (`MonacoDiffViewer.tsx`):**
    - Read-only side-by-side or inline code diff viewer with word-level highlight and file switcher tabs.
 6. **Streaming Terminal Panel (`StreamingTerminal.tsx`):**
@@ -53,3 +54,7 @@ pnpm --filter web build
 
 - `NEXT_PUBLIC_API_URL`: (Optional) Base HTTP URL for the FastAPI Control Plane (default: `http://localhost:8000`).
 - `NEXT_PUBLIC_WS_URL`: (Optional) Base WebSocket URL for telemetry streaming (default: `ws://localhost:8000`).
+
+## Documentation images
+
+`pnpm run docs:screenshots` regenerates the screenshots in `doc/assets/screenshots` and `pnpm run docs:demo` records the README's animated demo (`doc/assets/demo.gif`), both from the deterministic stack (stub model, fake sandbox). They are skipped in the normal suite (they need `DOCS_SCREENSHOTS=1`). Pillow, which assembles the GIF, is fetched on demand by `uv run --with pillow`.

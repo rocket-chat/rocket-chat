@@ -365,6 +365,9 @@ async def list_dir(
     return clamp_output(output)
 
 
+MAX_GREP_CONTEXT_LINES = 10
+
+
 async def grep_search(
     driver: SandboxDriverProtocol,
     session_id: str,
@@ -373,14 +376,28 @@ async def grep_search(
     file_glob: str | None = None,
     case_sensitive: bool = True,
     max_results: int = 200,
+    context_lines: int = 0,
+    files_only: bool = False,
 ) -> str:
-    """Search file contents recursively for a regex pattern (ripgrep with grep fallback)."""
+    """Search file contents recursively for a regex pattern (ripgrep with grep fallback).
+
+    ``context_lines`` adds that many lines around each match, so a search rarely needs a second
+    read of the file; ``files_only`` lists the files that match instead of the lines.
+    """
     quoted_pattern = _sh_quote(pattern)
     quoted_path = _sh_quote(path)
     limit = max(1, min(max_results, 1000))
+    context = max(0, min(context_lines, MAX_GREP_CONTEXT_LINES))
 
-    rg_flags = ["--line-number", "--no-heading", "--color=never"]
-    grep_flags = ["-rn", "-I", "--binary-files=without-match"]
+    if files_only:
+        rg_flags = ["--files-with-matches", "--color=never"]
+        grep_flags = ["-rl", "-I", "--binary-files=without-match"]
+    else:
+        rg_flags = ["--line-number", "--no-heading", "--color=never"]
+        grep_flags = ["-rn", "-I", "--binary-files=without-match"]
+        if context:
+            rg_flags.append(f"-C{context}")
+            grep_flags.append(f"-C{context}")
     if not case_sensitive:
         rg_flags.append("--ignore-case")
         grep_flags.append("-i")

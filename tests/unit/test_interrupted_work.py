@@ -212,3 +212,67 @@ async def test_a_message_is_not_queued_for_a_turn_that_is_not_running(
 def test_two_resume_attempts_by_default() -> None:
     assert DEFAULT_AUTO_RESUME_ATTEMPTS == 2
     assert work_mod.STALE_FLAG_SECONDS > 0
+
+
+def _long_turn(calls: int) -> list[ChatMessage]:
+    """A transcript of ``calls`` finished calls, every one inside the interrupted turn's window."""
+    messages = [ChatMessage(role="user", content="Fix the bug", created_at=START)]
+    for index in range(calls):
+        call_id = f"x{index}"
+        messages.append(
+            _assistant(START + 1, "", [(call_id, "bash_exec", {"command": f"echo {index}"})])
+        )
+        messages.append(
+            ChatMessage(role="tool", content="ok", tool_call_id=call_id, created_at=START + 2)
+        )
+    return messages
+
+
+def test_a_call_with_a_result_in_the_transcript_is_never_in_flight() -> None:
+    # The trace knows none of them (it holds only the last two), yet every one has its result.
+    work = build_interrupted_work(_trace([_done("c1", "file_read", 1)]), _long_turn(200))
+
+    assert work.in_flight == []
+
+
+def test_the_notice_does_not_grow_with_the_calls_that_have_no_result() -> None:
+    work = work_mod.InterruptedWork(
+        trace_id="t",
+        executed=[_done(f"e{i}", "bash_exec", i) for i in range(200)],
+        in_flight=[
+            {
+                "id": f"f{i}",
+                "name": "bash_exec",
+                "arguments": {"command": "x" * 5_000},
+                "reasoning": "r" * 5_000,
+            }
+            for i in range(200)
+        ],
+        reasoning="t" * 50_000,
+    )
+
+    notice = resume_notice("The server restarted.", work)
+
+    assert len(notice) <= work_mod.NOTICE_MAX_CHARS
+    assert notice.count("Stopped while running") == work_mod.NOTICE_MAX_IN_FLIGHT
+    assert "195 earlier calls also have no recorded result" in notice
+    assert "completed 200 tool calls" in notice
+
+
+def test_a_message_loaded_from_the_database_keeps_the_time_it_was_written() -> None:
+    from api.db.models import SessionMessageModel
+    from api.services.transcript import _from_row
+
+    row = SessionMessageModel(
+        id="m", session_id=SESSION, org_id=ORG, seq=1, role="assistant", content="hi",
+        created_at=START + 5,
+    )  # fmt: skip
+
+    assert _from_row(row).created_at == START + 5
+
+
+async def test_the_in_memory_transcript_keeps_it_too() -> None:
+    transcripts = InMemoryTranscriptStore()
+    await transcripts.append(SESSION, ORG, [ChatMessage(role="user", content="a", created_at=42)])
+
+    assert [m.created_at for m in await transcripts.load(SESSION, ORG)] == [42]

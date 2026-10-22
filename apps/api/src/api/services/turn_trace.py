@@ -8,12 +8,15 @@ failed — turn can be inspected after the fact instead of vanishing with the so
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
+
+from agent_core.tools.shell_intent import shell_intents
 
 from api.db.session import DatabaseSessionManager
 from api.db.store import (
@@ -89,6 +92,13 @@ class TurnMetrics:
     max_step_reasoning_chars: int = 0
     reasoning_limit_stops: int = 0
     overhead_tokens: int = 0
+    overhead_system_tokens: int = 0
+    overhead_tool_tokens: int = 0
+    overhead_tools_sent: int = 0
+    context_window: int = 0
+    # 'override', 'provider', 'litellm', 'family' or 'default' (a guess); empty before a call.
+    context_window_source: str = ""
+    shell_file_operations: int = 0
     tool_loads: int = 0
     pushes: int = 0
     compactions: int = 0
@@ -105,11 +115,19 @@ class TurnMetrics:
         if payload.get("finish_reason") == "reasoning_limit":
             self.reasoning_limit_stops += 1
         self.overhead_tokens = max(self.overhead_tokens, int(payload.get("overhead_tokens") or 0))
+        for name in ("overhead_system_tokens", "overhead_tool_tokens", "overhead_tools_sent"):
+            setattr(self, name, max(getattr(self, name), int(payload.get(name) or 0)))
+        self.context_window = int(payload.get("context_window") or self.context_window)
+        self.context_window_source = str(
+            payload.get("context_window_source") or self.context_window_source
+        )
 
     def add_tool_call(self, tool_call: Mapping[str, Any]) -> None:
         self.tool_calls += 1
         self.tool_ms += int(float(tool_call.get("duration_ms") or 0))
         name = str(tool_call.get("name") or "")
+        if name == "bash_exec" and shell_intents(_command_of(tool_call.get("arguments"))):
+            self.shell_file_operations += 1
         if name == "load_tools":
             self.tool_loads += 1
         elif name in _PUBLISHING_TOOLS:
@@ -120,8 +138,18 @@ class TurnMetrics:
         if payload.get("summary_status") not in ("model", "model_retry"):
             self.compactions_without_model_summary += 1
 
-    def as_dict(self) -> dict[str, int]:
+    def as_dict(self) -> dict[str, int | str]:
         return asdict(self)
+
+
+def _command_of(arguments: Any) -> str:
+    """The ``command`` of a ``bash_exec`` call whose arguments are a dict or a JSON string."""
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except ValueError:
+            return ""
+    return str(arguments.get("command") or "") if isinstance(arguments, dict) else ""
 
 
 def _bounded_reasoning(reasoning: str | None) -> str | None:

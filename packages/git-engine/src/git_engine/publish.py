@@ -49,6 +49,21 @@ _BRANCH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")
 AppTokenMinter = Callable[[str, int | None], Awaitable[str | None]]
 
 
+# What git prints when the platform's gateway (or GitHub) refuses the sandbox's credential.
+_CREDENTIAL_FAILURE_MARKERS = (
+    "invalid or expired git gateway credential",
+    "authentication failed",
+    "could not read username",
+    "returned error: 401",
+    "returned error: 403",
+)
+
+
+def _is_credential_failure(output: str) -> bool:
+    lowered = output.lower()
+    return any(marker in lowered for marker in _CREDENTIAL_FAILURE_MARKERS)
+
+
 class PublishError(RuntimeError):
     """The branch could not be published; the message says why and what to do."""
 
@@ -130,9 +145,19 @@ class _Sandbox:
         remote (deleted after its pull request merged) leaves no stale tracking ref behind.
         """
         quoted = shlex.quote(branch)
-        result = await self.run(
-            f"git fetch --quiet origin +refs/heads/{quoted}:refs/remotes/origin/{quoted}"
-        )
+        command = f"git fetch --quiet origin +refs/heads/{quoted}:refs/remotes/origin/{quoted}"
+        result = await self.run(command)
+        if result.exit_code != 0 and _is_credential_failure(result.stderr + result.stdout):
+            # The sandbox renews its gateway credential before each command, so one more try
+            # is enough for a capability that expired a moment ago.
+            result = await self.run(command)
+            if result.exit_code != 0 and _is_credential_failure(result.stderr + result.stdout):
+                raise PublishError(
+                    "The sandbox's git credential for the platform was refused "
+                    f"({(result.stderr or result.stdout).strip()[:200]}). This is not a "
+                    "problem with the repository or the branch: report it to the person instead "
+                    "of working around it."
+                )
         if result.exit_code == 0:
             return True
         if required:

@@ -71,7 +71,7 @@ def _register_pulls(registry: ToolRegistry) -> None:
         actions: Annotated[
             PullActionList,
             Field(
-                description="What to do. Multiple actions run in order (e.g. ['view','comments','checks']).",
+                description="What to do. Multiple actions run in order (e.g. ['view','review_threads','checks']).",
                 min_length=1,
             ),
         ],

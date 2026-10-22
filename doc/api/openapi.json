@@ -6211,6 +6211,18 @@
             "title": "Compactions Without Model Summary",
             "type": "integer"
           },
+          "context_window": {
+            "default": 0,
+            "description": "The model's input window the context was kept within, in tokens",
+            "title": "Context Window",
+            "type": "integer"
+          },
+          "context_window_source": {
+            "default": "",
+            "description": "Where that window came from: override, provider, litellm, family or default",
+            "title": "Context Window Source",
+            "type": "string"
+          },
           "max_step_reasoning_chars": {
             "default": 0,
             "description": "Longest reasoning of a single step, in characters",
@@ -6223,10 +6235,28 @@
             "title": "Model Ms",
             "type": "integer"
           },
+          "overhead_system_tokens": {
+            "default": 0,
+            "description": "Of the overhead, the system prompt",
+            "title": "Overhead System Tokens",
+            "type": "integer"
+          },
           "overhead_tokens": {
             "default": 0,
             "description": "System prompt and tool definitions every request carries",
             "title": "Overhead Tokens",
+            "type": "integer"
+          },
+          "overhead_tool_tokens": {
+            "default": 0,
+            "description": "Of the overhead, the tool definitions",
+            "title": "Overhead Tool Tokens",
+            "type": "integer"
+          },
+          "overhead_tools_sent": {
+            "default": 0,
+            "description": "Tool definitions every request carried",
+            "title": "Overhead Tools Sent",
             "type": "integer"
           },
           "pushes": {
@@ -6245,6 +6275,12 @@
             "default": 0,
             "description": "Steps stopped by the reasoning limit and asked to decide",
             "title": "Reasoning Limit Stops",
+            "type": "integer"
+          },
+          "shell_file_operations": {
+            "default": 0,
+            "description": "Shell commands that searched, read, listed or edited files",
+            "title": "Shell File Operations",
             "type": "integer"
           },
           "steps": {
@@ -7251,7 +7287,7 @@
   "info": {
     "description": "FastAPI service hosting the ReAct agent engine and embedded Slack Assistant.",
     "title": "Rocket Chat Control Plane",
-    "version": "0.6.1"
+    "version": "0.6.2"
   },
   "openapi": "3.1.0",
   "paths": {

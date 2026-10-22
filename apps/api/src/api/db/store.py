@@ -204,6 +204,19 @@ class TurnTraceStore:
             )
             return int(cast(CursorResult[Any], result).rowcount or 0)
 
+    async def running_count(self, owner_instance: str) -> int:
+        """How many turns this replica is running (administrative connection)."""
+        async with self.manager.session() as session:
+            result = await session.execute(
+                select(func.count())
+                .select_from(TurnTraceModel)
+                .where(
+                    TurnTraceModel.status == TURN_STATUS_RUNNING,
+                    TurnTraceModel.owner_instance == owner_instance,
+                )
+            )
+            return int(result.scalar_one())
+
     async def mark_running_as_interrupted(self, error: str, stale_before: int | None = None) -> int:
         """Recover ``running`` rows whose process stopped serving, returning how many flipped.
 

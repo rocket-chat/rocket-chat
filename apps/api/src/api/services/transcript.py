@@ -41,6 +41,9 @@ def _from_row(row: SessionMessageModel) -> ChatMessage:
         tool_call_id=row.tool_call_id,
         reasoning=row.reasoning,
         reasoning_blocks=getattr(row, "reasoning_blocks", None),
+        # Without the stored time every loaded message looks as new as the load itself, and
+        # anything that selects messages by when they were written selects them all.
+        created_at=row.created_at,
     )
 
 
@@ -53,6 +56,7 @@ def _clone(message: ChatMessage) -> ChatMessage:
         tool_call_id=message.tool_call_id,
         reasoning=message.reasoning,
         reasoning_blocks=message.reasoning_blocks,
+        created_at=message.created_at,
     )
 
 

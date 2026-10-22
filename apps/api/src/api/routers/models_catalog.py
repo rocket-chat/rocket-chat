@@ -14,6 +14,7 @@ from fastapi import (
 from api.auth.access import _get_request_identity
 from api.routers.model_keys import _model_key_store
 from api.services.model_catalogue import build_catalogue
+from api.services.provider_catalogue import parse_openrouter, provider_catalogue
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Sessions & Telemetry"])
@@ -84,7 +85,9 @@ async def list_available_models(request: Request) -> dict[str, Any]:
             async with httpx.AsyncClient(timeout=6.0) as client:
                 resp = await client.get("https://openrouter.ai/api/v1/models", headers=headers)
                 if resp.status_code == 200:
-                    data = resp.json().get("data", [])
+                    listing = resp.json()
+                    provider_catalogue.load(parse_openrouter(listing))
+                    data = listing.get("data", [])
                     parsed: list[dict[str, Any]] = []
                     for item in data:
                         raw_id = item.get("id", "")

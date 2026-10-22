@@ -141,6 +141,8 @@ lifecycle:
 
 `POST /v1/drain` flips the pod into draining mode, which makes `/v1/ready` fail so Kubernetes removes it from Service endpoints **before** SIGTERM; in-flight turns then finish within the grace period.
 
+A turn can run for hours, far longer than any grace period. By default a turn still running when the pod stops is interrupted and resumed on another pod with a recap of what it had done. To let turns finish instead, set `backend.env.ROCKET_DRAIN_WAIT_SECONDS` (shutdown waits that long for the turns this replica runs, then stops) and raise `backend.terminationGracePeriodSeconds` above it, `preStop` included. Use it with several replicas or the cluster bus: a single replica's successor marks every turn it finds running at start-up as interrupted, which would take the turn from the pod that is still finishing it.
+
 ### Running more than one replica
 
 With `backend.eventBus: auto` (the default) the chart switches the backend to the **PostgreSQL event bus** as soon as more than one replica can run (`replicas > 1` or autoscaling enabled):

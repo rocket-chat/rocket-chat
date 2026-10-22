@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import time
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -15,18 +16,21 @@ from api.bootstrap.core import CoreServices
 from api.bootstrap.runtime import cluster_bus_enabled
 from api.db.models import McpServerEntityModel
 from api.db.session import DatabaseSessionManager, current_tenant_org_id
+from api.db.store import TurnTraceStore
 from api.services.audit import RetentionPolicy, RetentionSweeper
 from api.services.cluster import LeaderElection
 from api.services.interrupted_work import clear_stuck_processing, save_interrupted_turns
 from api.services.mcp_engine import probe_and_fetch_tools
 from api.services.mcp_runtime import REMOTE_TRANSPORTS, auth_headers, canonical_transport
 from api.services.missions import MissionStore, claim_due
+from api.services.provider_catalogue import REFRESH_SECONDS, provider_catalogue
 from api.services.queued_messages import stranded_sessions
 from api.services.settings import load_org_config
 from api.services.turn_resume import resume_interrupted_turns
 from api.services.turn_trace import (
     LEASE_HEARTBEAT_SECONDS,
     LEASE_TTL_SECONDS,
+    PROCESS_INSTANCE_ID,
     active_turn_sessions,
     beat_turn_leases,
     recover_interrupted_turns,
@@ -59,6 +63,7 @@ MCP_REFRESH_SECONDS = 900
 MISSION_POLL_SECONDS = 30
 WORKSPACE_RELEASE_SECONDS = 3600
 WAITS_SWEEP_SECONDS = 5.0
+DRAIN_POLL_SECONDS = 2.0
 # Stranded messages wait at least a minute (STRANDED_AFTER_SECONDS) anyway.
 QUEUED_SWEEP_SECONDS = 30.0
 
@@ -124,6 +129,7 @@ class BackgroundServices:
             self._start_waits_sweeper(None)
             self._start_queued_messages_sweeper(None)
         self._start_sandbox_reaper(admin_manager)
+        self._start_provider_catalogue()
 
     async def stop(self) -> None:
         for task in reversed(self._tasks):
@@ -133,8 +139,40 @@ class BackgroundServices:
             await self._admin_manager.close()
             self._admin_manager = None
 
+    async def wait_for_running_turns(self, seconds: float) -> int:
+        """Give this replica's running turns up to ``seconds`` to finish; those still running.
+
+        A turn the process is stopped under is interrupted and resumed with a recap; one that
+        finishes first is not. Zero (the default) does not wait.
+        """
+        if seconds <= 0 or self._admin_manager is None:
+            return 0
+        store = TurnTraceStore(self._admin_manager)
+        deadline = time.monotonic() + seconds
+        remaining = await store.running_count(PROCESS_INSTANCE_ID)
+        while remaining and time.monotonic() < deadline:
+            await asyncio.sleep(DRAIN_POLL_SECONDS)
+            remaining = await store.running_count(PROCESS_INSTANCE_ID)
+        if remaining:
+            logger.warning("Stopping with %d turn(s) still running", remaining)
+        return remaining
+
     def _spawn(self, coroutine: Awaitable[None]) -> None:
         self._tasks.append(asyncio.ensure_future(coroutine))
+
+    def _start_provider_catalogue(self) -> None:
+        """Keep the models' context windows current from the provider's own catalogue."""
+        if os.getenv("ROCKET_PROVIDER_CATALOGUE", "1").strip().lower() in {"0", "false", "no"}:
+            return
+
+        async def _refresh() -> None:
+            await provider_catalogue.refresh()
+
+        self._spawn(
+            _run_periodically(
+                "Provider model catalogue", REFRESH_SECONDS, _refresh, run_immediately=True
+            )
+        )
 
     def _start_sandbox_reaper(self, admin_manager: DatabaseSessionManager | None) -> None:
         driver = self._core.sandbox_driver

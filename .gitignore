@@ -33,6 +33,7 @@ site/
 # Node & Next.js
 node_modules/
 .next/
+.demo-frames/
 out/
 next-env.d.ts
 *.tsbuildinfo

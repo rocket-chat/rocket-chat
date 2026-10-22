@@ -16,7 +16,7 @@ def mock_ctx() -> SimpleNamespace:
     engine.settings = SimpleNamespace(
         github_api_url="https://api.github.com",
         bot_author_name="Bot",
-        bot_author_email="bot@rocket-chat.dev",
+        bot_author_email="bot@example.org",
     )
     req = SimpleNamespace(git_engine=engine, db_mgr=None)
     session = SimpleNamespace(tenant_org_id="test_org", tenant_user_id="user_1")
@@ -34,7 +34,7 @@ async def test_member_token_wins_when_present(mock_ctx: SimpleNamespace) -> None
     )
     read_fn = _github_read_access(mock_ctx, bundle)  # type: ignore[arg-type]
 
-    access = await read_fn("birotaio/backend-shared-library")
+    access = await read_fn("acme/backend-shared-library")
     assert access.token == "gho_user_token"
     assert access.actor == "@octocat"
 
@@ -53,19 +53,19 @@ async def test_dynamic_app_token_minted_for_target_repository(
     mock_ctx.req.git_engine.get_github_access_token.return_value = "ghs_app_dyn_token"
 
     # Mock installations_for_org
-    inst = SimpleNamespace(installation_id=4242, account_login="birotaio")
+    inst = SimpleNamespace(installation_id=4242, account_login="acme")
     monkeypatch.setattr(
         "api.turns.callbacks.installations_for_org",
         AsyncMock(return_value=[inst]),
     )
 
     read_fn = _github_read_access(mock_ctx, bundle)  # type: ignore[arg-type]
-    access = await read_fn("birotaio/backend-shared-library")
+    access = await read_fn("acme/backend-shared-library")
 
     assert access.token == "ghs_app_dyn_token"
     assert access.actor == "the organization's GitHub App"
     mock_ctx.req.git_engine.get_github_access_token.assert_awaited_once_with(
-        repo="birotaio/backend-shared-library",
+        repo="acme/backend-shared-library",
         repositories=["backend-shared-library"],
         installation_id=4242,
         inherit_permissions=True,
@@ -79,7 +79,7 @@ async def test_falls_back_to_bundle_token_when_repo_not_resolved(
         token="ghs_existing_bundle_token",
         mode="app",
         author_name="Bot",
-        author_email="bot@rocket-chat.dev",
+        author_email="bot@example.org",
         user_token=None,
         source_details={"auth_type": "github_app"},
     )

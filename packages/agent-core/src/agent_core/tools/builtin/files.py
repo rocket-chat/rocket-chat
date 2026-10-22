@@ -211,7 +211,8 @@ def _register_file_search_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
             "Search file contents recursively for a regex pattern (ripgrep, with grep "
-            "fallback). Prefer this over bash grep/find for repository navigation."
+            "fallback). Use it instead of bash grep/rg; context_lines shows the code around "
+            "each match so you rarely need a second read."
         )
     )
     async def grep_search(
@@ -228,6 +229,12 @@ def _register_file_search_tools(registry: "ToolRegistry") -> None:
         max_results: Annotated[
             int, Field(description="Maximum matching lines to return (default: 200).")
         ] = 200,
+        context_lines: Annotated[
+            int, Field(description="Lines of context around each match (0-10, default 0).")
+        ] = 0,
+        files_only: Annotated[
+            bool, Field(description="List only the files that match (default: false).")
+        ] = False,
     ) -> str:
         ctx = current_execution_ctx.get()
         s_id = ctx.session_id if ctx else registry._session_id
@@ -242,6 +249,8 @@ def _register_file_search_tools(registry: "ToolRegistry") -> None:
             file_glob,
             case_sensitive,
             max_results,
+            context_lines,
+            files_only,
         )
 
     @registry._tool(

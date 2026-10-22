@@ -1,6 +1,6 @@
 {
   "name": "web",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -12,7 +12,8 @@
     "predev": "node scripts/copy-monaco.mjs",
     "prebuild": "node scripts/copy-monaco.mjs",
     "pretest:e2e": "node scripts/copy-monaco.mjs",
-    "docs:screenshots": "DOCS_SCREENSHOTS=1 playwright test e2e/docs/screenshots.spec.ts"
+    "docs:screenshots": "DOCS_SCREENSHOTS=1 playwright test e2e/docs/screenshots.spec.ts",
+    "docs:demo": "DOCS_SCREENSHOTS=1 playwright test e2e/docs/demo.spec.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

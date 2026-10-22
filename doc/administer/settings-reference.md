@@ -22,7 +22,7 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | :-- | :-- | :-- | :-- | :-- |
 | `default_model` | Organization | str | `openrouter/deepseek/deepseek-v4.1-flash` | Organization default model (below the agent and the user's choice). |
 | `context_windows` | Organization | dict | `{}` | Context-window size in tokens per model name or pattern (e.g. \{"my-provider/*": 32000\}), for models whose size is not known to the platform; drives when long conversations are compacted. |
-| `context_target_tokens` | Organization | min 0, max 1e+07 | `200000` | Working context size in tokens: long conversations are pruned and compacted to stay under it even when the model's window is larger (requests stay fast and focused). 0 uses the model's whole window. |
+| `context_target_tokens` | Organization | min 0, max 1e+07 | `0` | Working context size in tokens: long conversations are pruned and compacted to stay under it even when the model's window is larger (requests stay fast and focused). 0 (the default) uses the model's whole window; a value such as 200000 trades that window for quicker, cheaper steps on very long sessions. |
 | `provider_preferences` | Organization | dict | `{}` | OpenRouter provider preferences per model name or pattern, e.g. \{"openrouter/deepseek/*": \{"order": ["deepseek"], "allow_fallbacks": false\}\}. Pinning a model to one provider keeps its prompt cache warm across requests. |
 | `fallback_models` | Organization | list | empty | Ordered fail-over models used on transient provider errors (opt-in, allowlisted). |
 | `allowed_models` | Organization | list | empty | fnmatch patterns of models members may use; empty allows all. |

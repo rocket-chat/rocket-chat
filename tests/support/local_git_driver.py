@@ -50,6 +50,9 @@ class LocalGitDriver:
     def set_session_env(self, session_id: str, env: dict[str, str]) -> None:
         self.session_env = dict(env)
 
+    def set_session_env_refresher(self, session_id: str, refresher: object) -> None:
+        """A local driver's commands are short: the capability it was given is enough."""
+
     async def exec_command(
         self,
         session_id: str,

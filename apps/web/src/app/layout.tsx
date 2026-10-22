@@ -18,6 +18,7 @@ export const metadata: Metadata = {
 };
 
 import { AuthProvider } from "../components/AuthProvider";
+import { LaunchRocketHost } from "../components/LaunchRocket";
 import { ViewportSync } from "../components/ViewportSync";
 
 // next/font downloads the font files at build time and serves them from this app, so the
@@ -61,6 +62,7 @@ export default function RootLayout({
       <body className="bg-void text-foreground antialiased selection:bg-flame/20 selection:text-flame">
         <ViewportSync />
         <AuthProvider>{children}</AuthProvider>
+        <LaunchRocketHost />
       </body>
     </html>
   );

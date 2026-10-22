@@ -236,6 +236,14 @@ class SandboxDriverProtocol(ABC):
         honour it.
         """
 
+    def set_session_env_refresher(  # noqa: B027
+        self, session_id: str, refresher: Callable[[], dict[str, str] | None]
+    ) -> None:
+        """Ask ``refresher`` for a new platform environment before every command (``None``: keep).
+
+        For credentials that expire while a turn runs. The default is a no-op.
+        """
+
     def set_session_env_layer(  # noqa: B027
         self, session_id: str, layer: str, env: dict[str, str]
     ) -> None:
