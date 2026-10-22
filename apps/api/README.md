@@ -30,3 +30,5 @@ uv run pytest tests/integration/test_slack_interoperability.py -v
 - `OPENROUTER_API_KEY`: (Optional) OpenRouter API key for LLM gateway inference.
 - `ANTHROPIC_API_KEY`: (Optional) Anthropic direct API key.
 - `OPENAI_API_KEY`: (Optional) OpenAI direct API key.
+- `ROCKET_PROVIDER_CATALOGUE`: (Optional, default `1`) Read model context windows from OpenRouter's public listing; `0` for air-gapped installs.
+- `ROCKET_DRAIN_WAIT_SECONDS`: (Optional, default `0`) On shutdown, wait this long for the replica's running turns to finish.

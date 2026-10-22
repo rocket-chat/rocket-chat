@@ -14,6 +14,7 @@ from agent_core.tools import git_tools, tier2, verification, workspace_changes
 from agent_core.tools import images as image_tools
 from agent_core.tools import package_manager as package_manager_tools
 from agent_core.tools.builtin.files import emit_file_diff
+from agent_core.tools.shell_intent import shell_intents, should_tip, tip_for
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 
 if TYPE_CHECKING:
@@ -98,6 +99,24 @@ def long_sleep_in(command: str) -> int | None:
     return longest if longest >= LONG_SLEEP_SECONDS else None
 
 
+def _with_tool_tip(registry: "ToolRegistry", command: str, output: str) -> str:
+    """The result, with a one-line tip when the command did what a dedicated tool does.
+
+    The command has run and its output stays untouched; the tip follows it, and only on some of
+    the calls of a turn, so a model that keeps reaching for the shell is told without the tip
+    becoming noise.
+    """
+    intents = shell_intents(command)
+    ctx = current_execution_ctx.get()
+    tip = tip_for(intents)
+    if ctx is None or tip is None:
+        return output
+    ctx.shell_file_operations += 1
+    if not should_tip(ctx.shell_file_operations):
+        return output
+    return f"{output}\n\n[Tip: {tip}]" if output else f"[Tip: {tip}]"
+
+
 def _register_shell_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
@@ -135,6 +154,7 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
 
         if notice := git_tools.notice_for_manual_github_write(command):
             output = f"{notice}\n\n{output}" if output else notice
+        output = _with_tool_tip(registry, command, output)
 
         after = await workspace_changes.snapshot(driver, session_id, workdir)
         changed = workspace_changes.changed_paths(before, after)

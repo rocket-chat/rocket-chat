@@ -32,6 +32,9 @@ data:
   {{- if .Values.backend.env.ROCKET_CODE_INDEX_TTL_SECONDS }}
   ROCKET_CODE_INDEX_TTL_SECONDS: {{ .Values.backend.env.ROCKET_CODE_INDEX_TTL_SECONDS | quote }}
   {{- end }}
+  {{- if .Values.backend.env.ROCKET_DRAIN_WAIT_SECONDS }}
+  ROCKET_DRAIN_WAIT_SECONDS: {{ .Values.backend.env.ROCKET_DRAIN_WAIT_SECONDS | quote }}
+  {{- end }}
   {{- if .Values.backend.env.ROCKET_GLOBAL_CONCURRENCY_LIMIT }}
   ROCKET_GLOBAL_CONCURRENCY_LIMIT: {{ .Values.backend.env.ROCKET_GLOBAL_CONCURRENCY_LIMIT | quote }}
   {{- end }}

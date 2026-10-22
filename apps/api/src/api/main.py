@@ -111,6 +111,7 @@ async def _shut_down(
     app.state.draining = True
     begin_shutdown()
 
+    await background.wait_for_running_turns(drain_wait_seconds())
     await background.stop()
     if core.shared_bus is not None:
         await core.shared_bus.close()
@@ -132,6 +133,14 @@ async def _shut_down(
         await core.db_manager.close()
         app.state.db_manager = None
         app.state.transcript_store = None
+
+
+def drain_wait_seconds() -> float:
+    """How long shutdown lets running turns finish (``ROCKET_DRAIN_WAIT_SECONDS``, 0: not at all)."""
+    try:
+        return max(0.0, float(os.getenv("ROCKET_DRAIN_WAIT_SECONDS", "0")))
+    except ValueError:
+        return 0.0
 
 
 async def _cleanup_warm_pool(driver: SandboxDriverProtocol) -> None:

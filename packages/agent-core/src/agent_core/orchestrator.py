@@ -373,7 +373,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         # Messages the person sent while their session's turn runs, taken at its next step.
         self._live_turns: set[str] = set()
         self._steering: dict[str, list[SteeringMessage]] = {}
-        self._overhead_cache: dict[tuple[str, int, tuple[str, ...]], int] = {}
+        self._overhead_cache: dict[tuple[str, int, tuple[str, ...]], dict[str, int]] = {}
 
         # The durable log is the source of truth; this is a bounded cache of live
         # conversations, rehydrated from the store when a session is not resident.
@@ -1021,31 +1021,42 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                     "finish_reason": finish_reason or stream.finish_reason or "stop",
                     "duration_ms": int((time.monotonic() - stream.started_at) * 1000),
                     "reasoning_chars": len(stream.reasoning),
-                    "overhead_tokens": self._overhead_tokens(
-                        eff_model, messages, tools_for_request
-                    ),
+                    **self._overhead_figures(eff_model, messages, tools_for_request),
+                    **self._window_figures(eff_model, exec_ctx),
                 },
             )
         )
         return step_cost
 
-    def _overhead_tokens(
+    def _overhead_figures(
         self, model: str, messages: list[ChatMessage], tools: list[ToolDefinition]
-    ) -> int:
-        """What every request of the turn pays before the conversation: system prompt and tools.
+    ) -> dict[str, int]:
+        """What every request of the turn pays before the conversation, and what it is made of.
 
-        Counted once per distinct prompt and tool set, since tokenizing 80 schemas on every
-        step would cost more than the figure is worth.
+        ``overhead_tokens`` is the system prompt plus the tool definitions; the parts say which
+        of the two to shrink. Counted once per distinct prompt and tool set, since tokenizing 80
+        schemas on every step would cost more than the figure is worth.
         """
         system = [m for m in messages if m.role == "system"]
         key = (model, sum(len(m.content or "") for m in system), tuple(t.name for t in tools))
         cached = self._overhead_cache.get(key)
         if cached is None:
-            cached = request_tokens(model, system, tools)
+            cached = {
+                "overhead_system_tokens": request_tokens(model, system, []),
+                "overhead_tool_tokens": request_tokens(model, [], tools),
+                "overhead_tools_sent": len(tools),
+            }
+            cached["overhead_tokens"] = request_tokens(model, system, tools)
             if len(self._overhead_cache) > 64:
                 self._overhead_cache.clear()
             self._overhead_cache[key] = cached
         return cached
+
+    def _window_figures(self, model: str, exec_ctx: ExecutionContext | None) -> dict[str, Any]:
+        """The window the context hygiene works against for this model, and where it came from."""
+        overrides = exec_ctx.policy.generation.context_windows if exec_ctx else ()
+        limit = self.context_manager.resolve_context_limit(model, overrides)
+        return {"context_window": limit.tokens, "context_window_source": limit.source}
 
     @staticmethod
     async def _check_cache_collapse(
@@ -1194,6 +1205,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             working_plan=plan_md,
             progress_md=progress_md,
             target_tokens=exec_ctx.policy.generation.context_target_tokens if exec_ctx else 0,
+            reserve_tokens=(exec_ctx.policy.generation.max_tokens or 0) if exec_ctx else 0,
         )
         if cleaned != messages:
             if exec_ctx is not None:
@@ -1717,6 +1729,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             run.compacted_for_overflow = True
             logger.warning("Context window exceeded in %s; compacting", run.session_id)
             reply = await self._model_step(run, force_compaction=True)
+        # A later step may overflow again (the conversation keeps growing): one retry per step.
+        run.compacted_for_overflow = False
         run.step_costs.append(reply.cost_usd)
         run.cumulative_cost_usd += reply.cost_usd
         cost_cap = run.exec_ctx.policy.max_turn_cost_usd if run.exec_ctx else None

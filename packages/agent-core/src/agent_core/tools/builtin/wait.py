@@ -19,12 +19,10 @@ logger = logging.getLogger(__name__)
 def register(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
-            "Pause execution and wait durably for an external event to complete before "
-            "continuing: CI status on a pull request ('ci_status'), a pull request review "
-            "('review'), a sandbox background process ('process_exit'), or a timer delay ('time'). "
-            "When the wait is registered the turn ends in a 'waiting' state, yielding resources, "
-            "and a new turn wakes with the result. When the condition has already settled (CI "
-            "finished on the commit), the result says so and you continue at once."
+            "Wait durably for an event: CI of a pull request ('ci_status'), its review "
+            "('review'), a background process ('process_exit') or a delay ('time'). The turn ends "
+            "'waiting' and a new turn wakes with the result; if the condition has already "
+            "settled, the result says so and you continue at once."
         )
     )
     async def wait_for(

@@ -160,9 +160,10 @@ def sandbox_guidance(tools: PromptTools) -> list[str]:
         lines.append(
             "- `ask_question` blocks the whole turn until the person answers (it shows a decision "
             "card in the cockpit or Slack). Use it as a last resort, for choices you cannot make "
-            "safely and that change the outcome (ambiguous requirements, irreversible forks); "
-            "otherwise look it up, or pick the most reasonable option, state your assumption and "
-            "continue."
+            "safely and that change the outcome (ambiguous requirements, irreversible forks), "
+            "and whenever the person asked to be consulted on structure (reshaping a public "
+            "contract, resolving a reviewer's thread for them). Otherwise look it up, or pick "
+            "the most reasonable option, state your assumption and continue."
         )
     if tools.can("bash_exec"):
         lines.append(
@@ -194,6 +195,12 @@ def workspace_guidance(tools: PromptTools) -> list[str]:
         "`file_read` returns 400 numbered lines at a time and takes a line range; `web_fetch` "
         "pages long documents with `start`."
     )
+    if tools.can("bash_exec") and tools.has("grep_search", "file_read"):
+        lines.append(
+            "- Search, read and list with `grep_search` (it takes `context_lines`), `file_read` "
+            "and `glob_files`, not `grep`/`cat`/`sed -n`/`find` in `bash_exec`; keep that for "
+            "builds, tests, git and pipelines."
+        )
     return lines
 
 
@@ -231,6 +238,9 @@ def working_style_guidance(tools: PromptTools) -> str:
         "fastest feedback loop. Prepare the repository's tooling first as its instructions say.",
         "- When an edit, write or rebase step succeeds, trust the tool output and move on. Do "
         "not repeat `git status` or re-read a file you just wrote without a change in between.",
+        "- When a call fails on the environment, not your code (a refused credential, no "
+        "network, a permission), say what is blocked in two lines and ask; a workaround of more "
+        "than a few steps is the person's decision.",
     ]
     if tools.can("bash_exec"):
         lines.append(
@@ -349,7 +359,9 @@ def git_guidance(git_bundle: GitCredentialBundle | None, policy: GitPolicy) -> l
         "\n[Git and GitHub]",
         "- The sandbox holds no GitHub credential and needs none: `git clone` and `git fetch` "
         f"of GitHub URLs work through the platform ({reach}). `git push` and the `gh` CLI do "
-        "not work here. Do not search the environment for tokens.",
+        "not work here. Do not search the environment for tokens. If the platform refuses the "
+        'sandbox\'s credential (401/403, "expired git gateway credential"), say so and stop: '
+        "never decode tokens, rewrite remotes (`insteadOf`) or fake one.",
         f"- Never commit to `{policy.default_branch}` or the repository's own default branch: "
         "create a branch (`git_branch`), commit "
         "(`git_commit`), then publish with `git_push`, or `git_open_pr` to also open the pull "
@@ -397,7 +409,14 @@ async def _organization_guidance(ctx: TurnContext, member_prefs: dict[str, Any])
 
 
 MAX_SKILLS_LISTED = 30
-SKILL_SUMMARY_CHARS = 220
+SKILL_SUMMARY_CHARS = 140
+
+
+def _first_sentence(text: str, limit: int) -> str:
+    """The text's first sentence, cut at ``limit``: the catalogue says when, the skill says how."""
+    flat = " ".join(text.split())
+    end = flat.find(". ")
+    return flat[: end + 1 if 0 < end < limit else limit]
 
 
 async def _skills_guidance(ctx: TurnContext) -> list[str]:
@@ -421,7 +440,7 @@ async def _skills_guidance(ctx: TurnContext) -> list[str]:
         "instructions to follow (skills that are code run instead).",
     ]
     for name, description in skills[:MAX_SKILLS_LISTED]:
-        summary = " ".join(description.split())[:SKILL_SUMMARY_CHARS]
+        summary = _first_sentence(description, SKILL_SUMMARY_CHARS)
         lines.append(f"  - `{name}`: {summary}")
     if len(skills) > MAX_SKILLS_LISTED:
         lines.append(f"  - ... and {len(skills) - MAX_SKILLS_LISTED} more.")

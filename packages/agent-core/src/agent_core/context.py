@@ -63,11 +63,54 @@ DEFAULT_MODEL_CONTEXT_LIMITS: dict[str, int] = {
     "deepseek-v3": 64_000,
     "deepseek-v4": 131_072,
     "gemini": 1_000_000,
+    "mimo": 1_000_000,
+    "kimi": 256_000,
+    "qwen3": 256_000,
+    "glm": 200_000,
+    "grok": 256_000,
+    "llama-4": 1_000_000,
 }
 FALLBACK_CONTEXT_LIMIT = 128_000
+# Where a model's window came from, from the most to the least trustworthy.
+LIMIT_OVERRIDE = "override"
+LIMIT_PROVIDER = "provider"
+LIMIT_LITELLM = "litellm"
+LIMIT_FAMILY = "family"
+LIMIT_DEFAULT = "default"
 # The person's earlier messages kept verbatim across a compaction (after Codex): about 20,000
 # tokens, newest first. A constraint they gave at the start must outlive the summary of it.
 EARLIER_REQUESTS_BUDGET_CHARS = 80_000
+
+
+@dataclass(frozen=True)
+class ContextLimit:
+    """A model's input window and where that figure came from."""
+
+    tokens: int
+    source: str
+
+
+def family_context_limit(model: str) -> int | None:
+    """The window of the model family a name belongs to; the longest matching family wins."""
+    name = model.lower().split("/")[-1]
+    matches = [key for key in DEFAULT_MODEL_CONTEXT_LIMITS if key in name]
+    return DEFAULT_MODEL_CONTEXT_LIMITS[max(matches, key=len)] if matches else None
+
+
+def threshold(limit: int, ratio: float, reserve: int = 0) -> int:
+    """Tokens at which a tier triggers: a share of the window, never closer to it than ``reserve``.
+
+    A share alone leaves a 128K window with 13K tokens after a 90% trigger, less than the reply
+    a reasoning model may write; the reserve is the room the reply needs. Never below half the
+    window, so a large reply budget cannot make a small window compact on every step.
+    """
+    by_share = int(limit * ratio)
+    if reserve <= 0:
+        return by_share
+    return max(min(by_share, limit - reserve), limit // 2)
+
+
+_unknown_windows_reported: set[str] = set()
 
 
 @dataclass
@@ -80,6 +123,8 @@ class ExecutionContext:
     plan_mode: bool = False
     # Set once the workspace has been snapshotted for this turn, before its first change.
     checkpointed: bool = False
+    # Shell commands this turn that a dedicated tool covers (see ``tools/shell_intent.py``).
+    shell_file_operations: int = 0
     # The checklist as the agent last sent it this turn, so an unchanged re-send is a no-op.
     checklist: list[dict[str, Any]] | None = None
     # Enforced tool scope for constrained callers (e.g. the unauthenticated Slack path).
@@ -215,28 +260,45 @@ class ContextManager:
         self.catalogue = catalogue
 
     def get_model_context_limit(self, model: str, overrides: Sequence[tuple[str, int]] = ()) -> int:
-        """The model's input window: the organization's own size, the catalogue, the library's, a family's."""
+        """The model's input window (see ``resolve_context_limit`` for where it comes from)."""
+        return self.resolve_context_limit(model, overrides).tokens
+
+    def resolve_context_limit(
+        self, model: str, overrides: Sequence[tuple[str, int]] = ()
+    ) -> ContextLimit:
+        """The input window: the organization's own size, the catalogue, the library's, a family's.
+
+        A catalogue that only has the default for a model (it never heard of it) does not count:
+        the later sources are better informed than a guess.
+        """
         name = model.lower()
         for pattern, size in overrides:
             if name == pattern.lower() or fnmatch(name, pattern.lower()):
-                return size
+                return ContextLimit(size, LIMIT_OVERRIDE)
         if self.catalogue is not None:
             spec = self.catalogue.get_model_spec(model)
-            if spec and spec.context_window > 0:
-                return spec.context_window
+            source = getattr(spec, "context_source", LIMIT_PROVIDER)
+            if spec and spec.context_window > 0 and source != LIMIT_DEFAULT:
+                return ContextLimit(spec.context_window, source)
         try:
             # `max_input_tokens` is the context window; `get_max_tokens` is the *output* cap.
             info = litellm.get_model_info(model)
             window = info.get("max_input_tokens") or info.get("max_tokens")
             if window and isinstance(window, int):
-                return window
+                return ContextLimit(window, LIMIT_LITELLM)
         except Exception:
             pass
-        clean_name = name.split("/")[-1]
-        for key, limit in DEFAULT_MODEL_CONTEXT_LIMITS.items():
-            if key in clean_name:
-                return limit
-        return FALLBACK_CONTEXT_LIMIT
+        if (family := family_context_limit(model)) is not None:
+            return ContextLimit(family, LIMIT_FAMILY)
+        if name not in _unknown_windows_reported:
+            _unknown_windows_reported.add(name)
+            logger.warning(
+                "No context window known for %s; assuming %d tokens. Set one under "
+                "context_windows if it is larger.",
+                model,
+                FALLBACK_CONTEXT_LIMIT,
+            )
+        return ContextLimit(FALLBACK_CONTEXT_LIMIT, LIMIT_DEFAULT)
 
     def count_tokens(
         self, model: str, messages: list[ChatMessage], tools: Sequence[ToolDefinition] = ()
@@ -427,14 +489,15 @@ class ContextManager:
         step: int | None = None,
         last_compaction_step: int | None = None,
         force_compaction: bool = False,
+        reserve_tokens: int = 0,
     ) -> bool:
         """Determines whether Tier 3 compaction should trigger, enforcing hysteresis."""
         if force_compaction:
             return True
-        if tokens < int(limit * self.tier3_threshold_ratio):
+        if tokens < threshold(limit, self.tier3_threshold_ratio, reserve_tokens):
             return False
         # If tokens are above emergency threshold (> 90%), compact regardless of step frequency
-        if tokens >= int(limit * self.emergency_threshold_ratio):
+        if tokens >= threshold(limit, self.emergency_threshold_ratio, reserve_tokens):
             return True
         # Hysteresis: don't compact more than once per N steps
         if step is not None and last_compaction_step is not None:
@@ -457,28 +520,34 @@ class ContextManager:
         working_plan: str | None = None,
         progress_md: str | None = None,
         target_tokens: int = 0,
+        reserve_tokens: int = 0,
     ) -> CompactionResult:
         """Runs progressive Tier 2 & Tier 3 hygiene checks against model context limits.
 
         ``target_tokens`` caps the window the thresholds apply to: a model with a 1M window
         otherwise works for hundreds of steps at half a million tokens per request, each step
         slower and costlier, and loses track of its own progress well before the window ends.
+        ``reserve_tokens`` is the room the model's reply needs: no tier triggers closer to the
+        window than that (a quarter of the window at most).
         """
         limit = self.get_model_context_limit(model, overrides)
         if target_tokens > 0:
             limit = min(limit, target_tokens)
+        reserve_tokens = min(max(0, reserve_tokens), limit // 4)
         counted = self.count_tokens(model, messages, tools)
         tokens = max(counted, measured_tokens)
         tokens_before = tokens
 
         # Tier 2 check (> 70%)
-        if tokens >= int(limit * self.tier2_threshold_ratio):
+        if tokens >= threshold(limit, self.tier2_threshold_ratio, reserve_tokens):
             messages = self.prune_tool_payloads(messages)
             pruned = self.count_tokens(model, messages, tools)
             tokens = max(pruned, measured_tokens - (counted - pruned))
 
         # Tier 3 check (> 85% or forced)
-        if self.should_compact_tier3(tokens, limit, step, last_compaction_step, force_compaction):
+        if self.should_compact_tier3(
+            tokens, limit, step, last_compaction_step, force_compaction, reserve_tokens
+        ):
             compaction = await self._compact(
                 messages, summarize, self.recent_turns_to_preserve, working_plan, progress_md
             )

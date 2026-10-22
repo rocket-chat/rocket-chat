@@ -46,6 +46,23 @@ class TurnMetricsModel(BaseModel):
     overhead_tokens: int = Field(
         default=0, description="System prompt and tool definitions every request carries"
     )
+    overhead_system_tokens: int = Field(default=0, description="Of the overhead, the system prompt")
+    overhead_tool_tokens: int = Field(
+        default=0, description="Of the overhead, the tool definitions"
+    )
+    overhead_tools_sent: int = Field(
+        default=0, description="Tool definitions every request carried"
+    )
+    context_window: int = Field(
+        default=0, description="The model's input window the context was kept within, in tokens"
+    )
+    context_window_source: str = Field(
+        default="",
+        description="Where that window came from: override, provider, litellm, family or default",
+    )
+    shell_file_operations: int = Field(
+        default=0, description="Shell commands that searched, read, listed or edited files"
+    )
     tool_loads: int = Field(default=0, description="Calls to load_tools")
     pushes: int = Field(default=0, description="Pushes and pull requests opened")
     compactions: int = Field(default=0, description="Context compactions")
@@ -87,7 +104,7 @@ class TurnWindow:
     started_at: int
     ended_at: int | None
     status: str
-    metrics: dict[str, int] | None = None
+    metrics: dict[str, int | str] | None = None
 
 
 def _add(totals: UsageTotals, event: dict[str, Any]) -> None:
@@ -122,7 +139,7 @@ def summarize_session_usage(
             started_at=t.started_at,
             ended_at=t.ended_at,
             status=t.status,
-            metrics=TurnMetricsModel(**t.metrics) if t.metrics else None,
+            metrics=TurnMetricsModel.model_validate(t.metrics) if t.metrics else None,
         )
         for t in ordered
     ]

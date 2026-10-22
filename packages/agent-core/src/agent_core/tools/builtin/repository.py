@@ -26,12 +26,11 @@ def register(registry: "ToolRegistry") -> None:
 def _register_clone(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
-            "Clone a GitHub repository into the sandbox at /workspace/<name> and describe it "
-            "(branch, last commit, top-level files). The sandbox starts BLANK: nothing is "
-            "checked out until you clone it, and many tasks need no repository at all. When "
-            "one is needed, find it first (user's request, `kb_search`, skills, "
-            "`github_find_repositories`), then clone. Idempotent: an existing clone is "
-            "refreshed. Authentication is automatic. A fresh clone's result includes the "
+            "Clone a GitHub repository into /workspace/<name> and describe it (branch, last "
+            "commit, top-level files). The sandbox starts BLANK and many tasks need no "
+            "repository: find the one you need first (the request, `kb_search`, skills, "
+            "`github_find_repositories`), then clone. Idempotent (an existing clone is "
+            "refreshed); authentication is automatic. A fresh clone's result includes the "
             "repository's own AGENTS.md / CLAUDE.md: follow it."
         )
     )

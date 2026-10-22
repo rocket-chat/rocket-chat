@@ -100,3 +100,15 @@ async def test_a_session_started_from_a_repository_says_it_is_already_there() ->
     prompt, _ = await _system_prompt_for(_session(git_repo="https://github.com/acme/api.git"))
 
     assert "Repository for this session: `https://github.com/acme/api.git`" in prompt
+
+
+async def test_the_agent_is_pointed_to_the_search_and_read_tools_and_told_what_not_to_work_around() -> (
+    None
+):
+    prompt, _ = await _system_prompt_for(_session())
+
+    assert "Search, read and list with `grep_search`" in prompt
+    assert "not `grep`/`cat`/`sed -n`/`find` in `bash_exec`" in prompt
+    assert "never decode tokens, rewrite remotes" in prompt
+    assert "a workaround of more than a few steps is the person's decision" in prompt
+    assert "resolving a reviewer's thread" in prompt

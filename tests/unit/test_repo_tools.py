@@ -287,3 +287,27 @@ async def test_apply_diff_file_reports_failed_hunk_match() -> None:
     message, diff = await tier2.apply_diff_file(driver, "s1", MULTI_FILE_DIFF, "a.py")
     assert "hunks did not match" in message
     assert diff is None
+
+
+@pytest.mark.asyncio
+async def test_grep_search_shows_context_around_each_match() -> None:
+    driver = FakeDriver([ExecResult(0, "a.py-2-x\na.py:3:def foo():\n", "", 1)])
+    await tier2.grep_search(driver, "s1", "def foo", context_lines=2)
+    assert "-C2" in driver.commands[0]
+
+
+@pytest.mark.asyncio
+async def test_grep_search_context_is_bounded() -> None:
+    driver = FakeDriver([ExecResult(0, "x", "", 1)])
+    await tier2.grep_search(driver, "s1", "abc", context_lines=500)
+    assert f"-C{tier2.MAX_GREP_CONTEXT_LINES}" in driver.commands[0]
+
+
+@pytest.mark.asyncio
+async def test_grep_search_can_list_only_the_files_that_match() -> None:
+    driver = FakeDriver([ExecResult(0, "a.py\nb.py\n", "", 1)])
+    out = await tier2.grep_search(driver, "s1", "abc", context_lines=3, files_only=True)
+    command = driver.commands[0]
+    assert "--files-with-matches" in command and "-rl" in command
+    assert "-C" not in command and "--line-number" not in command
+    assert out == "a.py\nb.py"

@@ -13,6 +13,7 @@ This package implements the core agent execution layer as defined in `specificat
    - Pydantic v2 event streaming (`AgentEvent`, `ReasoningDelta`, `ToolExecution`, `FileDiff`, `InteractiveQuestion`).
    - Interactive Decision Gating: Suspends execution in `PAUSED_FOR_INPUT` when an `InteractiveQuestion` is raised and resumes seamlessly upon receiving `submit_question_answer`.
    - Dynamic prompt injection, context compaction, and loop termination detection.
+   - Context windows resolve through `ContextManager.resolve_context_limit` (override, catalogue, LiteLLM, model family, flagged default); `pace.py` holds the reminders derived from the conversation (research without change, single reads, dependency source, environment failures, credential workarounds); `tools/shell_intent.py` recognises shell commands a dedicated tool covers.
 
 2. **Resilient AST/Block Code Editor (`agent_core.editor`):**
    - Whitespace/indentation-tolerant multi-line block replacement (`replace_block`).

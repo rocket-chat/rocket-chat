@@ -193,7 +193,11 @@ backend:
       failureThreshold: 2
   # Graceful drain: Kubernetes runs the preStop hook (POST /v1/drain) before
   # SIGTERM, removing the pod from Service endpoints while in-flight turns finish
-  # inside the grace period.
+  # inside the grace period. To let running turns finish rather than be interrupted and
+  # resumed, set backend.env.ROCKET_DRAIN_WAIT_SECONDS (shutdown waits that long for this
+  # replica's turns) and raise this grace period above it, preStop included. Only with more
+  # than one replica or the cluster bus: a single replica's successor recovers every turn it
+  # finds running at start-up.
   terminationGracePeriodSeconds: 60
   lifecycle:
     preStop:

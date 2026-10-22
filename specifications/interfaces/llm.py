@@ -111,6 +111,9 @@ class ModelSpec:
     supports_reasoning: bool = False
     recommended: bool = False
     custom: bool = False
+    # Where ``context_window`` came from: 'override' (registered), 'provider' (the provider's own
+    # catalogue), 'litellm', 'family' or 'default' (nothing known: a guess consumers may ignore).
+    context_source: str = "default"
 
 
 @runtime_checkable

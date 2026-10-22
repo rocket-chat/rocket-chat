@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from agent_core.pace import (
     BATCH_REMINDER_EVERY,
+    ENVIRONMENT_REMINDER_EVERY,
     RESEARCH_REMINDER_EVERY,
     pace_notice,
 )
@@ -128,3 +130,63 @@ def test_every_package_manager_cache_counts_as_dependency_source() -> None:
         "/root/.cargo/registry/src/serde/lib.rs",
     ):
         assert pace_notice(_reading(path, 2)) is not None, path
+
+
+def test_the_reminder_about_dependency_source_gets_firmer_when_it_was_ignored() -> None:
+    path = "/root/go/pkg/mod/go.mongodb.org/mongo-driver@v1/bson/decoder.go"
+
+    first = pace_notice(_reading(path, 2))
+    later = pace_notice(_reading(path, 3))
+
+    assert first is not None and "Read the source only for one specific behaviour" in first
+    assert later is not None and "Do not read any more of it" in later
+
+
+def _results(contents: list[str]) -> list[ChatMessage]:
+    messages = [ChatMessage(role="user", content="Publish it.")]
+    for index, content in enumerate(contents):
+        call = {
+            "id": f"c{index}",
+            "type": "function",
+            "function": {"name": "bash_exec", "arguments": "{}"},
+        }
+        messages += [
+            ChatMessage(role="assistant", content=None, tool_calls=[call]),
+            ChatMessage(role="tool", content=content, tool_call_id=f"c{index}"),
+        ]
+    return messages
+
+
+def test_a_turn_that_keeps_failing_on_its_environment_is_asked_to_hand_back() -> None:
+    refused = "fatal: Invalid or expired git gateway credential"
+    steps = [refused] * ENVIRONMENT_REMINDER_EVERY
+
+    notice = pace_notice(_results(steps))
+
+    assert notice is not None and "failed on the environment" in notice
+    assert "ask_question" in notice
+    assert pace_notice(_results(steps[:-1])) is None, "five failures are not yet a pattern"
+    assert pace_notice(_results([*steps, refused])) is None, "not on every step"
+    assert pace_notice(_results([*steps, *steps])) is not None, "and again if it goes on"
+
+
+def test_ordinary_failures_do_not_count_as_the_environment() -> None:
+    assert pace_notice(_results(["FAIL: TestFoo expected 3, got 4"] * 12)) is None
+
+
+def test_working_around_the_git_gateway_is_called_out_once() -> None:
+    def step(command: str) -> list[ChatMessage]:
+        return _step("bash_exec", call_id=7, arguments=json.dumps({"command": command}))
+
+    turn = [ChatMessage(role="user", content="Publish it.")]
+    plain = turn + step("git status")
+    assert pace_notice(plain) is None
+
+    workaround = turn + step(
+        "git config --local url./workspace/fake-origin/.insteadOf https://github.com/x"
+    )
+    notice = pace_notice(workaround)
+    assert notice is not None and "do not work around a refused one" in notice
+    assert pace_notice(workaround + step("git config --local --get-regexp insteadof")) is None, (
+        "said once is enough"
+    )

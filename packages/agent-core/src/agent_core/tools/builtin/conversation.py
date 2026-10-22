@@ -8,6 +8,7 @@ from pydantic import Field
 
 from agent_core.context import current_execution_ctx
 from agent_core.guidance import servers_of_tools
+from agent_core.tool_loading import resolve_tool_name
 from specifications.interfaces.agent import (
     APPROVAL_GRANTED_PREFIX,
     AgentEvent,
@@ -121,8 +122,9 @@ def _register_discovery_tools(registry: ToolRegistry) -> None:
     async def load_tools(
         names: Annotated[list[str], Field(description="Exact tool names to load.")],
     ) -> str:
-        loaded = await registry.load(names)
         known = {d.name: d for d in registry.get_tool_definitions()}
+        names = [resolve_tool_name(n, known) for n in names]
+        loaded = await registry.load(names)
         # Loading a server's tool is the decision to use the server: its guidance comes with it,
         # once, and not again for the next tool of the same server.
         fresh_guidance = await registry.put_guidance_in_effect(
@@ -190,12 +192,10 @@ def _guidance_given(entries: list[ServerGuidance]) -> str:
 def _register_dialogue_tools(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
-            "Prompt the human user with a structured single- or multi-choice decision card when "
-            "user intent is underspecified, requirements conflict, or multiple valid architectural "
-            "trade-offs exist (e.g. library choice, breaking API changes, destructive actions). "
-            "Always provide clear, distinct options with a recommended default. In the Web Cockpit "
-            "and Slack, this renders an interactive button/radio decision card and pauses the turn "
-            "until the user makes a selection."
+            "Ask the person a single- or multi-choice question and pause the turn until they "
+            "answer: for an underspecified request, conflicting requirements, or a trade-off that "
+            "is theirs (a breaking change, a rename, a destructive action, a blocked "
+            "environment). Give distinct options and a recommended default."
         )
     )
     async def ask_question(
@@ -279,13 +279,11 @@ def _register_dialogue_tools(registry: ToolRegistry) -> None:
 def _register_checklist_tools(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
-            "Create or update the task checklist the user follows. Every call REPLACES the whole "
-            "list, so always send all tasks. Use it for work with three or more steps: create it "
-            "first, keep exactly one task in_progress, and mark each task completed as soon as "
-            "it is done, not later. Before your final answer no task may stay pending or "
-            "in_progress: mark finished work completed and abandoned work failed. Send an empty "
-            "list to clear it when it no longer helps. Call it only when a task's status "
-            "changes, never on every step."
+            "Create or update the task checklist the user follows; every call REPLACES the list, "
+            "so send all tasks. For work with three or more steps: create it first, keep one task "
+            "in_progress, mark each completed as soon as it is done, and before your final answer "
+            "leave none pending or in_progress (finished: completed, abandoned: failed). Call it "
+            "when a status changes, not on every step."
         )
     )
     async def update_task_checklist(

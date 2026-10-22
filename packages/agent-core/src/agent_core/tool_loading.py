@@ -67,8 +67,29 @@ def server_of(name: str) -> str:
     return "platform"
 
 
+# A server with more tools than this is listed by short names, under its common prefix.
+COMPACT_SERVER_FROM = 8
+
+
+def resolve_tool_name(name: str, known: Iterable[str]) -> str:
+    """``name`` as the registry knows it: an MCP tool's ``mcp__<server>__`` prefix may be left out.
+
+    Only when exactly one tool ends with it; anything else is returned unchanged for the caller
+    to report as unknown.
+    """
+    names = set(known)
+    if name in names:
+        return name
+    matches = [n for n in names if n.startswith(MCP_PREFIX) and n.endswith(f"__{name}")]
+    return matches[0] if len(matches) == 1 else name
+
+
 def catalogue(names: Iterable[str]) -> str:
-    """The deferred tools by name, one line per server, for the system prompt."""
+    """The deferred tools by name, one line per server, for the system prompt.
+
+    A large server is listed under its shared prefix (``mcp__<server>__``), which each name would
+    otherwise repeat; ``load_tools`` accepts the short form.
+    """
     by_server: dict[str, list[str]] = {}
     for name in sorted(names):
         by_server.setdefault(server_of(name), []).append(name)
@@ -81,5 +102,10 @@ def catalogue(names: Iterable[str]) -> str:
         "the session. `search_tools` searches their descriptions.",
     ]
     for server, tools in sorted(by_server.items()):
-        lines.append(f"  - {server} ({len(tools)}): " + ", ".join(tools))
+        if server != "platform" and len(tools) > COMPACT_SERVER_FROM:
+            prefix = f"{MCP_PREFIX}{server}__"
+            short = ", ".join(t.removeprefix(prefix) for t in tools)
+            lines.append(f"  - {server} ({len(tools)}, names are `{prefix}<name>`): {short}")
+        else:
+            lines.append(f"  - {server} ({len(tools)}): " + ", ".join(tools))
     return "\n".join(lines)

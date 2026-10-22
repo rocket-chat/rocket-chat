@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from agent_core.tool_loading import catalogue, deferred_names
+from agent_core.tool_loading import catalogue, deferred_names, resolve_tool_name
 from api.services.mcp_turn import McpTurnTools
 from api.services.tool_loading import LOADED_TOOLS_KEY, tool_loading_for
 from api.turns import runner
@@ -216,3 +216,22 @@ def test_the_built_in_developer_adds_only_a_few_tools_to_the_core() -> None:
 
     assert not set(developer.active_tools) & set(CORE_TOOLS), "core tools need no pin"
     assert len(developer.active_tools) + len(CORE_TOOLS) <= ACTIVE_TOOLS_WARNING
+
+
+def test_a_large_server_is_listed_under_its_prefix_and_loaded_by_its_short_names() -> None:
+    names = [f"mcp__atlassian__tool{i}" for i in range(12)] + [SEARCH]
+
+    listed = catalogue(names)
+
+    assert "atlassian (12, names are `mcp__atlassian__<name>`): tool0, tool1" in listed
+    assert "mcp__atlassian__tool0" not in listed, "the prefix is said once, not twelve times"
+    assert f"signoz (1): {SEARCH}" in listed, "a small server keeps its full names"
+
+
+def test_a_short_name_resolves_only_when_it_is_unambiguous() -> None:
+    known = ["mcp__atlassian__getJiraIssue", "mcp__other__getJiraIssue", "mcp__atlassian__search"]
+
+    assert resolve_tool_name("search", known) == "mcp__atlassian__search"
+    assert resolve_tool_name("getJiraIssue", known) == "getJiraIssue", "two servers: ask for more"
+    assert resolve_tool_name("mcp__other__getJiraIssue", known) == "mcp__other__getJiraIssue"
+    assert resolve_tool_name("nothing", known) == "nothing"

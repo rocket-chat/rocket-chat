@@ -172,6 +172,8 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 | `GIT_BOT_NAME` | string | `RocketChat Bot` | Author name injected into Git commits. |
 | `GIT_BOT_EMAIL` | string | `bot@rocketchat.internal` | Author email injected into Git commits. |
 | `GIT_DEFAULT_BRANCH` | string | `main` | Default target branch for repository checkouts. |
+| `ROCKET_PROVIDER_CATALOGUE` | bool | `1` | Read each model's context window and largest reply from OpenRouter's public listing at start-up and every six hours, so a new model is not held to a default window. Set `0` for an air-gapped deployment (LiteLLM's table and the model family are used instead). |
+| `ROCKET_DRAIN_WAIT_SECONDS` | int | `0` | When the API stops, wait up to this long for the turns it is running to finish instead of interrupting them (they resume with a recap otherwise). Raise `backend.terminationGracePeriodSeconds` above it. Useful with several replicas or the cluster bus. |
 | `ROCKET_GIT_GATEWAY_URL` | string | `http://host.docker.internal:8000` | The API's address **as a sandbox reaches it**, for the git gateway: sandboxes hold no GitHub credential and clone and fetch through `<url>/v1/git/…`. The Docker driver maps `host.docker.internal` to the host on every engine, so the default works when the API publishes port 8000 on the host; the Helm chart sets the backend Service's in-cluster address. |
 
 ### Sandbox sizing, web access, tracing and tuning

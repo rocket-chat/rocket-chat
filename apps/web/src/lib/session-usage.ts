@@ -20,6 +20,12 @@ export interface TurnMetrics {
   max_step_reasoning_chars: number;
   reasoning_limit_stops: number;
   overhead_tokens: number;
+  overhead_system_tokens?: number;
+  overhead_tool_tokens?: number;
+  overhead_tools_sent?: number;
+  context_window?: number;
+  context_window_source?: string;
+  shell_file_operations?: number;
   tool_loads: number;
   pushes: number;
   compactions: number;
