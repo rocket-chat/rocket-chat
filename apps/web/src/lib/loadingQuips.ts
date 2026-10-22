@@ -40,7 +40,8 @@ export const LOADING_QUIPS: readonly string[] = [
   "Waiting for the sparks to stop being surprising…",
 ];
 
-const ROTATE_MS = 4200;
+// Long enough to read, short enough to feel alive: a step often lasts only a few seconds.
+const ROTATE_MS = 12000;
 
 function shuffled(items: readonly string[]): string[] {
   const copy = [...items];
