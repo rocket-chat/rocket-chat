@@ -31,7 +31,6 @@ import { SubagentExecutionCard } from "./SubagentExecutionCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { Badge } from "./ui/Badge";
 import { cn } from "./ui/cn";
-import { useLoadingQuip } from "../lib/loadingQuips";
 
 interface ActionGroupProps {
   id: string;
@@ -130,7 +129,6 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
   const setIsRightPanelOpen = useMissionStore((state) => state.setIsRightPanelOpen);
 
   const summary = summarizeGroup(entries);
-  const quip = useLoadingQuip(isActive);
   // Only the last step of the running group can still be receiving its thought.
   const lastEntry = entries[entries.length - 1];
   const liveThoughtId = isActive && lastEntry?.reasoning && lastEntry.isReasoningActive ? lastEntry.id : null;
@@ -169,16 +167,6 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
         </span>
         {isActive && summary.text !== "Thought it through" && (
           <span className="hidden truncate text-neutral-500 sm:inline" title={summary.text}>· {summary.text}</span>
-        )}
-        {isActive && (
-          // Decorative: kept out of the accessible name so a screen reader hears the step, not the joke.
-          <span
-            aria-hidden="true"
-            data-testid="loading-quip"
-            className="hidden truncate text-xs italic text-neutral-500 md:inline"
-          >
-            · {quip}
-          </span>
         )}
         {summary.failed > 0 && <Badge tone="danger">{summary.failed} failed</Badge>}
       </button>

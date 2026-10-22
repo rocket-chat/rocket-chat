@@ -254,7 +254,31 @@ body {
   animation: rocket-idle-launch 300s infinite;
 }
 
+@keyframes rocket-hover {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-1px); }
+}
+
+@keyframes rocket-exhaust {
+  0% { opacity: 0.95; transform: translate(0, 0) scale(1); background-color: #fbbf24; }
+  60% { background-color: #fe5825; }
+  100% { opacity: 0; transform: translate(var(--dx, 0), 13px) scale(0.3); background-color: #a3a3a3; }
+}
+
+.animate-rocket-hover {
+  animation: rocket-hover 0.9s ease-in-out infinite;
+}
+
+.animate-rocket-exhaust {
+  animation: rocket-exhaust 1.1s ease-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .animate-rocket-hover,
+  .animate-rocket-exhaust {
+    animation: none;
+  }
+
   .animate-rocket-idle-launch {
     animation: none;
   }

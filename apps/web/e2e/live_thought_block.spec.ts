@@ -45,10 +45,19 @@ test("a thought still being written looks different from a finished one", async 
   // Live: marked, titled "Thinking…", open on its text without a click.
   await expect(live).toContainText("Thinking…");
   await expect(live).toContainText("Checking the retry path.");
-  // A rocket-flavoured filler line rides next to the step while it runs, hidden from assistive tech.
-  const quip = page.getByTestId("loading-quip");
+  // A rocket-flavoured filler line sits above the step message at the bottom loader (not in the
+  // group header), with the rocket's plume; both are hidden from assistive tech.
+  const indicator = page.getByTestId("processing-indicator");
+  const quip = indicator.getByTestId("loading-quip");
   await expect(quip).toBeVisible();
   await expect(quip).toHaveAttribute("aria-hidden", "true");
+  await expect(indicator.getByTestId("rocket-loader")).toBeVisible();
+  await expect(page.getByTestId("action-group-toggle").getByTestId("loading-quip")).toHaveCount(0);
+  const [quipBox, statusBox] = await Promise.all([
+    quip.boundingBox(),
+    indicator.locator("span.truncate").boundingBox(),
+  ]);
+  expect(quipBox!.y).toBeLessThan(statusBox!.y);
 
   socket.send(JSON.stringify({ event_type: "status_changed", session_id: sessionId, payload: { status: "completed", final: true } }));
 
@@ -58,4 +67,30 @@ test("a thought still being written looks different from a finished one", async 
   await page.getByTestId("action-group-toggle").click();
   await expect(page.getByTestId("activity-step").filter({ hasText: "Thought" })).toBeVisible();
   await expect(page.getByTestId("activity-step").filter({ hasText: "Thinking…" })).toHaveCount(0);
+});
+
+test("command output in the agent terminal starts every line at the left edge", async ({ page }) => {
+  const { socket, sessionId } = await openSession(page);
+  await page.getByTitle(/Expand Right Panel|Show Panel/i).click();
+  const frame = {
+    event_type: "log_chunk",
+    session_id: sessionId,
+    payload: { text: "first line of output\nsecond line of output\n 3 files changed\n" },
+  };
+  const rows = page.locator(".xterm-rows");
+  await expect
+    .poll(
+      async () => {
+        const shown = (await rows.allInnerTexts()).join("").includes("second line of output");
+        if (!shown) socket.send(JSON.stringify(frame));
+        return shown;
+      },
+      { timeout: 15000, intervals: [200, 300, 500] },
+    )
+    .toBe(true);
+
+  const lines = await rows.first().evaluate((el) => Array.from(el.children).map((row) => row.textContent ?? ""));
+  const second = lines.find((line) => line.includes("second line of output"))!;
+  // A bare "\n" without a carriage return would indent each line by the length of the one above.
+  expect(second.search(/\S/)).toBe(0);
 });

@@ -53,6 +53,9 @@ export const StreamingTerminal: React.FC<{ collapsed?: boolean; onToggle?: () =>
         fontSize: 12,
         lineHeight: 1.3,
         cursorBlink: true,
+        // Command output ends its lines with a bare "\n": without this each line would start where
+        // the last one ended and the output would run down the screen in a staircase.
+        convertEol: true,
         disableStdin: true, // agent output is read-only; the Shell tab is the interactive terminal
         scrollback: 1000,
       });
