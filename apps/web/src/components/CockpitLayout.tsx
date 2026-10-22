@@ -143,10 +143,11 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
     model?: string,
     messageId?: string,
     attachmentIds?: string[],
-    delivery: "steer" | "queue" = "steer"
+    delivery: "steer" | "queue" = "steer",
+    files?: File[]
   ) => {
     if (isDraft) {
-      const newSession = await createSessionWithPrompt(prompt, model, messageId);
+      const newSession = await createSessionWithPrompt(prompt, model, messageId, files);
       if (newSession) {
         router.push(`/chat/${newSession.session_id}`);
       }

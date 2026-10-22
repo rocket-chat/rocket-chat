@@ -21,7 +21,8 @@ interface IgnitionConsoleProps {
     model?: string,
     messageId?: string,
     attachmentIds?: string[],
-    delivery?: "steer" | "queue"
+    delivery?: "steer" | "queue",
+    files?: File[]
   ) => void;
   onCancel?: () => void;
   /** Withdraw a message sent during the turn that no turn has taken yet. */
@@ -228,8 +229,9 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
       return;
     }
 
-    const readyAttachments = pendingAttachments.filter((a) => a.status === "ready");
-    const attachmentIds = readyAttachments.map((a) => a.attachmentId);
+    const readyAttachments = pendingAttachments.filter((a) => a.status === "ready" || a.status === "staged");
+    const attachmentIds = readyAttachments.filter((a) => a.status === "ready").map((a) => a.attachmentId);
+    const stagedFiles = readyAttachments.flatMap((a) => (a.file ? [a.file] : []));
 
     // While a turn runs, the message goes to it at its next step (the server starts it as the
     // next turn when it cannot): the running turn's state is left as it is.
@@ -253,7 +255,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     const messageId = newMessageId();
     // During a turn the message waits above the composer until a turn takes it; it enters the
     // conversation where the agent read it, not where it was typed.
-    const waitsForATurn = isExecuting && attachmentIds.length === 0;
+    const waitsForATurn = isExecuting && readyAttachments.length === 0;
     if (waitsForATurn) {
       addPendingMessage({ messageId, content: trimmed, delivery });
     } else {
@@ -266,7 +268,14 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     }
 
     const targetModel = inferenceMode === "agent" ? activeAgent?.model || selectedModel : selectedModel;
-    onIgnite(trimmed, targetModel, messageId, attachmentIds.length ? attachmentIds : undefined, delivery);
+    onIgnite(
+      trimmed,
+      targetModel,
+      messageId,
+      attachmentIds.length ? attachmentIds : undefined,
+      delivery,
+      stagedFiles.length ? stagedFiles : undefined,
+    );
     setPrompt("");
     saveDraft(draftSessionId, "");
     setSuggestedFollowup(null);

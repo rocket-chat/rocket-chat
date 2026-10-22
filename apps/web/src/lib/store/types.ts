@@ -58,7 +58,8 @@ export interface SessionsSlice {
   createSessionWithPrompt: (
     prompt: string,
     model?: string,
-    messageId?: string
+    messageId?: string,
+    files?: File[]
   ) => Promise<SessionData | null>;
   createSession: (title?: string, agentId?: string) => Promise<SessionData | null>;
   deleteSession: (sessionId: string) => Promise<boolean>;

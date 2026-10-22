@@ -239,8 +239,10 @@ export interface AttachmentInfo {
   sha256: string;
   workspacePath: string;
   preview?: string | null;
-  status: "uploading" | "ready" | "error";
+  /** `staged`: chosen in a new chat, uploaded once its first message has created the session. */
+  status: "uploading" | "staged" | "ready" | "error";
   error?: string;
+  file?: File;
 }
 
 export interface ModelOption {

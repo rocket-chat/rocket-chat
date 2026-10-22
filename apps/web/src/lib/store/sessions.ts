@@ -1,4 +1,5 @@
 import type { StateCreator } from "zustand";
+import { postAttachment } from "../attachmentUpload";
 import { newMessageId } from "../message-id";
 import type {
   FlightLogEntry,
@@ -11,6 +12,55 @@ import type { MissionStore, SessionsSlice } from "./types";
 // Listing requests overlap (switching scope or the archived view while a CLEAR re-lists): only
 // the latest one may write the list, or a slow earlier response shows the view just left.
 let latestListing = 0;
+
+interface FirstTurn {
+  prompt: string;
+  model: string;
+  agentId: string;
+  mode: string;
+}
+
+/** Upload the files chosen before the session existed, then start its first turn with them. */
+async function startFirstTurnWithFiles(sessionId: string, files: File[], turn: FirstTurn): Promise<void> {
+  try {
+    const uploaded = await Promise.all(files.map((file) => postAttachment(sessionId, file)));
+    const res = await fetch(`/v1/sessions/${sessionId}/turns`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(8000),
+      body: JSON.stringify({
+        prompt: turn.prompt,
+        model: turn.model,
+        agent_id: turn.agentId,
+        mode: turn.mode,
+        attachment_ids: uploaded.map((item) => item.attachment_id),
+      }),
+    });
+    if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+  } catch (err) {
+    // The empty session would otherwise stay in the list with nothing in it.
+    void fetch(`/v1/sessions/${sessionId}`, { method: "DELETE" }).catch(() => {});
+    throw err;
+  }
+}
+
+/** The composer's state after a failed first send: the files are staged again, with the reason. */
+function restoreStagedFiles(files: File[], err: unknown): Partial<MissionStore> {
+  const reason = err instanceof Error ? err.message : String(err);
+  return {
+    attachmentError: `Could not send with attachments: ${reason}`,
+    pendingAttachments: files.map((file, index) => ({
+      attachmentId: `pending-${Date.now()}-${index}`,
+      name: file.name,
+      mime: file.type || "application/octet-stream",
+      size: file.size,
+      sha256: "",
+      workspacePath: "",
+      status: "staged" as const,
+      file,
+    })),
+  };
+}
 
 export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSlice> = (set, get) => ({
   session: null,
@@ -234,7 +284,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
     });
     return draft;
   },
-  createSessionWithPrompt: async (prompt: string, model?: string, messageId?: string) => {
+  createSessionWithPrompt: async (prompt: string, model?: string, messageId?: string, files: File[] = []) => {
     const active = get().activeAgent;
     const targetAgentId = active.id;
     const cleanPrompt = prompt.trim();
@@ -246,7 +296,9 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         headers: { "Content-Type": "application/json" },
         signal: AbortSignal.timeout(8000),
         body: JSON.stringify({
-          initial_prompt: cleanPrompt,
+          // Files can only be uploaded to a session that exists: with some, the session is
+          // created empty and its first turn starts below, once they are uploaded.
+          ...(files.length ? {} : { initial_prompt: cleanPrompt }),
           agent_id: targetAgentId,
           mode: get().inferenceMode,
           model: model || active.model || get().selectedModel,
@@ -257,6 +309,14 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       });
       if (res.ok) {
         const newSession: SessionData = await res.json();
+        if (files.length) {
+          await startFirstTurnWithFiles(newSession.session_id, files, {
+            prompt: cleanPrompt,
+            model: model || active.model || get().selectedModel,
+            agentId: targetAgentId,
+            mode: get().inferenceMode,
+          });
+        }
         const initialLogs: FlightLogEntry[] = [
           {
             id: promptMessageId,
@@ -302,7 +362,11 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       throw new Error("Backend session creation failed");
     } catch (err) {
       console.error("Failed to create session with prompt:", err);
-      set({ isExecuting: false, statusMessage: "Failed to initialize session" });
+      set({
+        isExecuting: false,
+        statusMessage: "Failed to initialize session",
+        ...(files.length ? restoreStagedFiles(files, err) : {}),
+      });
       return null;
     }
   },
