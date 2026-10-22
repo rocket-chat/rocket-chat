@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `orchestrator`:
+- `sandboxes`:
+- `api`:
+- `web`:
+- `settings`:
+- `git`:
+- `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.6.2] - 2026-10-22
+
+### Added
 - `docs`: **The README and the documentation site are reworked for people deciding whether to use Rocket Chat.** A new README (a banner, a demo GIF, a two-minute start, what is built in, the sandbox, Slack and GitHub with signed commits, install paths), and new pages: a [Quickstart](doc/quickstart.md), [Why Rocket Chat](doc/why-rocket-chat.md), [How it compares](doc/compare.md) (dated and sourced, with where the others are ahead), [Build your agents' sandbox](doc/administer/custom-sandboxes.md), [Local Kubernetes with Kind](doc/install/local-kubernetes.md) and [Run from source](doc/install/from-source.md). The install page is now a chooser, the landing page is rewritten, and the documentation screenshots are regenerated (without the first-visit shortcuts popover, with one conversation and generic placeholders).
 - `web`: **A rocket lifts out of the Run button when a session starts.** The brand's ship (without its tile) charges for a beat, climbs, curves toward the "Working" indicator with its nose following the path and a trail of exhaust, and lands in a flare where the indicator takes over. It is drawn by a host in the root layout, so it outlives the page change that sending the first message causes, and nothing is drawn for people who ask for reduced motion.
 - `scripts`: **`pnpm run docs:demo` records the README's demo.** The real cockpit on the deterministic stack, with a person typing and a scripted run replayed live through the session's socket, captured as the browser's own screencast and assembled into `doc/assets/demo.gif` at 20 fps (`scripts/make_demo_gif.py`).
@@ -17,12 +34,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `orchestrator`: **Where the fixed part of every request goes, and how often the shell does a dedicated tool's job.** Turn metrics gain `overhead_system_tokens`, `overhead_tool_tokens`, `overhead_tools_sent` and `shell_file_operations`. A `bash_exec` that searches, reads, lists or edits files gets a one-line tip with its result from the second such call of a turn, then every third; the command always runs (`tools/shell_intent.py`). `grep_search` takes `context_lines` and `files_only`.
 - `orchestrator`: **Reminders for a turn that fights its environment.** After six tool results in the last thirty that failed on a credential, the network or a permission, the agent is asked to state what is blocked and ask (and again at twelve); the first command that rewrites git remotes or imitates the gateway is called out; the reminder about reading dependency source gets firmer when it was ignored. The prompt asks the agent to hand back an environment failure, to search and read through the dedicated tools, and to ask before renaming or reshaping a public contract or resolving a reviewer's thread when the person asked to be consulted.
 - `api`, `helm`: **`ROCKET_DRAIN_WAIT_SECONDS`** lets a stopping replica wait for its running turns before it stops (default 0: do not wait). Raise `backend.terminationGracePeriodSeconds` above it.
-- `sandboxes`:
-- `api`:
-- `web`:
-- `settings`:
-- `git`:
-- `helm`:
 
 ### Changed
 - `web`: **The repository setups form no longer suggests a real organization's repository and commands.** Its placeholders are generic (`acme/backend-services`, `npm ci`).
