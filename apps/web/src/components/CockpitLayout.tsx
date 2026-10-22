@@ -7,6 +7,7 @@ import { FlightTelemetryHeader } from "./FlightTelemetryHeader";
 import { FlightLogStream } from "./FlightLogStream";
 import { IgnitionConsole } from "./IgnitionConsole";
 import { InspectorTop } from "./InspectorTop";
+import { useSessionStatusPolling } from "../lib/useSessionStatusPolling";
 import { StreamingTerminal } from "./StreamingTerminal";
 import { SessionSidebar } from "./Sidebar/SessionSidebar";
 import { TurnInspector } from "./TurnInspector";
@@ -34,6 +35,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
   const setSession = useMissionStore((s) => s.setSession);
   const isRightPanelOpen = useMissionStore((s) => s.isRightPanelOpen);
   const fetchSessions = useMissionStore((s) => s.fetchSessions);
+  useSessionStatusPolling();
   const fetchAgents = useMissionStore((s) => s.fetchAgents);
   const fetchModels = useMissionStore((s) => s.fetchModels);
   const initDraftSession = useMissionStore((s) => s.initDraftSession);
@@ -143,10 +145,11 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
     model?: string,
     messageId?: string,
     attachmentIds?: string[],
-    delivery: "steer" | "queue" = "steer"
+    delivery: "steer" | "queue" = "steer",
+    files?: File[]
   ) => {
     if (isDraft) {
-      const newSession = await createSessionWithPrompt(prompt, model, messageId);
+      const newSession = await createSessionWithPrompt(prompt, model, messageId, files);
       if (newSession) {
         router.push(`/chat/${newSession.session_id}`);
       }

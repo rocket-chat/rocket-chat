@@ -14,8 +14,9 @@ from fastapi import (
 from git_engine.engine import GitEngine
 
 from api.db.session import DatabaseSessionManager, current_tenant_org_id
-from api.db.store import ResumableTurn
+from api.db.store import ResumableTurn, TurnTraceStore
 from api.services.attachments import AttachmentService
+from api.services.interrupted_work import build_interrupted_work, resume_notice
 from api.services.metrics import GlobalConcurrencyGate, SessionWriteLocks
 from api.services.missions import Mission
 from api.services.queued_messages import QueuedMessageStore
@@ -303,13 +304,30 @@ async def start_queued_turns(app: FastAPI, org_id: str, session_id: str) -> int:
     return len(claimed)
 
 
+async def _resume_instruction(app: FastAPI, turn: ResumableTurn) -> str:
+    """The instruction for the follow-up turn: where the interrupted one stopped, when known."""
+    try:
+        db_manager = getattr(app.state, "db_manager", None)
+        transcripts = getattr(app.state, "transcript_store", None)
+        if db_manager is None or transcripts is None:
+            return RESUME_NOTICE
+        trace = await TurnTraceStore(db_manager).get(turn.trace_id, turn.org_id)
+        if trace is None:
+            return RESUME_NOTICE
+        messages = await transcripts.load(turn.session_id, turn.org_id)
+        return resume_notice(RESUME_NOTICE, build_interrupted_work(trace, messages))
+    except Exception:
+        logger.exception("Could not describe where turn %s stopped", turn.trace_id)
+        return RESUME_NOTICE
+
+
 async def resume_claimed_turn(app: FastAPI, turn: ResumableTurn) -> None:
     """Start the follow-up turn for an interrupted turn this replica has claimed."""
     await start_turn_on_session(
         app,
         turn.org_id,
         turn.session_id,
-        RESUME_NOTICE,
+        await _resume_instruction(app, turn),
         resume_attempt=turn.resume_attempt + 1,
         synthetic_prompt=True,
     )

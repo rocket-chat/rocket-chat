@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from agent_core.tools.clamp import clamp_output
+from agent_core.tools.git_tools import mark_session_base_command
 from agent_core.tools.project_instructions import instruction_paths, read_instructions
 from specifications.interfaces.sandbox import SandboxDriverProtocol, SandboxStatus
 
@@ -212,7 +213,7 @@ async def clone_into_workspace(
         f"else git clone --quiet --filter=blob:none --no-tags {shallow}{branch_option}"
         f"{shlex.quote(repo.url)} {folder} 2>&1; fi "
         # Grouped: without the parentheses the summary's own `;` would run even after a failed clone.
-        f"&& cd {folder} && ( {_SUMMARY} )"
+        f"&& cd {folder} && ( {mark_session_base_command()}; {_SUMMARY} )"
     )
     result = await driver.exec_command(session_id, command, timeout_seconds=CLONE_TIMEOUT_SECONDS)
     output = (result.stdout or "") + (result.stderr or "")

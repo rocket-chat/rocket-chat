@@ -62,7 +62,7 @@ from agent_core.standing import (
 )
 from agent_core.subagents import SubagentRunner
 from agent_core.summarizer import model_summarizer
-from agent_core.tool_loading import ALWAYS_LOADED, catalogue, deferred_names
+from agent_core.tool_loading import ALWAYS_LOADED, ESSENTIAL_TOOLS, catalogue, deferred_names
 from agent_core.tool_slot import human_wait
 from agent_core.tools.registry import ToolRegistry
 from agent_core.transcript import RecordingList, repair_tool_pairs
@@ -1259,12 +1259,18 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         listed = set(whitelisted_tools)
         allowed = [tool for tool in all_tools if tool.name in listed]
         loading = ctx.policy.tool_loading if ctx is not None else None
+        needed = {"load_guidance"}  # already out of ``all_tools`` for a turn without guidance
         if loading is not None and deferred_names(
             allowed, loading, self._registry.enabled_for_this_turn
         ):
-            # A deferred tool is only usable through the loading tools, whatever the agent's list
-            # says (``load_guidance`` is dropped separately when no server has guidance).
-            allowed += [t for t in all_tools if t.name in LOADING_TOOLS and t.name not in listed]
+            # A deferred tool is only usable through the loading tools, whatever the agent's list says.
+            needed |= LOADING_TOOLS
+        if ctx is not None and ctx.plan_mode:
+            needed.add("exit_plan_mode")
+        # An agent's list never takes away what a platform gate sends it to (ESSENTIAL_TOOLS).
+        allowed += [
+            t for t in all_tools if t.name in needed & ESSENTIAL_TOOLS and t.name not in listed
+        ]
         return allowed
 
     def _tools_for_request(self, whitelisted_tools: list[str] | None) -> list[ToolDefinition]:

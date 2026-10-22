@@ -103,3 +103,32 @@ async def test_every_call_yields_a_result(count: int) -> None:
 
     completed = [e for e in await _drain(queue) if e.event_type == "tool_completed"]
     assert len(completed) == count
+
+
+async def test_unreadable_arguments_come_back_with_the_tools_own_parameters() -> None:
+    class _Registry(_FakeRegistry):
+        def argument_hint(self, name: str) -> str:
+            return "Its parameters: searchText (string, required), start (string)"
+
+    dispatcher = ToolDispatcher(_Registry(), tool_timeout_seconds=5)  # type: ignore[arg-type]
+    queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
+    broken = {
+        0: {"id": "call_0", "name": "search_logs", "arguments": '{"searchText": "x", "start": '}
+    }
+
+    await dispatcher.execute_tool_calls("s", broken, queue, [])
+
+    completed = [e for e in await _drain(queue) if e.event_type == "tool_completed"]
+    result = str(completed[0].payload["result"])
+    assert completed[0].payload["status"] == "error"
+    assert "not valid JSON" in result and "one complete JSON object" in result
+    assert "searchText (string, required)" in result
+
+
+def test_a_tools_parameters_fit_on_one_short_line() -> None:
+    from agent_core.tools.registry import ToolRegistry
+
+    hint = ToolRegistry().argument_hint("file_read")
+
+    assert hint.startswith("Its parameters:") and len(hint) <= 500
+    assert ToolRegistry().argument_hint("no_such_tool") == ""

@@ -3,8 +3,9 @@
 A change is measured against a base, not replayed from events: the diffs the agent's tools
 report describe one edit each (the last one, for a file edited twice), while the person
 reviewing wants the file as it stands against where it started. The base is either the snapshot
-the platform takes before a turn first changes the workspace (``turn``) or the point the work
-branched from the repository's default branch (``session``). Everything is read with git in the
+the platform takes before a turn first changes the workspace (``turn``) or where the session's
+work started (``session``): what was cloned (``refs/rocket/session-base``), else the point the
+work branched from the repository's default branch. Everything is read with git in the
 sandbox, so it is correct after a reload, a restart or a second tab.
 """
 
@@ -78,6 +79,11 @@ async def _base(
             if checkpoint.name.endswith(_TURN_CHECKPOINT_SUFFIX):
                 return checkpoint.name, "since the start of the latest turn"
         return "HEAD", "since the last commit"
+    code, started = await _git(
+        driver, session_id, repository, f"git rev-parse -q --verify {git_tools.SESSION_BASE_REF}"
+    )
+    if code == 0 and started.strip():
+        return started.strip(), "since the session started"
     code, head = await _git(
         driver, session_id, repository, "git symbolic-ref --short refs/remotes/origin/HEAD"
     )

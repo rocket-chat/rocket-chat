@@ -243,7 +243,11 @@ class ToolDispatcher:
         ) as span:
             try:
                 if argument_error is not None:
-                    raise ValueError(argument_error)
+                    hint = self.registry.argument_hint(tool_name)
+                    raise ValueError(
+                        f"{argument_error}. Send the call again as one complete JSON object with "
+                        f"nothing else, and only this tool's own arguments. {hint}".strip()
+                    )
                 output = await self.run_guarded(session_id, tool_name, args)
                 status = "completed"
             except TimeoutError:

@@ -26,6 +26,30 @@ from specifications.interfaces.git import (
 from specifications.interfaces.sandbox import ExecResult, SandboxDriverProtocol
 
 CHECKPOINT_TAG_PREFIX = "rocket-checkpoint-"
+# Where the session's own work starts in a repository: what was cloned (or, for a workspace that
+# was not cloned by the platform, the first snapshot before a change). The Changes view measures
+# from it, so a session that checks out a long-lived branch shows what *it* changed, not the
+# branch's whole history against the default branch.
+SESSION_BASE_REF = "refs/rocket/session-base"
+
+
+def mark_session_base_command(revision: str = "HEAD") -> str:
+    """Shell that records ``revision`` (already quoted) as the session's base, once."""
+    return (
+        f"git rev-parse -q --verify {SESSION_BASE_REF} >/dev/null 2>&1 "
+        f"|| git update-ref {SESSION_BASE_REF} {revision} 2>/dev/null"
+    )
+
+
+async def mark_session_base_from_snapshot(
+    driver: SandboxDriverProtocol, session_id: str, workdir: str
+) -> None:
+    """Record the newest checkpoint as the session's base when the repository has none yet."""
+    newest = (
+        "\"$(git for-each-ref --sort=-creatordate --count=1 --format='%(objectname)' "
+        f'{_sh_quote("refs/tags/" + CHECKPOINT_TAG_PREFIX + "*")})"'
+    )
+    await _exec(driver, session_id, f"{mark_session_base_command(newest)}; true", workdir)
 
 
 class CommitCapable(Protocol):

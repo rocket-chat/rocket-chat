@@ -132,6 +132,33 @@ async def test_the_session_scope_is_measured_from_where_the_work_branched(
     assert found.base_label == "since it branched from main"
 
 
+async def test_the_session_scope_starts_where_the_session_started_not_at_the_default_branch(
+    branched: tuple[pathlib.Path, _Running],
+) -> None:
+    work, driver = branched
+    # The session cloned a branch that already differed from main by a.txt: that is not its work.
+    git(work, "update-ref", git_tools.SESSION_BASE_REF, "HEAD")
+
+    (found,) = await changes.session_changes(driver, SESSION, "session")  # type: ignore[arg-type]
+
+    assert set(_by_path(found)) == {"b.txt"}, "only what changed after the session started"
+    assert found.base_label == "since the session started"
+
+
+async def test_the_base_is_recorded_once_and_never_moved(
+    repo: tuple[pathlib.Path, _Running],
+) -> None:
+    work, driver = repo
+    first = git(work, "rev-parse", "HEAD")
+    await driver.exec_command(SESSION, git_tools.mark_session_base_command(), workdir=REPO)
+    (work / "later.txt").write_text("x\n")
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", "later")
+    await driver.exec_command(SESSION, git_tools.mark_session_base_command(), workdir=REPO)
+
+    assert git(work, "rev-parse", git_tools.SESSION_BASE_REF) == first
+
+
 async def test_a_file_is_returned_whole_at_the_base_and_as_it_is_now(
     repo: tuple[pathlib.Path, _Running],
 ) -> None:

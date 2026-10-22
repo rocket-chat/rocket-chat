@@ -15,6 +15,8 @@ import { TaskChecklist } from "./TaskChecklist";
 import { TurnSummaryCard } from "./TurnSummaryCard";
 import { FlightLogEntry, TurnBinding } from "../types/mission";
 import { RocketChatIcon } from "./RocketChatLogo";
+import { RocketLoader } from "./RocketLoader";
+import { useLoadingQuip } from "../lib/loadingQuips";
 import { CockpitEmptyState } from "./CockpitEmptyState";
 import {
   AlertTriangle,
@@ -83,6 +85,8 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   } = useMissionStore(
     useShallow((state) => ({ flightLog: state.flightLog, activeDecision: state.activeDecision, activeApproval: state.activeApproval, isExecuting: state.isExecuting, statusMessage: state.statusMessage, turnBinding: state.turnBinding, isStreamContinuous: state.isStreamContinuous, session: state.session, fetchSessions: state.fetchSessions }))
   );
+
+  const quip = useLoadingQuip(isExecuting && !activeDecision);
 
   const router = useRouter();
   const { data: authSession } = useSession();
@@ -616,13 +620,22 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
 
       {/* Real-time Processing Indicator */}
       {isExecuting && !activeDecision && (
-        <div className="flex items-center gap-2">
-          <div className="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border border-brand/25 bg-brand/10 text-brand">
-            <RocketChatIcon className="h-3 w-3 animate-pulse" />
-          </div>
-          <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 font-sans">
-            <span className="w-1.5 h-1.5 rounded-full bg-brand animate-ping" />
-            <span>{statusMessage || "Synthesizing answer..."}</span>
+        <div data-testid="processing-indicator" className="flex items-start gap-2.5">
+          <RocketLoader />
+          <div className="min-w-0 font-sans text-xs">
+            <div
+              aria-hidden="true"
+              data-testid="loading-quip"
+              className="truncate italic text-orange-700 dark:text-brand"
+            >
+              {quip}
+            </div>
+            <div className="flex items-center gap-2 text-neutral-500 dark:text-neutral-400">
+              <span className="h-1.5 w-1.5 flex-none shrink-0 rounded-full bg-brand animate-ping" />
+              <span className="truncate" title={statusMessage || undefined}>
+                {statusMessage || "Synthesizing answer..."}
+              </span>
+            </div>
           </div>
         </div>
       )}

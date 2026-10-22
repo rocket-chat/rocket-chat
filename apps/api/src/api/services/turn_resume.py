@@ -26,7 +26,7 @@ from api.services.turn_trace import INTERRUPTED_TURN_ERROR, PROCESS_INSTANCE_ID
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_AUTO_RESUME_ATTEMPTS = 1
+DEFAULT_AUTO_RESUME_ATTEMPTS = 2
 # Past this the user has probably moved on and the workspace may have been reaped.
 RESUME_WINDOW_SECONDS = 15 * 60
 

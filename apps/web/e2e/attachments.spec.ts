@@ -97,4 +97,45 @@ test.describe("Attachment upload", () => {
     const failedChip = page.getByTestId("attachment-chip").filter({ hasText: "payload.exe" });
     await expect(failedChip).toHaveAttribute("data-status", "error");
   });
+
+  test("attaches a file in a new chat and sends it with the first message", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByTestId("instruction-input")).toBeVisible();
+
+    await page.getByTestId("attachment-input").setInputFiles({
+      name: "first.log",
+      mimeType: "text/plain",
+      buffer: Buffer.from("ERROR first\n", "utf-8"),
+    });
+    // Before the first message there is no session to upload to: the file waits in the tray.
+    const chip = page.getByTestId("attachment-chip").filter({ hasText: "first.log" });
+    await expect(chip).toHaveAttribute("data-status", "staged");
+    await expect(page.getByText(/before attaching files/)).toHaveCount(0);
+
+    const turn = page.waitForRequest((r) => /\/v1\/sessions\/[^/]+\/turns$/.test(r.url()) && r.method() === "POST");
+    await page.getByTestId("instruction-input").fill("what failed in this first log?");
+    await page.getByTestId("ignite-button").click();
+
+    const body = (await turn).postDataJSON();
+    expect(body.attachment_ids).toHaveLength(1);
+    await expect(page).toHaveURL(/\/chat\/session_/);
+    await expect(
+      page.getByTestId("user-message").filter({ hasText: "what failed in this first log?" })
+    ).toHaveCount(1);
+  });
+
+  test("keeps the files of a new chat when the first send is rejected", async ({ page }) => {
+    await page.goto("/");
+    await page.getByTestId("attachment-input").setInputFiles({
+      name: "payload.exe",
+      mimeType: "application/x-msdownload",
+      buffer: Buffer.from("MZ", "utf-8"),
+    });
+    await page.getByTestId("instruction-input").fill("run this");
+    await page.getByTestId("ignite-button").click();
+
+    await expect(page.getByText(/Could not send with attachments/)).toBeVisible();
+    await expect(page.getByTestId("attachment-chip").filter({ hasText: "payload.exe" })).toBeVisible();
+    await expect(page).not.toHaveURL(/\/chat\/session_/);
+  });
 });

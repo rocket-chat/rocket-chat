@@ -54,23 +54,35 @@ interface StepRowProps {
   meta?: React.ReactNode;
   tone?: "default" | "failed";
   title?: string;
+  /** The step is still being written: it stands out and shows its text until the person chooses otherwise. */
+  live?: boolean;
   children: React.ReactNode;
 }
 
 /** One line per step; the detail stays closed until asked for. */
-const StepRow: React.FC<StepRowProps> = ({ icon, label, meta, tone = "default", title, children }) => {
-  const [open, setOpen] = useState(false);
+const StepRow: React.FC<StepRowProps> = ({ icon, label, meta, tone = "default", title, live = false, children }) => {
+  // Null until the person toggles the row: a live one is open, and closes by itself once finished.
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  const open = chosen ?? live;
   return (
-    <li>
+    <li data-live={live ? "true" : undefined}>
       <button
         type="button"
         data-testid="activity-step"
         aria-expanded={open}
         title={title}
-        onClick={() => setOpen((value) => !value)}
-        className="group flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-surface-elevated/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+        onClick={() => setChosen(!open)}
+        className={cn(
+          "group flex w-full cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-surface-elevated/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60",
+          live && "border-l-2 border-brand bg-brand/5",
+        )}
       >
-        <span className={cn("shrink-0", tone === "failed" ? "text-diff-del" : "text-neutral-500 dark:text-neutral-400")}>
+        <span
+          className={cn(
+            "shrink-0",
+            live ? "text-brand motion-safe:animate-pulse" : tone === "failed" ? "text-diff-del" : "text-neutral-500 dark:text-neutral-400",
+          )}
+        >
           {icon}
         </span>
         <span className="min-w-0 flex-1 truncate text-neutral-700 dark:text-neutral-300" title={title}>{label}</span>
@@ -80,7 +92,9 @@ const StepRow: React.FC<StepRowProps> = ({ icon, label, meta, tone = "default", 
           className={cn("h-3.5 w-3.5 shrink-0 text-neutral-400 transition-transform", open && "rotate-90")}
         />
       </button>
-      {open && <div className="ml-[1.65rem] border-l border-surface-border py-2 pl-4">{children}</div>}
+      {open && (
+        <div className={cn("ml-[1.65rem] border-l py-2 pl-4", live ? "border-brand/60" : "border-surface-border")}>{children}</div>
+      )}
     </li>
   );
 };
@@ -108,12 +122,17 @@ const TitledPreview: React.FC<{ title: string; text: string }> = ({ title, text 
 );
 
 export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = false }) => {
-  const [isOpen, setIsOpen] = useState(false);
+  // Null until the person toggles the group: it is open while a thought is being written.
+  const [chosenOpen, setChosenOpen] = useState<boolean | null>(null);
   const fileDiffs = useMissionStore((state) => state.fileDiffs);
   const selectChange = useMissionStore((state) => state.selectChange);
   const setIsRightPanelOpen = useMissionStore((state) => state.setIsRightPanelOpen);
 
   const summary = summarizeGroup(entries);
+  // Only the last step of the running group can still be receiving its thought.
+  const lastEntry = entries[entries.length - 1];
+  const liveThoughtId = isActive && lastEntry?.reasoning && lastEntry.isReasoningActive ? lastEntry.id : null;
+  const isOpen = chosenOpen ?? liveThoughtId !== null;
   // What the command running now has printed shows under the group even while it is collapsed.
   const runningCall = [...entries].reverse().find((entry) => entry.toolCall && isPending(entry.toolCall))?.toolCall;
 
@@ -128,7 +147,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
       <button
         type="button"
         data-testid="action-group-toggle"
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={() => setChosenOpen(!isOpen)}
         aria-expanded={isOpen}
         className="group inline-flex max-w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1 text-left transition-colors hover:bg-surface-elevated/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
       >
@@ -162,7 +181,8 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                 <StepRow
                   icon={<Sparkles className="h-3.5 w-3.5" />}
                   title={entry.reasoning.trim()}
-                  label={<TitledPreview title="Thought" text={entry.reasoning} />}
+                  live={entry.id === liveThoughtId}
+                  label={<TitledPreview title={entry.id === liveThoughtId ? "Thinking…" : "Thought"} text={entry.reasoning} />}
                   meta={
                     entry.timestamp ? (
                       <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">

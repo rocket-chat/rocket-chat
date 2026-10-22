@@ -2,6 +2,7 @@ import type { StateCreator } from "zustand";
 import type {
   AttachmentInfo,
 } from "../../types/mission";
+import { postAttachment } from "../attachmentUpload";
 import type { MissionStore, ComposerSlice } from "./types";
 
 export const createComposerSlice: StateCreator<MissionStore, [], [], ComposerSlice> = (set, get) => ({
@@ -25,13 +26,25 @@ export const createComposerSlice: StateCreator<MissionStore, [], [], ComposerSli
   uploadAttachment: async (file: File) => {
     const session = get().session;
     const sessionId = session?.session_id;
-    if (!sessionId || session.is_draft || sessionId === "draft" || sessionId === "new") {
-      // A clear failure path beats silently dropping the file.
-      set({ attachmentError: "Send a first message to create the session before attaching files." });
+    const isDraft = !sessionId || session.is_draft || sessionId === "draft" || sessionId === "new";
+
+    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    if (isDraft || !sessionId) {
+      // No session exists before the first message: keep the file here, the first send uploads it.
+      const staged: AttachmentInfo = {
+        attachmentId: tempId,
+        name: file.name,
+        mime: file.type || "application/octet-stream",
+        size: file.size,
+        sha256: "",
+        workspacePath: "",
+        status: "staged",
+        file,
+      };
+      set((state) => ({ pendingAttachments: [...state.pendingAttachments, staged], attachmentError: null }));
       return;
     }
 
-    const tempId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const staged: AttachmentInfo = {
       attachmentId: tempId,
       name: file.name,
@@ -47,18 +60,7 @@ export const createComposerSlice: StateCreator<MissionStore, [], [], ComposerSli
     }));
 
     try {
-      const form = new FormData();
-      form.append("file", file);
-      const res = await fetch(`/v1/sessions/${sessionId}/attachments`, {
-        method: "POST",
-        body: form,
-        signal: AbortSignal.timeout(30000),
-      });
-      if (!res.ok) {
-        const detail = await res.text();
-        throw new Error(detail || `HTTP ${res.status}`);
-      }
-      const data = await res.json();
+      const data = await postAttachment(sessionId, file);
       set((state) => ({
         pendingAttachments: state.pendingAttachments.map((item) =>
           item.attachmentId === tempId

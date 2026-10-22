@@ -100,7 +100,7 @@ You do not have to wait for the agent to finish. Send a message while it works (
 
 ## Changes
 
-The **Changes** tab lists every file the session changed in each repository, read from the workspace, so it is complete after you reload the page or open the session on another device. Pick **Whole session** (compared with where the work branched from the default branch) or **Latest turn** (compared with the snapshot taken before the turn first changed anything). Select a file for a side-by-side view of the whole file, and **Undo this file** to put it back as it was. Changes need the sandbox to be running; while it sleeps, the tab shows what the agent reported during this visit.
+The **Changes** tab lists every file the session changed in each repository, read from the workspace, so it is complete after you reload the page or open the session on another device. Pick **Whole session** (compared with the code as it was when the session started: what the clone checked out, so a long-lived branch does not list its whole history; a workspace without that record falls back to where the work branched from the default branch) or **Latest turn** (compared with the snapshot taken before the turn first changed anything). Select a file for a side-by-side view of the whole file, and **Undo this file** to put it back as it was. Changes need the sandbox to be running; while it sleeps, the tab shows what the agent reported during this visit.
 
 ## Deliverables
 
@@ -120,7 +120,7 @@ Attach a screenshot, or ask the agent to look at an image it created (`view_imag
 
 * The live connection resumes after a drop without losing or repeating anything, and opening a session mid-turn shows the answer as it is being written.
 * A question that was waiting when the server restarted is still waiting; answering it continues the work.
-* A turn the server lost mid-flight is flagged and continued automatically once, so it does not simply vanish.
+* A turn the server lost mid-flight is flagged and continued automatically (up to twice by default), so it does not simply vanish. What it had done (tool calls, their results and the thoughts between them) stays in the conversation, followed by a note that the server restarted, and the agent is told where it stopped. A call that was running when the server stopped is shown as interrupted; the step the model was writing at that moment is the only part that is not kept.
 
 ## Limits you may meet
 

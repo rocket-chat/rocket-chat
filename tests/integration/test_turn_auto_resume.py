@@ -157,7 +157,7 @@ async def test_a_follow_up_message_cancels_the_resume(
 async def test_a_task_is_resumed_a_bounded_number_of_times(
     tenant: _Tenant, app_db: DatabaseSessionManager, admin_db: DatabaseSessionManager
 ) -> None:
-    await tenant.interrupted_turn(admin_db, resume_attempt=1)  # already resumed once
+    await tenant.interrupted_turn(admin_db, resume_attempt=2)  # already resumed twice
 
     assert [
         t for t in await _resume_all(admin_db, app_db) if t.session_id == tenant.session_id
@@ -256,3 +256,37 @@ async def test_a_resumed_turn_continues_without_a_phantom_user_message(
     assert by_id[interrupted.trace_id].status == "interrupted"
     resumed = next(t for t in traces if t.id != interrupted.trace_id)
     assert (resumed.status, resumed.resume_attempt) == ("completed", 1)
+
+
+async def test_the_saved_work_of_interrupted_turns_reaches_the_session_and_frees_it(
+    tenant: _Tenant, app_db: DatabaseSessionManager, admin_db: DatabaseSessionManager
+) -> None:
+    """A real interrupted turn: its finished calls are shown and the session is not left busy."""
+    from api.services.interrupted_work import clear_stuck_processing, save_interrupted_turns
+    from api.services.transcript import InMemoryTranscriptStore
+
+    def busy(record: SessionRecord) -> None:
+        record.is_processing = True
+
+    await tenant.store.mutate_session(tenant.session_id, tenant.org_id, busy)
+    trace = TurnTraceAccumulator(
+        session_id=tenant.session_id, org_id=tenant.org_id, turn_index=1, resume_attempt=0
+    )
+    await begin_turn_trace(app_db, trace)
+    await TurnTraceStore(app_db).record_tool_call(
+        trace.trace_id,
+        tenant.org_id,
+        {"id": "c1", "name": "file_read", "arguments": {}, "result": "ok", "status": "completed"},
+    )
+    await recover_interrupted_turns(admin_db)
+
+    saved = await save_interrupted_turns(admin_db, tenant.store, InMemoryTranscriptStore())
+    again = await save_interrupted_turns(admin_db, tenant.store, InMemoryTranscriptStore())
+    await clear_stuck_processing(admin_db, tenant.store)
+
+    record = await tenant.store.get_session(tenant.session_id, tenant.org_id)
+    assert record is not None
+    assert saved >= 1 and again == 0, "saved once per interrupted turn"
+    assert record.is_processing is False
+    assert [m.role for m in record.conversation_history] == ["assistant", "system"]
+    assert (record.conversation_history[0].tool_calls or [])[0]["id"] == "c1"

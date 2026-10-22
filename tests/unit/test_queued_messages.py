@@ -71,11 +71,19 @@ def _headers() -> dict[str, str]:
     }
 
 
-def test_while_a_turn_runs_a_queued_message_waits_and_can_be_withdrawn() -> None:
+def test_while_a_turn_runs_a_queued_message_waits_and_can_be_withdrawn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     from api.main import app
     from fastapi.testclient import TestClient
 
     from specifications.interfaces.events import EventType
+
+    async def running_trace(*args: Any, **kwargs: Any) -> object:
+        return object()
+
+    # With a database a turn runs when its trace says so; the busy flag below covers memory stores.
+    monkeypatch.setattr(queued_messages, "session_running_turn", running_trace)
 
     with TestClient(app) as client:
         session_id = client.post(
