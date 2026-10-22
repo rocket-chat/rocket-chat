@@ -14,6 +14,7 @@ import {
   Users,
   SlidersHorizontal,
   KeyRound,
+  ScrollText,
 } from "lucide-react";
 
 export interface NavItem {
@@ -59,6 +60,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/settings/org/models", label: "Models & budgets", icon: Coins, requiresAdmin: true },
       { href: "/settings/org/governance", label: "Security & data", icon: ShieldCheck, requiresAdmin: true },
+      { href: "/settings/org/audit", label: "Audit log", icon: ScrollText, requiresAdmin: true },
       { href: "/settings/org/sandboxes", label: "Sandboxes", icon: Box, requiresAdmin: true },
       { href: "/settings/org/users", label: "Users & roles", icon: Users, requiresAdmin: true },
       { href: "/settings/org/usage", label: "Usage & spend", icon: Coins },

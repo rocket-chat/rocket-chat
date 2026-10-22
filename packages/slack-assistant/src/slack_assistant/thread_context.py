@@ -144,6 +144,15 @@ async def fetch_channel_history(
     return list(reversed(_to_messages(_unwrap(response).get("messages", []), bot_user_id)))
 
 
+_CUT = " … (message truncated)"
+
+
+def _within(line: str, max_chars: int) -> str:
+    if len(line) + 1 <= max_chars:
+        return line
+    return line[: max(max_chars - len(_CUT) - 1, 0)] + _CUT
+
+
 async def render_transcript(
     messages: list[SlackMessage],
     name_resolver: Callable[[str], Awaitable[str]],
@@ -176,6 +185,9 @@ async def render_transcript(
     selected: list[str] = []
     total = 0
     for line in reversed(lines):
+        # The freshest message is always kept whole, so a bot report of fifty blocks would
+        # carry the budget away by itself: it is cut to the budget instead.
+        line = _within(line, max_chars)
         if total + len(line) + 1 > max_chars and selected:
             selected.append("… (earlier messages truncated)")
             break

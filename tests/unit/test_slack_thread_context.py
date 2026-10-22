@@ -114,3 +114,20 @@ async def test_the_transcript_shows_the_blocks_of_a_bot_report() -> None:
     )
     assert "Detail of it_dbc6q54a9kfs73f5fgs0" not in transcript
     assert transcript.endswith("- goclaude (bot): <@U0BST1SE4UW> please diagnose")
+
+
+@pytest.mark.asyncio
+async def test_one_huge_report_stays_within_the_transcript_budget() -> None:
+    report = {
+        "ts": "1.0",
+        "bot_id": "B1",
+        "text": "fallback",
+        "blocks": [{"type": "section", "text": _mrkdwn("x" * 3000)} for _ in range(50)],
+    }
+
+    async def names(user: str) -> str:
+        return user
+
+    transcript = await render_transcript(_to_messages([report]), names, max_chars=24000)
+    assert len(transcript) <= 24000
+    assert transcript.endswith("(message truncated)")
