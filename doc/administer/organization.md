@@ -50,4 +50,4 @@ See [Sandboxes](/administer/sandboxes).
 
 ## Audit
 
-Approvals, tool calls, credential changes, settings changes and logins are recorded with the actor, the session and a redacted summary. Read them at `GET /v1/admin/audit`; retention is a governance setting.
+Approvals, tool calls, credential changes, settings changes and logins are recorded with the actor, the session and a redacted summary. Read them in **Settings → Organization → Audit log**, or at `GET /v1/admin/audit`; retention is a governance setting.

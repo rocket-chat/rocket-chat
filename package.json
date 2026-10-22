@@ -21,7 +21,16 @@
   "pnpm": {
     "overrides": {
       "postcss": ">=8.5.23",
-      "dompurify": ">=3.4.16"
+      "dompurify": ">=3.4.16",
+      "axios": ">=1.20.0",
+      "adm-zip": ">=0.6.1",
+      "@modelcontextprotocol/sdk": ">=1.32.1",
+      "sharp": ">=0.35.5",
+      "js-yaml": ">=4.3.2 <5",
+      "qs": ">=6.16.1",
+      "fflate": ">=0.8.3",
+      "postcss-selector-parser": ">=7.1.7",
+      "katex": ">=0.19.0"
     }
   }
 }

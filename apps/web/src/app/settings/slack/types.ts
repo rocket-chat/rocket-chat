@@ -19,6 +19,14 @@ export interface SlackRouterConfig {
   context_messages: number;
 }
 
+export interface ChannelProfile {
+  agent_persona?: string;
+  instructions?: string;
+  allowed_tools?: string[];
+  sandbox_image?: string;
+  response_mode?: "" | "thread" | "private";
+}
+
 export interface SlackBot {
   id: string;
   org_id: string;

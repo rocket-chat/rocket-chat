@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `orchestrator`:
 - `sandboxes`:
 - `api`:
-- `web`:
+- `web`: **Channel profiles and the audit log in the cockpit.** A Slack bot's **Channels** tab edits per-channel persona, response mode, sandbox image, allowed tools and house rules instead of raw JSON, and **Settings → Organization → Audit log** reads `GET /v1/admin/audit` with paging and an event-type filter.
 - `settings`:
 - `git`:
 - `helm`:
@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `slack`: **A mention in the agent's answer notified nobody once the turn had used a tool**: the answer was written into the reply the stream opened at the first tool call, and Slack only notifies the mentions of a new message. An answer that mentions a user, a user group or `@here` now closes the stream on its summary card and follows it as a new message.
 
 ### Security
+- `deps`: patched `aiohttp` 3.14.5 and `certifi` 2026.10.19; pinned patched `axios`, `adm-zip`, `@modelcontextprotocol/sdk`, `sharp`, `js-yaml`, `qs`, `fflate`, `postcss-selector-parser` and `katex` in the docs tooling's `pnpm.overrides` (`braces` has no fixed release yet).
 
 ## [0.6.0] - 2026-10-21
 

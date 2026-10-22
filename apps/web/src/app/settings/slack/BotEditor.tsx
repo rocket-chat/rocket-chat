@@ -18,7 +18,8 @@ import {
 import { Field, Input, Select, Textarea } from "../../../components/ui/Field";
 import { ModelPicker } from "../../../components/ui/ModelPicker";
 import { InheritanceBadge } from "../../../components/settings/InheritanceBadge";
-import { SlackBot, SlackRoute, RouteDecisionItem } from "./types";
+import { SlackBot, SlackRoute, RouteDecisionItem, ChannelProfile } from "./types";
+import { ChannelProfilesEditor } from "./ChannelProfilesEditor";
 
 interface BotEditorProps {
   bot: SlackBot | null;
@@ -867,13 +868,15 @@ export function BotEditor({ bot, agentOptions, onClose, onSaved }: BotEditorProp
           {/* TAB: Channels */}
           {activeTab === "channels" && (
             <div className="space-y-4">
-              <p className="text-xs text-muted-foreground">
-                Per-channel overrides for this bot: target agent, response mode, and custom house rules.
-              </p>
-              <div className="p-4 rounded-lg border border-border bg-surface-card text-center text-xs text-muted-foreground">
-                Channel profile overrides inherit from organization defaults unless specified. (Configured per channel in
-                channel profiles).
-              </div>
+              <ChannelProfilesEditor
+                value={(policyOverrides.channel_profiles as Record<string, ChannelProfile> | undefined) ?? {}}
+                agentOptions={agentOptions}
+                onChange={(next) => {
+                  const rest = { ...policyOverrides };
+                  delete rest.channel_profiles;
+                  setPolicyOverrides(Object.keys(next).length > 0 ? { ...rest, channel_profiles: next } : rest);
+                }}
+              />
             </div>
           )}
 

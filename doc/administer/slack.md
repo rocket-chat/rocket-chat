@@ -142,7 +142,7 @@ An organization can run several bots in the same Slack workspace (e.g. `@RocketD
 
 ### Per-channel profiles
 
-A channel can have its own persona, house rules, tool scope and sandbox image. Set `channel_profiles` to a JSON object keyed by channel id:
+A channel can have its own persona, house rules, tool scope and sandbox image. In a bot's editor (**Settings → Slack → the bot → Channels**) add one profile per channel: persona, response mode, sandbox image, allowed tools and house rules. The organization-wide default is the `channel_profiles` setting, a JSON object keyed by channel id:
 
 ```json
 {
