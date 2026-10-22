@@ -478,6 +478,7 @@ class ToolRegistry:
             # Every repository, not only the active one: a turn may change any clone.
             for repository in await list_repositories(driver, session_id):
                 await git_tools.git_checkpoint(driver, session_id, label="turn", workdir=repository)
+                await git_tools.mark_session_base_from_snapshot(driver, session_id, repository)
             ctx.checkpointed = True
         except Exception as err:
             logger.debug("Skipping automatic checkpoint for %s: %s", session_id, err)
