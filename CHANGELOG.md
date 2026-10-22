@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - `slack`: **The agent did not see what bots post in blocks or attachments.** The thread context and the `slack_read_thread` and `slack_read_channel_history` tools only read a message's `text`, which Slack keeps as the notification fallback when the message has blocks: a CI report or an alert reached the agent as its one-line fallback. Their transcripts now render header, section, context and divider blocks and legacy attachments; a message typed by a person keeps its text.
 - `slack`, `helm`: The two read tools were cut to the 6000 characters of the injected thread context. They now have their own budget, `SLACK_READ_TOOL_MAX_CHARS` (`backend.slack.readToolMaxChars`, 24000 by default).
+- `slack`: **A mention in the agent's answer notified nobody once the turn had used a tool**: the answer was written into the reply the stream opened at the first tool call, and Slack only notifies the mentions of a new message. An answer that mentions a user, a user group or `@here` now closes the stream on its summary card and follows it as a new message.
 
 ### Security
 
