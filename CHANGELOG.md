@@ -19,8 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `web`: **Rocket-flavoured loading messages.** Next to the step the agent is on, a short, rotating line ("Negotiating with gravity…", "Rerouting around a small asteroid…") keeps the wait light. Each shows once before any repeats, it is hidden from assistive technology, and it hides on narrow screens.
+- `web`: **A thought still being written no longer looks like a finished one.** While the agent is thinking, its row is titled *Thinking…*, marked with a pulsing brand-coloured icon and a brand edge, and open on the text as it arrives (the step group opens with it); once the turn moves on or ends it settles into the plain, collapsed *Thought* row. A person's own toggle always wins, and the pulse respects reduced motion.
 
 ### Fixed
+- `agent-core`, `slack`: **An agent whose tool list predates `load_guidance` could not use any MCP tool with guidance.** The guidance gate told the agent to call `load_guidance` first, the list did not include it, and the call was refused as "not permitted in this Slack workspace" (a real session with a Slack bot agent could never reach SigNoz). The tools a platform gate sends the agent to (`load_tools`, `search_tools`, `load_guidance`, `exit_plan_mode`) are now `ESSENTIAL_TOOLS`: no agent list, Slack allowlist or blocklist removes them, and each is still offered only when it has work. A tool outside an agent's list is now refused with a message that names the list, not the Slack workspace.
+- `agent-core`: **Unreadable tool arguments came back with only the parser's complaint.** A model that wrote a broken call (`signoz_search_logs` with another tool's `names` list pasted into `start`, four times in one session) repeated it. The error now asks for one complete JSON object with only that tool's arguments and lists the tool's parameters on one short line.
+- `web`: **Attaching a file in a new chat failed with "Send a first message to create the session before attaching files".** The file now waits in the composer; sending the first message creates the session, uploads the file to it and starts the first turn with it. If that send fails (a rejected file type, for instance) the empty session is removed and the files stay in the composer with the reason.
 
 ### Security
 
