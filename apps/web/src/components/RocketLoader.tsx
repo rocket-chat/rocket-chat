@@ -2,29 +2,25 @@ import React from "react";
 import { RocketChatIcon } from "./RocketChatLogo";
 
 /**
- * Exhaust particles. The logo points to the upper right, so the plume leaves its lower left and
- * drifts down and to the left: `d` is how far each travels along that diagonal, `s` how far it
- * strays across it, and the delays stagger them so the plume never looks like a loop.
+ * Exhaust particles. The logo points to the upper right, so the plume leaves the flame at its
+ * lower left and drifts down and to the left along the rocket's axis: `d` is how far each
+ * travels along that diagonal, `s` how far it strays across it, and the delays stagger them so
+ * the plume never looks like a loop. They start behind the logo, so they come out of it.
  */
 const PARTICLES: ReadonlyArray<{ d: string; s: string; delay: string; size: string }> = [
-  { d: "16px", s: "-2px", delay: "0s", size: "h-1 w-1" },
-  { d: "11px", s: "2px", delay: "0.17s", size: "h-[3px] w-[3px]" },
-  { d: "20px", s: "0px", delay: "0.34s", size: "h-1 w-1" },
-  { d: "13px", s: "3px", delay: "0.51s", size: "h-[3px] w-[3px]" },
-  { d: "18px", s: "-3px", delay: "0.68s", size: "h-1 w-1" },
-  { d: "12px", s: "1px", delay: "0.85s", size: "h-[3px] w-[3px]" },
-  { d: "22px", s: "2px", delay: "1.02s", size: "h-[3px] w-[3px]" },
+  { d: "22px", s: "-1px", delay: "0s", size: "h-1 w-1" },
+  { d: "16px", s: "2px", delay: "0.17s", size: "h-[3px] w-[3px]" },
+  { d: "28px", s: "0px", delay: "0.34s", size: "h-1 w-1" },
+  { d: "18px", s: "-2px", delay: "0.51s", size: "h-[3px] w-[3px]" },
+  { d: "25px", s: "2px", delay: "0.68s", size: "h-1 w-1" },
+  { d: "15px", s: "1px", delay: "0.85s", size: "h-[3px] w-[3px]" },
+  { d: "30px", s: "-1px", delay: "1.02s", size: "h-[3px] w-[3px]" },
 ];
 
-/** The logo with a small exhaust plume; the plume is decorative and off for reduced motion. */
+/** The logo, a little larger, with a small exhaust plume; the plume is off for reduced motion. */
 export const RocketLoader: React.FC = () => (
-  <div
-    data-testid="rocket-loader"
-    aria-hidden="true"
-    className="relative flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-md border border-brand/25 bg-brand/10 text-brand"
-  >
-    <RocketChatIcon className="h-3 w-3 motion-safe:animate-rocket-hover" />
-    <span className="pointer-events-none absolute bottom-[5px] left-[5px] motion-reduce:hidden">
+  <div data-testid="rocket-loader" aria-hidden="true" className="relative h-6 w-6 flex-shrink-0">
+    <span className="pointer-events-none absolute left-[7px] top-[16px] z-0 motion-reduce:hidden">
       {PARTICLES.map((particle, index) => (
         <span
           key={index}
@@ -33,5 +29,6 @@ export const RocketLoader: React.FC = () => (
         />
       ))}
     </span>
+    <RocketChatIcon className="relative z-10 h-6 w-6 motion-safe:animate-rocket-hover" />
   </div>
 );

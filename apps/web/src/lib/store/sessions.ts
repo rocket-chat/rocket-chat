@@ -216,6 +216,29 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       if (ticket === latestListing) set({ isLoadingSessions: false });
     }
   },
+  refreshSessionStatuses: async () => {
+    const { sessionsIncludeArchived, sessionsScope } = get();
+    const ticket = latestListing;
+    try {
+      const params = new URLSearchParams({ limit: "50", scope: sessionsScope });
+      if (sessionsIncludeArchived) params.set("archived", "true");
+      const res = await fetch(`/v1/sessions?${params.toString()}`, { signal: AbortSignal.timeout(8000) });
+      if (!res.ok) return;
+      const fresh: unknown = await res.json();
+      // An explicit listing started meanwhile (another scope, a reload) wins.
+      if (ticket !== latestListing || !Array.isArray(fresh)) return;
+      set((state) => {
+        const listed = new Set((fresh as SessionData[]).map((s) => s.session_id));
+        // The first page in the server's order, then the pages already loaded further down: a
+        // refresh must not forget "load more".
+        const loadedLater = state.sessions.filter((s) => !listed.has(s.session_id));
+        const sessions = [...(fresh as SessionData[]), ...loadedLater];
+        return { sessions };
+      });
+    } catch {
+      // The next tick tries again.
+    }
+  },
   loadMoreSessions: async () => {
     const { sessionsNextCursor, sessionsIncludeArchived, sessionsScope, isLoadingSessions } = get();
     if (!sessionsNextCursor || isLoadingSessions) return;

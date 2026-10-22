@@ -53,6 +53,8 @@ export interface SessionsSlice {
   setSessions: (sessions: SessionData[]) => void;
   /** Re-lists page one; arguments left out keep the current archived view and scope. */
   fetchSessions: (includeArchived?: boolean, scope?: SessionsScope) => Promise<void>;
+  /** Re-reads the first page and merges it into the list, so sessions other than the open one show their live status. */
+  refreshSessionStatuses: () => Promise<void>;
   loadMoreSessions: () => Promise<void>;
   initDraftSession: () => SessionData;
   createSessionWithPrompt: (
