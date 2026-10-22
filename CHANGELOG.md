@@ -13,10 +13,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `orchestrator`:
 - `sandboxes`:
 - `api`:
-- `web`: **Channel profiles and the audit log in the cockpit.** A Slack bot's **Channels** tab edits per-channel persona, response mode, sandbox image, allowed tools and house rules instead of raw JSON, and **Settings → Organization → Audit log** reads `GET /v1/admin/audit` with paging and an event-type filter.
+- `web`:
 - `settings`:
 - `git`:
 - `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.6.1] - 2026-10-22
+
+### Added
+- `web`: **Channel profiles and the audit log in the cockpit.** A Slack bot's **Channels** tab edits per-channel persona, response mode, sandbox image, allowed tools and house rules instead of raw JSON, and **Settings → Organization → Audit log** reads `GET /v1/admin/audit` with paging and an event-type filter.
 
 ### Changed
 
