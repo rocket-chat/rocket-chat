@@ -100,7 +100,7 @@ You do not have to wait for the agent to finish. Send a message while it works (
 
 ## Changes
 
-The **Changes** tab lists every file the session changed in each repository, read from the workspace, so it is complete after you reload the page or open the session on another device. Pick **Whole session** (compared with where the work branched from the default branch) or **Latest turn** (compared with the snapshot taken before the turn first changed anything). Select a file for a side-by-side view of the whole file, and **Undo this file** to put it back as it was. Changes need the sandbox to be running; while it sleeps, the tab shows what the agent reported during this visit.
+The **Changes** tab lists every file the session changed in each repository, read from the workspace, so it is complete after you reload the page or open the session on another device. Pick **Whole session** (compared with the code as it was when the session started: what the clone checked out, so a long-lived branch does not list its whole history; a workspace without that record falls back to where the work branched from the default branch) or **Latest turn** (compared with the snapshot taken before the turn first changed anything). Select a file for a side-by-side view of the whole file, and **Undo this file** to put it back as it was. Changes need the sandbox to be running; while it sleeps, the tab shows what the agent reported during this visit.
 
 ## Deliverables
 
