@@ -9,6 +9,8 @@ sandbox, rotating a token takes effect on the next command, and a stopped sandbo
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from specifications.interfaces.sandbox import SESSION_ENV_LAYERS
 
 # Persistent language caches residing on the workspace volume (Item C4).
@@ -27,6 +29,7 @@ class SessionEnvMixin:
 
     _session_env: dict[str, dict[str, str]]
     _session_env_layers: dict[str, dict[str, dict[str, str]]]
+    _session_env_refreshers: dict[str, Callable[[], dict[str, str] | None]]
 
     def _env_store(self) -> dict[str, dict[str, str]]:
         if not hasattr(self, "_session_env"):
@@ -51,9 +54,30 @@ class SessionEnvMixin:
     def clear_session_env(self, session_id: str) -> None:
         self._env_store().pop(session_id, None)
         self._layer_store().pop(session_id, None)
+        self._refresher_store().pop(session_id, None)
+
+    def _refresher_store(self) -> dict[str, Callable[[], dict[str, str] | None]]:
+        if not hasattr(self, "_session_env_refreshers"):
+            self._session_env_refreshers = {}
+        return self._session_env_refreshers
+
+    def set_session_env_refresher(
+        self, session_id: str, refresher: Callable[[], dict[str, str] | None]
+    ) -> None:
+        """Ask ``refresher`` for a new session env before every command; ``None`` keeps the old.
+
+        For credentials that expire during a turn: renewing them only when a turn starts leaves
+        every command after the expiry with a dead one.
+        """
+        self._refresher_store()[session_id] = refresher
 
     def merged_env(self, session_id: str, env: dict[str, str] | None) -> dict[str, str]:
         """Caches, then the session's layers, then the platform's env, then the call's own."""
+        refresher = self._refresher_store().get(session_id)
+        if refresher is not None:
+            renewed = refresher()
+            if renewed is not None:
+                self.set_session_env(session_id, renewed)
         layers = self._layer_store().get(session_id, {})
         merged = dict(DEFAULT_SANDBOX_CACHE_ENV)
         for layer in SESSION_ENV_LAYERS:

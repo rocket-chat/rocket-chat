@@ -32,6 +32,7 @@ from specifications.interfaces.session import SessionStoreProtocol
 logger = logging.getLogger(__name__)
 
 UPLOAD_PACK = "git-upload-pack"
+EXPIRED_MESSAGE = "Invalid or expired git gateway credential"
 
 CONNECT_TIMEOUT_SECONDS = 10.0
 IDLE_TIMEOUT_SECONDS = 300.0
@@ -105,8 +106,12 @@ class GitGateway:
             self.git_engine.settings.github_api_url if self.git_engine else "https://api.github.com"
         )
 
-    async def authorize(self, grant: GitGatewayGrant) -> None:
-        """The session the capability names must still exist in the organization it names."""
+    async def authorize(self, grant: GitGatewayGrant, *, expired: bool = False) -> None:
+        """The session the capability names must still exist in the organization it names.
+
+        An ``expired`` capability (``GatewayCredentialExpired``) is served only while the session
+        has a turn running: a process the turn started may hold a token from before its renewal.
+        """
         tenant = current_tenant_org_id.set(grant.org_id)
         try:
             record = await self.store.get_session(grant.session_id)
@@ -114,6 +119,8 @@ class GitGateway:
             current_tenant_org_id.reset(tenant)
         if record is None or record.tenant_org_id != grant.org_id:
             raise GatewayRefusal(403, "The session this credential belongs to is gone.")
+        if expired and not record.is_processing:
+            raise GatewayRefusal(401, EXPIRED_MESSAGE)
 
     async def credential(self, grant: GitGatewayGrant, repository: str) -> str | None:
         """The App's read token for ``repository``, else the member's token, else none (public)."""

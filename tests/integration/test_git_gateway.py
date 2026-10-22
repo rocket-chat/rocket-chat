@@ -14,6 +14,7 @@ import os
 import pathlib
 import socket
 import subprocess
+import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
@@ -304,6 +305,28 @@ async def test_requests_without_a_valid_capability_are_refused(rig: Rig) -> None
     assert deleted.status_code == 403 and other_org.status_code == 403
     assert bad_path.status_code in (403, 404) and receive.status_code == 403
     assert rig.github.authorizations == [], "nothing reached GitHub"
+
+
+async def test_a_capability_that_just_expired_still_works_for_a_session_with_a_turn_running(
+    rig: Rig,
+) -> None:
+    rig.github.repository("acme/widgets")
+    base = f"http://127.0.0.1:{rig.port}/v1/git/acme/widgets.git/info/refs?service=git-upload-pack"
+    just_expired = git_gateway_token.mint(SESSION, ORG, USER, now=time.time() - 2 * 3600)
+    headers = {CAPABILITY_HEADER: just_expired}
+
+    async with httpx.AsyncClient() as client:
+        idle = await client.get(base, headers=headers)
+        record = await rig.store.get_session(SESSION, ORG)
+        assert record is not None
+        record.is_processing = True
+        await rig.store.update_session(record)
+        working = await client.get(base, headers=headers)
+        forged = await client.get(base, headers={CAPABILITY_HEADER: just_expired + "x"})
+
+    assert idle.status_code == 401 and idle.headers["x-rocket-git-error"] == "capability_expired"
+    assert working.status_code == 200
+    assert forged.status_code == 401, "a bad signature gets no grace"
 
 
 def test_the_sandbox_environment_points_every_github_url_at_the_gateway(
