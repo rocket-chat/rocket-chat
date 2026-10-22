@@ -62,7 +62,9 @@ def main() -> int:
     files = sorted(FRAMES.glob("*.png"), key=lambda f: float(f.stem))
     marks_file = FRAMES / "marks.json"
     if not files or not marks_file.exists():
-        print(f"No recording in {FRAMES}: run `pnpm --filter web docs:demo` first.", file=sys.stderr)
+        print(
+            f"No recording in {FRAMES}: run `pnpm --filter web docs:demo` first.", file=sys.stderr
+        )
         return 1
     marks = json.loads(marks_file.read_text())
     stamps = [float(f.stem) for f in files]
