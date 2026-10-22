@@ -98,7 +98,7 @@ export const RepositorySetupsPanel: React.FC = () => {
                 data-testid="setup-repository"
                 value={draft.repository}
                 onChange={(e) => setDraft({ ...draft, repository: e.target.value })}
-                placeholder="birotaio/backend-services"
+                placeholder="acme/backend-services"
               />
             )}
           </Field>
@@ -123,7 +123,7 @@ export const RepositorySetupsPanel: React.FC = () => {
               className="font-mono text-xs"
               value={draft.command}
               onChange={(e) => setDraft({ ...draft, command: e.target.value })}
-              placeholder={"[ -d _tools ] || vendir sync -l\ngo mod download\nmake base && make mocks"}
+              placeholder={"npm ci\nnpm run generate\nnpm run build"}
             />
           )}
         </Field>

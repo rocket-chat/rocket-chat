@@ -6,11 +6,13 @@ interface RocketChatLogoProps {
   showWordmark?: boolean;
 }
 
-export const RocketChatIcon: React.FC<{ className?: string; size?: number; alt?: string }> = ({
-  className = "w-6 h-6",
-  size = 24,
-  alt = "",
-}) => {
+export const RocketChatIcon: React.FC<{
+  className?: string;
+  size?: number;
+  alt?: string;
+  /** The ship alone: no dark tile behind it and no idle launch, for a rocket in flight. */
+  bare?: boolean;
+}> = ({ className = "w-6 h-6", size = 24, alt = "", bare = false }) => {
   // Several icons can be mounted at once (top bar, sidebar, flight log…); filter ids must be
   // unique per instance or every instance's glow/shadow resolves to whichever copy is first in the DOM.
   const uid = useId();
@@ -31,11 +33,19 @@ export const RocketChatIcon: React.FC<{ className?: string; size?: number; alt?:
   >
     {/* Same artwork as /public/logo.svg, kept in sync by hand: the idle launch below animates
         just the ship group, which an <img>-loaded SVG can't expose to outside CSS. */}
-    <path
-      fill="#07090E"
-      d="M386.327 0H125.673C56.266 0 0 56.266 0 125.673v260.654C0 455.734 56.266 512 125.673 512h260.654C455.734 512 512 455.734 512 386.327V125.673C512 56.266 455.734 0 386.327 0"
-    />
-    <g className="[transform-box:fill-box] [transform-origin:center] animate-rocket-idle-launch">
+    {!bare && (
+      <path
+        fill="#07090E"
+        d="M386.327 0H125.673C56.266 0 0 56.266 0 125.673v260.654C0 455.734 56.266 512 125.673 512h260.654C455.734 512 512 455.734 512 386.327V125.673C512 56.266 455.734 0 386.327 0"
+      />
+    )}
+    <g
+      className={
+        bare
+          ? "[transform-box:fill-box] [transform-origin:center]"
+          : "[transform-box:fill-box] [transform-origin:center] animate-rocket-idle-launch"
+      }
+    >
       <path
         fill="#FF5722"
         d="M154.478 305.366c-42.149 14.05-68.242 60.213-66.235 118.419 58.206 2.007 104.37-24.085 118.419-66.234-24.085 4.014-36.127 4.014-46.163-6.022-10.035-10.035-10.035-22.078-6.021-46.163"

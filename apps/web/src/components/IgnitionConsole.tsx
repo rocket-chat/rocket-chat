@@ -1,5 +1,6 @@
 "use client";
 
+import { launchRocket } from "./LaunchRocket";
 import { useShallow } from "zustand/react/shallow";
 import React, { useState, useRef, useEffect } from "react";
 import { useMissionStore } from "../lib/store";
@@ -111,7 +112,6 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
   }, [composerSeed, clearComposerSeed]);
   const [isModeDropdownOpen, setIsModeDropdownOpen] = useState<boolean>(false);
   const [modelSearchQuery, setModelSearchQuery] = useState<string>("");
-  const [isLaunchingRocket, setIsLaunchingRocket] = useState<boolean>(false);
   const [isThrustPulsing, setIsThrustPulsing] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [caret, setCaret] = useState<number>(0);
@@ -239,8 +239,8 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
       // Trigger cool rocket lift-off on the first user message of a session
       const hasUserMessages = flightLog.some((e) => e.role === "USER");
       if (!hasUserMessages) {
-        setIsLaunchingRocket(true);
-        setTimeout(() => setIsLaunchingRocket(false), 1400);
+        const run = document.querySelector('[data-testid="ignite-button"]')?.getBoundingClientRect();
+        if (run) launchRocket({ x: run.left + run.width / 2, y: run.top + run.height / 2 });
       }
 
       // Trigger thrust pulse on send button
@@ -347,25 +347,6 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
 
   return (
     <div className="relative shrink-0 border-t border-border bg-surface/90 backdrop-blur-md p-3.5 select-none transition-colors">
-      {/* First Message Rocket Launch Lift-off Animation */}
-      {isLaunchingRocket && (
-        <div className="fixed inset-0 pointer-events-none z-50 flex items-center justify-center">
-          <div className="flex flex-col items-center animate-rocket-liftoff">
-            <div className="relative">
-              <div className="w-16 h-16 rounded-2xl bg-primary/20 backdrop-blur-md border border-primary/50 flex items-center justify-center text-primary shadow-2xl shadow-primary/60">
-                <Rocket className="w-9 h-9 -rotate-45 text-primary drop-shadow-[0_0_12px_rgba(249,115,22,0.8)]" />
-              </div>
-              {/* Rocket Exhaust Plume */}
-              <div className="absolute top-full left-1/2 -translate-x-1/2 w-3 h-14 bg-gradient-to-b from-amber-400 via-primary to-transparent rounded-full blur-[2px] animate-pulse" />
-              <div className="absolute top-full left-1/2 -translate-x-1/2 w-7 h-10 bg-gradient-to-b from-orange-500/80 via-transparent to-transparent rounded-full blur-sm" />
-            </div>
-            <div className="mt-6 px-3.5 py-1 rounded-full bg-surface/90 border border-primary/30 text-primary text-xs font-mono tracking-wider font-semibold shadow-lg">
-              IGNITION & LIFTOFF 🚀
-            </div>
-          </div>
-        </div>
-      )}
-
       <div
         data-testid="composer"
         className={`bg-surface-card border rounded-2xl shadow-xl transition-all p-3 ${
