@@ -11,7 +11,7 @@ test("a message sent while the agent works steers the running turn", async ({ pa
     data: { title: "Steering Mission" },
   });
   const sessionId: string = (await created.json()).session_id;
-  const socket = await routeSessionSocket(page, sessionId);
+  const socket = await routeSessionSocket(page, sessionId, { intercept: ["turn"] });
 
   await page.goto(`/chat/${sessionId}`);
   await socket.ready;
