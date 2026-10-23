@@ -65,6 +65,41 @@ async def test_grep_search_reports_no_matches() -> None:
 
 
 @pytest.mark.asyncio
+async def test_grep_search_says_when_ignored_or_hidden_files_hold_the_match() -> None:
+    """A repository's ignore rules made a search look empty while bash grep found the text."""
+    driver = FakeDriver(
+        [
+            ExecResult(1, "", "", 1),
+            ExecResult(0, "/workspace/deployments-system/.argocd/nats.yaml\n", "", 1),
+        ]
+    )
+    out = await tier2.grep_search(driver, "s1", "nats", path="/workspace/deployments-system")
+    assert out.startswith("No matches found")
+    assert "/workspace/deployments-system/.argocd/nats.yaml" in out
+    assert "rg --no-ignore --hidden -e 'nats' '/workspace/deployments-system'" in out
+    probe = driver.commands[1]
+    assert "--no-ignore" in probe and "--hidden" in probe and "'!.git'" in probe
+
+
+@pytest.mark.asyncio
+async def test_grep_search_probe_keeps_the_callers_case_and_glob_and_caps_the_list() -> None:
+    hits = "".join(f"f{i}.yaml\n" for i in range(8))
+    driver = FakeDriver([ExecResult(1, "", "", 1), ExecResult(0, hits, "", 1)])
+    out = await tier2.grep_search(
+        driver, "s1", "NATS", path="deploy", file_glob="*.yaml", case_sensitive=False
+    )
+    assert "--ignore-case" in driver.commands[1] and "-g '*.yaml'" in driver.commands[1]
+    assert "f4.yaml, and more" in out and "f5.yaml" not in out
+
+
+@pytest.mark.asyncio
+async def test_grep_search_plain_no_match_when_nothing_is_skipped_either() -> None:
+    driver = FakeDriver([ExecResult(1, "", "", 1), ExecResult(1, "", "", 1)])
+    out = await tier2.grep_search(driver, "s1", "nope", path="src")
+    assert out == "No matches found for pattern 'nope' in 'src'."
+
+
+@pytest.mark.asyncio
 async def test_grep_search_case_insensitive_flag() -> None:
     driver = FakeDriver([ExecResult(0, "x", "", 1)])
     await tier2.grep_search(driver, "s1", "abc", case_sensitive=False)
