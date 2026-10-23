@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- `orchestrator`, `web`: **The progress indicator no longer repeats the agent's own sentence.** While a step ran tools, the `running` status carried the model's text ("Now let me read the test file…"), so the cockpit showed it twice, once as the step's message and once under the loader, and Slack's status line did the same. The status is now a short action derived from the step's tools (`Reading files...`, `Running a command...`); the model's text stays in the conversation.
 
 ### Security
 
