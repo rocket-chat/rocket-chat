@@ -86,8 +86,9 @@ One status line under the message reads left to right: how closely the agent is 
 
 * **Needs you.** An approval or question waits just above the composer, whatever you scrolled to: **Enter** approves and **Esc** denies (only while you are not typing in the composer).
 * **Progress.** The task list stays pinned above the conversation, folded to the task in progress; a long task's budget shows in the header.
-* **Inspector.** Opens by itself the first time the agent changes a file or starts a process. Its tabs carry counts (files changed, processes running, artifacts), and the terminal stays folded until a command prints.
-* **After each turn,** a summary lists what it did, with **Review changes** and, when it opened one, **Open pull request**.
+* **Inspector.** Opens by itself the first time the agent changes a file or starts a process, unless you have closed it before: your last choice (open or closed) is remembered in this browser, and once you have closed the panel only you open it again. Its tabs carry counts (files changed, processes running, artifacts), and the terminal stays folded until a command prints.
+* **After each turn,** a summary lists what it did, with **Review changes** and a button for each pull request that turn opened or worked on, named by repository and number (`acme/api#7`). Pull requests of earlier turns of the session wait behind *N other pull requests in this session*, so a session that handles several stays readable.
+* **Waits.** When the agent waits for CI, a review, a process or a timer, one line says what it waits for. For a pull request it names it, shows the latest GitHub event on it (for example *2 of 3 checks passed*) and has an **Open PR** button. The same line settles in place when the wait ends (done, failed or timed out) instead of adding a second one.
 * The **View** menu holds Deliverables, Turn history, Memory, the theme and Settings; **Share** is next to it.
 
 ## Watching a command run

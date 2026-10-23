@@ -113,7 +113,8 @@ test.describe("Long Session UI & Virtualization", () => {
     await searchInput.fill("durable wait");
     const waitingCard = page.getByTestId("waiting-card");
     await expect(waitingCard).toBeVisible();
-    await expect(waitingCard).toContainText(/Durable wait/i);
+    await expect(waitingCard).toContainText("Waited for CI checks");
+    await expect(waitingCard).toContainText("acme/api#42");
 
     // Clear search and scroll to top to verify row virtualizer windowing
     await searchInput.fill("");

@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `web`: **Waits are one inline line instead of a block.** A wait for CI, a review, a process or a timer shows what it waits for, the pull request it is about (named `owner/repo#N`, with an **Open PR** button that uses the host the session already used) and, while it waits, the latest GitHub event seen on that pull request. The same line settles in place when the wait ends (done, failed, timed out) rather than adding a second one.
+- `web`: **A session that handles several pull requests names each one.** The turn summary shows a button per pull request of the turn (`acme/api#7`, the latest highlighted) instead of one anonymous *Open pull request*; those of earlier turns stay behind a *N other pull requests in this session* disclosure. Only the tools that open or work on a pull request count, not a URL that turns up in a log.
+- `web`: **The right panel keeps the person's choice.** It still opens by itself the first time the agent changes a file or starts a process, but once you close it (or open it), that choice is remembered in the browser and it no longer opens by itself after you closed it, including in other sessions.
 
 ### Fixed
 - `orchestrator`, `web`: **The progress indicator no longer repeats the agent's own sentence.** While a step ran tools, the `running` status carried the model's text ("Now let me read the test file…"), so the cockpit showed it twice, once as the step's message and once under the loader, and Slack's status line did the same. The status is now a short action derived from the step's tools (`Reading files...`, `Running a command...`); the model's text stays in the conversation.
