@@ -7,7 +7,7 @@ const TERMINAL_KEEP_CHARS = 300_000;
 const LIVE_OUTPUT_TAIL_CHARS = 6_000;
 const DEDUPE_WINDOW = 200;
 
-export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> = (set) => ({
+export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> = (set, get) => ({
   connected: false,
   statusMessage: "System Ready. Standing by for instructions.",
   isExecuting: false,
@@ -80,6 +80,17 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
       }
       return state;
     }),
+  updateWait: (waitId, data) => {
+    const index = get().flightLog.findLastIndex((item) => item.wait?.waitId === waitId);
+    if (index < 0) return false;
+    set((state) => {
+      const logs = [...state.flightLog];
+      const item = logs[index];
+      if (item?.wait) logs[index] = { ...item, wait: { ...item.wait, ...data } };
+      return { flightLog: logs };
+    });
+    return true;
+  },
   appendFlightLog: (entry) =>
     set((state) => {
       // The same event applied twice (a replay overlapping a snapshot) must not show twice.

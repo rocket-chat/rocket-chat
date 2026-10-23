@@ -13,6 +13,7 @@ import { CompactionCard, isCompactionMessage } from "./CompactionCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { TaskChecklist } from "./TaskChecklist";
 import { TurnSummaryCard } from "./TurnSummaryCard";
+import { WaitCard, waitOf } from "./WaitCard";
 import { FlightLogEntry, TurnBinding } from "../types/mission";
 import { RocketChatIcon } from "./RocketChatLogo";
 import { RocketLoader } from "./RocketLoader";
@@ -22,11 +23,9 @@ import {
   AlertTriangle,
   ArrowDown,
   Check,
-  Clock,
   Copy,
   FileText,
   GitFork,
-  GitPullRequest,
   Info,
   RefreshCw,
   Search,
@@ -338,6 +337,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
 
     // SYSTEM MESSAGE: Clean pill or special card
     if (item.type === "system") {
+      if (waitOf(item.entry)) return <WaitCard key={item.entry.id} entry={item.entry} />;
       const content = item.entry.content;
       const lower = content.toLowerCase();
 
@@ -359,44 +359,6 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
                   </span>
                 </div>
                 <span className="text-[10px] font-mono text-sky-400/80">Multi-Turn Resumed</span>
-              </div>
-              <div className="text-xs text-neutral-300 leading-relaxed font-sans">
-                <MarkdownRenderer content={content} />
-              </div>
-            </div>
-          </div>
-        );
-      }
-
-      // Durable Wait Card
-      if (lower.includes("waiting for") || lower.includes("wait started") || lower.includes("durable wait")) {
-        const isCi = lower.includes("ci_status") || lower.includes("check") || lower.includes("ci ");
-        const isReview = lower.includes("review");
-        return (
-          <div key={item.entry.id} data-testid="waiting-card" className="flex justify-center my-3">
-            <div className="w-full max-w-xl rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5 space-y-2 text-foreground shadow-sm">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  {isCi ? (
-                    <GitPullRequest className="w-4 h-4 text-amber-400 shrink-0" />
-                  ) : (
-                    <Clock className="w-4 h-4 text-amber-400 shrink-0" />
-                  )}
-                  <span className="font-semibold text-xs text-amber-300 uppercase tracking-wide">
-                    {isCi ? "CI Status Gate" : isReview ? "PR Review Gate" : "Durable Wait"}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/20 px-2 py-0.5 text-[10px] font-mono font-medium text-amber-300 border border-amber-500/30">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
-                    Waiting for external event
-                  </span>
-                  {item.entry.timestamp && (
-                    <span suppressHydrationWarning className="text-[10px] font-mono text-neutral-500/70">
-                      {item.entry.timestamp}
-                    </span>
-                  )}
-                </div>
               </div>
               <div className="text-xs text-neutral-300 leading-relaxed font-sans">
                 <MarkdownRenderer content={content} />

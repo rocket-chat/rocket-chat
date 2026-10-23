@@ -532,6 +532,12 @@ export class MissionWebSocket {
           role: "SYSTEM",
           content: `GitHub ${target}: ${headline}${payload.woke ? " — the agent is picking it up" : ""}`,
           timestamp: eventTime,
+          githubEvent: {
+            target,
+            headline,
+            outcome: String(payload.outcome || ""),
+            url: String(payload.url || ""),
+          },
         });
         break;
       }
@@ -757,12 +763,16 @@ export class MissionWebSocket {
       }
 
       case "wait_started": {
-        const reason = payload.reason || (typeof payload.target === "string" ? payload.target : "") || "Waiting for external event";
+        const waitId = typeof payload.wait_id === "string" ? payload.wait_id : `wait-${eventKey}`;
+        const waitType = typeof payload.wait_type === "string" ? payload.wait_type : "time";
+        const target = typeof payload.target === "string" ? payload.target : "";
+        const timeoutSeconds = typeof payload.timeout_seconds === "number" ? payload.timeout_seconds : null;
+        const reason = payload.reason || target || "Waiting for external event";
         store.setActiveWait({
-          wait_id: typeof payload.wait_id === "string" ? payload.wait_id : `wait-${eventKey}`,
-          wait_type: typeof payload.wait_type === "string" ? payload.wait_type : "time",
-          target: typeof payload.target === "string" ? payload.target : "",
-          timeout_seconds: typeof payload.timeout_seconds === "number" ? payload.timeout_seconds : null,
+          wait_id: waitId,
+          wait_type: waitType,
+          target,
+          timeout_seconds: timeoutSeconds,
           reason: typeof payload.reason === "string" ? payload.reason : null,
         });
         store.appendFlightLog({
@@ -770,6 +780,14 @@ export class MissionWebSocket {
           role: "SYSTEM",
           content: `Waiting for condition: ${reason}`,
           timestamp: eventTime,
+          wait: {
+            waitId,
+            waitType,
+            target,
+            sha: typeof payload.sha === "string" ? payload.sha : undefined,
+            timeoutSeconds,
+            status: "waiting",
+          },
         });
         break;
       }
@@ -777,11 +795,26 @@ export class MissionWebSocket {
       case "wait_completed": {
         store.setActiveWait(null);
         const summary = payload.summary || "External condition satisfied";
+        const waitId = typeof payload.wait_id === "string" ? payload.wait_id : "";
+        const settled = {
+          status: typeof payload.status === "string" ? payload.status : "completed",
+          summary,
+        };
+        // The wait's own card settles in place; a completion whose start this tab never saw
+        // (a snapshot began after it) gets a card of its own.
+        if (waitId && useMissionStore.getState().updateWait(waitId, settled)) break;
         store.appendFlightLog({
           id: `wait-done-${eventKey}`,
           role: "SYSTEM",
           content: `Wait completed: ${summary}`,
           timestamp: eventTime,
+          wait: {
+            waitId: waitId || `wait-done-${eventKey}`,
+            waitType: typeof payload.wait_type === "string" ? payload.wait_type : "time",
+            target: typeof payload.target === "string" ? payload.target : "",
+            timeoutSeconds: null,
+            ...settled,
+          },
         });
         break;
       }

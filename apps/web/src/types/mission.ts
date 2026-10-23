@@ -300,6 +300,31 @@ export interface FlightLogEntry {
    * append the answer to itself after a reconnect whose snapshot already carried it.
    */
   isPersisted?: boolean;
+  /** A durable wait the agent registered: one card that settles in place when the wait ends. */
+  wait?: WaitEntry;
+  /** A GitHub event on a followed pull request, kept apart so a wait card can show the latest. */
+  githubEvent?: GithubEventEntry;
+}
+
+export interface WaitEntry {
+  waitId: string;
+  waitType: string;
+  /** `owner/repo#42` for a GitHub wait, seconds for a timer, the process for an exit. */
+  target: string;
+  /** The commit whose checks are awaited. */
+  sha?: string;
+  timeoutSeconds: number | null;
+  /** `waiting` until the server settles it, then the server's own status (completed, timeout…). */
+  status: string;
+  summary?: string | null;
+}
+
+export interface GithubEventEntry {
+  /** `owner/repo#42`, or the repository alone for a branch. */
+  target: string;
+  headline: string;
+  outcome: string;
+  url: string;
 }
 
 /** One persisted turn trace as returned by `GET /v1/sessions/{id}/turns`. */
