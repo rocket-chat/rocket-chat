@@ -60,6 +60,7 @@ from agent_core.standing import (
     skills_at_turn_start,
     skills_missing_from,
 )
+from agent_core.step_status import describe_step
 from agent_core.subagents import SubagentRunner
 from agent_core.summarizer import model_summarizer
 from agent_core.tool_loading import ALWAYS_LOADED, ESSENTIAL_TOOLS, catalogue, deferred_names
@@ -1798,10 +1799,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
             await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
             return True
-        if assistant_text and assistant_text.strip():
-            await self._emit_status(
-                run, OrchestratorState.RUNNING, "running", assistant_text.strip()
-            )
+        await self._emit_status(
+            run, OrchestratorState.RUNNING, "running", describe_step(tool_calls)
+        )
         await self.dispatcher.execute_tool_calls(
             run.session_id,
             tool_calls,
