@@ -1,4 +1,5 @@
 import type { FlightLogEntry } from "../types/mission";
+import { collectPullRequests, type PullRequestRef } from "./pull-requests";
 
 export interface TurnSummary {
   edits: number;
@@ -6,20 +7,24 @@ export interface TurnSummary {
   checks: number;
   failed: number;
   durationMs: number;
-  pullRequest: string | null;
+  /** The pull requests this turn's tools reported, the latest last. */
+  pullRequests: PullRequestRef[];
 }
 
 const EDIT_TOOLS = new Set(["file_write", "file_edit", "apply_patch", "apply_diff_file"]);
 const CHECK_TOOLS = new Set(["run_tests", "lint", "typecheck", "build"]);
-const PR_URL = /https:\/\/[^\s)]+\/pull\/\d+/;
 
 /** What the latest turn did, counted from its steps (back to the person's last message). */
 export function summariseLastTurn(log: FlightLogEntry[]): TurnSummary | null {
-  const summary: TurnSummary = { edits: 0, commands: 0, checks: 0, failed: 0, durationMs: 0, pullRequest: null };
+  const summary: TurnSummary = { edits: 0, commands: 0, checks: 0, failed: 0, durationMs: 0, pullRequests: [] };
   let seen = 0;
+  let turnStart = 0;
   for (let index = log.length - 1; index >= 0; index--) {
     const entry = log[index];
-    if (entry.role === "USER") break;
+    if (entry.role === "USER") {
+      turnStart = index + 1;
+      break;
+    }
     const call = entry.toolCall;
     if (!call) continue;
     seen += 1;
@@ -28,9 +33,7 @@ export function summariseLastTurn(log: FlightLogEntry[]): TurnSummary | null {
     else if (call.name === "bash_exec") summary.commands += 1;
     if (call.status === "error") summary.failed += 1;
     summary.durationMs += call.duration_ms ?? 0;
-    if (!summary.pullRequest && typeof call.result === "string") {
-      summary.pullRequest = PR_URL.exec(call.result)?.[0] ?? null;
-    }
   }
+  summary.pullRequests = collectPullRequests(log.slice(turnStart));
   return seen === 0 || summary.edits + summary.commands + summary.checks === 0 ? null : summary;
 }
