@@ -414,8 +414,63 @@ async def grep_search(
     result = await driver.exec_command(session_id=session_id, command=command, timeout_seconds=60)
     output = (result.stdout or "").strip()
     if not output:
-        return f"No matches found for pattern {pattern!r} in {path!r}."
+        return await _no_match_message(
+            driver,
+            session_id,
+            pattern,
+            path,
+            quoted_pattern,
+            quoted_path,
+            file_glob,
+            case_sensitive,
+        )
     return clamp_output(output)
+
+
+# Files listed when ripgrep's filters hid the only matches; more than this says "and more".
+_SKIPPED_SHOWN = 5
+
+
+async def _no_match_message(
+    driver: SandboxDriverProtocol,
+    session_id: str,
+    pattern: str,
+    path: str,
+    quoted_pattern: str,
+    quoted_path: str,
+    file_glob: str | None,
+    case_sensitive: bool,
+) -> str:
+    """ "No matches", unless ripgrep's own filters hid some.
+
+    ripgrep skips hidden files and whatever a ``.gitignore``/``.ignore`` excludes, which ``grep
+    -r`` does not read past. A repository that ignores the directory the agent is looking for
+    (generated manifests, vendored charts) made a search look empty while ``bash grep`` found
+    the text, and an agent took "No matches" for "it does not exist here".
+    """
+    plain = f"No matches found for pattern {pattern!r} in {path!r}."
+    flags = ["--files-with-matches", "--color=never", "--no-ignore", "--hidden", "-g", "'!.git'"]
+    if not case_sensitive:
+        flags.append("--ignore-case")
+    if file_glob:
+        flags += ["-g", _sh_quote(file_glob)]
+    probe = " ".join(["rg", *flags, "-e", quoted_pattern, quoted_path])
+    result = await driver.exec_command(
+        session_id=session_id,
+        command=f"command -v rg >/dev/null 2>&1 && {probe} 2>/dev/null | head -n {_SKIPPED_SHOWN + 1}",
+        timeout_seconds=60,
+    )
+    skipped = [line for line in (result.stdout or "").splitlines() if line.strip()]
+    if not skipped:
+        return plain
+    listed = ", ".join(skipped[:_SKIPPED_SHOWN]) + (
+        ", and more" if len(skipped) > _SKIPPED_SHOWN else ""
+    )
+    return (
+        f"{plain}\nBut files that this search skips do match: {listed}. It skips hidden files and "
+        "those a .gitignore or .ignore excludes. To search them, run in bash_exec: "
+        f"rg --no-ignore --hidden -e {quoted_pattern} {quoted_path}"
+    )
 
 
 GLOB_LIMIT = 500
