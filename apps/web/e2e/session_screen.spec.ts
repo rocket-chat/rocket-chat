@@ -122,3 +122,32 @@ test.describe("Session screen on a phone", () => {
     await expect(page.getByTestId("view-menu-trigger")).toBeVisible();
   });
 });
+
+test.describe("The right panel keeps the person's choice", () => {
+  const change = { path: "src/a.py", diff_content: "@@ -1 +1 @@\n-a\n+b\n", additions: 1, deletions: 1, is_new_file: false };
+
+  test("a panel the person closed is not opened again by the next change", async ({ page, request }) => {
+    const { socket } = await openSession(page, request);
+    await page.getByTestId("right-panel-toggle").click();
+    await expect(page.getByTestId("terminal-toggle")).toBeVisible();
+    await page.getByTestId("right-panel-toggle").click();
+    await expect(page.getByTestId("terminal-toggle")).toHaveCount(0);
+
+    socket.emit("file_diff", change);
+    socket.emit("process_started", { process_id: "p1", name: "dev", command: "npm run dev", state: "running", port: 3000 });
+    // The change is counted, but nothing slides in: the panel stays closed.
+    await expect(page.getByTestId("tab-changes")).toHaveCount(0);
+    await expect(page.getByTestId("terminal-toggle")).toHaveCount(0);
+
+    // And the choice outlives the page: a new session does not reopen it either.
+    const { socket: next } = await openSession(page, request);
+    next.emit("file_diff", change);
+    await expect(page.getByTestId("tab-changes")).toHaveCount(0);
+  });
+
+  test("a panel nobody chose about still opens once on the first change", async ({ page, request }) => {
+    const { socket } = await openSession(page, request);
+    socket.emit("file_diff", change);
+    await expect(page.getByTestId("tab-changes")).toBeVisible({ timeout: 10000 });
+  });
+});
