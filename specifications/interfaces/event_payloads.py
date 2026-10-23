@@ -35,6 +35,8 @@ class StatusPayload(TypedDict):
 
     status: NotRequired[str]
     state: NotRequired[str]
+    # While a step runs tools, "running" carries a short action derived from the tool names
+    # (``agent_core.step_status``); the model's own text travels as ``token`` events.
     message: NotRequired[str]
     error: NotRequired[str]
     final: NotRequired[bool]

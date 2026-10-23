@@ -13,8 +13,11 @@ import type {
   SessionData,
   SubagentExecutionData,
   ToolCallData,
+  WaitEntry,
   WaitStartedPayload,
 } from "../../types/mission";
+
+export type InspectorPreference = "open" | "closed" | null;
 
 export interface GoalSummary {
   status: string;
@@ -179,6 +182,8 @@ export interface StreamSlice {
   setTokenRate: (rate: number) => void;
   updateToolCall: (nameOrId: string, data: Partial<ToolCallData>) => void;
   updateSubagent: (subagentId: string, data: Partial<SubagentExecutionData>) => void;
+  /** Settle a wait's card in place; false when the log holds no card for that wait. */
+  updateWait: (waitId: string, data: Partial<WaitEntry>) => boolean;
   artifacts: ArtifactItem[];
   upsertArtifact: (artifact: ArtifactItem) => void;
   setArtifacts: (artifacts: ArtifactItem[]) => void;
@@ -232,6 +237,8 @@ export interface LayoutSlice {
   inspectorTab: InspectorTab;
   setInspectorTab: (tab: InspectorTab) => void;
   /** Whether the app already opened the inspector by itself for this session (it does so once). */
+  /** What the person last chose for the right panel; null until they choose. */
+  inspectorPreference: InspectorPreference;
   inspectorAutoOpened: boolean;
   /** Opens the inspector on `tab` the first time something worth seeing happens (wide screens only). */
   autoOpenInspector: (tab: InspectorTab) => void;
