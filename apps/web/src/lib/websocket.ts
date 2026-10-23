@@ -533,7 +533,7 @@ export class MissionWebSocket {
           content: `GitHub ${target}: ${headline}${payload.woke ? " — the agent is picking it up" : ""}`,
           timestamp: eventTime,
           githubEvent: {
-            target,
+            target: String(target),
             headline,
             outcome: String(payload.outcome || ""),
             url: String(payload.url || ""),
