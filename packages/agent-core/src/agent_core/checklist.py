@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from specifications.interfaces.llm import ChatMessage
@@ -18,6 +18,55 @@ from specifications.interfaces.llm import ChatMessage
 TOOL_NAME = "update_task_checklist"
 OPEN_STATUSES = frozenset({"pending", "in_progress"})
 STALE_AFTER_STEPS = 20
+
+_CHECKBOX_PATTERN = re.compile(r"^\s*-\s*\[([ xX~-])\]\s*(.+)$", re.MULTILINE)
+_STATUS_SUFFIX_PATTERN = re.compile(r"\s*[\(\[](in[- ]progress|failed)[\)\]]", flags=re.IGNORECASE)
+
+
+def tasks_to_plan_markdown(tasks: Sequence[Mapping[str, Any]]) -> str:
+    """Format checklist tasks into standard markdown checkboxes for .rocket/PLAN.md."""
+    lines = ["# Task Plan", ""]
+    for task in tasks:
+        title = task.get("title") or task.get("id") or "Untitled task"
+        status = str(task.get("status", "pending")).lower()
+        check = "x" if status == "completed" else " "
+        status_suffix = ""
+        if status == "in_progress":
+            status_suffix = " (in progress)"
+        elif status == "failed":
+            status_suffix = " (failed)"
+        lines.append(f"- [{check}] {title}{status_suffix}")
+    return "\n".join(lines) + "\n"
+
+
+def parse_plan_markdown(markdown_text: str) -> list[dict[str, Any]]:
+    """Parse markdown checkbox items from .rocket/PLAN.md into checklist tasks."""
+    tasks: list[dict[str, Any]] = []
+    idx = 1
+    for match in _CHECKBOX_PATTERN.finditer(markdown_text):
+        mark = match.group(1).strip()
+        raw_title = match.group(2).strip()
+
+        status = "pending"
+        if mark in ("x", "X"):
+            status = "completed"
+        elif (
+            mark in ("~", "-") or "(failed)" in raw_title.lower() or "[failed]" in raw_title.lower()
+        ):
+            status = "failed"
+        elif "(in progress)" in raw_title.lower() or "(in-progress)" in raw_title.lower():
+            status = "in_progress"
+
+        cleaned_title = _STATUS_SUFFIX_PATTERN.sub("", raw_title).strip()
+        tasks.append(
+            {
+                "id": str(idx),
+                "title": cleaned_title or raw_title,
+                "status": status,
+            }
+        )
+        idx += 1
+    return tasks
 
 
 def latest_tasks(conversation: Sequence[ChatMessage]) -> list[dict[str, Any]]:

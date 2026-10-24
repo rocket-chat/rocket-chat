@@ -306,15 +306,39 @@ class ContextManager:
         """Everything the request sends (see ``llm_gateway.tokens.request_tokens``)."""
         return request_tokens(model, messages, tools)
 
+    def _prune_single_message(
+        self, msg: ChatMessage, names: dict[str, str]
+    ) -> tuple[ChatMessage, int]:
+        """Prune one message if eligible, returning (new_msg, chars_freed)."""
+        if msg.role == "tool" and is_skill_result(
+            names.get(msg.tool_call_id or "", ""), msg.content
+        ):
+            return msg, 0
+        if msg.role == "tool" and msg.content:
+            lines = msg.content.splitlines()
+            if len(lines) > 5 or len(msg.content) > 300:
+                receipt = _result_receipt(msg.content, names.get(msg.tool_call_id or "", ""))
+                return replace(msg, content=receipt), max(0, len(msg.content) - len(receipt))
+            return msg, 0
+        if msg.role == "assistant" and msg.tool_calls:
+            pruned_calls = _prune_arguments(msg.tool_calls)
+            if pruned_calls != msg.tool_calls:
+                before_len = sum(len(str(c)) for c in msg.tool_calls)
+                after_len = sum(len(str(c)) for c in pruned_calls)
+                return replace(msg, tool_calls=pruned_calls), max(0, before_len - after_len)
+        return msg, 0
+
     def prune_tool_payloads(
         self,
         messages: list[ChatMessage],
         recent_turns_to_preserve: int | None = None,
+        target_chars_to_free: int | None = None,
     ) -> list[ChatMessage]:
         """
         Tier 2 Compaction: Replace verbose tool results and the large arguments of older calls
         (a file written, a patch, an artifact) with compact receipts.
-        Preserves assistant thoughts, user prompts, and exact message order / tool_call_id parity.
+        When target_chars_to_free is set, prunes oldest step groups forward until the target
+        savings are met so large-context models retain recent unpruned steps down to target_prune_ratio.
         """
         preserve_count = (
             recent_turns_to_preserve
@@ -326,25 +350,25 @@ class ContextManager:
             return list(messages)
         names = _tool_names(messages)
         pruned_messages: list[ChatMessage] = []
+        freed_chars = 0
+        stop_pruning = False
 
         for idx, msg in enumerate(messages):
             if idx >= split_index:
                 pruned_messages.append(msg)
-            elif msg.role == "tool" and is_skill_result(
-                names.get(msg.tool_call_id or "", ""), msg.content
+                continue
+            if (
+                target_chars_to_free is not None
+                and freed_chars >= target_chars_to_free
+                and msg.role == "assistant"
             ):
+                stop_pruning = True
+            if stop_pruning:
                 pruned_messages.append(msg)
-            elif msg.role == "tool" and msg.content:
-                lines = msg.content.splitlines()
-                if len(lines) > 5 or len(msg.content) > 300:
-                    receipt = _result_receipt(msg.content, names.get(msg.tool_call_id or "", ""))
-                    pruned_messages.append(replace(msg, content=receipt))
-                else:
-                    pruned_messages.append(msg)
-            elif msg.role == "assistant" and msg.tool_calls:
-                pruned_messages.append(replace(msg, tool_calls=_prune_arguments(msg.tool_calls)))
-            else:
-                pruned_messages.append(msg)
+                continue
+            new_msg, freed = self._prune_single_message(msg, names)
+            freed_chars += freed
+            pruned_messages.append(new_msg)
 
         return pruned_messages
 
@@ -356,8 +380,41 @@ class ContextManager:
             return None
         return boundaries[-steps]
 
+    def _recent_start_by_budget(
+        self,
+        messages: list[ChatMessage],
+        max_tail_tokens: int = 24_000,
+        min_turns: int = 2,
+        max_turns: int = 64,
+    ) -> int | None:
+        """Where the recent tail begins, accumulating whole step groups up to max_tail_tokens."""
+        boundaries = [i for i, message in enumerate(messages) if message.role == "assistant"]
+        if len(boundaries) <= min_turns:
+            return None
+
+        accumulated_chars = 0
+        target_chars = max_tail_tokens * 4
+        chosen_steps = min_turns
+
+        for step_idx in range(1, min(len(boundaries), max_turns + 1)):
+            start_i = boundaries[-step_idx]
+            end_i = boundaries[-step_idx + 1] if step_idx > 1 else len(messages)
+            step_chars = sum(
+                len(m.content or "") + sum(len(str(c)) for c in (m.tool_calls or []))
+                for m in messages[start_i:end_i]
+            )
+            if step_idx > min_turns and (accumulated_chars + step_chars) > target_chars:
+                break
+            accumulated_chars += step_chars
+            chosen_steps = step_idx
+
+        return boundaries[-chosen_steps]
+
     def _partition(
-        self, messages: list[ChatMessage], recent_turns_to_preserve: int | None
+        self,
+        messages: list[ChatMessage],
+        recent_turns_to_preserve: int | None = None,
+        max_tail_tokens: int | None = None,
     ) -> tuple[list[ChatMessage], list[ChatMessage], list[ChatMessage]] | None:
         """Split into (anchors, compactable middle, preserved tail).
 
@@ -365,12 +422,15 @@ class ContextManager:
         thing the person asked), never the session's first message: in a long session that is
         an old question, and compacting the current one away would lose the goal.
         """
-        steps = (
-            recent_turns_to_preserve
-            if recent_turns_to_preserve is not None
-            else self.recent_turns_to_preserve
-        )
-        tail_start = self._recent_start(messages, steps)
+        if max_tail_tokens is not None and recent_turns_to_preserve is None:
+            tail_start = self._recent_start_by_budget(messages, max_tail_tokens=max_tail_tokens)
+        else:
+            steps = (
+                recent_turns_to_preserve
+                if recent_turns_to_preserve is not None
+                else self.recent_turns_to_preserve
+            )
+            tail_start = self._recent_start(messages, steps)
         if tail_start is None:
             return None
         lead = 0
@@ -446,6 +506,19 @@ class ContextManager:
             parts.append(f"Working Plan (.rocket/PLAN.md):\n{working_plan}")
         if progress_md:
             parts.append(f"Working Progress (.rocket/PROGRESS.md):\n{progress_md}")
+        steering = [
+            m.content.strip()
+            for m in middle
+            if m.role == "user"
+            and getattr(m, "name", None) == "user_steering"
+            and m.content
+            and m.content.strip()
+        ]
+        if steering:
+            parts.append(
+                "Active mid-turn steering from user:\n"
+                + "\n".join(f"- {text}" for text in steering)
+            )
         return ChatMessage(role="user", content=render_notes(parts))
 
     async def _compact(
@@ -455,9 +528,14 @@ class ContextManager:
         recent_turns_to_preserve: int | None,
         working_plan: str | None,
         progress_md: str | None,
+        max_tail_tokens: int | None = None,
     ) -> _Compaction | None:
         """The one compaction both entry points use: anchors kept, the middle summarised."""
-        parts = self._partition(messages, recent_turns_to_preserve)
+        parts = self._partition(
+            messages,
+            recent_turns_to_preserve=recent_turns_to_preserve,
+            max_tail_tokens=max_tail_tokens,
+        )
         if parts is None:
             return None
         head, middle, tail = parts
@@ -474,11 +552,17 @@ class ContextManager:
         recent_turns_to_preserve: int | None = None,
         working_plan: str | None = None,
         progress_md: str | None = None,
+        max_tail_tokens: int | None = None,
     ) -> list[ChatMessage]:
         """Tier 3: anchors kept, the middle replaced by a bridge (with a model-written summary
         when ``summarize`` is given, and when it fails the bridge alone)."""
         compaction = await self._compact(
-            messages, summarize, recent_turns_to_preserve, working_plan, progress_md
+            messages,
+            summarize,
+            recent_turns_to_preserve,
+            working_plan,
+            progress_md,
+            max_tail_tokens=max_tail_tokens,
         )
         return list(messages) if compaction is None else compaction.composed
 
@@ -539,9 +623,11 @@ class ContextManager:
         tokens = max(counted, measured_tokens)
         tokens_before = tokens
 
-        # Tier 2 check (> 70%)
+        # Tier 2 check (> 70%): batch-prune oldest payloads down to target_prune_ratio (45%)
         if tokens >= threshold(limit, self.tier2_threshold_ratio, reserve_tokens):
-            messages = self.prune_tool_payloads(messages)
+            target_after = int(limit * self.target_prune_ratio)
+            target_chars = max(0, (tokens - target_after) * 4)
+            messages = self.prune_tool_payloads(messages, target_chars_to_free=target_chars)
             pruned = self.count_tokens(model, messages, tools)
             tokens = max(pruned, measured_tokens - (counted - pruned))
 
@@ -549,8 +635,18 @@ class ContextManager:
         if self.should_compact_tier3(
             tokens, limit, step, last_compaction_step, force_compaction, reserve_tokens
         ):
+            max_tail = (
+                None
+                if force_compaction
+                else min(80_000, max(4_000, int(limit * self.target_summary_ratio)))
+            )
             compaction = await self._compact(
-                messages, summarize, self.recent_turns_to_preserve, working_plan, progress_md
+                messages,
+                summarize,
+                self.recent_turns_to_preserve if force_compaction else None,
+                working_plan,
+                progress_md,
+                max_tail_tokens=max_tail,
             )
             if compaction is not None:
                 lead = 0
@@ -713,10 +809,14 @@ def _earlier_requests(middle: list[ChatMessage]) -> list[str]:
 
 
 def _current_request(messages: list[ChatMessage]) -> int | None:
-    """Index of the latest message the person wrote (engine reminders are not theirs)."""
+    """Index of the turn-opening message the person wrote (engine reminders and steering notes are skipped)."""
     for index in range(len(messages) - 1, -1, -1):
         message = messages[index]
-        if message.role == "user" and not (message.content or "").startswith(REMINDER_OPEN):
+        if (
+            message.role == "user"
+            and not (message.content or "").startswith(REMINDER_OPEN)
+            and getattr(message, "name", None) != "user_steering"
+        ):
             return index
     return None
 

@@ -954,6 +954,45 @@
         "title": "CheckpointResponse",
         "type": "object"
       },
+      "CompactSessionResponse": {
+        "properties": {
+          "compacted_messages_count": {
+            "default": 0,
+            "title": "Compacted Messages Count",
+            "type": "integer"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tokens_after": {
+            "default": 0,
+            "title": "Tokens After",
+            "type": "integer"
+          },
+          "tokens_before": {
+            "default": 0,
+            "title": "Tokens Before",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "CompactSessionResponse",
+        "type": "object"
+      },
       "CompactionSummaryResponse": {
         "properties": {
           "boundary_seq": {
@@ -7064,6 +7103,25 @@
             "minLength": 1,
             "title": "Prompt",
             "type": "string"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "minimal",
+                  "low",
+                  "medium",
+                  "high"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Override reasoning effort for this turn ('none', 'minimal', 'low', 'medium', 'high')",
+            "title": "Reasoning Effort"
           }
         },
         "required": [
@@ -11948,9 +12006,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Trigger Session Compaction V1 Sessions  Session Id  Compact Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CompactSessionResponse"
                 }
               }
             },

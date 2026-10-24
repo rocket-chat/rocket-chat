@@ -146,7 +146,8 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
     messageId?: string,
     attachmentIds?: string[],
     delivery: "steer" | "queue" = "steer",
-    files?: File[]
+    files?: File[],
+    reasoningEffort?: string
   ) => {
     if (isDraft) {
       const newSession = await createSessionWithPrompt(prompt, model, messageId, files);
@@ -155,7 +156,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
       }
       return;
     }
-    wsRef.current?.sendTurn(prompt, model, messageId, attachmentIds, delivery);
+    wsRef.current?.sendTurn(prompt, model, messageId, attachmentIds, delivery, reasoningEffort);
   };
 
   const handleCancelPending = (messageId: string) => {

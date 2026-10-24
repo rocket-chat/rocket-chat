@@ -112,3 +112,64 @@ def test_org_settings_role_permissions() -> None:
             ).status_code
             == 403
         )
+
+
+def test_plan_markdown_roundtrip() -> None:
+    from agent_core.checklist import parse_plan_markdown, tasks_to_plan_markdown
+
+    tasks = [
+        {"id": "1", "title": "Explore codebase", "status": "completed"},
+        {"id": "2", "title": "Implement feature", "status": "in_progress"},
+        {"id": "3", "title": "Write unit tests", "status": "pending"},
+        {"id": "4", "title": "Legacy approach", "status": "failed"},
+    ]
+    md = tasks_to_plan_markdown(tasks)
+    assert "- [x] Explore codebase" in md
+    assert "- [ ] Implement feature (in progress)" in md
+    assert "- [ ] Write unit tests" in md
+    assert "- [ ] Legacy approach (failed)" in md
+
+    parsed = parse_plan_markdown(md)
+    assert len(parsed) == 4
+    assert parsed[0]["title"] == "Explore codebase"
+    assert parsed[0]["status"] == "completed"
+    assert parsed[1]["title"] == "Implement feature"
+    assert parsed[1]["status"] == "in_progress"
+    assert parsed[2]["title"] == "Write unit tests"
+    assert parsed[2]["status"] == "pending"
+    assert parsed[3]["title"] == "Legacy approach"
+    assert parsed[3]["status"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_update_task_checklist_syncs_to_sandbox_plan_md() -> None:
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from agent_core.context import ExecutionContext, current_execution_ctx
+
+    driver = AsyncMock()
+    driver.read_file = AsyncMock(return_value="")
+    driver.write_file = AsyncMock()
+    registry = ToolRegistry(driver=driver, session_id="s1")
+
+    tasks = [
+        {"id": "1", "title": "Setup database", "status": "completed"},
+        {"id": "2", "title": "Run migrations", "status": "in_progress"},
+    ]
+    ctx = ExecutionContext(
+        session_id="s1",
+        event_queue=asyncio.Queue(),
+        parent_model="test-model",
+    )
+    token = current_execution_ctx.set(ctx)
+    try:
+        await registry.call_tool("update_task_checklist", {"tasks": tasks})
+        driver.write_file.assert_called_once()
+        kwargs = driver.write_file.call_args.kwargs
+        assert kwargs["session_id"] == "s1"
+        assert ".rocket/PLAN.md" in kwargs["path"]
+        assert "- [x] Setup database" in kwargs["content"]
+        assert "- [ ] Run migrations (in progress)" in kwargs["content"]
+    finally:
+        current_execution_ctx.reset(token)

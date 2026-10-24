@@ -118,6 +118,7 @@ async def start_session_turn(
             if req.mode is not None or req.agent_id
             else None
         ),
+        reasoning_effort=req.reasoning_effort,
     )
     return {"status": "started", "session_id": session_id, "message_id": message_id}
 

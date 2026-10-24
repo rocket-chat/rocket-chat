@@ -309,6 +309,18 @@ def _register_checklist_tools(registry: ToolRegistry) -> None:
         if on_plan:
             on_plan(tasks)
         completed = sum(1 for t in tasks if t.get("status") == "completed")
+        s_id = ctx.session_id if ctx else registry._session_id
+        if registry._driver and s_id:
+            try:
+                from agent_core.checklist import tasks_to_plan_markdown
+                from agent_core.tools import tier2
+
+                plan_md = tasks_to_plan_markdown(tasks)
+                await registry._ensure_sandbox(s_id)
+                ws_path = registry.workspace_file(".rocket/PLAN.md")
+                await tier2.file_write(registry._driver, s_id, ws_path, plan_md, overwrite=True)
+            except Exception as e:
+                logger.debug("Failed to sync checklist to .rocket/PLAN.md: %s", e)
         return f"Task checklist updated: {completed}/{len(tasks)} tasks completed."
 
 

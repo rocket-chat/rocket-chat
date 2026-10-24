@@ -369,6 +369,7 @@ class TurnRunner:
             user_id=session.tenant_user_id,
             agent_id=_chosen_agent(_selection(req.selection, metadata), metadata, overlay),
             request_model=req.model,
+            reasoning_effort=req.reasoning_effort,
             enabled_toolsets=self._toolsets(session),
             global_default_model=req.orchestrator.default_model,
             session_permission_mode=metadata.get("permission_mode"),
@@ -776,6 +777,7 @@ async def execute_turn_background(
     synthetic_prompt: bool = False,
     concurrency_gate: Any = None,
     session_locks: Any = None,
+    reasoning_effort: str | None = None,
 ) -> None:
     """Run one turn of ``session_id``; the entry point web, Slack, webhooks and missions share."""
     await TurnRunner(
@@ -800,6 +802,7 @@ async def execute_turn_background(
             synthetic_prompt=synthetic_prompt or bool(resume_attempt),
             concurrency_gate=concurrency_gate,
             session_locks=session_locks,
+            reasoning_effort=reasoning_effort,
         )
     ).run()
 

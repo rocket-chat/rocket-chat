@@ -10,23 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `web`, `api`: **Live context window fill gauge and 1-click manual compaction.** Cockpit header usage popover renders live context fill progress (`118k / 200k · 59%`) distinct from cumulative billing tokens, with inline "Compact now" action invoking `/v1/sessions/{id}/compact`.
+- `web`, `api`: **Per-turn reasoning effort override and multi-step ActionGroup filtering.** Users can switch thinking effort (`Auto · Low · Med · High`) per turn from the composer, while long tool turn groups ($\ge 8$ steps) provide instant filter pills (`All · Edits · Errors · Subagents`).
 - `web`, `api`: **Instant sidebar caching and progressive conversation loading.** The session sidebar renders immediately from local cache on mount while background revalidation updates it. Keyset listing endpoints defer large conversation histories, reducing payload sizes from megabytes to kilobytes. Long sessions load the tail of recent messages quickly, with on-demand paging for older messages.
 - `api`, `web`: **Active reasoning recovery on reconnect and refresh.** Mid-turn WebSocket synchronization carries `current_reasoning`, restoring the accumulated in-flight thought process without truncation when refreshing.
-- `orchestrator`:
-- `sandboxes`:
-- `api`:
-- `web`:
-- `settings`:
-- `git`:
-- `helm`:
 
 ### Changed
+- `agent-core`: **Token-budgeted compaction tail and phase-adaptive reasoning.** Compaction preserves whole steps up to 24,000 tokens rather than a static 3-step window. Thinking budget scales down to 4,096 tokens during routine consecutive read steps with zero recent errors.
+- `agent-core`: **Subagent execution engine parity & researcher fast-model routing.** `SubagentRunner` executes tools in parallel with `asyncio.gather`, offloads outputs $>6,000$ characters, recovers from context overflows, and routes `subagent:researcher` to `fast_model`.
+- `agent-core`: **Single-process repository changes fingerprinting.** Replaced shell subprocess loops in `workspace_changes.py` with single-invocation `git hash-object --stdin-paths`.
 - `llm-gateway`: **Historical reasoning tokens are only counted for models supporting reasoning replay.** Historical thinking content is no longer counted in context estimators for models that do not replay reasoning, preventing artificial context inflation and premature compactions. Output token reserve subtraction is capped to protect working memory.
 - `web`: **Waits are one inline line instead of a block.** A wait for CI, a review, a process or a timer shows what it waits for, the pull request it is about (named `owner/repo#N`, with an **Open PR** button that uses the host the session already used) and, while it waits, the latest GitHub event seen on that pull request. The same line settles in place when the wait ends (done, failed, timed out) rather than adding a second one.
 - `web`: **A session that handles several pull requests names each one.** The turn summary shows a button per pull request of the turn (`acme/api#7`, the latest highlighted) instead of one anonymous *Open pull request*; those of earlier turns stay behind a *N other pull requests in this session* disclosure. Only the tools that open or work on a pull request count, not a URL that turns up in a log.
 - `web`: **The right panel keeps the person's choice.** It still opens by itself the first time the agent changes a file or starts a process, but once you close it (or open it), that choice is remembered in the browser and it no longer opens by itself after you closed it, including in other sessions.
 
 ### Fixed
+- `agent-core`: **Repeated failure false-positives across file edits.** Verification tools (`pytest`, `npm test`, builds) reset failure repeat tracking after file edits, emitting a stagnant failure hypothesis-reset note only after three failed verification attempts across distinct edits.
+- `agent-core`: **Task checklist and `.rocket/PLAN.md` bidirectional drift.** Calling `update_task_checklist` syncs markdown checkboxes to `/workspace/.rocket/PLAN.md`, while direct file edits to `PLAN.md` update the active checklist state.
 - `agent-core`: **`grep_search` fallback to GNU `grep` now enables extended regular expressions (`-E`) and skips `.git`.** Custom sandbox images without `ripgrep` previously fell back to basic `grep`, where regex alternations (`a|b`) failed to match. Common tool argument aliases (`ignore_case`, `context`, `name` for `load_guidance`, `content` for `git_commit`) are also normalized at dispatch.
 - `orchestrator`: **Dangling tool-call prefaces no longer end turns prematurely.** When an upstream stream closes right after a short action announcement ending in `:` without emitting the tool call, the orchestrator discards the partial preface and nudges the model to emit the tool call instead of treating the preface as the final answer.
 - `api`, `web`: **WebSocket `sync` frames bound history tail and tool-call volume, and rehydrate step prefaces.** Initial session snapshots over both REST and WebSocket cap tool-heavy history tails so multi-megabyte sessions load in kilobytes, while preserving leading multi-paragraph answers and rehydrating per-step `preface` intents across reloads.

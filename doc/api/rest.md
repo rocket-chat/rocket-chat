@@ -1657,6 +1657,7 @@ Dispatch user prompt to the ReAct engine in the background.
 | agent_id | string | no | The agent for this turn; empty keeps the session's |
 | mode | `agent` / `direct` | no | 'direct' runs this turn without an agent, on `model` with every tool; empty keeps the session's mode |
 | attachment_ids | list of string | no | Attachment ids to attach to this turn only (never re-sent on later turns) |
+| reasoning_effort | `none` / `minimal` / `low` / `medium` / `high` | no | Override reasoning effort for this turn ('none', 'minimal', 'low', 'medium', 'high') |
 
 **Responses:** `200`
 

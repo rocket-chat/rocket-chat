@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -55,6 +54,14 @@ class CompactionSummaryResponse(BaseModel):
     tokens_before: int
     tokens_after: int
     created_at: int
+
+
+class CompactSessionResponse(BaseModel):
+    status: str
+    tokens_before: int = 0
+    tokens_after: int = 0
+    compacted_messages_count: int = 0
+    message: str | None = None
 
 
 @router.get("/sessions/{session_id}/goals", response_model=GoalResponse)
@@ -195,8 +202,8 @@ async def cancel_session_wait(session_id: str, wait_id: str, request: Request) -
     return {"status": "cancelled", "wait_id": wait_id}
 
 
-@router.post("/sessions/{session_id}/compact")
-async def trigger_session_compaction(session_id: str, request: Request) -> dict[str, Any]:
+@router.post("/sessions/{session_id}/compact", response_model=CompactSessionResponse)
+async def trigger_session_compaction(session_id: str, request: Request) -> CompactSessionResponse:
     """Manually compact a session's history into a durable summary checkpoint."""
     store: SessionStoreProtocol = request.app.state.session_store
     record = await store.get_session(session_id)
@@ -211,7 +218,9 @@ async def trigger_session_compaction(session_id: str, request: Request) -> dict[
 
     result = await orchestrator.compact_history(session_id, req_org)
     if not result:
-        return {"status": "skipped", "message": "Session history not eligible for compaction"}
+        return CompactSessionResponse(
+            status="skipped", message="Session history not eligible for compaction"
+        )
 
     event_bus: EventBusProtocol | None = getattr(request.app.state, "event_bus", None)
     if event_bus:
@@ -227,12 +236,12 @@ async def trigger_session_compaction(session_id: str, request: Request) -> dict[
                 },
             )
         )
-    return {
-        "status": "compacted",
-        "tokens_before": getattr(result, "tokens_before", 0),
-        "tokens_after": getattr(result, "tokens_after", 0),
-        "compacted_messages_count": getattr(result, "compacted_count", 0),
-    }
+    return CompactSessionResponse(
+        status="compacted",
+        tokens_before=getattr(result, "tokens_before", 0),
+        tokens_after=getattr(result, "tokens_after", 0),
+        compacted_messages_count=getattr(result, "compacted_count", 0),
+    )
 
 
 @router.get("/sessions/{session_id}/compactions", response_model=list[CompactionSummaryResponse])

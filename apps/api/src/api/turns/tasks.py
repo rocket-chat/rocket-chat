@@ -64,6 +64,7 @@ async def run_guarded_turn(
     resume_attempt: int = 0,
     selection: TurnSelection | None = None,
     synthetic_prompt: bool = False,
+    reasoning_effort: str | None = None,
 ) -> None:
     """Run one turn under process-wide backpressure and a per-session single-writer lock.
 
@@ -94,6 +95,7 @@ async def run_guarded_turn(
             synthetic_prompt=synthetic_prompt,
             concurrency_gate=concurrency_gate,
             session_locks=session_locks,
+            reasoning_effort=reasoning_effort,
         )
 
     if concurrency_gate is not None and session_locks is not None:
@@ -125,6 +127,7 @@ def _spawn_background_turn(
     resume_attempt: int = 0,
     selection: TurnSelection | None = None,
     synthetic_prompt: bool = False,
+    reasoning_effort: str | None = None,
 ) -> asyncio.Task[None]:
     task = asyncio.create_task(
         run_guarded_turn(
@@ -148,6 +151,7 @@ def _spawn_background_turn(
             resume_attempt=resume_attempt,
             selection=selection,
             synthetic_prompt=synthetic_prompt,
+            reasoning_effort=reasoning_effort,
         )
     )
     _background_tasks.add(task)

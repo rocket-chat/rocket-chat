@@ -333,3 +333,28 @@ def test_the_revert_route_undoes_one_file_and_refuses_bad_paths(
     )
 
     assert ok.status_code == 200 and (work / "keep.txt").read_text() == "one\ntwo\nthree\n"
+
+
+async def test_tool_snapshot_hashes_modified_untracked_and_deleted_with_stdin_paths(
+    repo: tuple[pathlib.Path, _Running],
+) -> None:
+    from agent_core.tools import workspace_changes as tool_ws_changes
+
+    work, driver = repo
+    before = await tool_ws_changes.snapshot(driver, SESSION, REPO)
+    assert before[1] == {}
+
+    (work / "keep.txt").write_text("one\nmodified\n")
+    (work / "untracked.py").write_text("print(1)\n")
+    (work / "gone.txt").unlink()
+
+    after = await tool_ws_changes.snapshot(driver, SESSION, REPO)
+    assert set(after[1]) == {"keep.txt", "untracked.py", "gone.txt"}
+    assert after[1]["gone.txt"] == "gone"
+    assert len(after[1]["keep.txt"]) == 40
+    assert len(after[1]["untracked.py"]) == 40
+    assert tool_ws_changes.changed_paths(before, after) == [
+        "gone.txt",
+        "keep.txt",
+        "untracked.py",
+    ]

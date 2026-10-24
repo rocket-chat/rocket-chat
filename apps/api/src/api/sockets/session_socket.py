@@ -381,6 +381,7 @@ class SessionSocket:
             message_id=data.get("message_id"),
             attachment_service=getattr(self._ws.app.state, "attachment_service", None),
             attachment_ids=data.get("attachment_ids") or [],
+            reasoning_effort=data.get("reasoning_effort"),
         )
 
     async def _keep_for_running_turn(self, prompt: str, data: dict[str, Any]) -> bool:

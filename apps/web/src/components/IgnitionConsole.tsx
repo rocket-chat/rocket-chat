@@ -7,7 +7,7 @@ import { useMissionStore } from "../lib/store";
 import { newMessageId } from "../lib/message-id";
 import { loadDraft, saveDraft } from "../lib/draft";
 import { useAuth } from "./AuthProvider";
-import { GitBranch, Rocket, ChevronDown, Check, Bot, Zap, Shield, Bug, Book, Search, Square, MessageSquarePlus, ListPlus, X, Paperclip, FileText, AlertTriangle } from "lucide-react";
+import { GitBranch, Rocket, ChevronDown, Check, Bot, Zap, Shield, Bug, Book, Search, Square, MessageSquarePlus, ListPlus, X, Paperclip, FileText, AlertTriangle, Brain } from "lucide-react";
 import { AgentPersonaConfig, ModelOption } from "../types/mission";
 import { PermissionModePicker } from "./PermissionModePicker";
 import { SandboxPicker } from "./SandboxPicker";
@@ -23,7 +23,8 @@ interface IgnitionConsoleProps {
     messageId?: string,
     attachmentIds?: string[],
     delivery?: "steer" | "queue",
-    files?: File[]
+    files?: File[],
+    reasoningEffort?: string
   ) => void;
   onCancel?: () => void;
   /** Withdraw a message sent during the turn that no turn has taken yet. */
@@ -75,6 +76,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
   loading = false,
 }) => {
   const [prompt, setPrompt] = useState<string>(initialPrompt);
+  const [reasoningEffort, setReasoningEffort] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (initialPrompt) {
@@ -275,6 +277,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
       attachmentIds.length ? attachmentIds : undefined,
       delivery,
       stagedFiles.length ? stagedFiles : undefined,
+      reasoningEffort,
     );
     setPrompt("");
     saveDraft(draftSessionId, "");
@@ -679,6 +682,24 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
 
             {!session || session.is_draft ? <SandboxPicker disabled={isExecuting} bare /> : null}
             <SandboxState status={session?.sandbox_status} isDraft={!session || !!session.is_draft} />
+
+            {/* Inline Reasoning Effort Selector */}
+            <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground sm:px-2.5 sm:py-1.5">
+              <Brain className="w-3.5 h-3.5 text-brand" />
+              <button
+                type="button"
+                onClick={() => {
+                  const cycle: (string | undefined)[] = [undefined, "low", "medium", "high"];
+                  const idx = cycle.indexOf(reasoningEffort);
+                  setReasoningEffort(cycle[(idx + 1) % cycle.length]);
+                }}
+                className="font-medium text-foreground hover:text-brand transition-colors cursor-pointer"
+                title="Per-turn reasoning effort override (click to cycle: auto -> low -> medium -> high)"
+                data-testid="reasoning-effort-selector"
+              >
+                {reasoningEffort ? reasoningEffort.toUpperCase() : "AUTO"}
+              </button>
+            </div>
 
             {/* Git Branch Badge (Displayed ONLY when a Git repository/branch is bound to the session) */}
             {session?.git_branch && (

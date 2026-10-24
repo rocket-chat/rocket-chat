@@ -273,3 +273,97 @@ def test_pruning_keeps_the_fields_of_the_messages_it_rewrites() -> None:
 
     assert pruned[2].cacheable is True
     assert pruned[1].reasoning_blocks == [{"type": "thinking", "signature": "s"}]
+
+
+async def test_compaction_preserves_both_turn_opener_and_mid_turn_steering_message() -> None:
+    cm = ContextManager(recent_turns_to_preserve=1)
+    messages = [
+        ChatMessage(role="system", content="System prompt"),
+        ChatMessage(
+            role="user", content="Refactor the entire billing subsystem to use Stripe billing v3"
+        ),
+        ChatMessage(role="assistant", content="Beginning refactor..."),
+        ChatMessage(
+            role="user", content="Also use asyncpg for database queries", name="user_steering"
+        ),
+        ChatMessage(role="assistant", content="Applying asyncpg..."),
+        ChatMessage(role="assistant", content="Done."),
+    ]
+
+    compacted = await cm.compact_with_summary(messages, None, recent_turns_to_preserve=1)
+
+    # Invariant: Original prompt is anchored in head
+    assert compacted[1].role == "user"
+    assert "Refactor the entire billing subsystem" in (compacted[1].content or "")
+    # Invariant: Mid-turn steering is anchored in the compaction bridge
+    bridge_msg = next((m for m in compacted if "[Compacted " in (m.content or "")), None)
+    assert bridge_msg is not None
+    assert "Active mid-turn steering from user:" in (bridge_msg.content or "")
+    assert "Also use asyncpg for database queries" in (bridge_msg.content or "")
+
+
+def test_partition_preserves_multiple_recent_steps_within_token_budget() -> None:
+    cm = ContextManager(recent_turns_to_preserve=2)
+    # 6 steps of 20 chars each = 120 chars (~30 tokens)
+    messages = [ChatMessage(role="user", content="Begin work")]
+    for i in range(6):
+        messages.extend(
+            [
+                ChatMessage(role="assistant", content=f"Step {i} planning..."),
+                ChatMessage(role="tool", content=f"Result {i}", tool_call_id=f"c{i}"),
+            ]
+        )
+
+    # With a 24k token budget, all 6 small steps can easily fit in tail
+    part = cm._partition(messages, recent_turns_to_preserve=None, max_tail_tokens=10_000)
+    assert part is not None
+    _head, _middle, tail = part
+    # tail should contain more than the minimum 2 turns
+    tail_assistants = [m for m in tail if m.role == "assistant"]
+    assert len(tail_assistants) >= 4
+
+
+def test_batch_tier2_pruning_stops_once_target_savings_are_met() -> None:
+    cm = ContextManager(recent_turns_to_preserve=2)
+    messages = [ChatMessage(role="user", content="Start")]
+    for i in range(8):
+        messages.extend(
+            [
+                ChatMessage(
+                    role="assistant",
+                    content=f"Step {i}",
+                    tool_calls=[
+                        {"id": f"c{i}", "function": {"name": "file_read", "arguments": "{}"}}
+                    ],
+                ),
+                ChatMessage(role="tool", content="line\n" * 400, tool_call_id=f"c{i}"),
+            ]
+        )
+
+    # Free only ~3,000 chars (~2 steps), leaving steps 2..7 unpruned for large-context models
+    pruned = cm.prune_tool_payloads(messages, target_chars_to_free=3_000)
+    tool_msgs = [m for m in pruned if m.role == "tool"]
+    assert "pruned to preserve" in (tool_msgs[0].content or "")
+    assert "pruned to preserve" in (tool_msgs[1].content or "")
+    # Later steps before the last-2 boundary remain completely unpruned
+    assert "pruned to preserve" not in (tool_msgs[4].content or "")
+    assert "pruned to preserve" not in (tool_msgs[5].content or "")
+
+
+def test_large_context_tail_scales_beyond_eight_steps() -> None:
+    cm = ContextManager(recent_turns_to_preserve=2)
+    messages = [ChatMessage(role="user", content="Large refactor")]
+    for i in range(20):
+        messages.extend(
+            [
+                ChatMessage(role="assistant", content=f"Step {i}"),
+                ChatMessage(role="tool", content=f"Out {i}", tool_call_id=f"c{i}"),
+            ]
+        )
+
+    # With a 70,000 token budget (35% of a 200k window), > 12 recent steps are preserved
+    part = cm._partition(messages, recent_turns_to_preserve=None, max_tail_tokens=70_000)
+    assert part is not None
+    _head, _middle, tail = part
+    tail_assistants = [m for m in tail if m.role == "assistant"]
+    assert len(tail_assistants) >= 15

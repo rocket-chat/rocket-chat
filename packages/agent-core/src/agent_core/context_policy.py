@@ -104,7 +104,7 @@ def assemble_request_messages(
         else:
             res.insert(user_idx + 1, fixed_msg)
 
-    # Set cache breakpoint on the last stable message before tail additions
+    # Set moving cache breakpoint on the last stable message before tail additions
     res = with_cache_breakpoint(res)
 
     tail_notes = [n.strip() for n in (*sticky_notes, *next_notes) if n and n.strip()]
