@@ -28,6 +28,7 @@ class RunningTurnPayload(TypedDict, total=False):
     model: NotRequired[str]
     status: NotRequired[str]
     steps: list[dict[str, Any]]
+    current_reasoning: NotRequired[str]
 
 
 class StatusPayload(TypedDict):
@@ -58,6 +59,7 @@ class ToolStartedPayload(TypedDict):
     name: str
     arguments: dict[str, Any]
     created_at: NotRequired[int]
+    preface: NotRequired[str]
 
 
 class ToolCompletedPayload(TypedDict):

@@ -52,6 +52,10 @@ export interface SessionsSlice {
   sessionsIncludeArchived: boolean;
   /** "mine": own and shared sessions; "organization": every session (administrators). */
   sessionsScope: SessionsScope;
+  hasOlderHistory: boolean;
+  isLoadingOlderHistory: boolean;
+  historyStartIndex: number;
+  loadOlderHistory: () => Promise<void>;
   setSession: (session: SessionData | null) => void;
   setSessions: (sessions: SessionData[]) => void;
   /** Re-lists page one; arguments left out keep the current archived view and scope. */

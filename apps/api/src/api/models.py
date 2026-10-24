@@ -184,6 +184,12 @@ class SessionResponse(BaseModel):
     conversation_history: list[dict[str, Any]] = Field(
         default_factory=list, description="Ordered conversation messages"
     )
+    has_older_history: bool = Field(
+        default=False, description="True if earlier messages exist before this page"
+    )
+    total_messages: int | None = Field(
+        default=None, description="Total number of messages in the session"
+    )
 
 
 class UserTurnRequest(BaseModel):

@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `web`, `api`: **Instant sidebar caching and progressive conversation loading.** The session sidebar renders immediately from local cache on mount while background revalidation updates it. Keyset listing endpoints defer large conversation histories, reducing payload sizes from megabytes to kilobytes. Long sessions load the tail of recent messages quickly, with on-demand paging for older messages.
+- `api`, `web`: **Active reasoning recovery on reconnect and refresh.** Mid-turn WebSocket synchronization carries `current_reasoning`, restoring the accumulated in-flight thought process without truncation when refreshing.
 - `orchestrator`:
 - `sandboxes`:
 - `api`:
@@ -19,11 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `llm-gateway`: **Historical reasoning tokens are only counted for models supporting reasoning replay.** Historical thinking content is no longer counted in context estimators for models that do not replay reasoning, preventing artificial context inflation and premature compactions. Output token reserve subtraction is capped to protect working memory.
 - `web`: **Waits are one inline line instead of a block.** A wait for CI, a review, a process or a timer shows what it waits for, the pull request it is about (named `owner/repo#N`, with an **Open PR** button that uses the host the session already used) and, while it waits, the latest GitHub event seen on that pull request. The same line settles in place when the wait ends (done, failed, timed out) rather than adding a second one.
 - `web`: **A session that handles several pull requests names each one.** The turn summary shows a button per pull request of the turn (`acme/api#7`, the latest highlighted) instead of one anonymous *Open pull request*; those of earlier turns stay behind a *N other pull requests in this session* disclosure. Only the tools that open or work on a pull request count, not a URL that turns up in a log.
 - `web`: **The right panel keeps the person's choice.** It still opens by itself the first time the agent changes a file or starts a process, but once you close it (or open it), that choice is remembered in the browser and it no longer opens by itself after you closed it, including in other sessions.
 
 ### Fixed
+- `web`: **Intermediate step intent no longer flashes as a stalled final answer.** Step prefaces and active reasoning stay inside the active action card while the step executes, avoiding premature promotion to an answer bubble that stalls and retracts when tool calls arrive.
+- `git`: **GitHub App installation tokens are resolved dynamically for read tools.** Read tools prioritize fresh GitHub App installation tokens for repositories, preventing 401 Unauthorized failures when personal OAuth tokens expire during multi-hour turns.
 - `agent-core`: **`grep_search` no longer reads "No matches found" when only ripgrep's filters hid the match.** ripgrep skips hidden files and whatever a `.gitignore` or `.ignore` excludes, which `bash grep -r` does not, so a repository that ignores the folder an agent was looking in (generated manifests, vendored charts) made a search look empty and an agent could conclude the text does not exist. An empty search now probes once without the filters and, when files match, names them and the `rg --no-ignore --hidden` command that searches them. No tool definition changed.
 - `orchestrator`, `web`: **The progress indicator no longer repeats the agent's own sentence.** While a step ran tools, the `running` status carried the model's text ("Now let me read the test file…"), so the cockpit showed it twice, once as the step's message and once under the loader, and Slack's status line did the same. The status is now a short action derived from the step's tools (`Reading files...`, `Running a command...`); the model's text stays in the conversation.
 - `web`: **The steering end-to-end spec no longer races a real turn.** It let the steer frame reach the stub backend, whose turn could finish and clear the waiting message before the spec looked (about 3 runs in 10); the frame is now kept from the backend, as in the queue spec.

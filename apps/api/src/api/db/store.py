@@ -10,7 +10,7 @@ from sqlalchemy import CursorResult, and_, func, or_, select, update
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, defer
 
 from specifications.interfaces.llm import ChatMessage
 from specifications.interfaces.sandbox import SandboxStatus
@@ -548,12 +548,18 @@ class PostgresSessionStore(SessionStoreProtocol):
             **kwargs,
         )
 
-    def _model_to_record(self, model: SessionModel) -> SessionRecord:
+    def _model_to_record(
+        self, model: SessionModel, *, include_history: bool = True
+    ) -> SessionRecord:
         fallback_ts = model.created_at
-        history = [
-            self._dict_to_chat_message(d, fallback_created_at=fallback_ts)
-            for d in (model.conversation_history or [])
-        ]
+        history = (
+            [
+                self._dict_to_chat_message(d, fallback_created_at=fallback_ts)
+                for d in (model.conversation_history or [])
+            ]
+            if include_history
+            else []
+        )
         try:
             status = SandboxStatus(model.sandbox_status)
         except ValueError:
@@ -678,14 +684,18 @@ class PostgresSessionStore(SessionStoreProtocol):
     ) -> list[SessionRecord]:
         """List sessions filtered by tenant organization and optional user ID."""
         async with self.manager.session(tenant_org_id=tenant_org_id) as session:
-            stmt = select(SessionModel).where(SessionModel.org_id == tenant_org_id)
+            stmt = (
+                select(SessionModel)
+                .options(defer(SessionModel.conversation_history))
+                .where(SessionModel.org_id == tenant_org_id)
+            )
             if tenant_user_id:
                 stmt = stmt.where(SessionModel.user_id == tenant_user_id)
             stmt = stmt.order_by(SessionModel.updated_at.desc()).limit(limit)
 
             result = await session.execute(stmt)
             models = result.scalars().all()
-            return [self._model_to_record(m) for m in models]
+            return [self._model_to_record(m, include_history=False) for m in models]
 
     async def list_sessions_page(
         self,
@@ -705,7 +715,11 @@ class PostgresSessionStore(SessionStoreProtocol):
         page fetches, which is exactly the failure a busy sidebar must not have.
         """
         async with self.manager.session(tenant_org_id=tenant_org_id) as session:
-            stmt = select(SessionModel).where(SessionModel.org_id == tenant_org_id)
+            stmt = (
+                select(SessionModel)
+                .options(defer(SessionModel.conversation_history))
+                .where(SessionModel.org_id == tenant_org_id)
+            )
             if tenant_user_id:
                 stmt = stmt.where(SessionModel.user_id == tenant_user_id)
             if not include_archived:
@@ -745,7 +759,7 @@ class PostgresSessionStore(SessionStoreProtocol):
                 )
                 models = models[:limit]
             return SessionPage(
-                records=[self._model_to_record(m) for m in models],
+                records=[self._model_to_record(m, include_history=False) for m in models],
                 next_cursor=next_cursor,
             )
 

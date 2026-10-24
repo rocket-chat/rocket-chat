@@ -36,13 +36,23 @@ def reasoning_tokens_estimate(reasoning: str) -> int:
     return len(reasoning) // CHARACTERS_PER_TOKEN
 
 
-def decisive_request(request: ModelRequest, *, openrouter: bool) -> ModelRequest:
+def decisive_request(
+    request: ModelRequest,
+    *,
+    openrouter: bool,
+    partial_reasoning: str | None = None,
+) -> ModelRequest:
     """``request`` again with reasoning off and the note to decide appended."""
+    notes = [DECIDE_NOW_NOTE]
+    if partial_reasoning and partial_reasoning.strip():
+        # Keep the tail of the reasoning so the decision can act on what was gathered
+        tail = partial_reasoning.strip()[-3000:]
+        notes.append(f"Your partial analysis before stopping was:\n{tail}")
     return replace(
         request,
         messages=[
             *request.messages,
-            ChatMessage(role="user", content=render_notes([DECIDE_NOW_NOTE])),
+            ChatMessage(role="user", content=render_notes(notes)),
         ],
         thinking_budget_tokens=None,
         # Only OpenRouter takes "none" as an effort; elsewhere, no effort is no reasoning request.

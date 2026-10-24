@@ -194,7 +194,7 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
     set((state) => {
       const logs = [...state.flightLog];
       const last = logs[logs.length - 1];
-      if (last && last.role === "AGENT" && !last.isPersisted) {
+      if (last && last.role === "AGENT" && !last.isPersisted && !last.content) {
         logs[logs.length - 1] = {
           ...last,
           reasoning: (last.reasoning || "") + delta,

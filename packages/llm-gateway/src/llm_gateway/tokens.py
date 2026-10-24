@@ -11,6 +11,7 @@ from collections.abc import Sequence
 
 import litellm
 
+from llm_gateway.reasoning import _BLOCKS, _CONTENT, reasoning_replay
 from specifications.interfaces.llm import ChatMessage, ToolDefinition
 
 # An estimated call is never free: providers bill framing tokens around every request and
@@ -26,13 +27,16 @@ def request_tokens(
 ) -> int:
     """Everything the request sends: text, tool calls and their arguments, reasoning, images
     and the tool schemas (a large ``file_write`` lives in arguments, not in content)."""
+    replay = reasoning_replay(model)
     parts: list[str] = []
     images = 0
     for message in messages:
         parts.append(message.content or "")
         if message.tool_calls:
             parts.append(json.dumps(message.tool_calls))
-        if message.reasoning:
+        # Only count reasoning tokens if the model family re-sends reasoning blocks on the wire.
+        # Otherwise, historical reasoning is not sent and counting it inflates context estimation.
+        if message.reasoning and replay in (_BLOCKS, _CONTENT):
             parts.append(message.reasoning)
         images += sum(1 for item in message.attachments or [] if item.is_image)
     for tool in tools or ():

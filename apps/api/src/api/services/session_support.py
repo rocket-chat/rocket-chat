@@ -1,7 +1,10 @@
 """Small helpers about session records shared by routers and the turn engine."""
 
+from __future__ import annotations
+
 import logging
 import uuid
+from typing import Any
 
 from api.models import (
     SessionResponse,
@@ -93,11 +96,17 @@ _CLIENT_PATCHABLE_METADATA = frozenset(
 )
 
 
-def _to_response(s: SessionRecord) -> SessionResponse:
+def _to_response(
+    s: SessionRecord,
+    history_override: list[Any] | None = None,
+    has_older_history: bool = False,
+    total_messages: int | None = None,
+) -> SessionResponse:
     agent_id = None
     if isinstance(s.metadata, dict):
         agent_id = s.metadata.get("agent_id")
 
+    source_history = s.conversation_history if history_override is None else history_override
     history = [
         {
             "role": m.role,
@@ -110,7 +119,7 @@ def _to_response(s: SessionRecord) -> SessionResponse:
             "model": getattr(m, "model", None),
             "created_at": getattr(m, "created_at", None),
         }
-        for m in (s.conversation_history or [])
+        for m in (source_history or [])
     ]
 
     is_shared = getattr(s, "is_shared", False)
@@ -127,6 +136,10 @@ def _to_response(s: SessionRecord) -> SessionResponse:
 
     suggested_followup = (
         s.metadata.get("suggested_followup") if isinstance(s.metadata, dict) else None
+    )
+
+    computed_total = (
+        total_messages if total_messages is not None else len(s.conversation_history or [])
     )
 
     return SessionResponse(
@@ -151,6 +164,8 @@ def _to_response(s: SessionRecord) -> SessionResponse:
         metadata=s.metadata,
         suggested_followup=suggested_followup,
         conversation_history=history,
+        has_older_history=has_older_history,
+        total_messages=computed_total,
     )
 
 

@@ -210,12 +210,20 @@ class SessionSocket:
     async def _read_running_turn(self) -> dict[str, Any] | None:
         running = _active_running_turns.get(self._session_id)
         if running is not None:
+            ctx = running.get("ctx")
+            current_reasoning = ""
+            if ctx is not None and getattr(ctx, "state", None) is not None:
+                parts = getattr(ctx.state, "reasoning_parts", [])
+                attached = getattr(ctx.state, "reasoning_attached", 0)
+                if parts and len(parts) > attached:
+                    current_reasoning = "".join(parts[attached:]).strip()
             return {
                 "turn_index": running["turn_index"],
                 "started_at": running["started_at"],
                 "model": running.get("model") or "",
                 "status": running.get("status") or "running",
                 "steps": list(running.get("steps") or []),
+                "current_reasoning": current_reasoning,
             }
         if self._db is None:
             return None
@@ -228,6 +236,7 @@ class SessionSocket:
             "model": trace.tokens.get("model") or "",
             "status": trace.status,
             "steps": list(trace.tool_calls or []),
+            "current_reasoning": "",
         }
 
     def _snapshot(self, seq_before_read: int) -> tuple[dict[str, Any], int]:

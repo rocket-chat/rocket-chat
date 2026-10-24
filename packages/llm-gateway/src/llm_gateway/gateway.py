@@ -13,7 +13,7 @@ import litellm
 
 from llm_gateway.errors import DataGovernanceError
 from llm_gateway.pricing import estimate_cost_usd
-from llm_gateway.reasoning import ReasoningStreamFilter
+from llm_gateway.reasoning import _BLOCKS, _CONTENT, ReasoningStreamFilter, reasoning_replay
 from llm_gateway.tokens import estimated_usage
 from specifications.interfaces.llm import (
     CONTEXT_WINDOW_EXCEEDED,
@@ -56,25 +56,6 @@ _VISION_MODEL_MARKERS = (
 
 
 logger = logging.getLogger(__name__)
-
-
-_BLOCKS, _CONTENT = "thinking_blocks", "reasoning_content"
-
-
-def reasoning_replay(model: str) -> str | None:
-    """How a provider family wants a model's reasoning back, if at all.
-
-    Anthropic-style extended thinking (direct, or through OpenRouter, Bedrock or Vertex) needs
-    its signed thinking blocks with the tool calls they led to; DeepSeek's reasoning models need
-    ``reasoning_content`` back during a tool loop; OpenAI's Chat Completions API takes none, and
-    Gemini's thought signatures already travel in the tool-call ids LiteLLM gives out.
-    """
-    name = (model or "").lower()
-    if "claude" in name or "anthropic" in name:
-        return _BLOCKS
-    if "deepseek" in name:
-        return _CONTENT
-    return None
 
 
 def _current_turn_start(messages: list[ChatMessage]) -> int:

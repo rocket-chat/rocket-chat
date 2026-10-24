@@ -4690,6 +4690,12 @@
             ],
             "title": "Git Repo"
           },
+          "has_older_history": {
+            "default": false,
+            "description": "True if earlier messages exist before this page",
+            "title": "Has Older History",
+            "type": "boolean"
+          },
           "is_archived": {
             "default": false,
             "description": "Hidden from the default listing",
@@ -4753,6 +4759,18 @@
             "title": "Title",
             "type": "string"
           },
+          "total_messages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total number of messages in the session",
+            "title": "Total Messages"
+          },
           "updated_at": {
             "title": "Updated At",
             "type": "integer"
@@ -4769,6 +4787,39 @@
           "sandbox_status"
         ],
         "title": "SessionListItem",
+        "type": "object"
+      },
+      "SessionMessagesPage": {
+        "description": "A page of conversation history messages with keyset position.",
+        "properties": {
+          "has_more": {
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "messages": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "start_index": {
+            "title": "Start Index",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "messages",
+          "has_more",
+          "start_index",
+          "total"
+        ],
+        "title": "SessionMessagesPage",
         "type": "object"
       },
       "SessionResponse": {
@@ -4846,6 +4897,12 @@
             ],
             "title": "Git Repo"
           },
+          "has_older_history": {
+            "default": false,
+            "description": "True if earlier messages exist before this page",
+            "title": "Has Older History",
+            "type": "boolean"
+          },
           "is_processing": {
             "default": false,
             "title": "Is Processing",
@@ -4896,6 +4953,18 @@
           "title": {
             "title": "Title",
             "type": "string"
+          },
+          "total_messages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Total number of messages in the session",
+            "title": "Total Messages"
           },
           "updated_at": {
             "title": "Updated At",
@@ -10972,6 +11041,26 @@
               "title": "Session Id",
               "type": "string"
             }
+          },
+          {
+            "description": "Return only the newest N messages from conversation history",
+            "in": "query",
+            "name": "tail",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 500,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Return only the newest N messages from conversation history",
+              "title": "Tail"
+            }
           }
         ],
         "responses": {
@@ -12124,6 +12213,81 @@
         "summary": "Cancel Session Goal",
         "tags": [
           "Goals & Waits"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/messages": {
+      "get": {
+        "description": "Fetch a page of earlier messages from a session's conversation history.",
+        "operationId": "get_session_messages_v1_sessions__session_id__messages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Exclusive upper bound index in conversation history",
+            "in": "query",
+            "name": "before_index",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive upper bound index in conversation history",
+              "title": "Before Index"
+            }
+          },
+          {
+            "description": "Number of earlier messages to return",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Number of earlier messages to return",
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionMessagesPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Messages",
+        "tags": [
+          "Sessions & Telemetry"
         ]
       }
     },
