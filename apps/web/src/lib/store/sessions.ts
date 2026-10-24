@@ -135,7 +135,6 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
     // A pending human gate must survive re-hydration of the *same* session
     // (reconnect sync / snapshot refetch); only switching sessions clears it.
     const sessionChanged = get().session?.session_id !== session.session_id;
-    const isCurrentlyExecuting = !sessionChanged && get().isExecuting;
 
     set({
       session,
@@ -143,10 +142,10 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       inferenceMode: mode,
       activeAgent: targetAgent || get().activeAgent,
       selectedModel: mode === "agent" && targetAgent ? targetAgent.model : targetModel,
-      flightLog: isCurrentlyExecuting ? get().flightLog : initialLogs,
-      reasoningStream: isCurrentlyExecuting ? get().reasoningStream : "",
-      isReasoningActive: isCurrentlyExecuting ? get().isReasoningActive : false,
-      isExecuting: isCurrentlyExecuting,
+      flightLog: initialLogs,
+      reasoningStream: "",
+      isReasoningActive: false,
+      isExecuting: false,
       hasOlderHistory: Boolean(session.has_older_history),
       historyStartIndex: session.total_messages && session.conversation_history
         ? session.total_messages - session.conversation_history.length
