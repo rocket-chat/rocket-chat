@@ -30,7 +30,12 @@ from api.services.metrics import (
 )
 from api.services.pending_gates import pending_gates
 from api.services.queued_messages import QueuedMessageStore, hold_for_running_turn
-from api.services.session_support import SYNC_HISTORY_TAIL, apply_sharing, slice_history_tail
+from api.services.session_support import (
+    MAX_TAIL_TOOL_CALLS,
+    SYNC_HISTORY_TAIL,
+    apply_sharing,
+    slice_history_tail,
+)
 from api.services.turn_trace import session_running_turn
 from api.turns.context import TurnSelection
 from api.turns.gates import _forget_pending_decisions, take_stored_question
@@ -254,10 +259,14 @@ class SessionSocket:
         catch_up, continuous = bus.replay_since(session_id, catch_up_from)
         session_dict = asdict(self._session)
         full_history = session_dict.get("conversation_history") or []
-        sliced_history, has_older = slice_history_tail(full_history, SYNC_HISTORY_TAIL)
-        session_dict["conversation_history"] = sliced_history
-        session_dict["has_older_history"] = has_older
-        session_dict["total_messages"] = len(full_history)
+        total_tools = sum(
+            len(m.get("tool_calls") or []) for m in full_history if isinstance(m, dict)
+        )
+        if total_tools > MAX_TAIL_TOOL_CALLS:
+            sliced_history, has_older = slice_history_tail(full_history, SYNC_HISTORY_TAIL)
+            session_dict["conversation_history"] = sliced_history
+            session_dict["has_older_history"] = has_older
+            session_dict["total_messages"] = len(full_history)
         frame: dict[str, Any] = {
             "type": "sync",
             "session_id": session_id,
