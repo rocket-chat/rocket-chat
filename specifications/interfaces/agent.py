@@ -43,6 +43,7 @@ class SubagentConfig:
     can_ask_user: bool = False
     can_delegate: bool = False
     enabled: bool = True
+    isolate_worktree: bool = False
 
 
 @dataclass

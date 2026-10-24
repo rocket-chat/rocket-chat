@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import pytest
-from api.services.turn_service import TurnService
+from api.services.turn_service import TurnService, _resolve_model_generation
 
 from specifications.interfaces.agent import AgentEvent, SystemPrompt
 
@@ -100,3 +100,63 @@ async def test_stream_turn_forwards_the_plan_to_the_orchestrator() -> None:
     assert orchestrator.kwargs["max_turns"] == plan.max_turns
     assert orchestrator.kwargs["model_router"] == plan.model_router
     assert orchestrator.kwargs["whitelisted_tools"] == plan.whitelisted_tools
+
+
+def test_resolve_generation_params_aligns_claude_thinking_budget_with_step_limit() -> None:
+    models_config = {
+        "temperature": 0.2,
+        "reasoning_step_limit_tokens": 8000,
+        "default_reasoning_effort": None,
+    }
+    params = _resolve_model_generation(
+        model="anthropic/claude-3-7-sonnet",
+        agent=None,
+        models=models_config,
+        fallbacks=(),
+    )
+    # Default Claude budget should align to step limit (8000), not exceed it at 16000
+    assert params.thinking_budget_tokens == 8000
+    assert params.reasoning_step_limit_tokens == 8000 + 2048
+
+
+def test_resolve_generation_params_gives_step_limit_headroom_when_thinking_budget_explicit() -> (
+    None
+):
+    class _AgentWithBudget:
+        thinking_budget_tokens = 16000
+        reasoning_effort = "high"
+
+    models_config = {
+        "temperature": 0.2,
+        "reasoning_step_limit_tokens": 8000,
+    }
+    params = _resolve_model_generation(
+        model="anthropic/claude-3-7-sonnet",
+        agent=_AgentWithBudget(),
+        models=models_config,
+        fallbacks=(),
+    )
+    assert params.thinking_budget_tokens == 16000
+    # Step limit must provide headroom past thinking budget so stream isn't killed prematurely
+    assert params.reasoning_step_limit_tokens == 16000 + 2048
+
+
+def test_resolve_generation_params_respects_per_turn_reasoning_effort_override() -> None:
+    class _AgentWithEffort:
+        thinking_budget_tokens = 4000
+        reasoning_effort = "low"
+
+    models_config = {
+        "temperature": 0.2,
+        "reasoning_step_limit_tokens": 8000,
+        "default_reasoning_effort": "low",
+    }
+    # Per-turn override 'high' should supersede agent/models 'low'
+    params = _resolve_model_generation(
+        model="openai/o3-mini",
+        agent=_AgentWithEffort(),
+        models=models_config,
+        fallbacks=(),
+        reasoning_effort="high",
+    )
+    assert params.reasoning_effort == "high"

@@ -19,8 +19,18 @@ from llm_gateway.tokens import estimated_usage
 
 from agent_core.context import ContextManager, current_execution_ctx
 from agent_core.dispatcher import ToolDispatcher
+from agent_core.leaked_calls import (
+    LEAK_NOTICE,
+    MAX_LEAK_RETRIES,
+    contains_leaked_calls,
+    strip_leaked_calls,
+)
+from agent_core.progress import ProgressTracker
+from agent_core.repeats import repeat_note
 from agent_core.retry_policy import execute_stream_with_retry
 from agent_core.summarizer import model_summarizer
+from agent_core.tools.clamp import clamp_output
+from agent_core.tools.offload import offload_tool_output
 from agent_core.tools.registry import ToolRegistry
 from agent_core.truncation import (
     MAX_EMPTY_RETRIES,
@@ -38,8 +48,10 @@ from specifications.interfaces.agent import (
     SubagentTranscriptRecord,
 )
 from specifications.interfaces.llm import (
+    CONTEXT_WINDOW_EXCEEDED,
     ChatMessage,
     LLMGatewayProtocol,
+    ModelCatalogueProtocol,
     ModelExecutionError,
     ModelRequest,
     ToolDefinition,
@@ -158,13 +170,14 @@ class SubagentRunner:
         registry: ToolRegistry,
         configs: dict[str, SubagentConfig] | None = None,
         dispatcher: ToolDispatcher | None = None,
+        catalogue: ModelCatalogueProtocol | None = None,
     ) -> None:
         self.gateway = gateway
         self.registry = registry
         # Shared with the main turn, so a delegate's calls count against the same limits.
         self.dispatcher = dispatcher or ToolDispatcher(registry=registry)
         self.configs: dict[str, SubagentConfig] = configs or dict(DEFAULT_SUBAGENT_CONFIGS)
-        self.context_manager = ContextManager()
+        self.context_manager = ContextManager(catalogue=catalogue)
 
     async def run(
         self,
@@ -266,13 +279,16 @@ class _SubagentExecution:
         self._record: list[ChatMessage] = list(self._messages)
         self._tool_calls_count = 0
         self._empty_retries = 0
+        self._leaked_retries = 0
+        self._progress_tracker = ProgressTracker()
         self._status = "completed"
         self._final_summary = ""
         self._tokens = 0
         self._cost = 0.0
         self._changed_files: list[str] = []
         self._artefacts: list[str] = []
-        self._is_writer = bool(self._permitted & EDIT_OR_COMMAND_TOOLS)
+        self._isolate_worktree = getattr(self._config, "isolate_worktree", False)
+        self._is_writer = self._isolate_worktree and bool(self._permitted & EDIT_OR_COMMAND_TOOLS)
         self._worktree_dir: str | None = None
         self._worktree_branch: str | None = None
 
@@ -282,10 +298,20 @@ class _SubagentExecution:
             return
         branch = f"subagent/{self._subagent_id}"
         worktree_dir = f"/workspace/.rocket/worktrees/{self._subagent_id}"
+        q_repo = shlex.quote(parent_repo)
+        q_wt = shlex.quote(worktree_dir)
+        q_branch = shlex.quote(branch)
+        # Capture uncommitted dirty state into a dangling stash commit if present, else HEAD,
+        # and copy any untracked non-ignored files from the parent repo into the new worktree.
         cmd = (
             f"mkdir -p /workspace/.rocket/worktrees && "
-            f"git -C {shlex.quote(parent_repo)} worktree add -b {shlex.quote(branch)} {shlex.quote(worktree_dir)} HEAD 2>/dev/null || "
-            f"git -C {shlex.quote(parent_repo)} worktree add {shlex.quote(worktree_dir)} {shlex.quote(branch)} 2>/dev/null"
+            f"BASE_COMMIT=$(git -C {q_repo} stash create 2>/dev/null || true) && "
+            f'BASE_REF="${{BASE_COMMIT:-HEAD}}" && '
+            f'(git -C {q_repo} worktree add -b {q_branch} {q_wt} "$BASE_REF" 2>/dev/null || '
+            f"git -C {q_repo} worktree add {q_wt} {q_branch} 2>/dev/null) && "
+            f"(git -C {q_repo} ls-files --others --exclude-standard -z 2>/dev/null | "
+            f"tar -C {q_repo} --null -T - -cf - 2>/dev/null | "
+            f"tar -C {q_wt} -xf - 2>/dev/null || true)"
         )
         res = await driver.exec_command(self._session_id, cmd, timeout_seconds=15)
         if res.exit_code == 0:
@@ -309,47 +335,79 @@ class _SubagentExecution:
         )
         await driver.exec_command(self._session_id, remove_cmd, timeout_seconds=15)
 
-    async def run_turns(self) -> None:
+    async def _init_turn_context(self) -> Any:
         turn_ctx = current_execution_ctx.get()
-        token = None
-        if turn_ctx is not None:
-            # A copy shares the parent's mutable state, and guidance the parent has in effect
-            # is not in the subagent's own conversation: it reads its own.
-            sub_ctx = dataclasses.replace(
-                turn_ctx,
-                guidance_in_effect={},
-                guidance_pending=[],
-                guidance_in_result=True,
-                skills_in_effect={},
-                skill_texts={},
-                standing_pending=[],
-            )
-            if self._is_writer and turn_ctx.active_repository:
-                await self._setup_worktree(turn_ctx.active_repository)
-                if self._worktree_dir:
-                    sub_ctx.active_repository = self._worktree_dir
-            token = current_execution_ctx.set(sub_ctx)
+        if turn_ctx is None:
+            return None
+        sub_ctx = dataclasses.replace(
+            turn_ctx,
+            guidance_in_effect={},
+            guidance_pending=[],
+            guidance_in_result=True,
+            skills_in_effect={},
+            skill_texts={},
+            standing_pending=[],
+        )
+        if self._is_writer and turn_ctx.active_repository:
+            await self._setup_worktree(turn_ctx.active_repository)
+            if self._worktree_dir:
+                sub_ctx.active_repository = self._worktree_dir
+        return current_execution_ctx.set(sub_ctx)
 
+    async def _generate_with_recovery(self) -> _Generation | None:
+        try:
+            return await self._generate()
+        except ModelExecutionError as err:
+            if getattr(err, "finish_reason", None) == CONTEXT_WINDOW_EXCEEDED:
+                await self._keep_context_small(force_compaction=True)
+                try:
+                    return await self._generate()
+                except Exception as retry_err:
+                    self._status = "failed"
+                    self._final_summary = f"Subagent error during generation: {retry_err}"
+                    return None
+            self._status = "failed"
+            self._final_summary = f"Subagent error during generation: {err}"
+            return None
+        except Exception as err:
+            self._status = "failed"
+            self._final_summary = f"Subagent error during generation: {err}"
+            return None
+
+    def _handle_step_tool_calls(self, generation: _Generation) -> bool:
+        """Process truncation/leaked calls and check if tools should run; True if retry step."""
+        generation.tool_calls, cut = split_truncated(
+            generation.tool_calls, generation.finish_reason
+        )
+        if generation.tool_calls and contains_leaked_calls(generation.text):
+            generation.text = strip_leaked_calls(generation.text)
+            self._final_summary = generation.text
+        if cut:
+            self._say(ChatMessage(role="user", content=truncation_notice(cut)))
+            if not generation.tool_calls:
+                return True
+        if not generation.tool_calls and contains_leaked_calls(generation.text):
+            self._final_summary = strip_leaked_calls(generation.text)
+            if self._leaked_retries < MAX_LEAK_RETRIES:
+                self._leaked_retries += 1
+                self._say(ChatMessage(role="user", content=LEAK_NOTICE))
+                return True
+        return False
+
+    async def run_turns(self) -> None:
+        token = await self._init_turn_context()
         try:
             while self._has_steps_left():
                 self._turns_taken += 1
                 await self._keep_context_small()
-                try:
-                    generation = await self._generate()
-                except Exception as err:
-                    self._status = "failed"
-                    self._final_summary = f"Subagent error during generation: {err}"
+                generation = await self._generate_with_recovery()
+                if generation is None:
                     return
                 if generation.text:
                     self._final_summary = generation.text
                     self._empty_retries = 0
-                generation.tool_calls, cut = split_truncated(
-                    generation.tool_calls, generation.finish_reason
-                )
-                if cut:
-                    self._say(ChatMessage(role="user", content=truncation_notice(cut)))
-                    if not generation.tool_calls:
-                        continue
+                if self._handle_step_tool_calls(generation):
+                    continue
                 if not generation.tool_calls:
                     if not generation.text:
                         if self._empty_retries < MAX_EMPTY_RETRIES:
@@ -382,7 +440,7 @@ class _SubagentExecution:
         limit = self._config.max_turns
         return None if limit == NO_STEP_LIMIT else max(0, limit - self._turns_taken)
 
-    async def _keep_context_small(self) -> None:
+    async def _keep_context_small(self, force_compaction: bool = False) -> None:
         """Prune and compact the delegate's conversation like the main agent's.
 
         A delegate that works for dozens of steps would otherwise overflow its window; what is
@@ -399,6 +457,7 @@ class _SubagentExecution:
             target_tokens=generation.context_target_tokens if generation else 0,
             step=self._turns_taken,
             last_compaction_step=self._last_compaction_step,
+            force_compaction=force_compaction,
         )
         if getattr(result, "compacted", False):
             self._last_compaction_step = self._turns_taken
@@ -641,6 +700,8 @@ class _SubagentExecution:
                 }
             )
 
+        self._leaked_retries = 0
+        prior_messages = list(self._messages)
         self._say(
             ChatMessage(
                 role="assistant",
@@ -650,15 +711,28 @@ class _SubagentExecution:
                 tool_calls=redacted_calls,
             )
         )
-        for call in calls:
+        results = await asyncio.gather(*(self._execute(call) for call in calls))
+        sigs: list[tuple[str, str]] = []
+        mutated = False
+        for call, result in zip(calls, results, strict=True):
             self._tool_calls_count += 1
+            t_name = str(call.get("name") or "unknown")
+            t_args = str(call.get("arguments") or "{}")
+            sigs.append((t_name, t_args))
+            if t_name in ("file_write", "file_edit", "apply_patch", "apply_diff_file"):
+                mutated = True
+            if note := repeat_note(prior_messages, t_name, t_args, result):
+                result = f"{result}\n\n{note}"
             self._say(
                 ChatMessage(
                     role="tool",
-                    content=await self._execute(call),
+                    content=result,
                     tool_call_id=call.get("id") or str(uuid.uuid4().hex[:8]),
                 )
             )
+        if sig_det := self._progress_tracker.record_step_signature(sigs, mutated=mutated):
+            if sig_det.suggested_nudge:
+                self._say(ChatMessage(role="user", content=sig_det.suggested_nudge))
 
     async def _execute(self, call: dict[str, Any]) -> str:
         tool_name = call.get("name") or "unknown"
@@ -697,7 +771,14 @@ class _SubagentExecution:
             output = res[0] if isinstance(res, tuple) else str(res)
         else:
             output = raw_out
-        return output
+        if tool_name not in ("file_read", "read_file"):
+            output = await offload_tool_output(
+                output,
+                self._session_id,
+                call.get("id") or str(uuid.uuid4().hex[:8]),
+                driver=self._runner.registry._driver,
+            )
+        return clamp_output(output)
 
 
 def workspace_brief(permitted: set[str]) -> str:

@@ -216,6 +216,10 @@ class UserTurnRequest(BaseModel):
         default_factory=list,
         description="Attachment ids to attach to this turn only (never re-sent on later turns)",
     )
+    reasoning_effort: Literal["none", "minimal", "low", "medium", "high"] | None = Field(
+        default=None,
+        description="Override reasoning effort for this turn ('none', 'minimal', 'low', 'medium', 'high')",
+    )
 
 
 class AnswerQuestionRequest(BaseModel):

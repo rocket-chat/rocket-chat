@@ -12,12 +12,12 @@ ARGS = json.dumps({"aggregation": "count_distinct"})
 ERROR = 'MCP tool error: Parameter validation failed: "aggregateOn" is required'
 
 
-def _attempt(call_id: str, result: str, args: str = ARGS) -> list[ChatMessage]:
+def _attempt(call_id: str, result: str, args: str = ARGS, name: str = "agg") -> list[ChatMessage]:
     return [
         ChatMessage(
             role="assistant",
             tool_calls=[
-                {"id": call_id, "type": "function", "function": {"name": "agg", "arguments": args}}
+                {"id": call_id, "type": "function", "function": {"name": name, "arguments": args}}
             ],
         ),
         ChatMessage(role="tool", content=result, tool_call_id=call_id),
@@ -69,3 +69,97 @@ def test_unchanged_repeats_are_counted_within_the_turn_and_never_for_polling_too
         )
         is None
     )
+
+
+def test_verification_calls_across_edits_do_not_ban_tool_when_errors_differ() -> None:
+    test_args = json.dumps({"path": "/workspace/repo"})
+    err1 = "FAILED tests/test_a.py::test_foo - AssertionError: expected 1 got 0"
+    err2 = "FAILED tests/test_b.py::test_bar - KeyError: 'baz'"
+    err3 = "FAILED tests/test_c.py::test_qux - TypeError: NoneType object is not callable"
+
+    def _edit(cid: str) -> list[ChatMessage]:
+        return [
+            ChatMessage(
+                role="assistant",
+                tool_calls=[
+                    {
+                        "id": cid,
+                        "type": "function",
+                        "function": {
+                            "name": "file_edit",
+                            "arguments": json.dumps(
+                                {"path": "foo.py", "replacement_block": "x = 1"}
+                            ),
+                        },
+                    }
+                ],
+            ),
+            ChatMessage(role="tool", content="File edited successfully", tool_call_id=cid),
+        ]
+
+    # Attempt 1 -> Edit 1 -> Attempt 2 -> Edit 2 -> Attempt 3
+    history = (
+        _attempt("t1", err1, test_args, name="run_tests")
+        + _edit("e1")
+        + _attempt("t2", err2, test_args, name="run_tests")
+        + _edit("e2")
+    )
+    # The 3rd run with a different error should NOT be banned
+    note = repeated_failure_note(history, "run_tests", test_args, err3)
+    assert note is None
+
+
+def test_verification_calls_across_edits_flag_stagnant_failure_if_error_digest_is_identical() -> (
+    None
+):
+    test_args = json.dumps({"path": "/workspace/repo"})
+    stagnant_err = (
+        "FAILED tests/test_core.py::test_login - AssertionError: 401 != 200\n"
+        "AssertionError: Expected status code 200 but received 401 Unauthorized"
+    )
+
+    def _edit(cid: str) -> list[ChatMessage]:
+        return [
+            ChatMessage(
+                role="assistant",
+                tool_calls=[
+                    {
+                        "id": cid,
+                        "type": "function",
+                        "function": {
+                            "name": "file_edit",
+                            "arguments": json.dumps(
+                                {"path": "core.py", "replacement_block": "x = 2"}
+                            ),
+                        },
+                    }
+                ],
+            ),
+            ChatMessage(role="tool", content="File edited successfully", tool_call_id=cid),
+        ]
+
+    history = (
+        _attempt("t1", stagnant_err, test_args, name="run_tests")
+        + _edit("e1")
+        + _attempt("t2", stagnant_err, test_args, name="run_tests")
+        + _edit("e2")
+    )
+    # The 3rd run with the exact same stagnant error should trigger the stagnant failure note
+    note = repeated_failure_note(history, "run_tests", test_args, stagnant_err)
+    assert note is not None
+    assert "Stagnant failure:" in note
+    assert "3 verification runs across edits" in note
+    assert "Do not send it again" not in note
+
+
+def test_verification_calls_without_edits_are_flagged_as_repeated_failure() -> None:
+    test_args = json.dumps({"path": "/workspace/repo"})
+    err = "FAILED tests/test_core.py::test_login - AssertionError"
+
+    history = _attempt("t1", err, test_args, name="run_tests") + _attempt(
+        "t2", err, test_args, name="run_tests"
+    )
+    note = repeated_failure_note(history, "run_tests", test_args, err)
+    assert note is not None
+    assert "failed 3 times" in note
+    assert "Do not send it again" in note

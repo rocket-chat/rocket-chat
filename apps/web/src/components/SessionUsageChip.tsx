@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { Coins } from "lucide-react";
+import { Coins, Sparkles } from "lucide-react";
+import { useMissionStore } from "../lib/store";
 import { useClampIntoViewport } from "../lib/useClampIntoViewport";
 import { useSessionUsage } from "../lib/useSessionUsage";
 import {
@@ -44,6 +45,10 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
   running,
 }) => {
   const usage = useSessionUsage(sessionId, running);
+  const contextTokens = useMissionStore((state) => state.contextTokens);
+  const contextLimit = useMissionStore((state) => state.contextLimit);
+  const [compacting, setCompacting] = useState(false);
+  const [compactMessage, setCompactMessage] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -65,6 +70,10 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
 
   if (!usage || usage.totals.calls === 0) return null;
   const { totals } = usage;
+  const contextFillPct =
+    contextTokens != null && contextLimit != null && contextLimit > 0
+      ? Math.min(100, Math.round((contextTokens / contextLimit) * 100))
+      : null;
 
   return (
     <div className="relative" ref={ref}>
@@ -84,6 +93,20 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
         <span data-testid="session-usage-tokens" className="hidden font-mono sm:inline">
           · {formatCount(totals.total_tokens)} tok
         </span>
+        {contextFillPct != null && (
+          <span
+            data-testid="session-usage-ctx-fill"
+            className={`hidden font-mono md:inline ${
+              contextFillPct >= 85
+                ? "text-rose-500 font-semibold"
+                : contextFillPct >= 70
+                  ? "text-amber-500 font-medium"
+                  : "text-neutral-500"
+            }`}
+          >
+            · {contextFillPct}% ctx
+          </span>
+        )}
       </button>
 
       {open && (
@@ -100,6 +123,58 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
               {formatUsd(totals.cost_usd)}
             </span>
           </div>
+
+          {contextTokens != null && contextLimit != null && (
+            <div className="rounded-lg border border-surface-border bg-surface-card p-2.5 space-y-2">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-foreground">Active Context Window</span>
+                <span className="font-mono text-neutral-600 dark:text-neutral-300">
+                  {formatCount(contextTokens)} / {formatCount(contextLimit)} ({contextFillPct}%)
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+                <div
+                  className={`h-full transition-all duration-300 ${
+                    (contextFillPct ?? 0) >= 85
+                      ? "bg-rose-500"
+                      : (contextFillPct ?? 0) >= 70
+                        ? "bg-amber-500"
+                        : "bg-emerald-500"
+                  }`}
+                  style={{ width: `${contextFillPct ?? 0}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[10px] text-neutral-500">Pruning at 70% · Compaction at 85%</span>
+                {!running && sessionId && (
+                  <button
+                    type="button"
+                    disabled={compacting}
+                    onClick={async () => {
+                      setCompacting(true);
+                      setCompactMessage(null);
+                      try {
+                        const res = await fetch(`/v1/sessions/${sessionId}/compact`, { method: "POST" });
+                        if (res.ok) {
+                          const data = await res.json();
+                          setCompactMessage(data.status === "compacted" ? "Compacted!" : "Skipped");
+                        }
+                      } catch {
+                        setCompactMessage("Failed");
+                      } finally {
+                        setCompacting(false);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 rounded bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand hover:bg-brand/20 transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    {compacting ? "Compacting..." : compactMessage || "Compact now"}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <Figures totals={totals} />
           {totals.own_key_cost_usd > 0 && (
             <p className="text-[11px] text-neutral-500">

@@ -33,6 +33,9 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
   terminalEpoch: 0,
   liveToolOutput: {},
   tokenRate: 0,
+  contextTokens: null,
+  contextLimit: null,
+  setContextUsage: (contextTokens, contextLimit) => set({ contextTokens, contextLimit }),
   turnBinding: null,
   artifacts: [],
   upsertArtifact: (artifact) =>

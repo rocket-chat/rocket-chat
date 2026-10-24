@@ -157,6 +157,7 @@ def _resolve_model_generation(
     models: dict[str, Any],
     fallbacks: tuple[str, ...],
     efforts: ReasoningSupport | None = None,
+    reasoning_effort: str | None = None,
 ) -> GenerationParams:
     """Resolve generation params with output budget ceiling and reasoning policy."""
     agent_temp = getattr(agent, "temperature", None)
@@ -177,8 +178,11 @@ def _resolve_model_generation(
         max_tokens = int(models["max_tokens"]) if models.get("max_tokens") else None
 
     thinking_budget = getattr(agent, "thinking_budget_tokens", None)
-    effort = getattr(agent, "reasoning_effort", None) or (
-        str(models.get("default_reasoning_effort") or "") or None
+    step_limit = int(models.get("reasoning_step_limit_tokens") or 0)
+    effort = (
+        reasoning_effort
+        or getattr(agent, "reasoning_effort", None)
+        or (str(models.get("default_reasoning_effort") or "") or None)
     )
     reasoning_off = effort == "none"
     if reasoning_off:
@@ -193,10 +197,15 @@ def _resolve_model_generation(
         if effort is None and thinking_budget is None:
             effort = "medium"
             if model and ("claude" in model.lower() or "anthropic" in model.lower()):
-                thinking_budget = 16_000
+                thinking_budget = min(16_000, step_limit) if step_limit > 0 else 16_000
         if thinking_budget is not None and max_tokens is not None and thinking_budget >= max_tokens:
             thinking_budget = max(1024, max_tokens - 1024) if max_tokens > 1024 else None
         reasoning_policy = ReasoningPolicy(effort=effort or "medium", budget_tokens=thinking_budget)
+
+    # When thinking_budget is explicitly set and step_limit is lower, protect the stream
+    # from being severed prematurely by ensuring step_limit leaves headroom past budget_tokens
+    if thinking_budget is not None and step_limit > 0 and step_limit <= thinking_budget:
+        step_limit = thinking_budget + 2048
 
     return GenerationParams(
         temperature=temperature,
@@ -204,7 +213,7 @@ def _resolve_model_generation(
         thinking_budget_tokens=thinking_budget,
         reasoning_effort=effort,
         reasoning=reasoning_policy,
-        reasoning_step_limit_tokens=int(models.get("reasoning_step_limit_tokens") or 0),
+        reasoning_step_limit_tokens=step_limit,
         fallback_models=fallbacks,
         context_windows=_context_windows(models.get("context_windows")),
         context_target_tokens=_context_target(models.get("context_target_tokens")),
@@ -241,6 +250,7 @@ class TurnService:
         user_id: str,
         agent_id: str | None,
         request_model: str | None = None,
+        reasoning_effort: str | None = None,
         enabled_toolsets: frozenset[str] | None = None,
         global_default_model: str | None = None,
         session_permission_mode: str | None = None,
@@ -261,7 +271,13 @@ class TurnService:
         )
         max_turns = await self._resolve_max_turns(agent=agent, org_id=org_id, db_mgr=db_mgr)
         policy = await self._resolve_policy(
-            db_mgr, org_id, user_id, agent, session_permission_mode, model=model
+            db_mgr,
+            org_id,
+            user_id,
+            agent,
+            session_permission_mode,
+            model=model,
+            reasoning_effort=reasoning_effort,
         )
         return AgentBinding(
             id=agent.id if agent else "persona-general",
@@ -292,6 +308,7 @@ class TurnService:
         agent: Any,
         session_permission_mode: str | None = None,
         model: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> TurnPolicy:
         """Generation parameters and git rules from the registry-backed org/member settings."""
         models = await effective_settings(db_mgr, org_id, "models")
@@ -320,7 +337,9 @@ class TurnService:
             )
         )
         support = await openrouter_efforts.support_for(model) if model else None
-        generation = _resolve_model_generation(model, agent, models, fallbacks, support)
+        generation = _resolve_model_generation(
+            model, agent, models, fallbacks, support, reasoning_effort=reasoning_effort
+        )
         git = GitPolicy(
             authorship=str(github["commit_authorship_policy"]),
             pr_creation=str(github["pr_creation_policy"]),

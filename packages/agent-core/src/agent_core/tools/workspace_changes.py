@@ -20,10 +20,14 @@ _FILE = "@@rocket-file "
 _SNAPSHOT = (
     'top=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0; cd "$top" || exit 0; '
     'echo "@root $top"; '
-    "git status --porcelain=v1 -uall --no-renames -z 2>/dev/null | tr '\\0' '\\n' | "
-    'while IFS= read -r line; do f=${line#???}; [ -n "$f" ] || continue; '
-    'if [ -f "$f" ]; then echo "$(git hash-object -- "$f" 2>/dev/null) $f"; '
-    'else echo "gone $f"; fi; done | head -n 500'
+    'tmp=$(mktemp -d 2>/dev/null || mktemp -d -t "rk"); '
+    "git status --porcelain=v1 -uall --no-renames -z 2>/dev/null | tr '\\0' '\\n' | head -n 500 > \"$tmp/raw\"; "
+    'awk -v out="$tmp/exist" \'length($0) > 3 { st=substr($0,1,2); f=substr($0,4); if (st ~ /D/) print "gone " f; else print f > out }\' "$tmp/raw"; '
+    'if [ -s "$tmp/exist" ]; then '
+    'git hash-object --stdin-paths < "$tmp/exist" 2>/dev/null > "$tmp/hashes"; '
+    'paste -d " " "$tmp/hashes" "$tmp/exist"; '
+    "fi; "
+    'rm -rf "$tmp"'
 )
 
 Snapshot = tuple[str, dict[str, str]]

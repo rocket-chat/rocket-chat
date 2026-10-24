@@ -167,6 +167,9 @@ export interface StreamSlice {
   pendingSelfPrompts: OwnUserMessage[];
   isStreamContinuous: boolean;
   setStreamContinuous: (continuous: boolean) => void;
+  contextTokens: number | null;
+  contextLimit: number | null;
+  setContextUsage: (tokens: number, limit: number) => void;
   updateLastAgentLog: (delta: string, timestamp?: string) => void;
   appendReasoning: (delta: string, timestamp?: string) => void;
   clearReasoning: () => void;

@@ -38,6 +38,8 @@ interface ActionGroupProps {
   isActive?: boolean;
 }
 
+type StepFilter = "all" | "edits" | "errors" | "subagents";
+
 const KIND_ICON: Record<ActivityKind, React.ComponentType<{ className?: string }>> = {
   run: Terminal,
   read: FileSearch,
@@ -142,6 +144,31 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
     setIsRightPanelOpen(true);
   };
 
+  const [filter, setFilter] = useState<StepFilter>("all");
+
+  const displayedEntries = entries.filter((entry) => {
+    if (filter === "all") return true;
+    if (filter === "edits") {
+      return Boolean(
+        (entry.toolCall && describeToolCall(entry.toolCall).kind === "edit") ||
+          entry.toolCall?.name.includes("edit") ||
+          entry.toolCall?.name.includes("write") ||
+          entry.toolCall?.name.includes("patch")
+      );
+    }
+    if (filter === "errors") {
+      return Boolean(
+        (entry.toolCall && isFailed(entry.toolCall)) ||
+          entry.subagent?.status === "error" ||
+          (entry.role === "SYSTEM" && entry.content.includes("Error"))
+      );
+    }
+    if (filter === "subagents") {
+      return Boolean(entry.subagent || entry.toolCall?.name === "delegate_subagent");
+    }
+    return true;
+  });
+
   return (
     <div className="my-1 font-sans text-sm">
       <button
@@ -174,9 +201,29 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
       {isActive && <LiveToolOutput callId={runningCall?.id} />}
 
       {isOpen && (
-        <ul className="mt-1 ml-1 space-y-0.5">
-          {entries.map((entry) => (
-            <React.Fragment key={entry.id}>
+        <div className="mt-1 ml-1 space-y-1">
+          {entries.length >= 8 && (
+            <div className="flex items-center gap-1 px-1 py-0.5 text-[11px]" data-testid="action-group-filter-bar">
+              {(["all", "edits", "errors", "subagents"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setFilter(mode)}
+                  className={cn(
+                    "rounded-md px-2 py-0.5 font-medium transition-colors cursor-pointer capitalize",
+                    filter === mode
+                      ? "bg-brand/15 text-brand"
+                      : "text-neutral-500 hover:text-foreground hover:bg-surface-elevated"
+                  )}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+          )}
+          <ul className="space-y-0.5">
+            {displayedEntries.map((entry) => (
+              <React.Fragment key={entry.id}>
               {entry.reasoning && (
                 <StepRow
                   icon={<Sparkles className="h-3.5 w-3.5" />}
@@ -267,7 +314,8 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
               )}
             </React.Fragment>
           ))}
-        </ul>
+          </ul>
+        </div>
       )}
     </div>
   );

@@ -52,6 +52,8 @@ class StatusPayload(TypedDict):
     agent_name: NotRequired[str]
     model: NotRequired[str]
     discard_partial: NotRequired[bool]
+    context_tokens: NotRequired[int]
+    context_limit: NotRequired[int]
 
 
 class ToolStartedPayload(TypedDict):

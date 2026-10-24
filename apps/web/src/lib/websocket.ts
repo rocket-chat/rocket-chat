@@ -465,6 +465,10 @@ export class MissionWebSocket {
         const message = payload.message || payload.error || rawStatus || "";
         store.setStatusMessage(message);
 
+        if (typeof payload.context_tokens === "number" && typeof payload.context_limit === "number") {
+          store.setContextUsage(payload.context_tokens, payload.context_limit);
+        }
+
         if (payload.discard_partial || rawStatus === "retrying") {
           store.discardPartialTokens();
         }
@@ -909,7 +913,8 @@ export class MissionWebSocket {
     model?: string,
     messageId?: string,
     attachmentIds?: string[],
-    delivery: "steer" | "queue" = "steer"
+    delivery: "steer" | "queue" = "steer",
+    reasoningEffort?: string
   ): Promise<void> {
     const store = useMissionStore.getState();
     store.setIsExecuting(true);
@@ -948,6 +953,7 @@ export class MissionWebSocket {
             message_id: messageId,
             attachment_ids: ids,
             delivery,
+            reasoning_effort: reasoningEffort,
             ...choice,
           })
         );
@@ -972,6 +978,7 @@ export class MissionWebSocket {
           message_id: messageId,
           attachment_ids: ids,
           delivery,
+          reasoning_effort: reasoningEffort,
           ...choice,
         }),
       });

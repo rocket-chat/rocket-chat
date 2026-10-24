@@ -63,6 +63,7 @@ class TurnRequest:
     synthetic_prompt: bool = False
     concurrency_gate: GlobalConcurrencyGate | None = None
     session_locks: SessionWriteLocks | None = None
+    reasoning_effort: str | None = None
 
 
 @dataclass

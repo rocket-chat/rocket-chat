@@ -9,7 +9,7 @@ import os
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import asdict, dataclass, field, replace
 from enum import Enum
@@ -268,17 +268,30 @@ class _TurnRun:
     next_notes: list[str] = field(default_factory=list)
     progress_tracker: ProgressTracker = field(default_factory=ProgressTracker)
     # The volatile context of this turn (routing, background processes, GitHub activity,
-
     # recalled memories): after the conversation, so it never breaks the cached prefix.
     context_note: str = ""
+    base_context_note: str | None = None
     synthetic_prompt: bool = False
     # ``.rocket/PLAN.md`` and ``PROGRESS.md`` as last read; ``None`` until read, or once a step
     # may have changed them.
     working_memory: tuple[str | None, str | None] | None = None
 
+    @property
+    def effective_context_note(self) -> str:
+        has_bridge = any("[Compacted " in (m.content or "") for m in self.conversation)
+        base = self.context_note if self.base_context_note is None else self.base_context_note
+        if has_bridge:
+            return base
+        wm = _working_memory_note(*(self.working_memory or (None, None)))
+        if not wm:
+            return base
+        if not base:
+            return wm
+        return f"{base}\n\n{wm}"
+
     def current_notes(self) -> list[str]:
         return [
-            *([self.context_note] if self.context_note else []),
+            *([self.effective_context_note] if self.effective_context_note else []),
             *self.sticky_notes,
             *self.next_notes,
         ]
@@ -287,7 +300,10 @@ class _TurnRun:
         return self.turn_limit != NO_STEP_LIMIT and step >= self.turn_limit - 1
 
     def take_notes(self) -> list[str]:
-        notes = [*([self.context_note] if self.context_note else []), *self.sticky_notes]
+        notes = [
+            *([self.effective_context_note] if self.effective_context_note else []),
+            *self.sticky_notes,
+        ]
         notes, self.next_notes = [*notes, *self.next_notes], []
         return notes
 
@@ -298,8 +314,11 @@ _WORKING_MEMORY_NOTE_CHARS = 12_000
 
 def _mentions_working_memory(call: dict[str, Any]) -> bool:
     """Whether a tool call may have written ``.rocket/PLAN.md`` or ``PROGRESS.md``."""
+    name = str(call.get("name") or (call.get("function") or {}).get("name") or "")
+    if name in ("update_task_checklist", "update_checklist", "checklist_update"):
+        return True
     arguments = str(call.get("arguments") or (call.get("function") or {}).get("arguments") or "")
-    return any(name in arguments for name in _WORKING_MEMORY_FILES)
+    return any(wm_file in arguments for wm_file in _WORKING_MEMORY_FILES)
 
 
 def _working_memory_note(plan_md: str | None, progress_md: str | None) -> str:
@@ -325,6 +344,58 @@ def _steering_payload(message: SteeringMessage) -> dict[str, Any]:
         "message_id": message.message_id,
         "author_user_id": message.author_user_id,
     }
+
+
+_ROUTINE_READ_TOOLS = frozenset(
+    {
+        "file_read",
+        "read_file",
+        "grep_search",
+        "glob_files",
+        "list_dir",
+        "code_search",
+        "github_read_file",
+    }
+)
+
+
+def _has_recent_tool_error(conversation: Sequence[ChatMessage]) -> bool:
+    recent_tools = [m for m in conversation if m.role == "tool"][-2:]
+    if len(recent_tools) < 2:
+        return True
+    return any(
+        (m.content or "").startswith("Error:") or "exit code" in (m.content or "").lower()
+        for m in recent_tools
+    )
+
+
+def _is_routine_read_sequence(conversation: Sequence[ChatMessage]) -> bool:
+    assistant_msgs = [m for m in conversation if m.role == "assistant" and m.tool_calls][-2:]
+    if len(assistant_msgs) < 2:
+        return False
+    for am in assistant_msgs:
+        calls = am.tool_calls or []
+        if len(calls) != 1:
+            return False
+        c_name = calls[0].get("name") or (calls[0].get("function") or {}).get("name")
+        if c_name not in _ROUTINE_READ_TOOLS:
+            return False
+    return True
+
+
+def step_thinking_budget(run: _TurnRun, configured_budget: int | None) -> int | None:
+    """Modulate thinking budget: full on kickoff/steer/errors/nudges, trimmed on routine reads."""
+    if not configured_budget or configured_budget <= 4096:
+        return configured_budget
+    if run.step == 0 or run.next_notes or run.sticky_notes:
+        return configured_budget
+    if run.conversation and run.conversation[-1].role == "user":
+        return configured_budget
+    if _has_recent_tool_error(run.conversation):
+        return configured_budget
+    if _is_routine_read_sequence(run.conversation):
+        return min(configured_budget, 4096)
+    return configured_budget
 
 
 class AsyncReActOrchestrator(AgentOrchestratorProtocol):
@@ -363,7 +434,11 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         # Decomposed modular subsystems
         self.dispatcher = ToolDispatcher(registry=registry)
         self.subagent_runner = SubagentRunner(
-            gateway=gateway, registry=registry, configs=subagent_configs, dispatcher=self.dispatcher
+            gateway=gateway,
+            registry=registry,
+            configs=subagent_configs,
+            dispatcher=self.dispatcher,
+            catalogue=catalogue,
         )
         self._registry.bind_subagent_runner(self.subagent_runner)
         self.gates = DecisionGateManager()
@@ -660,12 +735,21 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 event_queue=event_queue,
                 default_model=sub_model,
             )
-            return (
-                f"[{sub_res.role.upper()} SUBAGENT REPORT]\n"
-                f"Task: {sub_res.task}\n"
-                f"Status: {sub_res.status} ({sub_res.turns_taken} turns, {sub_res.tool_calls_count} tools, {sub_res.duration_ms}ms)\n\n"
-                f"{sub_res.summary}"
-            )
+            report_lines = [
+                f"[{sub_res.role.upper()} SUBAGENT REPORT]",
+                f"Task: {sub_res.task}",
+                f"Status: {sub_res.status} ({sub_res.turns_taken} turns, {sub_res.tool_calls_count} tools, {sub_res.duration_ms}ms)",
+            ]
+            if sub_res.branch:
+                report_lines.append(
+                    f"Branch: {sub_res.branch} (changes committed; run 'git merge --no-edit {sub_res.branch}' or 'git diff HEAD..{sub_res.branch}' to inspect/merge)"
+                )
+            if sub_res.changed_files:
+                report_lines.append(f"Changed files: {', '.join(sub_res.changed_files)}")
+            if sub_res.artefacts:
+                report_lines.append(f"Artefacts: {', '.join(sub_res.artefacts)}")
+            report_lines.append(f"\n{sub_res.summary}")
+            return "\n".join(report_lines)
 
         async def _on_approval(action_type: str, description: str, risk_level: str) -> str:
             """Pause the turn until a human approves or denies a sensitive action."""
@@ -857,11 +941,17 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         whitelisted_tools: list[str] | None = None,
         role: str = "react",
         tool_choice: str | None = None,
+        thinking_budget_tokens: int | None = None,
     ) -> _ModelReply:
         tools_for_request = self._tools_for_request(whitelisted_tools)
 
         exec_ctx = current_execution_ctx.get()
         generation = exec_ctx.policy.generation if exec_ctx else GenerationParams()
+        effective_budget = (
+            thinking_budget_tokens
+            if thinking_budget_tokens is not None
+            else generation.thinking_budget_tokens
+        )
         request = ModelRequest(
             model=model or self.default_model,
             messages=messages,
@@ -869,7 +959,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             # Organization fail-over models first, then the deployment-wide ones.
             fallback_models=[*generation.fallback_models, *self.fallback_models],
             tool_choice=tool_choice,
-            thinking_budget_tokens=generation.thinking_budget_tokens,
+            thinking_budget_tokens=effective_budget,
             reasoning_effort=generation.reasoning_effort,
             temperature=(
                 generation.temperature
@@ -884,6 +974,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         )
 
         limit = generation.reasoning_step_limit_tokens if role == "react" else 0
+        if limit > 0 and effective_budget and limit <= effective_budget:
+            limit = effective_budget + 2048
         try:
             stream, eff_model = await self._execute_stream(request, session_id, event_queue, limit)
         except StepReasoningOverrunError as overrun:
@@ -1404,7 +1496,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             run.next_notes = []
             req_messages = assemble_request_messages(
                 messages,
-                context_note=run.context_note,
+                context_note=run.effective_context_note,
                 sticky_notes=run.sticky_notes,
                 next_notes=next_notes,
                 turn_images=run.exec_ctx.turn_images if run.exec_ctx else (),
@@ -1561,22 +1653,24 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         working_memory = await self._read_working_memory(
             session_id, exec_ctx.active_repository if exec_ctx is not None else ""
         )
-        context = [
+        base_parts = [
             part.strip()
             for part in (
                 dynamic,
                 self._guidance_note(exec_ctx, conversation),
                 memory_context if isinstance(memory_context, str) else "",
                 workspace_context if isinstance(workspace_context, str) else "",
-                _working_memory_note(*working_memory),
             )
             if part and part.strip()
         ]
+        context = [*base_parts, _working_memory_note(*working_memory)]
+        context = [part.strip() for part in context if part and part.strip()]
         att_list = list(attachments or [])
         non_img_atts = [a for a in att_list if not (a.mime and a.mime.startswith("image/"))]
         if non_img_atts:
             manifest = format_attachment_manifest(non_img_atts)
             if manifest:
+                base_parts.append(manifest)
                 context.append(manifest)
         return _TurnRun(
             session_id=session_id,
@@ -1591,6 +1685,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             exec_ctx=exec_ctx,
             pending_attachments=att_list,
             context_note="\n\n".join(context),
+            base_context_note="\n\n".join(base_parts),
             synthetic_prompt=synthetic_prompt,
             working_memory=working_memory,
         )
@@ -1630,6 +1725,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         ctx.guidance_pending, ctx.standing_pending = [], []
         extra = "\n\n".join(part for part in added if part)
         run.context_note = f"{run.context_note}\n\n{extra}".strip()
+        run.base_context_note = (
+            f"{run.base_context_note}\n\n{extra}".strip() if run.base_context_note else extra
+        )
 
     async def _emit(self, run: _TurnRun, event_type: str, payload: dict[str, Any]) -> None:
         await run.event_queue.put(
@@ -1644,9 +1742,22 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         message: str,
         **extra: Any,
     ) -> None:
-        await self._emit(
-            run, "status", {"state": state.value, "status": status, "message": message, **extra}
-        )
+        payload: dict[str, Any] = {
+            "state": state.value,
+            "status": status,
+            "message": message,
+            **extra,
+        }
+        if run is not None and run.react_model:
+            exec_ctx = run.exec_ctx
+            overrides = exec_ctx.policy.generation.context_windows if exec_ctx else ()
+            limit_info = self.context_manager.resolve_context_limit(run.react_model, overrides)
+            payload["context_limit"] = limit_info.tokens
+            measured = exec_ctx.measured_prompt_tokens if exec_ctx else 0
+            payload["context_tokens"] = (
+                measured if measured > 0 else request_tokens(run.react_model, run.conversation)
+            )
+        await self._emit(run, "status", payload)
 
     async def _drive_turn(
         self, run: _TurnRun, user_message: str, synthetic_prompt: bool = False
@@ -1696,7 +1807,10 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         for message in taken:
             run.conversation.append(
                 ChatMessage(
-                    role="user", content=message.content, author_user_id=message.author_user_id
+                    role="user",
+                    content=message.content,
+                    author_user_id=message.author_user_id,
+                    name="user_steering",
                 )
             )
             await self._emit(run, "user_steer", _steering_payload(message))
@@ -1813,6 +1927,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 discard_partial=True,
             )
             run.next_notes.append(dangling_preface_notice())
+            self._record_toolless_continuation(run)
             return False
         run.empty_retries = 0
         run.conversation.append(
@@ -1832,6 +1947,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         ):
             run.checklist_reminded = True
             run.next_notes.append(reminder)
+            self._record_toolless_continuation(run)
             await self._flush_transcript(run.session_id, run.org_id, run.conversation)
             return False
         if (
@@ -1841,14 +1957,21 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         ):
             run.verification_reminded = True
             run.next_notes.append(reminder)
+            self._record_toolless_continuation(run)
             await self._flush_transcript(run.session_id, run.org_id, run.conversation)
             return False
         self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
         await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
         return True
 
+    @staticmethod
+    def _record_toolless_continuation(run: _TurnRun) -> None:
+        if mono_det := run.progress_tracker.record_monologue_step(has_tool_calls=False):
+            run.next_notes.append(mono_det.suggested_nudge)
+
     async def _after_tool_calls(self, run: _TurnRun, tool_calls: dict[int, dict[str, Any]]) -> bool:
         """Record a step's tool results; True when a ``wait_for`` ended the turn."""
+        run.progress_tracker.record_monologue_step(has_tool_calls=True)
         await self._process_tool_results_progress(run, tool_calls)
         self._add_pending_guidance(run)
         if any(_mentions_working_memory(call) for call in tool_calls.values()):
@@ -1885,6 +2008,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
     ) -> None:
         """Inspect completed tool calls to detect failure and edit/revert loops."""
         calls_list = list(tool_calls.values()) if isinstance(tool_calls, dict) else list(tool_calls)
+        sigs: list[tuple[str, str]] = []
+        mutated_before = run.progress_tracker._mutations_count
         for call in calls_list:
             name = str(call.get("name") or (call.get("function") or {}).get("name") or "")
             if not name:
@@ -1892,6 +2017,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             raw_args = str(
                 call.get("arguments") or (call.get("function") or {}).get("arguments") or "{}"
             )
+            sigs.append((name, raw_args))
             result_msg = next(
                 (
                     m
@@ -1908,6 +2034,14 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 elif detection.level == 2:
                     await self._handle_progress_decision(run, detection)
                     return
+        step_mutated = run.progress_tracker._mutations_count != mutated_before
+        if sigs and (
+            sig_det := run.progress_tracker.record_step_signature(sigs, mutated=step_mutated)
+        ):
+            if sig_det.level == 1:
+                run.next_notes.append(sig_det.suggested_nudge)
+            elif sig_det.level == 2:
+                await self._handle_progress_decision(run, sig_det)
 
     def _check_progress_loop(
         self, run: _TurnRun, name: str | None, raw_args: str, output: str
@@ -1955,7 +2089,12 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 or output
             )
             if path:
-                return run.progress_tracker.record_file_edit(path, content)
+                if path.endswith("PLAN.md"):
+                    self._sync_plan_from_edit(run, content)
+                before_block = str(args["target_block"]) if args.get("target_block") else None
+                return run.progress_tracker.record_file_edit(
+                    path, content, before_content=before_block
+                )
 
         if name in ("update_task_checklist", "update_checklist", "checklist_update"):
             tasks = args.get("tasks")
@@ -1963,6 +2102,23 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 run.active_checklist = tasks
 
         return None
+
+    def _sync_plan_from_edit(self, run: _TurnRun, content: str) -> None:
+        """Sync task checklist when .rocket/PLAN.md is edited directly."""
+        from agent_core.checklist import parse_plan_markdown
+
+        tasks = parse_plan_markdown(content)
+        if tasks:
+            run.active_checklist = tasks
+            if run.exec_ctx:
+                run.exec_ctx.checklist = tasks
+            run.event_queue.put_nowait(
+                AgentEvent(
+                    event_type="plan_updated",
+                    session_id=run.session_id,
+                    payload={"session_id": run.session_id, "tasks": tasks},
+                )
+            )
 
     async def _handle_progress_decision(self, run: _TurnRun, res: LoopDetectionResult) -> None:
         """Present an interactive decision card when progress is stuck in a loop."""
@@ -2033,12 +2189,20 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         )
         req_messages = assemble_request_messages(
             messages,
-            context_note=run.context_note,
+            context_note=run.effective_context_note,
             sticky_notes=run.sticky_notes,
             next_notes=run.next_notes,
             turn_images=run.exec_ctx.turn_images if run.exec_ctx else (),
             pending_attachments=run.pending_attachments,
             is_synthetic=run.synthetic_prompt,
+        )
+        effective_budget = step_thinking_budget(
+            run,
+            (
+                run.exec_ctx.policy.generation.thinking_budget_tokens
+                if run.exec_ctx and run.exec_ctx.policy
+                else None
+            ),
         )
         reply = await self._stream_model_step(
             run.session_id,
@@ -2047,6 +2211,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             model=run.react_model,
             whitelisted_tools=run.whitelisted_tools,
             role="react",
+            thinking_budget_tokens=effective_budget,
         )
         # Consumed only once a request went through, so a retry carries them again.
         run.pending_attachments, run.next_notes = [], []

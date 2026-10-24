@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
 
+from agent_core.context import ExecutionContext, current_execution_ctx
 from agent_core.dispatcher import ToolDispatcher
 from agent_core.orchestrator import AsyncReActOrchestrator
 from agent_core.subagents import DEFAULT_SUBAGENT_CONFIGS, FINAL_REPORT_NOTE, SubagentRunner
@@ -14,7 +15,10 @@ from api.services.session_support import ACTIVE_REPOSITORY_KEY
 from api.services.transcript import InMemoryTranscriptStore
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
-from specifications.interfaces.agent import SubagentConfig, SubagentTaskRequest
+from specifications.interfaces.agent import (
+    SubagentConfig,
+    SubagentTaskRequest,
+)
 from specifications.interfaces.llm import ModelRequest, StreamChunk, ToolDefinition
 from specifications.interfaces.sandbox import ExecResult
 from tests.turn_harness import run_turn
@@ -131,3 +135,69 @@ def test_delegates_share_the_main_turns_dispatcher() -> None:
     )
 
     assert orchestrator.subagent_runner.dispatcher is orchestrator.dispatcher
+
+
+async def test_qa_verifier_runs_in_parent_repository_without_worktree_isolation() -> None:
+    driver = FakeSandboxDriver()
+    driver.script_command("pytest", ExecResult(0, "1 passed in 0.1s\n", "", 1))
+
+    await run_turn(
+        "org_qa",
+        script=[
+            ("delegate_subagent", {"role": "qa_verifier", "task": "Run the tests"}),
+            ("run_tests", {"path": "/workspace/repo"}),
+        ],
+        metadata={ACTIVE_REPOSITORY_KEY: "/workspace/repo"},
+        driver=driver,
+    )
+
+    # qa_verifier should NOT create an isolated git worktree: it verifies parent repository in place
+    worktree_calls = [c for _, c in driver.exec_calls if "worktree add" in c]
+    assert not worktree_calls, (
+        "qa_verifier must run in the parent repository to see uncommitted edits"
+    )
+
+
+async def test_isolated_subagent_uses_stash_commit_and_surfaces_branch_in_report() -> None:
+    driver = FakeSandboxDriver()
+    driver.script_command("stash create", ExecResult(0, "stash_abc123\n", "", 1))
+    driver.script_command("worktree add", ExecResult(0, "", "", 1))
+    driver.script_command("commit", ExecResult(0, "", "", 1))
+    driver.script_command("worktree remove", ExecResult(0, "", "", 1))
+
+    custom_coder = SubagentConfig(
+        id="isolated_coder",
+        name="Isolated Coder",
+        role_title="Coder",
+        description="Writes isolated code",
+        system_prompt="You code.",
+        whitelisted_tools=["file_write", "bash_exec"],
+        isolate_worktree=True,
+    )
+
+    registry = ToolRegistry(driver=driver)
+    runner = SubagentRunner(
+        gateway=_AlwaysCallsTools(),
+        registry=registry,
+        configs={"isolated_coder": custom_coder},
+    )
+    ctx = ExecutionContext(
+        session_id="s_isolated",
+        event_queue=asyncio.Queue(),
+        parent_model="test-model",
+        active_repository="/workspace/repo",
+    )
+    token = current_execution_ctx.set(ctx)
+    try:
+        res = await runner.run(
+            SubagentTaskRequest(role="isolated_coder", task="Implement feature X"),
+            session_id="s_isolated",
+        )
+    finally:
+        current_execution_ctx.reset(token)
+
+    # An isolated worktree must use git stash create to include dirty state
+    worktree_adds = [c for _, c in driver.exec_calls if "worktree add" in c]
+    assert worktree_adds, "an isolated writer must set up a worktree"
+    assert "stash create" in worktree_adds[0], "stash create must capture uncommitted parent edits"
+    assert res.branch and res.branch.startswith("subagent/sub_")

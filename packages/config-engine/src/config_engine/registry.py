@@ -195,13 +195,13 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
         _spec(
             "context_target_tokens",
             "int",
-            0,
+            200_000,
             "org",
             _TURN,
             "Working context size in tokens: long conversations are pruned and compacted to stay "
             "under it even when the model's window is larger (requests stay fast and focused). "
-            "0 (the default) uses the model's whole window; a value such as 200000 trades "
-            "that window for quicker, cheaper steps on very long sessions.",
+            "200000 (the default) trades that window for quicker, cheaper steps on very long sessions; "
+            "0 uses the model's whole window without a working cap.",
             minimum=0,
             maximum=10_000_000,
         ),

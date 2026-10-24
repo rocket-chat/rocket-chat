@@ -18,7 +18,7 @@ ROUTING_MODES = ("frontier", "balanced", "economy")
 # Roles whose work is auxiliary (status/summaries/suggestions) and therefore eligible to
 # run on the fast model under ``balanced``. Any other role — the ReAct loop and subagents
 # — stays on the frontier model.
-AUXILIARY_ROLES = frozenset({"summarize", "suggest"})
+AUXILIARY_ROLES = frozenset({"summarize", "suggest", "subagent:researcher"})
 
 # Platform defaults come from the typed registry (``config_engine.registry``), the single
 # declaration of every setting's scope, type and runtime consumer.

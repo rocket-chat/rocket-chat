@@ -45,6 +45,52 @@ def test_successful_command_resets_failure_chain() -> None:
     assert tracker.record_command(cmd, 1) is None
 
 
+def test_intervening_diagnostic_reads_do_not_reset_failing_command_loop() -> None:
+    tracker = ProgressTracker()
+    cmd = "pytest tests/unit"
+
+    # Fail 1
+    assert tracker.record_command(cmd, 1) is None
+    # Intervening diagnostic read (git diff) exit 0
+    assert tracker.record_command("git diff", 0) is None
+    # Fail 2
+    assert tracker.record_command(cmd, 1) is None
+    # Intervening diagnostic read (git status) exit 0
+    assert tracker.record_command("git status", 0) is None
+    # Fail 3: loop detector must NOT be blinded by git diff / git status
+    res = tracker.record_command(cmd, 1)
+    assert res is not None
+    assert res.level == 1
+    assert "has failed 3 times with exit code 1" in res.suggested_nudge
+
+
+def test_file_mutation_resets_failing_command_loop() -> None:
+    tracker = ProgressTracker()
+    cmd = "pytest tests/unit"
+
+    assert tracker.record_command(cmd, 1) is None
+    assert tracker.record_command(cmd, 1) is None
+    # File edit happens
+    tracker.notify_file_mutation()
+    # Next failure should be treated as attempt 1 under the new file state
+    assert tracker.record_command(cmd, 1) is None
+
+
+def test_before_content_detects_immediate_revert() -> None:
+    tracker = ProgressTracker()
+    path = "src/main.py"
+    initial_content = "def run(): return 1\n"
+    edited_content = "def run(): return 2\n"
+
+    # Edit 1 (from initial to edited)
+    assert tracker.record_file_edit(path, edited_content, before_content=initial_content) is None
+    # Revert immediately back to initial
+    res = tracker.record_file_edit(path, initial_content)
+    assert res is not None
+    assert res.level == 1
+    assert "Edit/revert oscillation detected on `src/main.py`" in res.suggested_nudge
+
+
 def test_edit_revert_oscillation_detected() -> None:
     tracker = ProgressTracker()
     path = "src/utils.py"
@@ -119,3 +165,48 @@ def test_notice_for_manual_github_write() -> None:
     assert notice_for_manual_github_write("git diff") is None
     assert notice_for_manual_github_write("go test ./...") is None
     assert notice_for_manual_github_write("make build") is None
+
+
+def test_alternating_tool_oscillation_detection() -> None:
+    tracker = ProgressTracker()
+    step_a = [("file_read", '{"path": "a.py"}')]
+    step_b = [("grep_search", '{"pattern": "foo"}')]
+
+    # Step 1: A
+    assert tracker.record_step_signature(step_a) is None
+    # Step 2: B
+    assert tracker.record_step_signature(step_b) is None
+    # Step 3: A
+    assert tracker.record_step_signature(step_a) is None
+    # Step 4: B -> ABAB complete!
+    res = tracker.record_step_signature(step_b)
+    assert res is not None
+    assert res.level == 1
+    assert "ABAB pattern" in res.reason
+
+
+def test_monologue_step_detection() -> None:
+    tracker = ProgressTracker()
+    assert tracker.record_monologue_step(has_tool_calls=False) is None
+    assert tracker.record_monologue_step(has_tool_calls=False) is None
+    res = tracker.record_monologue_step(has_tool_calls=False)
+    assert res is not None
+    assert res.level == 1
+    assert "3 consecutive steps without calling any tools" in res.suggested_nudge
+
+    # Calling a tool resets the counter
+    assert tracker.record_monologue_step(has_tool_calls=True) is None
+    assert tracker.record_monologue_step(has_tool_calls=False) is None
+
+
+def test_block_edits_at_different_locations_do_not_false_positive_oscillation() -> None:
+    tracker = ProgressTracker()
+    # Edit 1 at function A with replacement "return None"
+    assert tracker.record_file_edit("src/app.py", "return None", before_content="return 1") is None
+    # Edit 2 at function B with the same replacement "return None" (different target_block)
+    assert tracker.record_file_edit("src/app.py", "return None", before_content="return 2") is None
+    # Edit 3 at function C with the same replacement "return None"
+    assert tracker.record_file_edit("src/app.py", "return None", before_content="return 3") is None
+    # Reverting function C back to "return 3" triggers true oscillation
+    res = tracker.record_file_edit("src/app.py", "return 3", before_content="return None")
+    assert res is not None and res.level == 1
