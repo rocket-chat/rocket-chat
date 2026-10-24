@@ -27,6 +27,7 @@ import {
   FileText,
   GitFork,
   Info,
+  Loader2,
   RefreshCw,
   Search,
   X,
@@ -81,8 +82,24 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     isStreamContinuous,
     session,
     fetchSessions,
+    hasOlderHistory,
+    isLoadingOlderHistory,
+    loadOlderHistory,
   } = useMissionStore(
-    useShallow((state) => ({ flightLog: state.flightLog, activeDecision: state.activeDecision, activeApproval: state.activeApproval, isExecuting: state.isExecuting, statusMessage: state.statusMessage, turnBinding: state.turnBinding, isStreamContinuous: state.isStreamContinuous, session: state.session, fetchSessions: state.fetchSessions }))
+    useShallow((state) => ({
+      flightLog: state.flightLog,
+      activeDecision: state.activeDecision,
+      activeApproval: state.activeApproval,
+      isExecuting: state.isExecuting,
+      statusMessage: state.statusMessage,
+      turnBinding: state.turnBinding,
+      isStreamContinuous: state.isStreamContinuous,
+      session: state.session,
+      fetchSessions: state.fetchSessions,
+      hasOlderHistory: state.hasOlderHistory,
+      isLoadingOlderHistory: state.isLoadingOlderHistory,
+      loadOlderHistory: state.loadOlderHistory,
+    }))
   );
 
   const quip = useLoadingQuip(isExecuting && !activeDecision);
@@ -239,19 +256,30 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
         !isSubagentInvocation &&
         !isToolInvocation &&
         !isPureReasoning &&
-        hasSubsequentToolsInTurn(i, flightLog);
+        (hasSubsequentToolsInTurn(i, flightLog) ||
+          (isExecuting && i === flightLog.length - 1 && (entry.isReasoningActive || !entry.content.trim())));
 
       if (isSubagentInvocation || isToolInvocation || isPureReasoning || isStepPreface) {
         currentGroupEntries.push(entry);
       } else {
         if (entry.reasoning) {
           currentGroupEntries.push({
-            ...entry,
+            id: `thought-${entry.id}`,
+            role: "AGENT",
             content: "",
+            reasoning: entry.reasoning,
+            timestamp: entry.timestamp,
+            isReasoningActive: false,
           });
         }
         flushGroup();
-        rawStreamItems.push({ type: "answer", entry });
+        rawStreamItems.push({
+          type: "answer",
+          entry: {
+            ...entry,
+            reasoning: undefined,
+          },
+        });
       }
     }
   }
@@ -546,6 +574,26 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
         data-stream-continuous={isStreamContinuous}
         className="continuous-flight-stream flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [&>*]:shrink-0 px-4 sm:px-6 py-6 space-y-6 font-sans select-text max-w-3xl mx-auto w-full"
       >
+        {hasOlderHistory && (
+          <div className="flex justify-center pb-2">
+            <button
+              type="button"
+              data-testid="load-older-history"
+              disabled={isLoadingOlderHistory}
+              onClick={() => void loadOlderHistory()}
+              className="inline-flex items-center gap-1.5 rounded-full border border-surface-border bg-surface-elevated/70 px-3 py-1 text-xs text-neutral-500 hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              {isLoadingOlderHistory ? (
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin text-brand" />
+                  <span>Loading earlier messages…</span>
+                </>
+              ) : (
+                <span>Load earlier messages</span>
+              )}
+            </button>
+          </div>
+        )}
         {flightLog.length === 0 && !isExecuting && <CockpitEmptyState />}
 
         {isVirtualized ? (

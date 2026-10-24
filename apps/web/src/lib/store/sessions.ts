@@ -62,16 +62,44 @@ function restoreStagedFiles(files: File[], err: unknown): Partial<MissionStore> 
   };
 }
 
+const SESSIONS_CACHE_KEY = "rocket_sessions_cache_v1";
+
+function readCachedSessions(): SessionData[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(SESSIONS_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedSessions(sessions: SessionData[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    const lightweight = sessions.slice(0, 50).map((s) => ({
+      ...s,
+      conversation_history: undefined,
+    }));
+    localStorage.setItem(SESSIONS_CACHE_KEY, JSON.stringify(lightweight));
+  } catch {}
+}
+
 export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSlice> = (set, get) => ({
   session: null,
-  sessions: [],
+  sessions: readCachedSessions(),
   isLoadingSessions: false,
   sessionsNextCursor: null,
   sessionsIncludeArchived: false,
   sessionsScope: "mine",
+  hasOlderHistory: false,
+  isLoadingOlderHistory: false,
+  historyStartIndex: 0,
   setSession: (session) => {
     if (!session) {
-      set({ session: null });
+      set({ session: null, hasOlderHistory: false, historyStartIndex: 0 });
       return;
     }
     if (
@@ -107,6 +135,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
     // A pending human gate must survive re-hydration of the *same* session
     // (reconnect sync / snapshot refetch); only switching sessions clears it.
     const sessionChanged = get().session?.session_id !== session.session_id;
+    const isCurrentlyExecuting = !sessionChanged && get().isExecuting;
 
     set({
       session,
@@ -114,10 +143,14 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       inferenceMode: mode,
       activeAgent: targetAgent || get().activeAgent,
       selectedModel: mode === "agent" && targetAgent ? targetAgent.model : targetModel,
-      flightLog: initialLogs,
-      reasoningStream: "",
-      isReasoningActive: false,
-      isExecuting: false,
+      flightLog: isCurrentlyExecuting ? get().flightLog : initialLogs,
+      reasoningStream: isCurrentlyExecuting ? get().reasoningStream : "",
+      isReasoningActive: isCurrentlyExecuting ? get().isReasoningActive : false,
+      isExecuting: isCurrentlyExecuting,
+      hasOlderHistory: Boolean(session.has_older_history),
+      historyStartIndex: session.total_messages && session.conversation_history
+        ? session.total_messages - session.conversation_history.length
+        : 0,
       turnBinding: sessionChanged ? null : get().turnBinding,
       activeDecision: sessionChanged ? null : get().activeDecision,
       activeApproval: sessionChanged ? null : get().activeApproval,
@@ -163,7 +196,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
 
     // If conversation_history was not pre-loaded on this session object, fetch it from backend
     if (!session.conversation_history) {
-      fetch(`/v1/sessions/${session.session_id}`)
+      fetch(`/v1/sessions/${session.session_id}?tail=50`)
         .then((res) => (res.ok ? res.json() : null))
         .then((fullData: SessionData | null) => {
           if (fullData && fullData.session_id === get().session?.session_id && fullData.conversation_history) {
@@ -171,18 +204,52 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
             const followup =
               fullData.suggested_followup ||
               ((fullData.metadata?.suggested_followup as string) ?? get().suggestedFollowup);
-            if (rehydrated.length > 0) {
-              set({
-                flightLog: rehydrated,
-                suggestedFollowup: followup,
-                session: { ...get().session!, conversation_history: fullData.conversation_history },
-              });
-            }
+            const shouldSetLogs = !get().isExecuting && get().flightLog.length === 0;
+            const startIdx = fullData.total_messages && fullData.conversation_history
+              ? fullData.total_messages - fullData.conversation_history.length
+              : 0;
+            set({
+              ...(shouldSetLogs && rehydrated.length > 0 ? { flightLog: rehydrated } : {}),
+              suggestedFollowup: followup,
+              hasOlderHistory: Boolean(fullData.has_older_history),
+              historyStartIndex: startIdx,
+              session: { ...get().session!, conversation_history: fullData.conversation_history },
+            });
           }
         })
         .catch(() => {
           // Ignore network errors on background history fetch
         });
+    }
+  },
+  loadOlderHistory: async () => {
+    const { session, historyStartIndex, isLoadingOlderHistory, hasOlderHistory, flightLog } = get();
+    if (!session || isLoadingOlderHistory || !hasOlderHistory) return;
+    set({ isLoadingOlderHistory: true });
+    try {
+      const res = await fetch(
+        `/v1/sessions/${session.session_id}/messages?before_index=${historyStartIndex}&limit=50`
+      );
+      if (!res.ok) return;
+      const data: {
+        messages: NonNullable<SessionData["conversation_history"]>;
+        has_more: boolean;
+        start_index: number;
+      } = await res.json();
+      if (!Array.isArray(data.messages) || data.messages.length === 0) {
+        set({ hasOlderHistory: false });
+        return;
+      }
+      const olderLogs = convertHistoryToFlightLogs(data.messages, session.session_id);
+      set({
+        flightLog: [...olderLogs, ...flightLog],
+        hasOlderHistory: data.has_more,
+        historyStartIndex: data.start_index,
+      });
+    } catch {
+      // Ignore network errors
+    } finally {
+      set({ isLoadingOlderHistory: false });
     }
   },
   setSessions: (sessions) => set({ sessions }),
@@ -205,6 +272,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
             sessions: data,
             sessionsNextCursor: res.headers.get("X-Next-Cursor"),
           });
+          writeCachedSessions(data);
           if (!get().session && data.length > 0) {
             set({ session: data[0] });
           }
@@ -233,6 +301,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         // refresh must not forget "load more".
         const loadedLater = state.sessions.filter((s) => !listed.has(s.session_id));
         const sessions = [...(fresh as SessionData[]), ...loadedLater];
+        writeCachedSessions(sessions);
         return { sessions };
       });
     } catch {

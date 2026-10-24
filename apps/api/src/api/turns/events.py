@@ -137,6 +137,7 @@ class TurnEventHandlers:
         self._intervening_tool_called = False
         self._step_text_parts: list[str] = []
         self._tool_prefaces: list[str] = []
+        self._step_prefaces: dict[str, str] = {}
         # The reasoning that led to a call, by call id, until the call completes.
         self._step_reasoning: dict[str, str] = {}
         # Calls whose output already reached the terminal while they ran.
@@ -274,8 +275,12 @@ class TurnEventHandlers:
 
     async def _tool_call(self, event: AgentEvent) -> None:
         self._intervening_tool_called = True
-        if self._step_text_parts:
-            self._tool_prefaces.append("".join(self._step_text_parts))
+        call_id = str(event.payload.get("id") or "")
+        preface = "".join(self._step_text_parts) if self._step_text_parts else ""
+        if preface:
+            self._tool_prefaces.append(preface)
+            if call_id:
+                self._step_prefaces[call_id] = preface
             self._step_text_parts.clear()
         raw_args = event.payload.get("arguments", "{}")
         ctx = self.ctx
@@ -286,16 +291,16 @@ class TurnEventHandlers:
         arguments = _parse_arguments(raw_args)
         tool_name = event.payload.get("name", "")
         now_epoch = int(time.time())
-        self._take_step_reasoning(str(event.payload.get("id") or ""))
-        await self._publish(
-            EventType.TOOL_STARTED,
-            {
-                "id": event.payload.get("id"),
-                "name": tool_name,
-                "arguments": arguments,
-                "created_at": now_epoch,
-            },
-        )
+        self._take_step_reasoning(call_id)
+        start_payload: dict[str, Any] = {
+            "id": event.payload.get("id"),
+            "name": tool_name,
+            "arguments": arguments,
+            "created_at": now_epoch,
+        }
+        if preface:
+            start_payload["preface"] = preface
+        await self._publish(EventType.TOOL_STARTED, start_payload)
         # Stream status updates for telemetry HUD
         if tool_name == "bash_exec":
             command = arguments.get("command", "")
@@ -356,8 +361,11 @@ class TurnEventHandlers:
                 outcome=str(result_output).splitlines()[0],
             )
         await self._publish(EventType.TOOL_COMPLETED, tool_data)
-        if reasoning := self._step_reasoning.pop(str(tool_data.get("id") or ""), ""):
+        call_id_str = str(tool_data.get("id") or "")
+        if reasoning := self._step_reasoning.pop(call_id_str, ""):
             tool_data["reasoning"] = reasoning
+        if preface := self._step_prefaces.pop(call_id_str, ""):
+            tool_data["preface"] = preface
         tool_data["seq"] = ctx.req.event_bus.latest_seq(ctx.session_id)
         ctx.state.executed_tools.append(tool_data)
         ctx.trace.record_tool_call(tool_data)

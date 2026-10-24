@@ -108,6 +108,8 @@ export interface RunningTurnData {
     /** The reasoning that led to this call (on the first call of its step). */
     reasoning?: string;
   }>;
+  /** In-flight reasoning of the active step, recovered on refresh. */
+  current_reasoning?: string;
 }
 
 export interface SyncFrame {
@@ -192,6 +194,8 @@ export interface SessionData {
   collaborators?: string[];
   checklist?: ChecklistTask[];
   suggested_followup?: string | null;
+  has_older_history?: boolean;
+  total_messages?: number;
   is_draft?: boolean;
   /** Sidebar ergonomics: pinned sessions float to the top, archived hide. */
   is_pinned?: boolean;

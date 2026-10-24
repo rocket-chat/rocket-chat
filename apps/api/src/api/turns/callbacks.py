@@ -909,8 +909,6 @@ def _github_read_access(
     )
 
     async def access(repository: str | None = None) -> GithubAccess:
-        if member:
-            return as_member
         org = ctx.session.tenant_org_id
         if engine is not None:
             clean = (
@@ -936,6 +934,8 @@ def _github_read_access(
                     )
                     if token:
                         return GithubAccess(token, api_url, app_actor)
+        if member:
+            return as_member
         if git_bundle.token:
             return GithubAccess(git_bundle.token, api_url, bundle_actor)
         return GithubAccess(None, api_url, "")

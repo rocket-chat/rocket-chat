@@ -1499,6 +1499,7 @@ Retrieve session record and metadata.
 | Name | In | Required | Type |
 | :--- | :--- | :--- | :--- |
 | session_id | path | yes | string |
+| tail | query | no | integer |
 
 **Responses:** `200`
 
@@ -1554,6 +1555,20 @@ Approve or deny an agent confirmation gate.
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | approved | boolean | yes | True if approved, False if denied |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/messages`
+
+Fetch a page of earlier messages from a session's conversation history.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| before_index | query | no | integer |
+| limit | query | no | integer |
 
 **Responses:** `200`
 

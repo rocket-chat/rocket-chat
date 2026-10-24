@@ -355,6 +355,10 @@ export class MissionWebSocket {
           },
         });
       }
+      if (plan.runningTurn.current_reasoning) {
+        store.appendReasoning(plan.runningTurn.current_reasoning);
+        store.setIsReasoningActive(true);
+      }
     }
     for (const event of selectUnseenEvents(plan.events, readCursor(this.sessionId))) {
       this.applyEvent(

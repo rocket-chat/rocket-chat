@@ -193,3 +193,28 @@ async def test_seed_workspace_marks_an_empty_parent() -> None:
     result = await seed_workspace_from(driver, "parent", "child", _spec("child"))
     assert result.origin == ORIGIN_EMPTY
     assert result.file_count == 0
+
+
+@pytest.mark.asyncio
+async def test_list_sessions_defers_conversation_history() -> None:
+    store = InMemorySessionStore()
+    record = _record("s_hist", 100)
+    record.conversation_history = [
+        ChatMessage(role="user", content="hello"),
+        ChatMessage(role="assistant", content="world"),
+    ]
+    await store.create_session(record)
+
+    # list_sessions and list_sessions_page must not carry conversation_history
+    listed = await store.list_sessions("org_a")
+    assert len(listed) == 1
+    assert listed[0].conversation_history == []
+
+    page = await store.list_sessions_page("org_a")
+    assert len(page.records) == 1
+    assert page.records[0].conversation_history == []
+
+    # But direct get_session still preserves full history
+    fetched = await store.get_session("s_hist")
+    assert fetched is not None
+    assert len(fetched.conversation_history) == 2

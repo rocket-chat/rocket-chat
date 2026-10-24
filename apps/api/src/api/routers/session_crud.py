@@ -10,9 +10,11 @@ from agent_core.tools.registry import ToolRegistry
 from fastapi import (
     APIRouter,
     HTTPException,
+    Query,
     Request,
 )
 from git_engine.engine import GitEngine
+from pydantic import BaseModel
 
 from api.auth.access import _check_session_access, _get_request_identity, _require_admin
 from api.models import (
@@ -187,8 +189,26 @@ async def create_session(req: CreateSessionRequest, request: Request) -> Session
     return _to_response(record)
 
 
+class SessionMessagesPage(BaseModel):
+    """A page of conversation history messages with keyset position."""
+
+    messages: list[dict[str, Any]]
+    has_more: bool
+    start_index: int
+    total: int
+
+
 @router.get("/sessions/{session_id}", response_model=SessionResponse)
-async def get_session(session_id: str, request: Request) -> SessionResponse:
+async def get_session(
+    session_id: str,
+    request: Request,
+    tail: int | None = Query(
+        default=None,
+        ge=1,
+        le=500,
+        description="Return only the newest N messages from conversation history",
+    ),
+) -> SessionResponse:
     """Retrieve session record and metadata."""
     store: SessionStoreProtocol = request.app.state.session_store
     req_org, req_user, roles = _get_request_identity(request)
@@ -202,7 +222,75 @@ async def get_session(session_id: str, request: Request) -> SessionResponse:
     if not record:
         raise HTTPException(status_code=404, detail="Session not found")
     _check_session_access(record, req_user, roles, require_write=False)
-    return _to_response(record)
+
+    history = record.conversation_history or []
+    total = len(history)
+    if tail is not None and total > tail:
+        sliced = history[-tail:]
+        return _to_response(
+            record,
+            history_override=sliced,
+            has_older_history=True,
+            total_messages=total,
+        )
+    return _to_response(record, total_messages=total)
+
+
+@router.get("/sessions/{session_id}/messages", response_model=SessionMessagesPage)
+async def get_session_messages(
+    session_id: str,
+    request: Request,
+    before_index: int | None = Query(
+        default=None,
+        description="Exclusive upper bound index in conversation history",
+    ),
+    limit: int = Query(
+        default=50,
+        ge=1,
+        le=100,
+        description="Number of earlier messages to return",
+    ),
+) -> SessionMessagesPage:
+    """Fetch a page of earlier messages from a session's conversation history."""
+    store: SessionStoreProtocol = request.app.state.session_store
+    req_org, req_user, roles = _get_request_identity(request)
+    if hasattr(store, "get_session"):
+        try:
+            record = await store.get_session(session_id, tenant_org_id=req_org)
+        except TypeError:
+            record = await store.get_session(session_id)
+    else:
+        record = await store.get_session(session_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Session not found")
+    _check_session_access(record, req_user, roles, require_write=False)
+
+    history = record.conversation_history or []
+    total = len(history)
+    end = before_index if before_index is not None else total
+    end = max(0, min(end, total))
+    start = max(0, end - limit)
+    slice_items = history[start:end]
+    formatted = [
+        {
+            "role": m.role,
+            "content": m.content or "",
+            "reasoning": getattr(m, "reasoning", None),
+            "tool_calls": getattr(m, "tool_calls", None),
+            "author_user_id": getattr(m, "author_user_id", None),
+            "agent_id": getattr(m, "agent_id", None),
+            "agent_name": getattr(m, "agent_name", None),
+            "model": getattr(m, "model", None),
+            "created_at": getattr(m, "created_at", None),
+        }
+        for m in slice_items
+    ]
+    return SessionMessagesPage(
+        messages=formatted,
+        has_more=start > 0,
+        start_index=start,
+        total=total,
+    )
 
 
 @router.patch("/sessions/{session_id}", response_model=SessionResponse)

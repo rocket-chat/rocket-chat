@@ -450,6 +450,7 @@ class TurnRunner:
             "model": ctx.effective_model,
             "status": "running",
             "steps": ctx.state.executed_tools,
+            "ctx": ctx,
         }
 
         def _mark_processing(record: SessionRecord) -> None:

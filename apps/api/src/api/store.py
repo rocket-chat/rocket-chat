@@ -2,6 +2,7 @@
 
 import time
 from collections.abc import Callable
+from dataclasses import replace
 
 from specifications.interfaces.session import (
     SessionCursor,
@@ -72,7 +73,7 @@ class InMemorySessionStore(SessionStoreProtocol):
             and (tenant_user_id is None or s.tenant_user_id == tenant_user_id)
         ]
         matching.sort(key=lambda s: s.updated_at, reverse=True)
-        return matching[:limit]
+        return [replace(s, conversation_history=[]) for s in matching[:limit]]
 
     async def list_sessions_page(
         self,
@@ -109,7 +110,7 @@ class InMemorySessionStore(SessionStoreProtocol):
             ]
         matching.sort(key=lambda s: (s.updated_at, s.session_id), reverse=True)
 
-        page = matching[:limit]
+        page = [replace(s, conversation_history=[]) for s in matching[:limit]]
         next_cursor: str | None = None
         if len(matching) > limit and page:
             last = page[-1]

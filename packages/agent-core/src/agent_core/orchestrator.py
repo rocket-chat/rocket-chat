@@ -900,7 +900,11 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             )
             await self._announce_decision_retry(session_id, event_queue, limit)
             stream, eff_model = await self._execute_stream(
-                decisive_request(request, openrouter=request.model.startswith("openrouter/")),
+                decisive_request(
+                    request,
+                    openrouter=request.model.startswith("openrouter/"),
+                    partial_reasoning=aborted.reasoning,
+                ),
                 session_id,
                 event_queue,
                 0,

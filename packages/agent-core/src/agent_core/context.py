@@ -533,7 +533,8 @@ class ContextManager:
         limit = self.get_model_context_limit(model, overrides)
         if target_tokens > 0:
             limit = min(limit, target_tokens)
-        reserve_tokens = min(max(0, reserve_tokens), limit // 4)
+        # Cap reserve_tokens so wildcard output_tokens settings (e.g. 65k) don't eat 50k of working context
+        reserve_tokens = min(max(0, reserve_tokens), 16_384, limit // 4)
         counted = self.count_tokens(model, messages, tools)
         tokens = max(counted, measured_tokens)
         tokens_before = tokens
