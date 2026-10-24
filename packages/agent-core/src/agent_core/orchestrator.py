@@ -69,8 +69,10 @@ from agent_core.tools.registry import ToolRegistry
 from agent_core.transcript import RecordingList, repair_tool_pairs
 from agent_core.truncation import (
     MAX_EMPTY_RETRIES,
+    dangling_preface_notice,
     empty_reply_give_up,
     empty_reply_notice,
+    is_dangling_tool_preface,
     split_truncated,
     truncation_notice,
 )
@@ -1770,39 +1772,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             return await self._handle_leaked_calls(run, assistant_text)
         if not tool_calls and not (assistant_text or "").strip():
             return await self._handle_empty_reply(run, reply.finish_reason)
-        run.empty_retries = 0
         if not tool_calls:
-            run.conversation.append(
-                ChatMessage(
-                    role="assistant",
-                    content=assistant_text,
-                    reasoning=reply.reasoning or None,
-                    reasoning_blocks=reply.reasoning_blocks or None,
-                )
-            )
-            # Once per turn: ask the model to reconcile unfinished items or verify edits,
-            # but never reject on the final step so the substantive answer is never lost to budget exhaustion.
-            if (
-                not run.checklist_reminded
-                and not run.on_last_step(step)
-                and (reminder := unfinished_notice(run.conversation))
-            ):
-                run.checklist_reminded = True
-                run.next_notes.append(reminder)
-                await self._flush_transcript(run.session_id, run.org_id, run.conversation)
-                return False
-            if (
-                not run.verification_reminded
-                and not run.on_last_step(step)
-                and (reminder := verification_gate_notice(run.conversation))
-            ):
-                run.verification_reminded = True
-                run.next_notes.append(reminder)
-                await self._flush_transcript(run.session_id, run.org_id, run.conversation)
-                return False
-            self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
-            await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
-            return True
+            return await self._complete_text_step(run, step, reply, assistant_text)
+        run.empty_retries = 0
         await self._emit_status(
             run, OrchestratorState.RUNNING, "running", describe_step(tool_calls)
         )
@@ -1816,6 +1788,64 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             reasoning_blocks=reply.reasoning_blocks,
         )
         return await self._after_tool_calls(run, tool_calls)
+
+    async def _complete_text_step(
+        self, run: _TurnRun, step: int, reply: _ModelReply, assistant_text: str
+    ) -> bool:
+        """Handle a model step that returned text without tool calls; True once the turn ends."""
+        if (
+            not run.on_last_step(step)
+            and is_dangling_tool_preface(assistant_text)
+            and run.empty_retries < MAX_EMPTY_RETRIES
+        ):
+            run.empty_retries += 1
+            logger.warning(
+                "Model %s stopped after a tool preface in %s (retry %d)",
+                run.react_model,
+                run.session_id,
+                run.empty_retries,
+            )
+            await self._emit_status(
+                run,
+                OrchestratorState.RUNNING,
+                "running",
+                "Continuing...",
+                discard_partial=True,
+            )
+            run.next_notes.append(dangling_preface_notice())
+            return False
+        run.empty_retries = 0
+        run.conversation.append(
+            ChatMessage(
+                role="assistant",
+                content=assistant_text,
+                reasoning=reply.reasoning or None,
+                reasoning_blocks=reply.reasoning_blocks or None,
+            )
+        )
+        # Once per turn: ask the model to reconcile unfinished items or verify edits,
+        # but never reject on the final step so the substantive answer is never lost to budget exhaustion.
+        if (
+            not run.checklist_reminded
+            and not run.on_last_step(step)
+            and (reminder := unfinished_notice(run.conversation))
+        ):
+            run.checklist_reminded = True
+            run.next_notes.append(reminder)
+            await self._flush_transcript(run.session_id, run.org_id, run.conversation)
+            return False
+        if (
+            not run.verification_reminded
+            and not run.on_last_step(step)
+            and (reminder := verification_gate_notice(run.conversation))
+        ):
+            run.verification_reminded = True
+            run.next_notes.append(reminder)
+            await self._flush_transcript(run.session_id, run.org_id, run.conversation)
+            return False
+        self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
+        await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
+        return True
 
     async def _after_tool_calls(self, run: _TurnRun, tool_calls: dict[int, dict[str, Any]]) -> bool:
         """Record a step's tool results; True when a ``wait_for`` ended the turn."""

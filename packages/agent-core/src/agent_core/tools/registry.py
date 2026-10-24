@@ -776,7 +776,53 @@ class ToolRegistry:
             await remember(ctx.session_id, fresh)
         return fresh
 
+    @staticmethod
+    def _normalize_arguments(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Translate common model parameter aliases into the tool's declared schema."""
+        if name == "grep_search" and ("ignore_case" in arguments or "context" in arguments):
+            normalized = dict(arguments)
+            if "ignore_case" in normalized:
+                ignore = normalized.pop("ignore_case")
+                if "case_sensitive" not in normalized:
+                    if isinstance(ignore, str):
+                        normalized["case_sensitive"] = ignore.strip().lower() in (
+                            "false",
+                            "0",
+                            "no",
+                        )
+                    else:
+                        normalized["case_sensitive"] = not bool(ignore)
+            if "context" in normalized:
+                ctx_lines = normalized.pop("context")
+                if "context_lines" not in normalized and str(ctx_lines).isdigit():
+                    normalized["context_lines"] = int(ctx_lines)
+            return normalized
+        if name == "load_guidance" and "server" not in arguments:
+            alias = arguments.get("name") or arguments.get("server_name")
+            if alias:
+                normalized = {
+                    k: v for k, v in arguments.items() if k not in ("name", "server_name")
+                }
+                normalized["server"] = alias
+                return normalized
+        if name == "git_commit" and "message" not in arguments and "content" in arguments:
+            normalized = dict(arguments)
+            normalized["message"] = normalized.pop("content")
+            return normalized
+        if name == "update_task_checklist" and isinstance(arguments.get("tasks"), list):
+            tasks = [
+                {**t, "title": t.get("description") or t.get("text") or ""}
+                if isinstance(t, dict)
+                and not t.get("title")
+                and (t.get("description") or t.get("text"))
+                else t
+                for t in arguments["tasks"]
+            ]
+            return {**arguments, "tasks": tasks}
+        return arguments
+
     async def _dispatch(self, name: str, arguments: dict[str, Any]) -> str:
+        arguments = self._normalize_arguments(name, arguments)
         provider = self._external_provider()
         if provider is not None and provider.owns(name):
             return await provider.call(name, arguments)

@@ -404,3 +404,56 @@ async def test_checkpoints_are_listed_newest_first_and_garbage_is_ignored() -> N
 async def test_listing_outside_a_repository_is_empty_not_an_error() -> None:
     driver = FakeDriver([ExecResult(128, "", "fatal: not a git repository", 1)])
     assert await git_tools.list_checkpoints(driver, "s1") == []
+
+
+@pytest.mark.asyncio
+async def test_grep_search_fallback_uses_extended_regex_and_excludes_git() -> None:
+    from agent_core.tools import tier2
+
+    driver = FakeDriver([ExecResult(0, "nats/nats.go:42:MaxBytes = 0", "", 1)])
+    out = await tier2.grep_search(
+        driver, "s1", "MaxBytes|max_bytes", path="/workspace/nats", files_only=False
+    )
+    assert "MaxBytes = 0" in out
+    assert "grep -rnE -I --binary-files=without-match --exclude-dir=.git" in driver.commands[0]
+
+
+def test_tool_registry_normalizes_common_parameter_aliases() -> None:
+    norm = ToolRegistry._normalize_arguments
+    assert norm("grep_search", {"pattern": "foo", "ignore_case": "true", "context": "4"}) == {
+        "pattern": "foo",
+        "case_sensitive": False,
+        "context_lines": 4,
+    }
+    assert norm("load_guidance", {"name": "signoz-release-binary"}) == {
+        "server": "signoz-release-binary"
+    }
+    assert norm("git_commit", {"content": "fix: nats", "path": "repo"}) == {
+        "message": "fix: nats",
+        "path": "repo",
+    }
+    checklist = norm(
+        "update_task_checklist",
+        {"tasks": [{"id": "1", "description": "Rebase PR", "status": "in_progress"}]},
+    )
+    assert checklist["tasks"][0]["title"] == "Rebase PR"
+
+
+def test_slice_history_tail_bounds_tool_calls_while_keeping_recent_turn() -> None:
+    from api.services.session_support import slice_history_tail
+
+    history = [
+        ChatMessage(
+            role="user" if i % 2 == 0 else "assistant",
+            content=f"msg-{i}",
+            tool_calls=[{"id": f"tc-{i}-{j}", "name": "bash_exec"} for j in range(50)]
+            if i % 2 == 1
+            else None,
+        )
+        for i in range(10)
+    ]
+    sliced, has_older = slice_history_tail(history, tail=50, max_tool_calls=120)
+    assert has_older is True
+    assert len(sliced) == 4
+    assert sliced[0].content == "msg-6"
+    assert sliced[-1].content == "msg-9"

@@ -25,7 +25,12 @@ from api.models import (
     UpdateSessionRequest,
 )
 from api.services.sandbox_catalogue import SandboxCatalogue
-from api.services.session_support import _CLIENT_PATCHABLE_METADATA, _to_response, apply_sharing
+from api.services.session_support import (
+    _CLIENT_PATCHABLE_METADATA,
+    _to_response,
+    apply_sharing,
+    slice_history_tail,
+)
 from api.services.settings import (
     effective_settings,
 )
@@ -225,14 +230,15 @@ async def get_session(
 
     history = record.conversation_history or []
     total = len(history)
-    if tail is not None and total > tail:
-        sliced = history[-tail:]
-        return _to_response(
-            record,
-            history_override=sliced,
-            has_older_history=True,
-            total_messages=total,
-        )
+    if tail is not None:
+        sliced, has_older = slice_history_tail(history, tail=tail)
+        if has_older:
+            return _to_response(
+                record,
+                history_override=sliced,
+                has_older_history=True,
+                total_messages=total,
+            )
     return _to_response(record, total_messages=total)
 
 

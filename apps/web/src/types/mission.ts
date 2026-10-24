@@ -107,6 +107,8 @@ export interface RunningTurnData {
     created_at?: number;
     /** The reasoning that led to this call (on the first call of its step). */
     reasoning?: string;
+    /** Step intent text emitted immediately before this tool call. */
+    preface?: string;
   }>;
   /** In-flight reasoning of the active step, recovered on refresh. */
   current_reasoning?: string;
@@ -228,6 +230,8 @@ export interface ToolCallData {
   created_at?: number;
   /** The reasoning that led to this call (on the first call of its step). */
   reasoning?: string;
+  /** Step intent text emitted immediately before this tool call. */
+  preface?: string;
 }
 
 /**

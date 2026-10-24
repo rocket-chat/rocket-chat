@@ -81,3 +81,23 @@ def empty_reply_give_up(finish_reason: str | None) -> str:
         "continue from where it stopped. If this repeats, an administrator can raise the "
         "maximum completion tokens (Settings > Models & routing) or choose another model."
     )
+
+
+def is_dangling_tool_preface(text: str | None) -> bool:
+    """Whether a tool-less reply is only a short announcement of a tool call that never came.
+
+    Models sometimes stop at the colon before a tool call (e.g. "Reading the raw rows to see
+    the exact error:") when an upstream stream closes at the tool boundary. Treating that
+    preface as the final answer ends the turn before the action it announced.
+    """
+    stripped = (text or "").strip()
+    if not stripped or len(stripped) > 400 or not stripped.endswith(":"):
+        return False
+    return "\n\n" not in stripped and not stripped.startswith("#")
+
+
+def dangling_preface_notice() -> str:
+    return (
+        "Your last reply ended with ':' as if about to call a tool, but included no tool call, "
+        "so nothing ran. Emit the tool call now, or give your complete final answer."
+    )
