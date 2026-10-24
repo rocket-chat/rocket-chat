@@ -95,6 +95,37 @@ _CLIENT_PATCHABLE_METADATA = frozenset(
     {"inference_mode", "selected_model", "agent_id", "permission_mode"}
 )
 
+SYNC_HISTORY_TAIL = 50
+MAX_TAIL_TOOL_CALLS = 120
+MIN_TAIL_MESSAGES = 4
+
+
+def slice_history_tail(
+    history: list[Any], tail: int = SYNC_HISTORY_TAIL, max_tool_calls: int = MAX_TAIL_TOOL_CALLS
+) -> tuple[list[Any], bool]:
+    """Return the newest ``tail`` messages, bounded by total tool calls so huge turns stay fast."""
+    total = len(history)
+    if total == 0:
+        return [], False
+    candidates = history[-tail:] if total > tail else list(history)
+    has_older = total > len(candidates)
+    if len(candidates) <= MIN_TAIL_MESSAGES:
+        return candidates, has_older
+    kept: list[Any] = []
+    tool_count = 0
+    for idx, msg in enumerate(reversed(candidates)):
+        calls = getattr(msg, "tool_calls", None) or (
+            msg.get("tool_calls") if isinstance(msg, dict) else None
+        )
+        msg_tools = len(calls) if isinstance(calls, list) else 0
+        if idx >= MIN_TAIL_MESSAGES and tool_count + msg_tools > max_tool_calls:
+            has_older = True
+            break
+        kept.append(msg)
+        tool_count += msg_tools
+    kept.reverse()
+    return kept, has_older
+
 
 def _to_response(
     s: SessionRecord,

@@ -391,10 +391,10 @@ async def grep_search(
 
     if files_only:
         rg_flags = ["--files-with-matches", "--color=never"]
-        grep_flags = ["-rl", "-I", "--binary-files=without-match"]
+        grep_flags = ["-rlE", "-I", "--binary-files=without-match", "--exclude-dir=.git"]
     else:
         rg_flags = ["--line-number", "--no-heading", "--color=never"]
-        grep_flags = ["-rn", "-I", "--binary-files=without-match"]
+        grep_flags = ["-rnE", "-I", "--binary-files=without-match", "--exclude-dir=.git"]
         if context:
             rg_flags.append(f"-C{context}")
             grep_flags.append(f"-C{context}")

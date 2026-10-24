@@ -68,3 +68,46 @@ async def test_a_delegate_is_told_the_same() -> None:
     notes = [m.content or "" for m in model.requests[1].messages if m.role == "user"]
     assert any("cut off at the output token limit" in n for n in notes)
     assert result.tool_calls_count == 0 and "in parts" in result.summary
+
+
+class _DanglingPrefaceOnce(LLMGatewayProtocol):
+    def __init__(self) -> None:
+        self.requests: list[ModelRequest] = []
+
+    async def chat_stream(self, request: ModelRequest) -> AsyncIterator[StreamChunk]:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            yield StreamChunk(
+                text_delta="Continuing the investigation — querying SigNoz for broker activity:"
+            )
+            yield StreamChunk(is_finished=True, finish_reason="stop")
+            return
+        yield StreamChunk(text_delta="Root cause identified: NATS consumers decoded raw proto.")
+        yield StreamChunk(is_finished=True, finish_reason="stop")
+
+    async def check_budget(self, *args: Any) -> bool:
+        return True
+
+    async def record_usage(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
+async def test_dangling_tool_preface_continues_instead_of_ending_turn() -> None:
+    model = _DanglingPrefaceOnce()
+    driver = FakeSandboxDriver()
+    orchestrator = AsyncReActOrchestrator(
+        model, ToolRegistry(driver=driver, session_id="s_preface")
+    )
+
+    events = [
+        event async for event in orchestrator.process_user_turn("s_preface", "investigate logs")
+    ]
+
+    assert len(model.requests) == 2
+    reminder = model.requests[1].messages[-1].content or ""
+    assert "ended with ':' as if about to call a tool" in reminder
+    assert any(
+        e.event_type == "status" and e.payload.get("discard_partial") is True for e in events
+    )
+    history = orchestrator._session_histories["s_preface"]
+    assert history[-1].content == "Root cause identified: NATS consumers decoded raw proto."

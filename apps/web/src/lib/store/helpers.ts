@@ -129,6 +129,15 @@ export function convertHistoryToFlightLogs(
         m.tool_calls.forEach((tc, tIdx) => {
           const toolTimestamp = formatTimestamp(tc.created_at) || timestamp;
           if (tc.reasoning) thought(tc.reasoning, `thought-${tIdx}`, toolTimestamp);
+          if (tc.preface) {
+            logs.push({
+              id: `msg-${sessionId}-${idx}-preface-${tIdx}`,
+              role: "AGENT",
+              content: tc.preface,
+              timestamp: toolTimestamp,
+              isPersisted: true,
+            });
+          }
           logs.push({
             id: `msg-${sessionId}-${idx}-tool-${tIdx}`,
             role: "AGENT",

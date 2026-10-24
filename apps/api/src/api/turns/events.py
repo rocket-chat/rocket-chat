@@ -273,15 +273,27 @@ class TurnEventHandlers:
         await self._coalescer.add(event_type, delta)
         await asyncio.sleep(0)
 
+    def _take_step_preface(self, call_id: str) -> str:
+        """Extract text emitted before a tool call, committing any leading multi-paragraph answer."""
+        if not self._step_text_parts:
+            return ""
+        raw = "".join(self._step_text_parts)
+        self._step_text_parts.clear()
+        if "\n\n" in raw.strip() and len(raw.strip()) >= 500:
+            body, _, tail = raw.strip().rpartition("\n\n")
+            if body.strip() and len(tail.strip()) <= 200 and tail.strip().endswith(":"):
+                self._step_text_parts.append(body.strip())
+                self._commit_step_text()
+                raw = tail.strip()
+        self._tool_prefaces.append(raw)
+        if call_id:
+            self._step_prefaces[call_id] = raw
+        return raw
+
     async def _tool_call(self, event: AgentEvent) -> None:
         self._intervening_tool_called = True
         call_id = str(event.payload.get("id") or "")
-        preface = "".join(self._step_text_parts) if self._step_text_parts else ""
-        if preface:
-            self._tool_prefaces.append(preface)
-            if call_id:
-                self._step_prefaces[call_id] = preface
-            self._step_text_parts.clear()
+        preface = self._take_step_preface(call_id)
         raw_args = event.payload.get("arguments", "{}")
         ctx = self.ctx
         if isinstance(raw_args, str) and ctx.redactor:

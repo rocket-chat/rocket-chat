@@ -339,6 +339,15 @@ export class MissionWebSocket {
             isPersisted: true,
           });
         }
+        if (step.preface) {
+          store.appendFlightLog({
+            id: step.id ? `preface-${step.id}` : `preface-${Date.now()}-${Math.random()}`,
+            role: "AGENT",
+            content: step.preface,
+            timestamp: stepTs,
+            isPersisted: true,
+          });
+        }
         store.appendFlightLog({
           id: step.id ? `tool-${step.id}` : `tool-${Date.now()}-${Math.random()}`,
           role: "CODER",
@@ -408,7 +417,7 @@ export class MissionWebSocket {
     try {
       const headers: Record<string, string> = {};
       if (this.token) headers["Authorization"] = `Bearer ${this.token}`;
-      const res = await fetch(`/v1/sessions/${this.sessionId}`, {
+      const res = await fetch(`/v1/sessions/${this.sessionId}?tail=50`, {
         headers,
         signal: AbortSignal.timeout(8000),
       });
