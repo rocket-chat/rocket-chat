@@ -149,7 +149,7 @@ const Flight: React.FC<{ origin: LaunchOrigin; onDone: () => void }> = ({ origin
       }
       const elapsed = now - begin;
       const postNavMs = leftDraftAt > 0 ? now - leftDraftAt : 0;
-      const readyToLand = !startedOnDraft || (leftDraftAt > 0 && postNavMs >= 450) || elapsed >= 2500;
+      const readyToLand = !startedOnDraft || (leftDraftAt > 0 && postNavMs >= 650) || elapsed >= 12000;
       if (elapsed >= CHARGE_MS + FLIGHT_MS && readyToLand) {
         // It lands in a flare of light, where the loader takes over.
         const landed = ship.getBoundingClientRect();
