@@ -125,6 +125,8 @@ const Flight: React.FC<{ origin: LaunchOrigin; onDone: () => void }> = ({ origin
     };
 
     const begin = performance.now();
+    const startedOnDraft = window.location.pathname.endsWith("/draft");
+    let leftDraftAt = startedOnDraft ? 0 : begin;
     let lastPuff = -PUFF_EVERY_MS;
     let frame = 0;
     let landedTimer = 0;
@@ -142,8 +144,13 @@ const Flight: React.FC<{ origin: LaunchOrigin; onDone: () => void }> = ({ origin
     };
 
     const step = (now: number) => {
+      if (leftDraftAt === 0 && !window.location.pathname.endsWith("/draft")) {
+        leftDraftAt = now;
+      }
       const elapsed = now - begin;
-      if (elapsed >= CHARGE_MS + FLIGHT_MS) {
+      const postNavMs = leftDraftAt > 0 ? now - leftDraftAt : 0;
+      const readyToLand = !startedOnDraft || (leftDraftAt > 0 && postNavMs >= 450) || elapsed >= 2500;
+      if (elapsed >= CHARGE_MS + FLIGHT_MS && readyToLand) {
         // It lands in a flare of light, where the loader takes over.
         const landed = ship.getBoundingClientRect();
         const flare = document.createElement("span");
@@ -172,7 +179,8 @@ const Flight: React.FC<{ origin: LaunchOrigin; onDone: () => void }> = ({ origin
         scale = 0.55 + 0.35 * easeOut(k);
         opacity = Math.min(1, k * 3);
       } else {
-        const k = (elapsed - CHARGE_MS) / FLIGHT_MS;
+        const rawK = (elapsed - CHARGE_MS) / FLIGHT_MS;
+        const k = readyToLand ? Math.min(1, rawK) : Math.min(0.92, rawK);
         const s = easeInOut(k);
         const heading = path.heading(s);
         center = path.at(s);
