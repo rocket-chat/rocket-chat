@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `orchestrator`:
+- `sandboxes`:
+- `api`:
+- `web`:
+- `settings`:
+- `git`:
+- `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.7.0] - 2026-10-25
+
+### Added
 - `web`, `api`: **Live context window fill gauge and 1-click manual compaction.** Cockpit header usage popover renders live context fill progress (`118k / 200k · 59%`) distinct from cumulative billing tokens, with inline "Compact now" action invoking `/v1/sessions/{id}/compact`.
 - `web`, `api`: **Per-turn reasoning effort override and multi-step ActionGroup filtering.** Users can switch thinking effort (`Auto · Low · Med · High`) per turn from the composer, while long tool turn groups ($\ge 8$ steps) provide instant filter pills (`All · Edits · Errors · Subagents`).
 - `web`, `api`: **Instant sidebar caching and progressive conversation loading.** The session sidebar renders immediately from local cache on mount while background revalidation updates it. Keyset listing endpoints defer large conversation histories, reducing payload sizes from megabytes to kilobytes. Long sessions load the tail of recent messages quickly, with on-demand paging for older messages.
