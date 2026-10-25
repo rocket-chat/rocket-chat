@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from agent_core.context import threshold
+
 from api.services.memory import MemoryService, write_session_summary
 from api.services.metrics import record_turn
 from api.services.settings import effective_settings
@@ -25,6 +27,36 @@ from specifications.interfaces.llm import ChatMessage
 from specifications.interfaces.session import SessionRecord
 
 
+async def _extract_turn_context_stats(
+    ctx: TurnContext, history: list[ChatMessage]
+) -> dict[str, Any]:
+    mgr = ctx.req.orchestrator.context_manager
+    model_id = ctx.effective_model
+    models_cfg = await effective_settings(ctx.req.db_mgr, ctx.session.tenant_org_id, "models")
+    raw_overrides = models_cfg.get("context_windows")
+    overrides = tuple(raw_overrides.items()) if isinstance(raw_overrides, dict) else ()
+    limit_info = mgr.resolve_context_limit(model_id, overrides)
+    target_tokens = int(models_cfg.get("context_target_tokens") or 0)
+    effective_limit = (
+        min(limit_info.tokens, target_tokens) if target_tokens > 0 else limit_info.tokens
+    )
+    reserve_tokens = min(16_384, effective_limit // 4)
+    tokens_count = mgr.count_tokens(model_id, history) if history else 0
+    return {
+        "context_tokens": tokens_count,
+        "context_limit": effective_limit,
+        "context_model_limit": limit_info.tokens,
+        "context_target_tokens": target_tokens,
+        "context_source": limit_info.source,
+        "context_tier2_tokens": threshold(
+            effective_limit, mgr.tier2_threshold_ratio, reserve_tokens
+        ),
+        "context_tier3_tokens": threshold(
+            effective_limit, mgr.tier3_threshold_ratio, reserve_tokens
+        ),
+    }
+
+
 async def record_answer(ctx: TurnContext) -> str:
     """Append the assistant's answer to the session history and announce completion.
 
@@ -39,6 +71,9 @@ async def record_answer(ctx: TurnContext) -> str:
         state.turn_error = RuntimeError(state.orchestrator_error)
     # What came before each call is saved with that call; the answer keeps what followed.
     reasoning = "".join(state.reasoning_parts[state.reasoning_attached :]).strip()
+
+    # Atomic: the title task writes the same record while the turn is finishing.
+    ctx_stats = await _extract_turn_context_stats(ctx, ctx.session.conversation_history)
 
     def append_answer(record: SessionRecord) -> None:
         if state.had_post_failure_synthesis:
@@ -66,8 +101,18 @@ async def record_answer(ctx: TurnContext) -> str:
                     content=wait_msg,
                 )
             )
+        if not isinstance(record.metadata, dict):
+            record.metadata = {}
+        record.metadata["active_context"] = {
+            "tokens": ctx_stats["context_tokens"],
+            "limit": ctx_stats["context_limit"],
+            "model_limit": ctx_stats["context_model_limit"],
+            "target_tokens": ctx_stats["context_target_tokens"],
+            "source": ctx_stats["context_source"],
+            "tier2_tokens": ctx_stats["context_tier2_tokens"],
+            "tier3_tokens": ctx_stats["context_tier3_tokens"],
+        }
 
-    # Atomic: the title task writes the same record while the turn is finishing.
     await req.store.mutate_session(ctx.session_id, ctx.session.tenant_org_id, append_answer)
     status = "waiting" if getattr(state, "is_waiting", False) else "completed"
     msg = (
@@ -79,7 +124,7 @@ async def record_answer(ctx: TurnContext) -> str:
         SessionEvent(
             session_id=ctx.session_id,
             event_type=EventType.STATUS_CHANGED,
-            payload={"status": status, "message": msg, "final": True},
+            payload={"status": status, "message": msg, "final": True, **ctx_stats},
         )
     )
     return content

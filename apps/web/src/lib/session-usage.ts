@@ -44,12 +44,23 @@ export interface ModelUsage extends UsageTotals {
   model: string;
 }
 
+export interface ActiveContextUsage {
+  tokens: number;
+  limit: number;
+  model_limit?: number;
+  target_tokens?: number;
+  source?: string;
+  tier2_tokens?: number;
+  tier3_tokens?: number;
+}
+
 export interface SessionUsage {
   session_id: string;
   totals: UsageTotals;
   turns: TurnUsage[];
   models: ModelUsage[];
   before_first_turn: UsageTotals;
+  active_context?: ActiveContextUsage | null;
 }
 
 /** 950 → "950", 12,400 → "12.4k", 3,100,000 → "3.1M". */

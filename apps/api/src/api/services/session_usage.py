@@ -85,6 +85,16 @@ class ModelUsage(UsageTotals):
     model: str = Field(..., description="The model the calls went to")
 
 
+class ActiveContextModel(BaseModel):
+    tokens: int = Field(default=0, description="Active context token count")
+    limit: int = Field(default=0, description="Effective context limit enforced")
+    model_limit: int = Field(default=0, description="Raw model capacity")
+    target_tokens: int = Field(default=0, description="Configured working target tokens")
+    source: str = Field(default="", description="Source of the context limit")
+    tier2_tokens: int = Field(default=0, description="Pruning threshold tokens")
+    tier3_tokens: int = Field(default=0, description="Compaction threshold tokens")
+
+
 class SessionUsage(BaseModel):
     session_id: str = Field(..., description="The session")
     totals: UsageTotals = Field(..., description="Everything the session has used")
@@ -95,6 +105,9 @@ class SessionUsage(BaseModel):
     before_first_turn: UsageTotals = Field(
         default_factory=UsageTotals,
         description="Calls made before the first recorded turn started",
+    )
+    active_context: ActiveContextModel | None = Field(
+        default=None, description="Context tokens and window breakdown of the session"
     )
 
 
@@ -126,7 +139,10 @@ def _rounded[T: UsageTotals](totals: T) -> T:
 
 
 def summarize_session_usage(
-    session_id: str, events: Iterable[dict[str, Any]], turns: Sequence[TurnWindow]
+    session_id: str,
+    events: Iterable[dict[str, Any]],
+    turns: Sequence[TurnWindow],
+    active_context: ActiveContextModel | None = None,
 ) -> SessionUsage:
     """Total ``events`` (ledger rows of one session), by turn and by model."""
     ordered = sorted(turns, key=lambda t: (t.started_at, t.turn_index))
@@ -155,4 +171,5 @@ def summarize_session_usage(
         turns=[_rounded(t) for t in per_turn],
         models=sorted((_rounded(m) for m in per_model.values()), key=lambda m: -m.cost_usd),
         before_first_turn=_rounded(before),
+        active_context=active_context,
     )
