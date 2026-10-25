@@ -41,7 +41,23 @@ async def _extract_turn_context_stats(
         min(limit_info.tokens, target_tokens) if target_tokens > 0 else limit_info.tokens
     )
     reserve_tokens = min(16_384, effective_limit // 4)
-    tokens_count = mgr.count_tokens(model_id, history) if history else 0
+
+    # Use the measured prompt tokens of the last model step in this turn.
+    tokens_count = 0
+    if ctx.trace and hasattr(ctx.trace, "_model_calls") and ctx.trace._model_calls:
+        for call in reversed(ctx.trace._model_calls):
+            if call.get("role") == "react":
+                tokens_count = int(call.get("prompt_tokens") or 0)
+                break
+        if not tokens_count and ctx.trace._model_calls:
+            tokens_count = int(ctx.trace._model_calls[-1].get("prompt_tokens") or 0)
+
+    # Fall back to the active conversation in the orchestrator cache if available.
+    if not tokens_count:
+        resident = ctx.req.orchestrator._session_histories.get(ctx.session_id)
+        if resident:
+            tokens_count = mgr.count_tokens(model_id, resident)
+
     return {
         "context_tokens": tokens_count,
         "context_limit": effective_limit,

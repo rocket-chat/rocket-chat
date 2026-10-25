@@ -2,6 +2,7 @@
 
 import logging
 import math
+from collections.abc import Sequence
 from typing import Any
 
 from agent_core.context import ContextManager, threshold
@@ -117,18 +118,38 @@ async def get_user_usage_telemetry(request: Request) -> dict[str, Any]:
     }
 
 
+def _extract_tokens_from_traces_or_events(
+    traces: Sequence[Any] | None,
+    events: Sequence[Any] | None,
+) -> int:
+    if traces:
+        for trace in reversed(traces):
+            calls = (trace.tokens or {}).get("calls", []) if isinstance(trace.tokens, dict) else []
+            for call in reversed(calls):
+                if call.get("role") == "react":
+                    prompt_toks = call.get("prompt_tokens")
+                    if isinstance(prompt_toks, int) and prompt_toks > 0:
+                        return prompt_toks
+            if calls:
+                prompt_toks = calls[-1].get("prompt_tokens")
+                if isinstance(prompt_toks, int) and prompt_toks > 0:
+                    return prompt_toks
+    if events:
+        for ev in reversed(events):
+            prompt_toks = ev.get("prompt_tokens")
+            if isinstance(prompt_toks, int) and prompt_toks > 0:
+                return prompt_toks
+    return 0
+
+
 async def _resolve_session_active_context(
     record: SessionRecord,
     org_id: str,
     db_mgr: Any,
     request: Request,
+    traces: Sequence[Any] | None = None,
+    events: Sequence[Any] | None = None,
 ) -> ActiveContextModel:
-    if isinstance(record.metadata, dict) and "active_context" in record.metadata:
-        try:
-            return ActiveContextModel.model_validate(record.metadata["active_context"])
-        except Exception:
-            pass
-
     model_id = getattr(record, "selected_model", None) or FALLBACK_MODEL
     ctx_mgr = getattr(request.app.state, "context_manager", None) or ContextManager()
     models_cfg: dict[str, Any] = {}
@@ -142,11 +163,16 @@ async def _resolve_session_active_context(
         min(limit_info.tokens, target_tokens) if target_tokens > 0 else limit_info.tokens
     )
     reserve_tokens = min(16_384, effective_limit // 4)
-    counted = (
-        ctx_mgr.count_tokens(model_id, record.conversation_history)
-        if record.conversation_history
-        else 0
-    )
+
+    if isinstance(record.metadata, dict) and "active_context" in record.metadata:
+        try:
+            saved = ActiveContextModel.model_validate(record.metadata["active_context"])
+            if saved.tokens <= effective_limit or not (traces or events):
+                return saved
+        except Exception:
+            pass
+
+    counted = _extract_tokens_from_traces_or_events(traces, events)
     return ActiveContextModel(
         tokens=counted,
         limit=effective_limit,
@@ -176,6 +202,7 @@ async def get_session_usage(session_id: str, request: Request) -> SessionUsage:
     _check_session_access(record, user_id, roles)
 
     windows: list[TurnWindow] = []
+    traces: list[Any] = []
     db_mgr = getattr(request.app.state, "db_manager", None)
     if db_mgr is not None:
         traces = await TurnTraceStore(db_mgr).list_for_session(session_id, org_id, limit=1000)
@@ -190,5 +217,7 @@ async def get_session_usage(session_id: str, request: Request) -> SessionUsage:
             for t in traces
         ]
     events = await _usage_ledger(request).session_events(org_id, session_id)
-    active_ctx = await _resolve_session_active_context(record, org_id, db_mgr, request)
+    active_ctx = await _resolve_session_active_context(
+        record, org_id, db_mgr, request, traces=traces, events=events
+    )
     return summarize_session_usage(session_id, events, windows, active_context=active_ctx)
