@@ -23,6 +23,6 @@
     "web_search"
   ],
   "tool_definition_chars": 16297,
-  "system_prompt_chars": 8890,
-  "overhead_tokens": 5721
+  "system_prompt_chars": 9211,
+  "overhead_tokens": 5784
 }

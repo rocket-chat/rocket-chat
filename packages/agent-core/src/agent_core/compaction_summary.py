@@ -65,6 +65,7 @@ _RULES = """Rules:
 - Terse single-line bullets, no prose paragraphs.
 - Keep exact file paths, symbols, commands, error messages, URLs, branch names and identifiers.
 - Say whether changes are uncommitted, committed, pushed, in a pull request, or merged.
+- For multi-service or monorepo work, explicitly list which services/packages passed tests and which remain.
 - Carry forward only requests of the person that are still open, in their exact words.
 - Leave out the instructions you were given rather than told by the person (repository
   instructions such as AGENTS.md, skills, environment setup): they are given again separately.
