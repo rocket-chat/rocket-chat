@@ -158,4 +158,3 @@ def test_session_usage_includes_active_context_at_rest(client: TestClient) -> No
     assert body["active_context"] is not None
     assert body["active_context"]["limit"] > 0
     assert body["active_context"]["tokens"] >= 0
-
