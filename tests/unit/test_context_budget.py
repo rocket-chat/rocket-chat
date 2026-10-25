@@ -249,7 +249,6 @@ async def test_status_event_carries_context_limits_and_thresholds() -> None:
     assert payload["context_tier3_tokens"] == int(500_000 * 0.85)
 
 
-
 def test_the_summarized_transcript_keeps_call_arguments_and_the_start_of_the_work() -> None:
     first = ChatMessage(role="user", content="Decision: keep the HTTP routes, move reads only")
     edit = ChatMessage(
