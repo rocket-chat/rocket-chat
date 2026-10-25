@@ -26,6 +26,7 @@ from agent_core.context import (
     Summarizer,
     _current_request,
     current_execution_ctx,
+    threshold,
 )
 from agent_core.context_policy import assemble_request_messages, format_attachment_manifest
 from agent_core.dispatcher import ToolDispatcher
@@ -1734,6 +1735,33 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             AgentEvent(event_type=event_type, session_id=run.session_id, payload=payload)
         )
 
+    def _context_status_payload(self, run: _TurnRun) -> dict[str, Any]:
+        exec_ctx = run.exec_ctx
+        overrides = exec_ctx.policy.generation.context_windows if exec_ctx else ()
+        limit_info = self.context_manager.resolve_context_limit(run.react_model, overrides)
+        target_tokens = exec_ctx.policy.generation.context_target_tokens if exec_ctx else 0
+        effective_limit = (
+            min(limit_info.tokens, target_tokens) if target_tokens > 0 else limit_info.tokens
+        )
+        reserve = (exec_ctx.policy.generation.max_tokens or 0) if exec_ctx else 0
+        reserve_tokens = min(max(0, reserve), 16_384, effective_limit // 4)
+        measured = exec_ctx.measured_prompt_tokens if exec_ctx else 0
+        return {
+            "context_limit": effective_limit,
+            "context_model_limit": limit_info.tokens,
+            "context_target_tokens": target_tokens,
+            "context_source": limit_info.source,
+            "context_tier2_tokens": threshold(
+                effective_limit, self.context_manager.tier2_threshold_ratio, reserve_tokens
+            ),
+            "context_tier3_tokens": threshold(
+                effective_limit, self.context_manager.tier3_threshold_ratio, reserve_tokens
+            ),
+            "context_tokens": (
+                measured if measured > 0 else request_tokens(run.react_model, run.conversation)
+            ),
+        }
+
     async def _emit_status(
         self,
         run: _TurnRun,
@@ -1749,14 +1777,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             **extra,
         }
         if run is not None and run.react_model:
-            exec_ctx = run.exec_ctx
-            overrides = exec_ctx.policy.generation.context_windows if exec_ctx else ()
-            limit_info = self.context_manager.resolve_context_limit(run.react_model, overrides)
-            payload["context_limit"] = limit_info.tokens
-            measured = exec_ctx.measured_prompt_tokens if exec_ctx else 0
-            payload["context_tokens"] = (
-                measured if measured > 0 else request_tokens(run.react_model, run.conversation)
-            )
+            payload.update(self._context_status_payload(run))
         await self._emit(run, "status", payload)
 
     async def _drive_turn(

@@ -30,7 +30,7 @@ FALLBACK_MODELS = [
         "id": "openrouter/deepseek/deepseek-v4.1-flash",
         "name": "DeepSeek V4.1 Flash",
         "provider": "DeepSeek",
-        "context_window": 131072,
+        "context_window": 1048576,
         "recommended": True,
     },
     {

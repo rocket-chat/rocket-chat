@@ -34,22 +34,22 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ children, className, inline }) =>
 
   if (inline) {
     return (
-      <code className="px-1.5 py-0.5 mx-0.5 rounded text-[11px] font-mono break-words [overflow-wrap:anywhere] bg-cyan/10 text-cyan border border-cyan/20">
+      <code className="px-1.5 py-[1.5px] mx-0.5 rounded-[5px] text-[12.5px] font-mono font-normal break-words [overflow-wrap:anywhere] bg-neutral-200/60 text-neutral-800 border border-neutral-300/80 dark:bg-neutral-800/70 dark:text-neutral-200 dark:border-neutral-700/50">
         {children}
       </code>
     );
   }
 
   return (
-    <div className="my-2 max-w-full rounded border border-border/80 bg-void/90 overflow-hidden shadow-inner">
-      <div className="flex items-center justify-between px-3 py-1.5 bg-surface/60 border-b border-border/60 text-[10px] font-mono text-muted-foreground">
-        <span className="uppercase tracking-wider font-semibold text-cyan/80">
+    <div className="my-3 max-w-full rounded-lg border border-surface-border bg-neutral-950 shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between px-3.5 py-1.5 bg-neutral-900/90 border-b border-white/[0.08] text-[11px] font-mono text-neutral-400">
+        <span className="font-mono lowercase tracking-normal text-neutral-400">
           {language || "code"}
         </span>
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded border border-border/50 hover:border-cyan/40 bg-overlay/50 transition-colors"
+          className="flex items-center gap-1.5 text-[11px] text-neutral-400 hover:text-neutral-200 px-2 py-0.5 rounded border border-white/10 hover:border-white/20 bg-white/[0.04] transition-colors cursor-pointer"
           title="Copy code"
         >
           {copied ? (
@@ -59,13 +59,13 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ children, className, inline }) =>
             </>
           ) : (
             <>
-              <Copy className="w-3 h-3 text-muted-foreground" />
+              <Copy className="w-3 h-3 text-neutral-400" />
               <span>Copy</span>
             </>
           )}
         </button>
       </div>
-      <div className="p-3 overflow-x-auto text-xs font-mono text-foreground/90 leading-relaxed">
+      <div className="p-3.5 overflow-x-auto text-[13px] font-mono text-neutral-200 leading-relaxed">
         <pre className="!bg-transparent !p-0 !m-0">
           <code>{children}</code>
         </pre>
@@ -89,48 +89,56 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
             );
           },
           p({ children }) {
-            return <p className="mb-2 last:mb-0 leading-relaxed text-foreground/90">{children}</p>;
+            return <p className="mb-3.5 last:mb-0 leading-[1.68] text-foreground/90 font-normal">{children}</p>;
           },
           h1({ children }) {
             return (
-              <h1 className="text-base font-bold tracking-tight text-foreground mt-4 mb-2 pb-1 border-b border-border/60 font-mono">
+              <h1 className="text-base font-semibold tracking-tight text-foreground mt-5 mb-2.5 pb-1.5 border-b border-surface-border font-sans">
                 {children}
               </h1>
             );
           },
           h2({ children }) {
             return (
-              <h2 className="text-sm font-semibold tracking-tight text-foreground mt-3 mb-1.5 font-mono text-cyan/90">
+              <h2 className="text-[15px] font-semibold tracking-tight text-foreground mt-4 mb-2 font-sans">
                 {children}
               </h2>
             );
           },
           h3({ children }) {
             return (
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mt-2.5 mb-1 font-mono">
+              <h3 className="text-sm font-semibold text-foreground/90 mt-3 mb-1.5 font-sans">
                 {children}
               </h3>
             );
           },
           ul({ children }) {
-            return <ul className="list-disc pl-5 mb-2 space-y-1 text-foreground/90">{children}</ul>;
+            return (
+              <ul className="list-disc pl-5 mb-3.5 space-y-1.5 text-foreground/90 marker:text-neutral-400 dark:marker:text-neutral-500">
+                {children}
+              </ul>
+            );
           },
           ol({ children }) {
-            return <ol className="list-decimal pl-5 mb-2 space-y-1 text-foreground/90">{children}</ol>;
+            return (
+              <ol className="list-decimal pl-5 mb-3.5 space-y-1.5 text-foreground/90 marker:text-neutral-400 dark:marker:text-neutral-500">
+                {children}
+              </ol>
+            );
           },
           li({ children }) {
-            return <li className="leading-relaxed">{children}</li>;
+            return <li className="leading-[1.68] pl-0.5">{children}</li>;
           },
           blockquote({ children }) {
             return (
-              <blockquote className="border-l-2 border-cyan/50 bg-cyan/5 pl-3 py-1.5 my-2 text-foreground/80 italic rounded-r">
+              <blockquote className="border-l-2 border-neutral-300 dark:border-neutral-700 bg-neutral-100/60 dark:bg-neutral-800/30 pl-3.5 py-1.5 my-3 text-neutral-700 dark:text-neutral-300 italic rounded-r text-[13.5px] leading-relaxed">
                 {children}
               </blockquote>
             );
           },
           table({ children }) {
             return (
-              <div className="my-3 max-w-full overflow-x-auto rounded border border-border/70">
+              <div className="my-3.5 max-w-full overflow-x-auto rounded-lg border border-surface-border shadow-sm">
                 <table className="w-full text-xs font-mono text-left border-collapse">
                   {children}
                 </table>
@@ -138,13 +146,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
             );
           },
           thead({ children }) {
-            return <thead className="bg-surface/80 text-muted-foreground border-b border-border/70">{children}</thead>;
+            return <thead className="bg-surface-elevated/70 text-neutral-500 dark:text-neutral-400 border-b border-surface-border">{children}</thead>;
           },
           th({ children }) {
-            return <th className="px-3 py-2 font-semibold uppercase tracking-wider text-[10px]">{children}</th>;
+            return <th className="px-3.5 py-2 font-medium uppercase tracking-wider text-[10.5px]">{children}</th>;
           },
           td({ children }) {
-            return <td className="px-3 py-2 border-t border-border/50 text-foreground/90">{children}</td>;
+            return <td className="px-3.5 py-2 border-t border-surface-border text-foreground/90 text-xs font-mono">{children}</td>;
           },
           a({ href, children }) {
             return (
@@ -152,14 +160,14 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="break-all text-cyan underline underline-offset-2 hover:text-cyan/80 transition-colors"
+                className="break-all text-brand underline underline-offset-3 hover:text-brand-hover transition-colors font-medium"
               >
                 {children}
               </a>
             );
           },
           hr() {
-            return <hr className="border-border/60 my-3" />;
+            return <hr className="border-surface-border my-4" />;
           },
         }}
       >

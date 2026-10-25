@@ -47,6 +47,11 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
   const usage = useSessionUsage(sessionId, running);
   const contextTokens = useMissionStore((state) => state.contextTokens);
   const contextLimit = useMissionStore((state) => state.contextLimit);
+  const contextModelLimit = useMissionStore((state) => state.contextModelLimit);
+  const contextTargetTokens = useMissionStore((state) => state.contextTargetTokens);
+  const contextSource = useMissionStore((state) => state.contextSource);
+  const contextTier2Tokens = useMissionStore((state) => state.contextTier2Tokens);
+  const contextTier3Tokens = useMissionStore((state) => state.contextTier3Tokens);
   const [compacting, setCompacting] = useState(false);
   const [compactMessage, setCompactMessage] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -74,6 +79,12 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
     contextTokens != null && contextLimit != null && contextLimit > 0
       ? Math.min(100, Math.round((contextTokens / contextLimit) * 100))
       : null;
+  const isCappedByTarget =
+    contextTargetTokens != null &&
+    contextTargetTokens > 0 &&
+    contextModelLimit != null &&
+    contextTargetTokens < contextModelLimit;
+  const isOverride = contextSource === "override";
 
   return (
     <div className="relative" ref={ref}>
@@ -115,7 +126,7 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
           role="dialog"
           aria-label="Session usage"
           data-testid="session-usage-popover"
-          className="absolute right-0 top-full z-50 mt-2 w-[min(26rem,calc(100vw-1.5rem))] space-y-3 rounded-xl border border-surface-border bg-surface-elevated p-3.5 text-xs shadow-xl"
+          className="absolute right-0 top-full z-50 mt-2 w-[min(28rem,calc(100vw-1.5rem))] space-y-3 rounded-xl border border-surface-border bg-surface-elevated p-3.5 text-xs shadow-xl"
         >
           <div className="flex items-baseline justify-between gap-3">
             <span className="font-display text-sm font-semibold text-foreground">This session</span>
@@ -125,14 +136,26 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
           </div>
 
           {contextTokens != null && contextLimit != null && (
-            <div className="rounded-lg border border-surface-border bg-surface-card p-2.5 space-y-2">
+            <div className="rounded-lg border border-surface-border bg-surface-card p-3 space-y-2.5">
               <div className="flex items-center justify-between text-[11px]">
-                <span className="font-semibold text-foreground">Active Context Window</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-foreground">Active Context Window</span>
+                  {isCappedByTarget ? (
+                    <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-500 border border-amber-500/20">
+                      Capped Target
+                    </span>
+                  ) : isOverride ? (
+                    <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-400 border border-sky-500/20">
+                      Override
+                    </span>
+                  ) : null}
+                </div>
                 <span className="font-mono text-neutral-600 dark:text-neutral-300">
                   {formatCount(contextTokens)} / {formatCount(contextLimit)} ({contextFillPct}%)
                 </span>
               </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
+
+              <div className="relative h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800">
                 <div
                   className={`h-full transition-all duration-300 ${
                     (contextFillPct ?? 0) >= 85
@@ -143,8 +166,60 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
                   }`}
                   style={{ width: `${contextFillPct ?? 0}%` }}
                 />
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-neutral-400/40 dark:bg-neutral-500/40"
+                  style={{ left: "70%" }}
+                  title="Pruning threshold (70%)"
+                />
+                <div
+                  className="absolute top-0 bottom-0 w-0.5 bg-neutral-400/60 dark:bg-neutral-500/60"
+                  style={{ left: "85%" }}
+                  title="Compaction threshold (85%)"
+                />
               </div>
-              <div className="flex items-center justify-between pt-1">
+
+              <div className="grid grid-cols-2 gap-2 text-[10px]">
+                <div className="rounded border border-surface-border/60 bg-surface-elevated/40 p-2">
+                  <div className="text-neutral-500">Tier 2 Pruning (70%)</div>
+                  <div className="font-mono font-medium text-foreground">
+                    ~{formatCount(contextTier2Tokens ?? Math.round(contextLimit * 0.7))} tok
+                  </div>
+                  <div className="text-[9px] text-neutral-400 mt-0.5">
+                    Verbose tool outputs pruned to receipts
+                  </div>
+                </div>
+                <div className="rounded border border-surface-border/60 bg-surface-elevated/40 p-2">
+                  <div className="text-neutral-500">Tier 3 Compaction (85%)</div>
+                  <div className="font-mono font-medium text-foreground">
+                    ~{formatCount(contextTier3Tokens ?? Math.round(contextLimit * 0.85))} tok
+                  </div>
+                  <div className="text-[9px] text-neutral-400 mt-0.5">
+                    History summarized & memory anchored
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded border border-surface-border/60 bg-surface-elevated/30 p-2 text-[10px] text-neutral-500 space-y-1">
+                <div className="flex items-center justify-between text-neutral-400">
+                  <span>Model Raw Window:</span>
+                  <span className="font-mono text-foreground">
+                    {formatCount(contextModelLimit ?? contextLimit)} tok
+                    {contextSource ? ` (${contextSource})` : ""}
+                  </span>
+                </div>
+                {isCappedByTarget && (
+                  <p className="leading-snug text-neutral-400">
+                    Thresholds operate against the <strong className="text-foreground">{formatCount(contextLimit)} tok</strong> working target (<code className="text-neutral-300">models.context_target_tokens</code>) rather than the model capacity to keep turns fast and prevent degradation.
+                  </p>
+                )}
+                {isOverride && (
+                  <p className="leading-snug text-neutral-400">
+                    Thresholds use the organization window override (<code className="text-neutral-300">models.context_windows</code>).
+                  </p>
+                )}
+              </div>
+
+              <div className="flex items-center justify-between pt-0.5">
                 <span className="text-[10px] text-neutral-500">Pruning at 70% · Compaction at 85%</span>
                 {!running && sessionId && (
                   <button

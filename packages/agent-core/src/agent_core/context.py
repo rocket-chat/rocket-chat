@@ -61,7 +61,7 @@ DEFAULT_MODEL_CONTEXT_LIMITS: dict[str, int] = {
     "o4": 200_000,
     "deepseek-r1": 64_000,
     "deepseek-v3": 64_000,
-    "deepseek-v4": 131_072,
+    "deepseek-v4": 1_048_576,
     "gemini": 1_000_000,
     "mimo": 1_000_000,
     "kimi": 256_000,

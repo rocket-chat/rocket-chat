@@ -466,7 +466,13 @@ export class MissionWebSocket {
         store.setStatusMessage(message);
 
         if (typeof payload.context_tokens === "number" && typeof payload.context_limit === "number") {
-          store.setContextUsage(payload.context_tokens, payload.context_limit);
+          store.setContextUsage(payload.context_tokens, payload.context_limit, {
+            modelLimit: typeof payload.context_model_limit === "number" ? payload.context_model_limit : undefined,
+            targetTokens: typeof payload.context_target_tokens === "number" ? payload.context_target_tokens : undefined,
+            source: typeof payload.context_source === "string" ? payload.context_source : undefined,
+            tier2Tokens: typeof payload.context_tier2_tokens === "number" ? payload.context_tier2_tokens : undefined,
+            tier3Tokens: typeof payload.context_tier3_tokens === "number" ? payload.context_tier3_tokens : undefined,
+          });
         }
 
         if (payload.discard_partial || rawStatus === "retrying") {

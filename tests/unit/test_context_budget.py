@@ -62,7 +62,7 @@ def test_tool_call_arguments_and_schemas_are_counted() -> None:
     [
         ((("acme/internal-*", 32_000),), "acme/internal-7b", 32_000),
         ((("acme/internal-7b", 8_000),), "ACME/internal-7b", 8_000),
-        ((), "openrouter/deepseek/deepseek-v4.1-flash", 131_072),
+        ((), "openrouter/deepseek/deepseek-v4.1-flash", 1_048_576),
         ((), "someone/unknown-model", 128_000),
     ],
 )
@@ -222,6 +222,32 @@ async def test_the_context_target_compacts_below_a_larger_model_window() -> None
     assert not any(
         "Compacted" in (m.content or "") for r in unbounded.model.requests for m in r.messages
     )
+
+
+async def test_status_event_carries_context_limits_and_thresholds() -> None:
+    org = "status_context_test"
+    await save_org_config(
+        None,
+        org,
+        "models",
+        {"context_windows": {"*": 1_000_000}, "context_target_tokens": 500_000},
+        [],
+    )
+    outcome = await run_turn(org, script=[("list_dir", {"path": "."})])
+    status_events = [
+        e
+        for e in outcome.events
+        if getattr(e.event_type, "value", str(e.event_type)) == "status_changed"
+        and "context_limit" in e.payload
+    ]
+    assert status_events, "status_changed events with context limits must be emitted"
+    payload = status_events[0].payload
+    assert payload["context_limit"] == 500_000
+    assert payload["context_model_limit"] == 1_000_000
+    assert payload["context_target_tokens"] == 500_000
+    assert payload["context_tier2_tokens"] == int(500_000 * 0.70)
+    assert payload["context_tier3_tokens"] == int(500_000 * 0.85)
+
 
 
 def test_the_summarized_transcript_keeps_call_arguments_and_the_start_of_the_work() -> None:

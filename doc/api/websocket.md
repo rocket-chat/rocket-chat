@@ -124,7 +124,7 @@ Reports one edit the agent made to a file, with its unified diff. It is also the
 ```
 
 ### E. Status, Plans, Subagents, Synthesis, and Errors
-The remaining catalogue uses the same envelope: `token`, `status_changed` (payload: `status`, `message`, `context_tokens`, `context_limit`; while a step runs tools, `status: "running"` carries a short action such as `Reading files...` or `Running a command...`, never the model's own text, which arrives as `token` events; `context_tokens` and `context_limit` provide live context window gauge metrics),
+The remaining catalogue uses the same envelope: `token`, `status_changed` (payload: `status`, `message`, `context_tokens`, `context_limit`, `context_model_limit`, `context_target_tokens`, `context_source`, `context_tier2_tokens`, `context_tier3_tokens`; while a step runs tools, `status: "running"` carries a short action such as `Reading files...` or `Running a command...`, never the model's own text, which arrives as `token` events; `context_tokens` and `context_limit` provide live context window gauge metrics with pruning and compaction thresholds),
 `plan_updated`, `post_failure_synthesis`, `subagent_started`,
 `subagent_progress`, `subagent_completed`, `followup_suggestion`,
 `session_updated`, `sandbox_state` (payload: `state`, `message`; `state: "failed"` means the sandbox could not start and `message` says why, for example an image that cannot be pulled), `decision_submitted`, `user_message`, `message_pending` (payload: `message_id`, `delivery`, `content`, `author_user_id`), `message_cancelled` (payload: `message_id`), `process_started`,

@@ -169,7 +169,22 @@ export interface StreamSlice {
   setStreamContinuous: (continuous: boolean) => void;
   contextTokens: number | null;
   contextLimit: number | null;
-  setContextUsage: (tokens: number, limit: number) => void;
+  contextModelLimit: number | null;
+  contextTargetTokens: number | null;
+  contextSource: string | null;
+  contextTier2Tokens: number | null;
+  contextTier3Tokens: number | null;
+  setContextUsage: (
+    tokens: number,
+    limit: number,
+    details?: {
+      modelLimit?: number;
+      targetTokens?: number;
+      source?: string;
+      tier2Tokens?: number;
+      tier3Tokens?: number;
+    }
+  ) => void;
   updateLastAgentLog: (delta: string, timestamp?: string) => void;
   appendReasoning: (delta: string, timestamp?: string) => void;
   clearReasoning: () => void;

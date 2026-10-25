@@ -10,19 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `orchestrator`:
-- `sandboxes`:
-- `api`:
-- `web`:
-- `settings`:
-- `git`:
-- `helm`:
+- `web`, `agent-core`: Active context window modal and usage chip now display the complete operational breakdown: model physical capacity vs. working target (`models.context_target_tokens`) vs. overrides, detailing exact operational pruning (70%) and compaction (85%) token thresholds and explaining why working ceilings are enforced.
 
 ### Changed
-
-### Fixed
-
-### Security
+- `web`: Sleek redesign of `MarkdownRenderer` and session stream typography inspired by Claude Desktop / Linear (neutral subtle code badges replacing neon cyan borders, relaxed 1.68 leading, airy spacing, and refined dark-mode codeblocks).
+- `models`: DeepSeek V4 family fallback context limit updated to its native 1,048,576 (1M) token window across the agent core, models catalog, and web stores.
 
 ## [0.7.1] - 2026-10-25
 

@@ -35,7 +35,21 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
   tokenRate: 0,
   contextTokens: null,
   contextLimit: null,
-  setContextUsage: (contextTokens, contextLimit) => set({ contextTokens, contextLimit }),
+  contextModelLimit: null,
+  contextTargetTokens: null,
+  contextSource: null,
+  contextTier2Tokens: null,
+  contextTier3Tokens: null,
+  setContextUsage: (contextTokens, contextLimit, details) =>
+    set({
+      contextTokens,
+      contextLimit,
+      contextModelLimit: details?.modelLimit ?? null,
+      contextTargetTokens: details?.targetTokens ?? null,
+      contextSource: details?.source ?? null,
+      contextTier2Tokens: details?.tier2Tokens ?? null,
+      contextTier3Tokens: details?.tier3Tokens ?? null,
+    }),
   turnBinding: null,
   artifacts: [],
   upsertArtifact: (artifact) =>
