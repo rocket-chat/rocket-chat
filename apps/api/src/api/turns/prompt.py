@@ -210,8 +210,9 @@ def editing_guidance(tools: PromptTools) -> list[str]:
         lines.append(
             "- Change existing files with `file_edit` (an exact block of the current text, "
             "without the line numbers `file_read` shows) or `apply_patch` (a unified diff); "
-            "create new files with `file_write`. Do not rewrite a whole existing file to change "
-            "part of it."
+            "create new files with `file_write`. Never use `sed`, `awk`, or shell redirection "
+            "(`>`, `>>`) in `bash_exec` to modify files. Do not rewrite a whole existing file to "
+            "change part of it."
         )
     if tools.has(*CHECK_TOOLS):
         lines.append(
@@ -258,10 +259,12 @@ def working_style_guidance(tools: PromptTools) -> str:
     )
     if tools.can("update_task_checklist"):
         lines.append(
-            "- For work of three or more steps keep a task checklist with "
-            "`update_task_checklist`: update it when a task starts or finishes (not on every "
-            "step, and never re-send an unchanged list) and settle it before you answer. Say you "
-            "are nearly done only when the next step is the final answer."
+            "- For work of three or more steps or touching multiple components, immediately "
+            "initialize and maintain a task checklist with `update_task_checklist`: update it when "
+            "a task starts or finishes (not on every step, and never re-send an unchanged list) and "
+            "settle it before you answer. It is permanently preserved across context compactions so "
+            "you never lose progress. Say you are nearly done only when the next step is the final "
+            "answer."
         )
     if tools.sends("create_artifact"):
         lines.append(
@@ -307,8 +310,9 @@ def long_task_guidance(tools: PromptTools) -> str:
         )
     if tools.has("clone_repository", "workspace_status"):
         lines.append(
-            "- Across several repositories, work on one at a time in dependency order and verify "
-            "each before moving to the next."
+            "- Across several repositories or monorepo services, work on one at a time in dependency "
+            "order, verify its build and tests before moving to the next, and track completed services "
+            "in the task checklist."
         )
     return "\n[Long-running tasks and git hygiene]\n" + "\n".join(lines) if lines else ""
 

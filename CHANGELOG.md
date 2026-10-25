@@ -24,6 +24,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [0.7.1] - 2026-10-25
+
+### Added
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.7.1] - 2026-10-25
+
+### Added
+
+### Changed
+- `api`, `agent-core`: **Optimized system prompts for long-running sessions, monorepos, and surgical tool usage.** Platform prompt guidance explicitly prohibits using bash `sed`, `awk`, or shell redirection (`>`, `>>`) in favor of structured `file_edit` and `apply_patch`. Multi-component and monorepo tasks instruct models to immediately initialize `update_task_checklist` (preserving progress across context compactions) and work across services in dependency order. Compaction checkpoints explicitly record completed vs. pending packages to eliminate compaction amnesia on large codebases.
+
+### Fixed
+
+### Security
+
 ## [0.7.0] - 2026-10-25
 
 ### Added
