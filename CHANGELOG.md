@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`, `agent-core`: Active context window modal and usage chip now display the complete operational breakdown: model physical capacity vs. working target (`models.context_target_tokens`) vs. overrides, detailing exact operational pruning (70%) and compaction (85%) token thresholds and explaining why working ceilings are enforced.
 
 ### Fixed
+- `agent-core`, `api`: Answer preservation across verification gates. When `verification_gate_notice` triggers a test run after code edits, the pre-gate substantive explanation is preserved and merged with post-verification confirmation into the final Answer Card instead of being demoted into a collapsed tool preface.
+- `agent-core`: Non-blocking checklist reconciliation. Unfinished tasks on the checklist no longer block turn completion or reject the model's answer, allowing tasks to remain pending or in-progress across turns naturally without forcing unnecessary tool calls.
+- `web`: Unified rocket telemetry loading screen across the entire application. Replaced legacy "RC" box loaders on initial load (`/`) and dynamic chat route chunks (`/chat/[sessionId]`). Fixed session switching from the sidebar to show the animated rocket telemetry screen instead of flashing a temporary fresh/empty session state while history hydrates.
 - `llm-gateway`: Fixed `request_tokens` for DeepSeek (`_CONTENT`) to only count reasoning within the active turn's tool loop, eliminating ghost token inflation from historical turns' dead reasoning.
 - `agent-core`: Fixed `_recent_start_by_budget` to measure reasoning length during step accumulation and bounded `max_tail` to prevent bloated tails from causing recurring compaction loops.
 

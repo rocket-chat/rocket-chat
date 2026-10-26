@@ -516,6 +516,17 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     );
   };
 
+  if (opening) {
+    return (
+      <div
+        data-testid="flight-log-stream"
+        className="flex flex-1 h-full w-full items-center justify-center bg-surface-base select-none"
+      >
+        <SessionLoadingScreen />
+      </div>
+    );
+  }
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       {/* Stream Search Header */}
@@ -597,8 +608,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
             </button>
           </div>
         )}
-        {opening && <SessionLoadingScreen />}
-        {!opening && flightLog.length === 0 && !isExecuting && <CockpitEmptyState />}
+        {flightLog.length === 0 && !isExecuting && <CockpitEmptyState />}
 
         {isVirtualized ? (
           <div

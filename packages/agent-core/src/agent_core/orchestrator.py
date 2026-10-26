@@ -19,7 +19,11 @@ from llm_gateway.pricing import estimate_cost_usd
 from llm_gateway.reasoning import merge_reasoning_blocks
 from llm_gateway.tokens import estimated_usage, request_tokens
 
-from agent_core.checklist import stale_notice, unfinished_notice, verification_gate_notice
+from agent_core.checklist import (
+    merge_verified_answers,
+    stale_notice,
+    verification_gate_notice,
+)
 from agent_core.context import (
     ContextManager,
     ExecutionContext,
@@ -255,6 +259,7 @@ class _TurnRun:
     pending_attachments: list[AttachmentRef]
     checklist_reminded: bool = False
     verification_reminded: bool = False
+    draft_answer: str | None = None
     active_checklist: list[dict[str, Any]] | None = None
     cumulative_cost_usd: float = 0.0
     step_costs: list[float] = field(default_factory=list)
@@ -1952,6 +1957,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             self._record_toolless_continuation(run)
             return False
         run.empty_retries = 0
+        if run.draft_answer:
+            assistant_text = merge_verified_answers(run.draft_answer, assistant_text)
+            run.draft_answer = None
         run.conversation.append(
             ChatMessage(
                 role="assistant",
@@ -1960,24 +1968,16 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 reasoning_blocks=reply.reasoning_blocks or None,
             )
         )
-        # Once per turn: ask the model to reconcile unfinished items or verify edits,
-        # but never reject on the final step so the substantive answer is never lost to budget exhaustion.
-        if (
-            not run.checklist_reminded
-            and not run.on_last_step(step)
-            and (reminder := unfinished_notice(run.conversation))
-        ):
-            run.checklist_reminded = True
-            run.next_notes.append(reminder)
-            self._record_toolless_continuation(run)
-            await self._flush_transcript(run.session_id, run.org_id, run.conversation)
-            return False
+        # Check verification gate, but never reject on the final step so the substantive answer
+        # is never lost to budget exhaustion. Note: unfinished checklist items do not block turn
+        # completion across turns (checklists are scratchpads, not blockers).
         if (
             not run.verification_reminded
             and not run.on_last_step(step)
             and (reminder := verification_gate_notice(run.conversation))
         ):
             run.verification_reminded = True
+            run.draft_answer = assistant_text
             run.next_notes.append(reminder)
             self._record_toolless_continuation(run)
             await self._flush_transcript(run.session_id, run.org_id, run.conversation)

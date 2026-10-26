@@ -67,14 +67,14 @@ def test_a_finished_or_absent_checklist_needs_no_reminder() -> None:
     assert unfinished_notice([ChatMessage(role="user", content="hi")]) is None
 
 
-async def test_the_model_is_asked_once_to_settle_an_unfinished_checklist() -> None:
+async def test_an_open_checklist_does_not_block_turn_completion() -> None:
     outcome = await run_turn(
         "org_checklist_open", script=[("update_task_checklist", {"tasks": OPEN})]
     )
 
-    assert _reminders(outcome.model.requests) == 1
-    assert _agent_steps(outcome.model.requests) == 3, (
-        "plan, premature answer, answer after the reminder"
+    assert _reminders(outcome.model.requests) == 0
+    assert _agent_steps(outcome.model.requests) == 2, (
+        "plan, final answer (open tasks do not block turn completion)"
     )
 
 

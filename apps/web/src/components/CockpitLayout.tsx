@@ -34,7 +34,6 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
   const isSessionReady =
     Boolean(session && session.session_id === sessionId && (session.conversation_history !== undefined || flightLog.length > 0));
   const opening = isTargetSession && !isSessionReady;
-  const sessions = useMissionStore((s) => s.sessions);
   const setSession = useMissionStore((s) => s.setSession);
   const isRightPanelOpen = useMissionStore((s) => s.isRightPanelOpen);
   const fetchSessions = useMissionStore((s) => s.fetchSessions);
@@ -88,10 +87,6 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
     }
     if (session?.session_id === sessionId) return;
 
-    const matched = sessions.find((s) => s.session_id === sessionId);
-    if (matched) {
-      setSession(matched);
-    }
     fetch(`/v1/sessions/${sessionId}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -104,7 +99,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
         }
       })
       .catch(() => {});
-  }, [sessionId, sessions, session, setSession, initDraftSession]);
+  }, [sessionId, session, setSession, initDraftSession]);
 
   const { user } = useAuth();
   const token = user?.accessToken || "";

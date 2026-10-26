@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent_core.checklist import verification_gate_notice
+from agent_core.checklist import merge_verified_answers, verification_gate_notice
 
 from specifications.interfaces.llm import ChatMessage
 
@@ -210,3 +210,17 @@ def test_published_work_and_a_checks_read_count_as_verification() -> None:
             ChatMessage(role="assistant", content="Done — 2 PRs opened."),
         ]
         assert verification_gate_notice(conversation) is None, name
+
+
+def test_merge_verified_answers() -> None:
+    draft = "I modified auth.py to fix the race condition."
+    verif = "Ran pytest: 5 passed."
+    merged = merge_verified_answers(draft, verif)
+    assert "I modified auth.py" in merged
+    assert "**Verification:**" in merged
+    assert "Ran pytest: 5 passed." in merged
+
+    full = f"{draft}\nMore info."
+    assert merge_verified_answers(draft, full) == full
+    assert merge_verified_answers(draft, "") == draft
+    assert merge_verified_answers("", verif) == verif

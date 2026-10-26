@@ -81,6 +81,11 @@ async def record_answer(ctx: TurnContext) -> str:
     """
     state, req = ctx.state, ctx.req
     content = "".join(state.assistant_parts).strip()
+    resident = req.orchestrator._session_histories.get(ctx.session_id)
+    if resident and resident[-1].role == "assistant" and resident[-1].content:
+        resident_content = resident[-1].content.strip()
+        if len(resident_content) > len(content):
+            content = resident_content
     if state.orchestrator_error:
         if not content:
             raise RuntimeError(state.orchestrator_error)

@@ -4,6 +4,7 @@ import { SessionUsageChip } from "./SessionUsageChip";
 import { useShallow } from "zustand/react/shallow";
 import React, { useState } from "react";
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useMissionStore } from "../lib/store";
 import { ViewMenu } from "./ViewMenu";
 import { UserHeaderCapsule } from "./UserHeaderCapsule";
@@ -68,6 +69,14 @@ export const FlightTelemetryHeader: React.FC = () => {
   } = useMissionStore(
     useShallow((state) => ({ session: state.session, activeAgent: state.activeAgent, selectedModel: state.selectedModel, inferenceMode: state.inferenceMode, tokenRate: state.tokenRate, isExecuting: state.isExecuting, isRightPanelOpen: state.isRightPanelOpen, setIsRightPanelOpen: state.setIsRightPanelOpen, isTurnInspectorOpen: state.isTurnInspectorOpen, setIsTurnInspectorOpen: state.setIsTurnInspectorOpen, isMemoryInspectorOpen: state.isMemoryInspectorOpen, setIsMemoryInspectorOpen: state.setIsMemoryInspectorOpen, isArtifactsDrawerOpen: state.isArtifactsDrawerOpen, setIsArtifactsDrawerOpen: state.setIsArtifactsDrawerOpen, isLeftSidebarOpen: state.isLeftSidebarOpen, setIsLeftSidebarOpen: state.setIsLeftSidebarOpen, goal: state.goal }))
   );
+  const params = useParams();
+  const routeSessionId = typeof params?.sessionId === "string" ? params.sessionId : null;
+  const sessions = useMissionStore((state) => state.sessions);
+  const displayTitle =
+    (session?.session_id === routeSessionId ? session?.title : null) ||
+    (routeSessionId ? sessions.find((s) => s.session_id === routeSessionId)?.title : null) ||
+    session?.title ||
+    "New Session";
   const slackLink = slackThreadLink(session?.metadata);
   const artifactCount = useMissionStore((state) => state.artifacts.length);
 
@@ -97,7 +106,7 @@ export const FlightTelemetryHeader: React.FC = () => {
 
         {/* Thread Title */}
         <h1 className="text-sm font-semibold text-foreground flex items-center gap-2 min-w-0 truncate max-w-[34vw] sm:max-w-md">
-          <span className="truncate">{session?.title || "New Session"}</span>
+          <span className="truncate">{displayTitle}</span>
         </h1>
         {slackLink && (
           <a
