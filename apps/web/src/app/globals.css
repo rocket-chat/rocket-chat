@@ -298,12 +298,22 @@ body {
   animation: rocket-exhaust-spark 1.1s ease-out infinite;
 }
 
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.animate-shimmer {
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-rocket-hover,
   .animate-rocket-flight,
   .animate-thruster-flare,
   .animate-rocket-exhaust,
-  .animate-rocket-exhaust-spark {
+  .animate-rocket-exhaust-spark,
+  .animate-shimmer {
     animation: none;
   }
 

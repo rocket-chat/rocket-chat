@@ -3,6 +3,40 @@
 from typing import Any
 
 _BLOCKS, _CONTENT = "thinking_blocks", "reasoning_content"
+DEFAULT_MAX_REPLAY_REASONING_CHARS = 12_000
+
+
+def strip_trailing_repetition(text: str) -> str:
+    """Strips repetitive loop patterns from the end of a reasoning string."""
+    words = text.split()
+    if len(words) < 15:
+        return text
+    for cycle_len in range(1, 25):
+        if len(words) < cycle_len * 3:
+            continue
+        pattern = words[-cycle_len:]
+        repeats = 0
+        idx = len(words)
+        while idx >= cycle_len and words[idx - cycle_len : idx] == pattern:
+            repeats += 1
+            idx -= cycle_len
+        threshold = 8 if cycle_len == 1 else (5 if cycle_len <= 4 else 3)
+        if repeats >= threshold:
+            kept_words = words[:idx]
+            return " ".join(kept_words) if kept_words else ""
+    return text
+
+
+def sanitize_replayed_reasoning(
+    content: str, max_chars: int = DEFAULT_MAX_REPLAY_REASONING_CHARS
+) -> str:
+    """Clamps and sanitizes replayed reasoning so runaway loops do not cascade into tool steps."""
+    if not content:
+        return ""
+    cleaned = strip_trailing_repetition(content)
+    if len(cleaned) > max_chars:
+        cleaned = cleaned[:max_chars]
+    return cleaned
 
 
 def reasoning_replay(model: str) -> str | None:

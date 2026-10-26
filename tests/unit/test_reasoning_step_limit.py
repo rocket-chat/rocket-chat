@@ -11,7 +11,7 @@ from api.services.settings import save_org_config
 from specifications.interfaces.llm import ChatMessage, ModelRequest
 from tests.turn_harness import ScriptedModel, run_turn
 
-RAMBLING = "Weighing the options again. " * 100  # about 700 estimated tokens
+RAMBLING = " ".join(f"Weighing option {i} to decide the next command." for i in range(100))
 
 
 @pytest.mark.setting("models.reasoning_step_limit_tokens")

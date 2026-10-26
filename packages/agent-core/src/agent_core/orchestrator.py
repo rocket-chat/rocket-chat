@@ -51,6 +51,7 @@ from agent_core.progress import LoopDetectionResult, ProgressTracker
 from agent_core.reasoning_guard import (
     StepReasoningOverrunError,
     decisive_request,
+    detect_repetition_loop,
     reasoning_tokens_estimate,
 )
 from agent_core.retry_policy import execute_stream_with_retry
@@ -203,12 +204,12 @@ class _StreamCollector:
 
     def _check_reasoning_limit(self) -> None:
         acting = bool(self.text or self.tool_calls)
-        if (
-            self.reasoning_limit_tokens
-            and not acting
-            and reasoning_tokens_estimate(self.reasoning) > self.reasoning_limit_tokens
-        ):
-            raise StepReasoningOverrunError(self)
+        if acting or not self.reasoning_limit_tokens:
+            return
+        if reasoning_tokens_estimate(self.reasoning) > self.reasoning_limit_tokens:
+            raise StepReasoningOverrunError(self, reason="token_limit")
+        if detect_repetition_loop(self.reasoning):
+            raise StepReasoningOverrunError(self, reason="repetition_loop")
 
     def _add_tool_call_delta(self, delta: dict[str, Any]) -> None:
         index = delta.get("index", 0)

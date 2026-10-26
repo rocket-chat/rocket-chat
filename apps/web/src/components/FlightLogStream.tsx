@@ -19,6 +19,7 @@ import { RocketChatIcon } from "./RocketChatLogo";
 import { RocketLoader } from "./RocketLoader";
 import { useLoadingQuip } from "../lib/loadingQuips";
 import { CockpitEmptyState } from "./CockpitEmptyState";
+import { SessionLoadingScreen } from "./SessionLoadingScreen";
 import {
   AlertTriangle,
   ArrowDown,
@@ -38,6 +39,7 @@ interface FlightLogStreamProps {
   onAnswerQuestion: (questionId: string, selectedOptions: string[], customText?: string) => void;
   onApprove?: (actionId: string) => void;
   onReject?: (actionId: string) => void;
+  opening?: boolean;
 }
 
 /** Closer than this to the bottom counts as "at the bottom": the stream keeps following. */
@@ -71,6 +73,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   onAnswerQuestion,
   onApprove,
   onReject,
+  opening,
 }) => {
   const {
     flightLog,
@@ -594,7 +597,8 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
             </button>
           </div>
         )}
-        {flightLog.length === 0 && !isExecuting && <CockpitEmptyState />}
+        {opening && <SessionLoadingScreen />}
+        {!opening && flightLog.length === 0 && !isExecuting && <CockpitEmptyState />}
 
         {isVirtualized ? (
           <div

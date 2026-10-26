@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `web`: Animated `SessionLoadingScreen` featuring the floating rocket with thruster flare, exhaust particle sparks, and telemetry uplink HUD when hydrating an existing session, eliminating the flash of empty session state.
+- `agent-core`: Streaming n-gram repetition loop detector (`detect_repetition_loop`) in `_StreamCollector` and `reasoning_guard` to stop degenerate model attractor loops early before token exhaustion, and sanitized partial reasoning tails in decisive retries.
+- `llm-gateway`: Added `sanitize_replayed_reasoning` in gateway `_attach_reasoning` to clamp and clean trailing repetitive cycles from `reasoning_content`, preventing cross-step loop priming on DeepSeek reasoning models.
 - `web`, `agent-core`: Active context window modal and usage chip now display the complete operational breakdown: model physical capacity vs. working target (`models.context_target_tokens`) vs. overrides, detailing exact operational pruning (70%) and compaction (85%) token thresholds and explaining why working ceilings are enforced.
 
 ### Changed

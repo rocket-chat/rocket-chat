@@ -10,7 +10,7 @@ from api.turns import finalise
 
 from tests.turn_harness import run_turn
 
-REASONING = "Checking which file holds the handler. " * 20
+REASONING = " ".join(f"Checking candidate file {i} for the handler." for i in range(20))
 
 
 async def test_a_real_turn_records_its_steps_reasoning_and_fixed_overhead(

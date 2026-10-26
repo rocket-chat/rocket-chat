@@ -27,10 +27,13 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
   const router = useRouter();
   const wsRef = useRef<MissionWebSocket | null>(null);
   const session = useMissionStore((s) => s.session);
-  // The URL names a conversation the store has not opened yet: text typed now would be saved
+  const flightLog = useMissionStore((s) => s.flightLog);
+  // The URL names a conversation the store has not opened or hydrated yet: text typed now would be saved
   // under whatever was open before and lost when this one arrives.
-  const opening =
-    !!sessionId && sessionId !== "draft" && sessionId !== "new" && session?.session_id !== sessionId;
+  const isTargetSession = !!sessionId && sessionId !== "draft" && sessionId !== "new";
+  const isSessionReady =
+    Boolean(session && session.session_id === sessionId && (session.conversation_history !== undefined || flightLog.length > 0));
+  const opening = isTargetSession && !isSessionReady;
   const sessions = useMissionStore((s) => s.sessions);
   const setSession = useMissionStore((s) => s.setSession);
   const isRightPanelOpen = useMissionStore((s) => s.isRightPanelOpen);
@@ -93,8 +96,9 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         // The socket's snapshot may have arrived first and live events built on it; this
-        // older read must not rewind the transcript (it cannot hold a running turn's answer).
-        if (useMissionStore.getState().session?.session_id === sessionId) return;
+        // older read must not rewind the transcript if conversation_history is already hydrated.
+        const current = useMissionStore.getState().session;
+        if (current?.session_id === sessionId && current.conversation_history !== undefined) return;
         if (data && data.session_id === sessionId) {
           setSession(data);
         }
@@ -212,6 +216,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                   onAnswerQuestion={handleAnswerQuestion}
                   onApprove={handleApprove}
                   onReject={handleReject}
+                  opening={opening}
                 />
               <IgnitionConsole
                 onIgnite={handleIgnite}
@@ -262,6 +267,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                   onAnswerQuestion={handleAnswerQuestion}
                   onApprove={handleApprove}
                   onReject={handleReject}
+                  opening={opening}
                 />
                 <IgnitionConsole
                 onIgnite={handleIgnite}

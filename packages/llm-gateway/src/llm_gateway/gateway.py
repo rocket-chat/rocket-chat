@@ -13,7 +13,13 @@ import litellm
 
 from llm_gateway.errors import DataGovernanceError
 from llm_gateway.pricing import estimate_cost_usd
-from llm_gateway.reasoning import _BLOCKS, _CONTENT, ReasoningStreamFilter, reasoning_replay
+from llm_gateway.reasoning import (
+    _BLOCKS,
+    _CONTENT,
+    ReasoningStreamFilter,
+    reasoning_replay,
+    sanitize_replayed_reasoning,
+)
 from llm_gateway.tokens import estimated_usage
 from specifications.interfaces.llm import (
     CONTEXT_WINDOW_EXCEEDED,
@@ -73,7 +79,9 @@ def _attach_reasoning(
     if replay == _BLOCKS and message.reasoning_blocks:
         entry["thinking_blocks"] = message.reasoning_blocks
     elif replay == _CONTENT and in_current_turn and message.reasoning and message.tool_calls:
-        entry["reasoning_content"] = message.reasoning
+        replayed = sanitize_replayed_reasoning(message.reasoning)
+        if replayed:
+            entry["reasoning_content"] = replayed
 
 
 def _provider_preferences(
