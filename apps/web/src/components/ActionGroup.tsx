@@ -63,9 +63,9 @@ interface StepRowProps {
 
 /** One line per step; the detail stays closed until asked for. */
 const StepRow: React.FC<StepRowProps> = ({ icon, label, meta, tone = "default", title, live = false, children }) => {
-  // Null until the person toggles the row: a live one is open, and closes by itself once finished.
-  const [chosen, setChosen] = useState<boolean | null>(null);
-  const open = chosen ?? live;
+  // Stays closed until the person chooses to inspect it.
+  const [chosen, setChosen] = useState<boolean>(false);
+  const open = chosen;
   return (
     <li data-live={live ? "true" : undefined}>
       <button
@@ -124,8 +124,8 @@ const TitledPreview: React.FC<{ title: string; text: string }> = ({ title, text 
 );
 
 export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = false }) => {
-  // Null until the person toggles the group: it is open while a thought is being written.
-  const [chosenOpen, setChosenOpen] = useState<boolean | null>(null);
+  // Stays collapsed by default: toggles only when clicked by the user.
+  const [chosenOpen, setChosenOpen] = useState<boolean>(false);
   const fileDiffs = useMissionStore((state) => state.fileDiffs);
   const selectChange = useMissionStore((state) => state.selectChange);
   const setIsRightPanelOpen = useMissionStore((state) => state.setIsRightPanelOpen);
@@ -134,7 +134,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
   // Only the last step of the running group can still be receiving its thought.
   const lastEntry = entries[entries.length - 1];
   const liveThoughtId = isActive && lastEntry?.reasoning && lastEntry.isReasoningActive ? lastEntry.id : null;
-  const isOpen = chosenOpen ?? liveThoughtId !== null;
+  const isOpen = chosenOpen;
   // What the command running now has printed shows under the group even while it is collapsed.
   const runningCall = [...entries].reverse().find((entry) => entry.toolCall && isPending(entry.toolCall))?.toolCall;
 
@@ -238,7 +238,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                     ) : undefined
                   }
                 >
-                  <div className="text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+                  <div className="max-h-[50vh] overflow-y-auto overscroll-contain pr-2 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 scrollbar-thin">
                     <MarkdownRenderer content={entry.reasoning} />
                   </div>
                 </StepRow>
@@ -263,7 +263,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                     ) : undefined
                   }
                 >
-                  <div className="text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+                  <div className="max-h-[50vh] overflow-y-auto overscroll-contain pr-2 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 scrollbar-thin">
                     <MarkdownRenderer content={entry.content} />
                   </div>
                 </StepRow>
