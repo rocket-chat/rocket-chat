@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `llm-gateway`: Added `sanitize_replayed_reasoning` in gateway `_attach_reasoning` to clamp and clean trailing repetitive cycles from `reasoning_content`, preventing cross-step loop priming on DeepSeek reasoning models.
 - `web`, `agent-core`: Active context window modal and usage chip now display the complete operational breakdown: model physical capacity vs. working target (`models.context_target_tokens`) vs. overrides, detailing exact operational pruning (70%) and compaction (85%) token thresholds and explaining why working ceilings are enforced.
 
+### Fixed
+- `llm-gateway`: Fixed `request_tokens` for DeepSeek (`_CONTENT`) to only count reasoning within the active turn's tool loop, eliminating ghost token inflation from historical turns' dead reasoning.
+- `agent-core`: Fixed `_recent_start_by_budget` to measure reasoning length during step accumulation and bounded `max_tail` to prevent bloated tails from causing recurring compaction loops.
+
 ### Changed
 - `web`: Sleek redesign of `MarkdownRenderer` and session stream typography inspired by Claude Desktop / Linear (neutral subtle code badges replacing neon cyan borders, relaxed 1.68 leading, airy spacing, and refined dark-mode codeblocks).
 - `models`: DeepSeek V4 family fallback context limit updated to its native 1,048,576 (1M) token window across the agent core, models catalog, and web stores.

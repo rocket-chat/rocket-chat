@@ -93,6 +93,24 @@ def test_deepseek_gets_reasoning_content_during_the_current_tool_loop_only() -> 
     assert all("thinking_blocks" not in m for m in formatted)
 
 
+def test_deepseek_request_tokens_ignores_historical_reasoning() -> None:
+    from dataclasses import replace
+
+    from llm_gateway.tokens import request_tokens
+
+    model = "deepseek/deepseek-reasoner"
+    messages = _conversation()
+    base_tokens = request_tokens(model, messages)
+
+    bloated = list(_conversation())
+    bloated[2] = replace(bloated[2], reasoning="old thought " * 5000)
+    bloated_tokens = request_tokens(model, bloated)
+
+    assert base_tokens == bloated_tokens, (
+        "earlier turns' reasoning must not inflate DeepSeek token count"
+    )
+
+
 @pytest.mark.parametrize("model", ["openai/gpt-5", "gemini/gemini-2.5-pro", "mistral/large"])
 def test_other_families_receive_no_reasoning(model: str) -> None:
     formatted = LiteLLMGateway()._format_request_messages(_conversation(), model)
