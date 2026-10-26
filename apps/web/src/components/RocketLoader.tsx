@@ -1,5 +1,6 @@
 import React from "react";
 import { RocketChatIcon } from "./RocketChatLogo";
+import { cn } from "./ui/cn";
 
 /**
  * Thruster plume particles. Stream down and left from the rocket nozzle with realistic
@@ -16,30 +17,54 @@ const PARTICLES: ReadonlyArray<{ d: string; s: string; delay: string; size: stri
   { d: "28px", s: "-1.5px", delay: "0.98s", size: "h-[3px] w-[3px]" },
 ];
 
+export interface RocketLoaderProps {
+  size?: "sm" | "md" | "lg" | "hero";
+  className?: string;
+}
+
 /** The bare ship in active propulsion with glowing jet flare and energetic exhaust trail. */
-export const RocketLoader: React.FC = () => (
-  <div data-testid="rocket-loader" aria-hidden="true" className="relative h-6 w-6 flex-shrink-0">
-    {/* Thruster core glow flare */}
-    <span
-      className="pointer-events-none absolute left-[1px] top-[13px] z-0 h-3 w-3 -translate-x-0.5 translate-y-0.5 rounded-full bg-gradient-to-bl from-amber-300 via-brand to-transparent blur-[2px] animate-thruster-flare motion-reduce:hidden"
-    />
+export const RocketLoader: React.FC<RocketLoaderProps> = ({ size = "md", className }) => {
+  const scaleClass =
+    size === "sm"
+      ? "scale-75"
+      : size === "lg"
+        ? "scale-150"
+        : size === "hero"
+          ? "scale-[2.8]"
+          : "";
 
-    {/* Trailing luminous exhaust sparks */}
-    <span className="pointer-events-none absolute left-[3px] top-[15px] z-0 motion-reduce:hidden">
-      {PARTICLES.map((particle, index) => (
-        <span
-          key={index}
-          className={`absolute left-0 top-0 rounded-full animate-rocket-exhaust-spark ${particle.size}`}
-          style={{
-            ["--d" as string]: particle.d,
-            ["--s" as string]: particle.s,
-            animationDelay: particle.delay,
-          }}
-        />
-      ))}
-    </span>
+  return (
+    <div
+      data-testid="rocket-loader"
+      aria-hidden="true"
+      className={cn(
+        "relative h-6 w-6 flex-shrink-0 [transform-origin:center]",
+        scaleClass,
+        className
+      )}
+    >
+      {/* Thruster core glow flare */}
+      <span
+        className="pointer-events-none absolute left-[1px] top-[13px] z-0 h-3 w-3 -translate-x-0.5 translate-y-0.5 rounded-full bg-gradient-to-bl from-amber-300 via-brand to-transparent blur-[2px] animate-thruster-flare motion-reduce:hidden"
+      />
 
-    {/* The bare ship floating with micro-thrust vibration */}
-    <RocketChatIcon bare className="relative z-10 h-6 w-6 motion-safe:animate-rocket-flight" />
-  </div>
-);
+      {/* Trailing luminous exhaust sparks */}
+      <span className="pointer-events-none absolute left-[3px] top-[15px] z-0 motion-reduce:hidden">
+        {PARTICLES.map((particle, index) => (
+          <span
+            key={index}
+            className={`absolute left-0 top-0 rounded-full animate-rocket-exhaust-spark ${particle.size}`}
+            style={{
+              ["--d" as string]: particle.d,
+              ["--s" as string]: particle.s,
+              animationDelay: particle.delay,
+            }}
+          />
+        ))}
+      </span>
+
+      {/* The bare ship floating with micro-thrust vibration */}
+      <RocketChatIcon bare className="relative z-10 h-6 w-6 motion-safe:animate-rocket-flight" />
+    </div>
+  );
+};

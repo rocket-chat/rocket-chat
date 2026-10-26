@@ -1,22 +1,7 @@
 "use client";
 
 import React from "react";
-import { RocketChatIcon } from "./RocketChatLogo";
-
-/**
- * Thruster exhaust particles scaled for the hero session loading ship.
- * Stream down and to the left (opposing the rocket's flight path towards the top-right).
- */
-const PARTICLES: ReadonlyArray<{ d: string; s: string; delay: string; size: string }> = [
-  { d: "22px", s: "-2px", delay: "0s", size: "h-2 w-2" },
-  { d: "34px", s: "2px", delay: "0.12s", size: "h-1.5 w-1.5" },
-  { d: "46px", s: "-3px", delay: "0.24s", size: "h-1.5 w-1.5" },
-  { d: "28px", s: "3px", delay: "0.36s", size: "h-2 w-2" },
-  { d: "40px", s: "-2px", delay: "0.48s", size: "h-1.5 w-1.5" },
-  { d: "56px", s: "2px", delay: "0.60s", size: "h-1 w-1" },
-  { d: "26px", s: "0px", delay: "0.72s", size: "h-2 w-2" },
-  { d: "44px", s: "-2px", delay: "0.84s", size: "h-1 w-1" },
-];
+import { RocketLoader } from "./RocketLoader";
 
 interface SessionLoadingScreenProps {
   statusMessage?: string;
@@ -44,38 +29,9 @@ export const SessionLoadingScreen: React.FC<SessionLoadingScreenProps> = ({
           className="pointer-events-none absolute -inset-5 rounded-full border border-primary/20 dark:border-primary/30 animate-ping [animation-duration:3s] motion-reduce:hidden"
         />
 
-        {/* Ship container */}
-        <div className="relative h-16 w-16 sm:h-20 sm:w-20 flex items-center justify-center">
-          {/* Thruster core flare */}
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute left-[5px] top-[40px] z-0 h-7 w-7 -translate-x-1 translate-y-1 rounded-full bg-gradient-to-bl from-amber-300 via-brand to-transparent blur-[4px] animate-thruster-flare motion-reduce:hidden"
-          />
-
-          {/* Exhaust particles */}
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute left-[12px] top-[46px] z-0 motion-reduce:hidden"
-          >
-            {PARTICLES.map((particle, index) => (
-              <span
-                key={index}
-                className={`absolute left-0 top-0 rounded-full animate-rocket-exhaust-spark ${particle.size}`}
-                style={{
-                  ["--d" as string]: particle.d,
-                  ["--s" as string]: particle.s,
-                  animationDelay: particle.delay,
-                }}
-              />
-            ))}
-          </span>
-
-          {/* Floating bare rocket */}
-          <RocketChatIcon
-            bare
-            size={72}
-            className="relative z-10 h-16 w-16 sm:h-20 sm:w-20 motion-safe:animate-rocket-flight drop-shadow-[0_4px_16px_rgba(254,88,37,0.45)]"
-          />
+        {/* Scaled propulsion ship reusing RocketLoader */}
+        <div className="relative h-20 w-20 flex items-center justify-center">
+          <RocketLoader size="hero" className="drop-shadow-[0_4px_16px_rgba(254,88,37,0.45)]" />
         </div>
       </div>
 
