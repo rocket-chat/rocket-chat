@@ -1983,6 +1983,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             await self._flush_transcript(run.session_id, run.org_id, run.conversation)
             return False
         self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
+        await self._emit(run, "answer", {"content": assistant_text})
         await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
         return True
 
@@ -2266,6 +2267,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         )
         run.conversation.append(ChatMessage(role="assistant", content=answer))
         self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
+        await self._emit(run, "answer", {"content": answer})
         await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
         return True
 
@@ -2298,6 +2300,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         )
         run.conversation.append(ChatMessage(role="assistant", content=answer))
         self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
+        await self._emit(run, "answer", {"content": answer})
         await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
         return True
 

@@ -95,6 +95,9 @@ class TurnState:
     # The question the turn is paused on, until the next event shows it was answered.
     open_decision: dict[str, Any] | None = None
     orchestrator_error: str | None = None
+    # What the orchestrator said the turn answers with; None when it ended without one (an
+    # error, a wait), and the streamed text is stored instead.
+    final_answer: str | None = None
     # Resolved while planning; pre-declared so the `finally` (summary, title) can reason
     # about them even when routing fails before assignment.
     effective_model: str | None = None

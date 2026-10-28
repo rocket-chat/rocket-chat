@@ -5,6 +5,7 @@ from __future__ import annotations
 from agent_core.checklist import merge_verified_answers, verification_gate_notice
 
 from specifications.interfaces.llm import ChatMessage
+from tests.turn_harness import run_turn
 
 
 def test_verification_gate_triggers_when_files_edited_without_verification() -> None:
@@ -224,3 +225,33 @@ def test_merge_verified_answers() -> None:
     assert merge_verified_answers(draft, full) == full
     assert merge_verified_answers(draft, "") == draft
     assert merge_verified_answers("", verif) == verif
+
+
+async def test_the_stored_answer_is_the_one_the_turn_declares_across_a_verification_step() -> None:
+    draft = "I fixed the race in auth.py by taking the lock before reading the token."
+    confirmation = "Tests pass."
+    outcome = await run_turn(
+        "verified_answer",
+        steps=[
+            ("call", "file_write", {"path": "auth.py", "content": "fixed = True\n"}),
+            (
+                "call",
+                "update_task_checklist",
+                {"tasks": [{"id": "1", "title": "Fix the race", "status": "completed"}]},
+            ),
+            ("say", draft),
+            ("call", "bash_exec", {"command": "pytest"}),
+            ("say", confirmation),
+        ],
+    )
+
+    answer = outcome.session.conversation_history[-1]
+    assert answer.role == "assistant"
+    # The draft written before the verification step and what followed it, as the turn said.
+    assert answer.content == merge_verified_answers(draft, confirmation)
+
+
+async def test_a_turn_without_a_verification_step_stores_what_it_streamed() -> None:
+    outcome = await run_turn("plain_answer", steps=[("say", "Nothing to change.")])
+
+    assert outcome.session.conversation_history[-1].content == "Nothing to change."

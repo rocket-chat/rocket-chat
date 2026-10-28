@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `web`: Each artifact the agent saves is a card in the conversation, live and after a reload, that opens it in the inspector; one saved without a call in the conversation (a subagent's) gets a card too. `file_write`'s description points documents meant to be read at `create_artifact` (+37 tokens per request: deliverables written as files never reach the cockpit).
 - `api`, `web`: The sidebar follows every conversation's status live over a session list socket (`/v1/sidebar/ws`), not only the open one's: `session_updated` is also published on the organization's topic and relayed to each member for the sessions they may open. The list is read again when the socket connects and polled only while it is down.
 - `web`: Animated `SessionLoadingScreen` featuring the floating rocket with thruster flare, exhaust particle sparks, and telemetry uplink HUD when hydrating an existing session, eliminating the flash of empty session state.
 - `agent-core`: Streaming n-gram repetition loop detector (`detect_repetition_loop`) in `_StreamCollector` and `reasoning_guard` to stop degenerate model attractor loops early before token exhaustion, and sanitized partial reasoning tails in decisive retries.
@@ -17,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`, `agent-core`: Active context window modal and usage chip now display the complete operational breakdown: model physical capacity vs. working target (`models.context_target_tokens`) vs. overrides, detailing exact operational pruning (70%) and compaction (85%) token thresholds and explaining why working ceilings are enforced.
 
 ### Fixed
+- `api`, `web`: A conversation opened on a replica that is not running its turn shows the turn's thought in progress and text so far at once, asked of the replica that runs it (`ClusterRelay.fetch_running_turn`), instead of only its stored steps until the turn ends. The snapshot holds exactly the text published through its `seq`, and the same text replayed or arriving live is not shown twice.
+- `api`: The stored answer is the one the turn declares (an `answer` agent event before `completed`), not whichever of the streamed text and the last cached message is longer.
+- `web`: The artifact panel no longer shows an earlier selection's content after a quick switch, says when an artifact is empty or could not be loaded, and keeps an artifact opened from its card.
 - `web`: Opening a conversation no longer shows it empty, or the previous one's title, before its transcript arrives: the sidebar listing never picks the open session, and a conversation counts as open only once a full record is adopted.
 - `web`: A turn running when a tab connects, refreshes or switches to it shows each step once: the session socket's snapshot is always adopted (switching conversations used to drop it), and the catch-up no longer replays what the recorded steps show, which repeated tools and folded the whole turn's reasoning into one block.
 - `web`: A conversation opens at its end, even after scrolling up in the previous one, and stays there while long or virtualised content renders.

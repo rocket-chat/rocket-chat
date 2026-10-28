@@ -19,6 +19,8 @@ import { RocketChatIcon } from "./RocketChatLogo";
 import { RocketLoader } from "./RocketLoader";
 import { useLoadingQuip } from "../lib/loadingQuips";
 import { useKeepAtBottom } from "../lib/useKeepAtBottom";
+import { describeArtifactCall, isArtifactCall, mentionOfArtifact, type ArtifactMention } from "../lib/artifact-calls";
+import { ArtifactCard } from "./ArtifactCard";
 import { CockpitEmptyState } from "./CockpitEmptyState";
 import { SessionLoadingScreen } from "./SessionLoadingScreen";
 import {
@@ -75,6 +77,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
 }) => {
   const {
     flightLog,
+    artifacts,
     activeDecision,
     activeApproval,
     isExecuting,
@@ -89,6 +92,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   } = useMissionStore(
     useShallow((state) => ({
       flightLog: state.flightLog,
+      artifacts: state.artifacts,
       activeDecision: state.activeDecision,
       activeApproval: state.activeApproval,
       isExecuting: state.isExecuting,
@@ -205,6 +209,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     | { type: "system"; entry: FlightLogEntry }
     | { type: "action_group"; data: ActionGroupData }
     | { type: "answer"; entry: FlightLogEntry }
+    | { type: "artifact"; entry: FlightLogEntry; mention: ArtifactMention }
   > = [];
 
   let currentGroupEntries: FlightLogEntry[] = [];
@@ -247,7 +252,15 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
         continue;
       }
       flushGroup();
-      rawStreamItems.push({ type: "system", entry });
+      if (entry.artifact) {
+        rawStreamItems.push({ type: "artifact", entry, mention: mentionOfArtifact(entry.artifact, "created") });
+      } else {
+        rawStreamItems.push({ type: "system", entry });
+      }
+    } else if (isArtifactCall(entry.toolCall)) {
+      // A deliverable is a result the person came for: it stands out of the collapsed steps.
+      flushGroup();
+      rawStreamItems.push({ type: "artifact", entry, mention: describeArtifactCall(entry.toolCall, artifacts) });
     } else {
       // AGENT role
       const isSubagentInvocation = !!entry.subagent;
@@ -317,6 +330,9 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => !followingRef.current;
 
   const renderItem = (item: (typeof rawStreamItems)[number]) => {
+    if (item.type === "artifact") {
+      return <ArtifactCard key={item.entry.id} mention={item.mention} />;
+    }
     // USER REQUEST: Simple bubble on the right
     if (item.type === "user") {
       return (

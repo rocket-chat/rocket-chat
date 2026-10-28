@@ -1,9 +1,11 @@
-"""Cross-replica delivery of decisions to the replica running a turn.
+"""Cross-replica delivery of decisions to, and reads of, the replica running a turn.
 
 An approval click, an answer to a question or a cancel can land on any API replica, while the
 turn that is waiting for it runs on exactly one. The receiving replica asks its peers over the
 shared event bus; the replica holding the gate resolves it and acknowledges, so the user's
 request still fails with "not found" when no replica has the gate (a stale or invented id).
+A tab connecting to another replica mid-turn asks the same way for what the turn has streamed
+since its last stored step.
 """
 
 from __future__ import annotations
@@ -21,10 +23,14 @@ from agent_core.orchestrator import AsyncReActOrchestrator
 
 from api.events_shared import PostgresEventBus
 from api.services.metrics import DEFAULT_SESSION_LOCK_CAPACITY, SessionWriteLocks
+from api.turns.running import live_part
+from specifications.interfaces.agent import RunningTurnLive
 
 logger = logging.getLogger(__name__)
 
 ACK_TIMEOUT_SECONDS = 2.0
+# A tab opening a conversation waits this long at most for the replica running its turn.
+RUNNING_TURN_TIMEOUT_SECONDS = 1.5
 
 
 class ClusterRelay:
@@ -34,9 +40,12 @@ class ClusterRelay:
         self._bus = bus
         self._orchestrator = orchestrator
         self._pending: dict[str, asyncio.Future[bool]] = {}
+        self._running_replies: dict[str, asyncio.Future[RunningTurnLive]] = {}
         bus.on_control("gate", self._on_gate_request)
         bus.on_control("gate_ack", self._on_gate_ack)
         bus.on_control("cancel", self._on_cancel)
+        bus.on_control("running_turn", self._on_running_turn_request)
+        bus.on_control("running_turn_reply", self._on_running_turn_reply)
 
     # -- outbound ------------------------------------------------------------------------
 
@@ -64,6 +73,20 @@ class ClusterRelay:
 
     async def broadcast_cancel(self, session_id: str) -> None:
         await self._bus.publish_control("cancel", {"session_id": session_id})
+
+    async def fetch_running_turn(self, session_id: str) -> RunningTurnLive | None:
+        request_id = uuid.uuid4().hex
+        reply: asyncio.Future[RunningTurnLive] = asyncio.get_running_loop().create_future()
+        self._running_replies[request_id] = reply
+        try:
+            await self._bus.publish_control(
+                "running_turn", {"session_id": session_id, "request_id": request_id}
+            )
+            return await asyncio.wait_for(reply, timeout=RUNNING_TURN_TIMEOUT_SECONDS)
+        except TimeoutError:
+            return None
+        finally:
+            self._running_replies.pop(request_id, None)
 
     async def _ask_peers(self, request: dict[str, Any]) -> bool:
         request_id = uuid.uuid4().hex
@@ -103,6 +126,28 @@ class ClusterRelay:
 
     async def _on_cancel(self, body: dict[str, Any]) -> None:
         await self._orchestrator.cancel_turn(body["session_id"], propagate=False)
+
+    async def _on_running_turn_request(self, body: dict[str, Any]) -> None:
+        live = await live_part(str(body["session_id"]))
+        if live is None:
+            return  # not running here; the replica that runs it answers
+        await self._bus.publish_control(
+            "running_turn_reply", {"request_id": body["request_id"], "live": live}
+        )
+
+    async def _on_running_turn_reply(self, body: dict[str, Any]) -> None:
+        reply = self._running_replies.get(body["request_id"])
+        if reply is not None and not reply.done():
+            reply.set_result(_running_turn_live(body["live"]))
+
+
+def _running_turn_live(raw: dict[str, Any]) -> RunningTurnLive:
+    return {
+        "current_reasoning": str(raw.get("current_reasoning") or ""),
+        "current_text": str(raw.get("current_text") or ""),
+        "seq": int(raw.get("seq") or 0),
+        "step_ids": [str(step_id) for step_id in raw.get("step_ids") or []],
+    }
 
 
 class ClusterSessionLocks(SessionWriteLocks):

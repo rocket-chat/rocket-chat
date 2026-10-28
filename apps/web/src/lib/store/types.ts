@@ -215,6 +215,11 @@ export interface StreamSlice {
   artifacts: ArtifactItem[];
   upsertArtifact: (artifact: ArtifactItem) => void;
   setArtifacts: (artifacts: ArtifactItem[]) => void;
+  /** The artifact the Artifacts panel shows; null lets it pick the latest. */
+  selectedArtifactId: string | null;
+  selectArtifact: (id: string | null) => void;
+  /** Shows one artifact in the inspector, as a click on its card in the conversation asks. */
+  openArtifact: (id: string) => void;
 }
 
 /** A message sent while a turn ran, not yet taken by a turn. */

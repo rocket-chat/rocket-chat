@@ -64,6 +64,7 @@ from api.turns.events import TurnEventHandlers
 from api.turns.finalise import housekeeping, persist_trace, publish_followup, record_answer
 from api.turns.prompt import build_system_prompt
 from api.turns.provisioning import _expand_slash_command
+from api.turns.running import _active_running_turns
 from api.turns.shared import _turn_service
 from specifications.interfaces.agent import (
     DEFAULT_MAX_TURNS,
@@ -80,7 +81,6 @@ from specifications.interfaces.session import SessionRecord, SessionStoreProtoco
 logger = logging.getLogger(__name__)
 
 _PLACEHOLDER_TITLES = ("new session", "new chat", "mission", "")
-_active_running_turns: dict[str, dict[str, Any]] = {}
 
 
 class TurnRunner:
@@ -485,6 +485,8 @@ class TurnRunner:
 
         overlay = req.overlay
         handlers = TurnEventHandlers(ctx)
+        if running := _active_running_turns.get(req.session_id):
+            running["handlers"] = handlers
         try:
             async for event in _turn_service.stream_turn(
                 req.orchestrator,

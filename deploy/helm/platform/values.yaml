@@ -363,8 +363,8 @@ ingress:
         - path: /v1
           pathType: Prefix
           service: backend
-        # Vestigial: session WebSockets are served under /v1/sessions/{id}/ws, which the
-        # /v1 rule above already covers. Kept only for operators who front the API with
+        # Vestigial: the cockpit's WebSockets are served under /v1 (/v1/sessions/{id}/ws and
+        # the sidebar's /v1/sidebar/ws), which the /v1 rule above already covers. Kept only for operators who front the API with
         # an older path-based rewrite; safe to remove.
         - path: /ws
           pathType: Prefix

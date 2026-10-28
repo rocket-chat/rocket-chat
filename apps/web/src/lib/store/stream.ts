@@ -57,6 +57,12 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
       artifacts: [artifact, ...state.artifacts.filter((a) => a.id !== artifact.id)],
     })),
   setArtifacts: (artifacts) => set({ artifacts }),
+  selectedArtifactId: null,
+  selectArtifact: (selectedArtifactId) => set({ selectedArtifactId }),
+  openArtifact: (id) => {
+    set({ selectedArtifactId: id, inspectorTab: "artifacts" });
+    get().setIsRightPanelOpen(true);
+  },
   setTurnBinding: (turnBinding) => set({ turnBinding }),
   setConnected: (connected) => set({ connected }),
   setStatusMessage: (msg) => set({ statusMessage: msg }),

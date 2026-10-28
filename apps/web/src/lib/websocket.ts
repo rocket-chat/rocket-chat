@@ -18,8 +18,9 @@ import {
   rewindCursor,
   selectUnseenEvents,
 } from "./session-cursor";
-import { planSync, type SyncPlan } from "./sync-plan";
+import { isCoveredText, planSync, type SyncPlan } from "./sync-plan";
 import { sessionUpdateFrom } from "./session-update";
+import { isArtifactCall } from "./artifact-calls";
 
 /**
  * The transport boundary. Server frames are untyped JSON whose payload shape is
@@ -147,6 +148,8 @@ export class MissionWebSocket {
   private resumeRequestedSeq: number | null = null;
   /** True while the transcript is being rebuilt from the session snapshot. */
   private isResyncingFromSnapshot = false;
+  /** Streamed text up to this sequence is in the running turn's snapshot (see `planSync`). */
+  private textCoveredThrough: number | null = null;
 
   constructor(sessionId: string, baseUrl?: string, token?: string) {
     this.sessionId = sessionId;
@@ -245,6 +248,9 @@ export class MissionWebSocket {
     // redelivery of the same event.
     if (this.isResyncingFromSnapshot) return;
     if (seq !== null && isAlreadyApplied(this.sessionId, seq)) return;
+    // Published before the running turn's snapshot was taken (on another replica, it may still
+    // be on its way): that snapshot already shows it.
+    if (isCoveredText({ event_type: String(data.event_type || ""), seq: seq ?? undefined }, this.textCoveredThrough)) return;
 
     const timestampMs = typeof data.timestamp_ms === "number" ? data.timestamp_ms : undefined;
     this.applyEvent(
@@ -336,6 +342,7 @@ export class MissionWebSocket {
    * ignored by the store, so overlap with the record is harmless.
    */
   private applySyncPlan(plan: SyncPlan): void {
+    this.textCoveredThrough = plan.textCoveredThrough;
     if (plan.rewindCursorTo !== null) rewindCursor(this.sessionId, plan.rewindCursorTo);
     if (plan.runningTurn && Array.isArray(plan.runningTurn.steps)) {
       const store = useMissionStore.getState();
@@ -386,6 +393,7 @@ export class MissionWebSocket {
         store.appendReasoning(plan.runningTurn.current_reasoning);
         store.setIsReasoningActive(true);
       }
+      if (plan.runningTurn.current_text) store.updateLastAgentLog(plan.runningTurn.current_text);
     }
     for (const event of selectUnseenEvents(plan.events, readCursor(this.sessionId))) {
       this.applyEvent(
@@ -741,12 +749,18 @@ export class MissionWebSocket {
         const art = payload as unknown as ArtifactItem;
         if (art && art.id) {
           store.upsertArtifact(art);
-          store.appendFlightLog({
-            id: `artifact-${art.id}-${art.version || Date.now()}`,
-            role: "SYSTEM",
-            content: `Deliverable: ${art.title} (${art.filename})`,
-            timestamp: eventTime,
-          });
+          // The call that saved it is the conversation's card; one saved by no call shown here
+          // (a subagent's) gets a card of its own.
+          const shownByCall = store.flightLog.some((entry) => isArtifactCall(entry.toolCall) && entry.toolCall.status === "pending");
+          if (!shownByCall) {
+            store.appendFlightLog({
+              id: `artifact-${art.id}-${art.version || eventKey}`,
+              role: "SYSTEM",
+              content: `Deliverable: ${art.title} (${art.filename})`,
+              timestamp: eventTime,
+              artifact: art,
+            });
+          }
         }
         break;
       }

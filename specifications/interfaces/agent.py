@@ -8,7 +8,7 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Protocol
+from typing import Any, Protocol, TypedDict
 
 from specifications.interfaces.git import SigningKey
 from specifications.interfaces.llm import AttachmentRef, ModelRouterProtocol, ToolDefinition
@@ -159,6 +159,19 @@ class InteractiveQuestion:
 DYNAMIC_SECTION_HEADER = "\n\n# --- Session Context (volatile; not cacheable) ---\n"
 
 
+class RunningTurnLive(TypedDict):
+    """What a running turn has streamed since its last recorded step.
+
+    ``seq`` is the session's event sequence the snapshot covers through: every streamed token
+    up to it is in ``current_reasoning`` / ``current_text``, and none after it is.
+    """
+
+    current_reasoning: str
+    current_text: str
+    seq: int
+    step_ids: list[str]
+
+
 class ClusterRelayProtocol(Protocol):
     """Reaches the API replica that holds a turn's pending gate or running task.
 
@@ -182,6 +195,10 @@ class ClusterRelayProtocol(Protocol):
 
     async def broadcast_cancel(self, session_id: str) -> None:
         """Ask every other replica to halt its turn for the session."""
+        ...
+
+    async def fetch_running_turn(self, session_id: str) -> RunningTurnLive | None:
+        """The live part of a turn another replica runs; ``None`` if none answers in time."""
         ...
 
 
@@ -644,7 +661,11 @@ class FileDiff:
 
 @dataclass
 class AgentEvent:
-    event_type: str  # "status", "thought", "tool_call", "plan_updated", "approval_required", "interactive_question", "file_diff", "command_output"
+    # "status", "thought", "tool_call", "plan_updated", "approval_required",
+    # "interactive_question", "file_diff", "command_output", and "answer": the text the turn
+    # answers with (payload ``content``), sent just before its ``completed`` status. It can
+    # differ from the text streamed in the last step (a draft kept across a verification step).
+    event_type: str
     session_id: str
     payload: dict[str, Any]
 

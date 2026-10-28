@@ -309,6 +309,12 @@ class TurnTraceAccumulator:
             }
         )
 
+    def last_prompt_tokens(self) -> int:
+        """The prompt size of the latest agent step (a helper call when there was none), or 0."""
+        react = [call for call in self._model_calls if call["role"] == "react"]
+        latest = (react or self._model_calls)[-1:]
+        return int(latest[0]["prompt_tokens"] or 0) if latest else 0
+
     @property
     def prompt_tokens(self) -> int:
         return self._usage.get("prompt_tokens", 0)

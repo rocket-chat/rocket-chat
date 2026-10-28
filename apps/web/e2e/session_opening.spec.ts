@@ -37,6 +37,8 @@ function syncWithRunningTurn(record: object): object {
         },
       ],
       current_reasoning: "Then read the eviction path.",
+      // The thought above is what was published through this sequence.
+      seq: 5,
     },
     // The same turn as events from its start: what the steps already show must not render again.
     catch_up: {
@@ -186,4 +188,56 @@ test("a conversation opens at its end, even after scrolling up in the previous o
   await page.locator(`[data-testid="session-row"][data-session-id="${second}"]`).click();
   await expect(page.getByTestId("flight-log-stream")).toContainText("Bravo answer 129");
   await expect.poll(() => distanceFromEnd(page)).toBeLessThan(80);
+});
+
+test("a turn running on another replica shows its thought once, then carries on live", async ({ page }) => {
+  const { id, record } = await seededSession(page, "Elsewhere", "Find the leak");
+  const startedAt = Math.floor(Date.now() / 1000) - 30;
+  let socket: WebSocketRoute | null = null;
+  await page.routeWebSocket(/\/v1\/sessions\/[^/]+\/ws/, (ws) => {
+    socket = ws;
+    // What a replica not running the turn sends: the stored steps, the live part another replica
+    // reported through sequence 7, and no catch-up of its own.
+    ws.send(
+      JSON.stringify({
+        type: "sync",
+        session: record,
+        last_seq: 5,
+        catch_up: null,
+        running_turn: {
+          turn_index: 1,
+          started_at: startedAt,
+          status: "running",
+          seq: 7,
+          steps: [
+            {
+              id: "call_1",
+              name: "bash_exec",
+              arguments: { command: "ps aux" },
+              result: "ok",
+              status: "success",
+              seq: 4,
+              created_at: startedAt + 5,
+            },
+          ],
+          current_reasoning: "The cache never evicts.",
+          current_text: "",
+        },
+      }),
+    );
+  });
+
+  await page.goto(`/chat/${id}`);
+  const steps = page.getByTestId("activity-step");
+  await expect(steps.filter({ hasText: "The cache never evicts." })).toHaveCount(1);
+  await expect.poll(() => socket !== null).toBe(true);
+
+  // Published on the other replica before its snapshot: arriving now, it is already shown.
+  socket!.send(JSON.stringify({ event_type: "reasoning_token", session_id: id, seq: 7, payload: { delta: " The cache never evicts." } }));
+  socket!.send(JSON.stringify({ event_type: "reasoning_token", session_id: id, seq: 8, payload: { delta: " Its keys never expire." } }));
+
+  const thought = steps.filter({ hasText: "The cache never evicts." });
+  await expect(page.getByTestId("flight-log-stream")).toContainText("Its keys never expire.");
+  await expect(thought).toHaveCount(1);
+  await expect(page.getByTestId("flight-log-stream")).not.toContainText("evicts. The cache never evicts.");
 });

@@ -42,21 +42,10 @@ async def _extract_turn_context_stats(
     )
     reserve_tokens = min(16_384, effective_limit // 4)
 
-    # Use the measured prompt tokens of the last model step in this turn.
-    tokens_count = 0
-    if ctx.trace and hasattr(ctx.trace, "_model_calls") and ctx.trace._model_calls:
-        for call in reversed(ctx.trace._model_calls):
-            if call.get("role") == "react":
-                tokens_count = int(call.get("prompt_tokens") or 0)
-                break
-        if not tokens_count and ctx.trace._model_calls:
-            tokens_count = int(ctx.trace._model_calls[-1].get("prompt_tokens") or 0)
-
-    # Fall back to the active conversation in the orchestrator cache if available.
-    if not tokens_count:
-        resident = ctx.req.orchestrator._session_histories.get(ctx.session_id)
-        if resident:
-            tokens_count = mgr.count_tokens(model_id, resident)
+    # Measured by the provider on the turn's last step; counted locally when it reported none.
+    tokens_count = ctx.trace.last_prompt_tokens() if ctx.trace else 0
+    if not tokens_count and history:
+        tokens_count = mgr.count_tokens(model_id, history)
 
     return {
         "context_tokens": tokens_count,
@@ -80,12 +69,8 @@ async def record_answer(ctx: TurnContext) -> str:
     turn, not an empty answer.
     """
     state, req = ctx.state, ctx.req
-    content = "".join(state.assistant_parts).strip()
-    resident = req.orchestrator._session_histories.get(ctx.session_id)
-    if resident and resident[-1].role == "assistant" and resident[-1].content:
-        resident_content = resident[-1].content.strip()
-        if len(resident_content) > len(content):
-            content = resident_content
+    streamed = "".join(state.assistant_parts).strip()
+    content = state.final_answer if state.final_answer is not None else streamed
     if state.orchestrator_error:
         if not content:
             raise RuntimeError(state.orchestrator_error)
@@ -93,8 +78,9 @@ async def record_answer(ctx: TurnContext) -> str:
     # What came before each call is saved with that call; the answer keeps what followed.
     reasoning = "".join(state.reasoning_parts[state.reasoning_attached :]).strip()
 
-    # Atomic: the title task writes the same record while the turn is finishing.
     ctx_stats = await _extract_turn_context_stats(ctx, ctx.session.conversation_history)
+
+    # Atomic: the title task writes the same record while the turn is finishing.
 
     def append_answer(record: SessionRecord) -> None:
         if state.had_post_failure_synthesis:

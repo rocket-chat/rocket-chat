@@ -188,7 +188,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       terminalEpoch: sessionChanged ? get().terminalEpoch + 1 : get().terminalEpoch,
       liveToolOutput: sessionChanged ? {} : get().liveToolOutput,
       // The pre-fetch below lists this session's artifacts; until then none of another's show.
-      ...(sessionChanged ? { artifacts: [], ...NO_CONTEXT_USAGE } : {}),
+      ...(sessionChanged ? { artifacts: [], selectedArtifactId: null, ...NO_CONTEXT_USAGE } : {}),
       checklist: session.checklist ?? [],
       suggestedFollowup:
         session.suggested_followup ||
@@ -368,6 +368,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       session: draft,
       hydratedSessionId: null,
       artifacts: [],
+      selectedArtifactId: null,
       ...NO_CONTEXT_USAGE,
       flightLog: [],
       terminalLogs: "[AVIONICS] Ready for prompt dispatch.\r\n",
@@ -444,6 +445,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
           // Created here, so already complete: the prompt shows at once, and the snapshot follows.
           hydratedSessionId: newSession.session_id,
           artifacts: [],
+          selectedArtifactId: null,
           ...NO_CONTEXT_USAGE,
           flightLog: initialLogs,
           pendingSelfPrompts: [
@@ -500,6 +502,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
           session: newSession,
           hydratedSessionId: newSession.session_id,
           artifacts: [],
+          selectedArtifactId: null,
           ...NO_CONTEXT_USAGE,
           flightLog: [],
           terminalLogs: `\x1b[38;5;208m[AVIONICS]\x1b[0m Workspace initialized for ${newSession.session_id}.\r\n`,
@@ -585,6 +588,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         checklist: [],
         fileDiffs: [],
         artifacts: [],
+        selectedArtifactId: null,
         ...NO_CONTEXT_USAGE,
       });
       // Only the caller's sessions were deleted; re-list so sessions shared with them (and,

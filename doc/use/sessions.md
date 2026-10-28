@@ -105,7 +105,7 @@ The **Changes** tab lists every file the session changed in each repository, rea
 
 ## Deliverables
 
-When the agent produces something meant to be read (a design, a migration plan, an investigation report, a diagram), it saves it as an **artifact**. Artifacts live with the session, not in the sandbox, so they survive a sandbox that is stopped or released. Open them from the **Artifacts** tab or the drawer in the header: Markdown is formatted, diagrams are drawn, HTML is shown in a locked-down frame that cannot run scripts, JSON is indented and diffs are coloured. Every time the agent updates an artifact a new version is saved; choose an earlier one from the version menu. **Copy** and **Download** give you the text. Anyone who can open the session can read its artifacts, and they are copied when you fork it.
+When the agent produces something meant to be read (a design, a migration plan, an investigation report, a diagram), it saves it as an **artifact**. Artifacts live with the session, not in the sandbox, so they survive a sandbox that is stopped or released. Each one appears in the conversation as a card where it was saved (live and after a reload); click it to open that artifact in the inspector. You can also open them from the **Artifacts** tab or the drawer in the header: Markdown is formatted, diagrams are drawn, HTML is shown in a locked-down frame that cannot run scripts, JSON is indented and diffs are coloured. Every time the agent updates an artifact a new version is saved; choose an earlier one from the version menu. **Copy** and **Download** give you the text. Anyone who can open the session can read its artifacts, and they are copied when you fork it.
 
 ## Background processes
 

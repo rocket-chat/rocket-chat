@@ -90,6 +90,7 @@ kubectl logs -f deployment/rocket-chat-backend -n rocket-chat
 
 ### Scenario E: WebSocket Drops or Disconnects behind Ingress
 * **Symptom:** Mission Control Web UI reports `WebSocket connection lost. Reconnecting...` every 60 seconds.
+* **Applies to** both cockpit sockets, the open conversation's (`/v1/sessions/<id>/ws`) and the sidebar's (`/v1/sidebar/ws`): route all of `/v1` to the backend with WebSocket upgrades allowed, as the Helm chart's ingress does.
 * **Root Cause:** Ingress proxy timeout closing idle WebSocket connections.
 * **Resolution:** Configure long read and send timeouts in your Ingress annotations:
   ```yaml
