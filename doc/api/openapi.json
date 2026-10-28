@@ -7473,7 +7473,7 @@
   "info": {
     "description": "FastAPI service hosting the ReAct agent engine and embedded Slack Assistant.",
     "title": "Rocket Chat Control Plane",
-    "version": "0.7.1"
+    "version": "0.7.2"
   },
   "openapi": "3.1.0",
   "paths": {

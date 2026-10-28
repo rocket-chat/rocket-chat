@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `orchestrator`:
+- `sandboxes`:
+- `api`:
+- `web`:
+- `settings`:
+- `git`:
+- `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.7.2] - 2026-10-28
+
+### Added
 - `web`: Each artifact the agent saves is a card in the conversation, live and after a reload, that opens it in the inspector; one saved without a call in the conversation (a subagent's) gets a card too. `file_write`'s description points documents meant to be read at `create_artifact` (+37 tokens per request: deliverables written as files never reach the cockpit).
 - `api`, `web`: The sidebar follows every conversation's status live over a session list socket (`/v1/sidebar/ws`), not only the open one's: `session_updated` is also published on the organization's topic and relayed to each member for the sessions they may open. The list is read again when the socket connects and polled only while it is down.
 - `web`: Animated `SessionLoadingScreen` featuring the floating rocket with thruster flare, exhaust particle sparks, and telemetry uplink HUD when hydrating an existing session, eliminating the flash of empty session state.
