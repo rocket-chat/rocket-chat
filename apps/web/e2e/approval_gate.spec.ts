@@ -21,7 +21,7 @@ async function openSessionAndConnect(
   const decisions: string[] = [];
   let socket: WebSocketRoute | null = null;
 
-  await page.routeWebSocket(/\/ws/, (ws) => {
+  await page.routeWebSocket(/\/v1\/sessions\/[^/]+\/ws/, (ws) => {
     socket = ws;
     ws.onMessage((message) => {
       try {
@@ -41,6 +41,7 @@ async function openSessionAndConnect(
   await page.getByTestId("ignite-button").click();
   await expect(page).toHaveURL(/\/chat\/session_.+/, { timeout: 15000 });
 
+  await expect.poll(() => socket !== null, { message: "the session socket opens" }).toBe(true);
   if (!socket) {
     throw new Error("The cockpit did not open a telemetry WebSocket");
   }

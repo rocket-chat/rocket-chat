@@ -620,11 +620,17 @@ class PostgresSessionStore(SessionStoreProtocol):
             session.add(model)
 
     async def get_session(
-        self, session_id: str, tenant_org_id: str | None = None
+        self,
+        session_id: str,
+        tenant_org_id: str | None = None,
+        *,
+        include_history: bool = True,
     ) -> SessionRecord | None:
         """Retrieve a session by its unique ID, filtered by Row-Level Security."""
         async with self.manager.session(tenant_org_id=tenant_org_id) as session:
             stmt = select(SessionModel).where(SessionModel.id == session_id)
+            if not include_history:
+                stmt = stmt.options(defer(SessionModel.conversation_history))
             if tenant_org_id and session.bind and session.bind.dialect.name != "postgresql":
                 # For SQLite / non-postgres dialects, manually filter by org_id
                 stmt = stmt.where(SessionModel.org_id == tenant_org_id)
@@ -633,7 +639,7 @@ class PostgresSessionStore(SessionStoreProtocol):
             model = result.scalar_one_or_none()
             if model is None:
                 return None
-            return self._model_to_record(model)
+            return self._model_to_record(model, include_history=include_history)
 
     def _write_record(self, model: SessionModel, record: SessionRecord) -> None:
         model.title = record.title

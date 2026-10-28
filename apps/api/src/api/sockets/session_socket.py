@@ -36,6 +36,7 @@ from api.services.session_support import (
     apply_sharing,
     slice_history_tail,
 )
+from api.services.session_updates import publish_session_update
 from api.services.turn_trace import session_running_turn
 from api.turns.context import TurnSelection
 from api.turns.gates import _forget_pending_decisions, take_stored_question
@@ -504,12 +505,11 @@ class SessionSocket:
             record.tenant_org_id,
             lambda current: apply_sharing(current, is_shared, collaborators),
         )
-        await self._event_bus.publish(
-            SessionEvent(
-                session_id=self._session_id,
-                event_type=EventType.SESSION_UPDATED,
-                payload={"is_shared": is_shared, "collaborators": collaborators},
-            )
+        await publish_session_update(
+            self._event_bus,
+            self._session_id,
+            record.tenant_org_id,
+            {"is_shared": is_shared, "collaborators": collaborators},
         )
 
     async def _on_ping(self, data: dict[str, Any]) -> None:

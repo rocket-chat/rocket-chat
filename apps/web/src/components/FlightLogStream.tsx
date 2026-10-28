@@ -18,6 +18,7 @@ import { FlightLogEntry, TurnBinding } from "../types/mission";
 import { RocketChatIcon } from "./RocketChatLogo";
 import { RocketLoader } from "./RocketLoader";
 import { useLoadingQuip } from "../lib/loadingQuips";
+import { useKeepAtBottom } from "../lib/useKeepAtBottom";
 import { CockpitEmptyState } from "./CockpitEmptyState";
 import { SessionLoadingScreen } from "./SessionLoadingScreen";
 import {
@@ -41,9 +42,6 @@ interface FlightLogStreamProps {
   onReject?: (actionId: string) => void;
   opening?: boolean;
 }
-
-/** Closer than this to the bottom counts as "at the bottom": the stream keeps following. */
-const FOLLOW_THRESHOLD_PX = 80;
 
 interface ActionGroupData {
   id: string;
@@ -121,24 +119,21 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const streamRef = useRef<HTMLDivElement>(null);
   // Follow new content only while the reader is at the bottom; once they scroll up to review
-  // something, the stream must stay where they are.
-  const followingRef = useRef(true);
+  // something, the stream must stay where they are. An empty conversation shows its starting
+  // points from the top; only real content is followed.
+  const { following: followingRef, setFollowing, readScroll } = useKeepAtBottom(
+    streamRef,
+    !opening && (flightLog.length > 0 || isExecuting)
+  );
   const lastEntryCountRef = useRef(0);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
-  const handleScroll = () => {
-    const stream = streamRef.current;
-    if (!stream) return;
-    const distance = stream.scrollHeight - stream.scrollTop - stream.clientHeight;
-    const atBottom = distance <= FOLLOW_THRESHOLD_PX;
-    followingRef.current = atBottom;
-    setShowJumpToLatest(!atBottom);
-  };
+  const handleScroll = () => setShowJumpToLatest(!readScroll());
 
   const jumpToLatest = () => {
     const stream = streamRef.current;
     if (!stream) return;
-    followingRef.current = true;
+    setFollowing(true);
     setShowJumpToLatest(false);
     stream.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
   };
@@ -180,6 +175,14 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     }
   };
 
+  // Every conversation opens at its end: having scrolled up in the previous one says nothing here.
+  const openSessionId = session?.session_id;
+  useEffect(() => {
+    setFollowing(true);
+    lastEntryCountRef.current = 0;
+    setShowJumpToLatest(false);
+  }, [openSessionId, opening, setFollowing]);
+
   // Follow new entries while at the bottom.
   useEffect(() => {
     // An empty conversation shows its starting points from the top; only follow real content.
@@ -187,14 +190,14 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     // Sending a message always brings you back to the conversation's end.
     const grew = flightLog.length > lastEntryCountRef.current;
     lastEntryCountRef.current = flightLog.length;
-    if (grew && flightLog[flightLog.length - 1]?.role === "USER") followingRef.current = true;
+    if (grew && flightLog[flightLog.length - 1]?.role === "USER") setFollowing(true);
     if (!followingRef.current) return;
     // Scroll the stream itself. scrollIntoView would also scroll every ancestor, including the
     // overflow-hidden page root, which pushes the top bar off screen on a phone. The jump is
     // instant: an animated one would fire scroll events that look like the reader leaving.
     const stream = streamRef.current;
     stream?.scrollTo({ top: stream.scrollHeight, behavior: "auto" });
-  }, [flightLog, activeDecision, activeApproval, isExecuting, statusMessage]);
+  }, [flightLog, activeDecision, activeApproval, isExecuting, statusMessage, followingRef, setFollowing]);
 
   // Aggregate consecutive actions into distinct ActionGroups
   const rawStreamItems: Array<
@@ -308,6 +311,10 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     estimateSize: () => 140,
     overscan: 8,
   });
+  // Measuring a row above the viewport normally shifts the scroll to keep what is shown in place;
+  // that shift fires a scroll event far from the end, which reads as the reader leaving it. While
+  // following, the end is held by useKeepAtBottom instead.
+  rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => !followingRef.current;
 
   const renderItem = (item: (typeof rawStreamItems)[number]) => {
     // USER REQUEST: Simple bubble on the right

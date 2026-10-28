@@ -32,7 +32,7 @@ Upon connection the server rehydrates the session and emits a state sync frame:
 `catch_up` is `null` for an idle session. When a turn is still running (or ended while the
 session record was being read) it is `{"from_seq": 398, "events": [...]}`: the events the
 record cannot hold yet, to apply on top of `session`. `running_turn` provides the in-flight turn metadata and its completed steps (`steps` list with `id`, `name`, `arguments`, `result`, `status`, `duration_ms`, `redacted`, `seq`, and `reasoning`: what the model thought before the call, on the first call of each step) so a client connecting or refreshing mid-turn renders the full flight log without waiting for the turn to complete. Events are idempotent by `seq`, and
-tokens of an answer that is already stored are ignored, so overlap with the record is safe. A client that applies a `sync` with a `catch_up` must rewind its resume cursor to `from_seq` first: the snapshot replaced the transcript, so anything it had applied beyond that point has to be applied again.
+tokens of an answer that is already stored are ignored, so overlap with the record is safe. `catch_up` starts where the running turn began, so it also holds the events of the steps `running_turn` already lists: a client showing those steps skips the catch-up's `tool_started` for a listed call and its `token`/`reasoning_token` events up to the highest step `seq` (the sequence just after that step's `tool_completed`), and takes the thought in progress from the replayed tokens rather than from `current_reasoning`, which serves only when there is no `catch_up`. A client that applies a `sync` with a `catch_up` must rewind its resume cursor to `from_seq` first: the snapshot replaced the transcript, so anything it had applied beyond that point has to be applied again.
 
 A turn is over when a `status_changed` event with `"final": true` arrives (completed, or error). The orchestrator also reports `completed` earlier, before the answer is stored, which is why that one does not carry the flag.
 
@@ -299,6 +299,28 @@ missed, instead of losing everything published in the gap:
 ```
 The server answers with a control frame containing the missed suffix (see `replay` in §2),
 after which live delivery continues on the same socket.
+
+## 4. The Session List Socket (`/v1/sidebar/ws`)
+
+`ws://<host>/v1/sidebar/ws?token=<token>` follows where every session the caller may see stands,
+for a list of conversations. It authenticates like the session socket and closes with `1008`
+without credentials. Once it is listening it sends `{"type": "ready"}`; read the list
+(`GET /v1/sessions`) then, since nothing from before is replayed. It then sends each
+`session_updated` event of the caller's organization whose session the caller may open (the
+same rule as the session socket, checked against the session as stored when the event is
+relayed, so a session unshared since the socket opened is no longer reported):
+
+```json
+{
+  "event_type": "session_updated",
+  "session_id": "session_8f2a",
+  "payload": { "session_id": "session_8f2a", "is_processing": false, "last_turn_status": "waiting" },
+  "timestamp_ms": 1793191830000
+}
+```
+
+The payload is the one documented in §2 E. It accepts `{"type": "ping"}` (answered with
+`{"type": "pong"}`) and no other message.
 
 ## `plan_updated`
 

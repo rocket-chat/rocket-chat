@@ -56,6 +56,12 @@ export interface SessionsSlice {
   isLoadingOlderHistory: boolean;
   historyStartIndex: number;
   loadOlderHistory: () => Promise<void>;
+  /**
+   * The session whose full record (transcript included) the cockpit holds. A sidebar row names a
+   * session but carries no transcript, so the open conversation waits for this, not for `session`.
+   */
+  hydratedSessionId: string | null;
+  /** Adopts a full session record: the socket's snapshot or a direct read, never a list row. */
   setSession: (session: SessionData | null) => void;
   setSessions: (sessions: SessionData[]) => void;
   /** Re-lists page one; arguments left out keep the current archived view and scope. */

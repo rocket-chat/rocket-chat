@@ -42,6 +42,7 @@ from api.services.session_support import (
     _session_toolsets,
     active_repository_of,
 )
+from api.services.session_updates import publish_session_update
 from api.services.settings import effective_settings, load_org_config
 from api.services.skills_in_effect import skill_texts_for
 from api.services.title import TITLE_SOURCE_AUTO
@@ -458,9 +459,8 @@ class TurnRunner:
             record.is_processing = True
 
         await req.store.mutate_session(session.session_id, session.tenant_org_id, _mark_processing)
-        await self._publish(
-            EventType.SESSION_UPDATED,
-            {"session_id": session.session_id, "is_processing": True},
+        await publish_session_update(
+            req.event_bus, session.session_id, session.tenant_org_id, {"is_processing": True}
         )
 
         member_prefs = await effective_settings(
@@ -554,8 +554,8 @@ class TurnRunner:
         await self.req.store.mutate_session(
             session.session_id, session.tenant_org_id, set_placeholder_title
         )
-        await self._publish(
-            EventType.SESSION_UPDATED, {"title": title, "session_id": self.req.session_id}
+        await publish_session_update(
+            self.req.event_bus, self.req.session_id, session.tenant_org_id, {"title": title}
         )
 
     async def _resolve_git(
@@ -694,9 +694,11 @@ class TurnRunner:
                 await self.req.store.mutate_session(
                     self.req.session_id, self._org_id, _clear_processing
                 )
-                await self._publish(
-                    EventType.SESSION_UPDATED,
-                    {"session_id": self.req.session_id, "is_processing": False},
+                await publish_session_update(
+                    self.req.event_bus,
+                    self.req.session_id,
+                    self._org_id,
+                    {"is_processing": False},
                 )
                 await update_attention(
                     self.req.store,

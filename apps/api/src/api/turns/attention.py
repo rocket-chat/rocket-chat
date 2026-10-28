@@ -4,14 +4,15 @@ A turn paused for an approval or a question is easy to lose track of in a long l
 that failed looks the same as one that finished. Two keys of the session's metadata carry what
 a person scanning the list needs: ``awaiting_input`` (``approval`` or ``question`` while a gate
 is open) and ``last_turn_status`` (how the latest turn ended). Every change is published as a
-``session_updated`` event, so open sidebars follow without polling.
+``session_updated`` event on the organization's topic too, so open sidebars follow without polling.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
+from api.services.session_updates import publish_session_update
+from specifications.interfaces.events import EventBusProtocol
 from specifications.interfaces.session import SessionRecord, SessionStoreProtocol
 
 AWAITING_INPUT_KEY = "awaiting_input"
@@ -42,11 +43,9 @@ async def update_attention(
         record.metadata = changed
 
     await store.mutate_session(session_id, org_id, apply)
-    payload: dict[str, Any] = {"session_id": session_id}
+    payload: dict[str, Any] = {}
     if awaiting_input or clear_awaiting:
         payload["awaiting_input"] = awaiting_input or ""
     if last_turn_status:
         payload["last_turn_status"] = last_turn_status
-    await event_bus.publish(
-        SessionEvent(session_id=session_id, event_type=EventType.SESSION_UPDATED, payload=payload)
-    )
+    await publish_session_update(event_bus, session_id, org_id, payload)

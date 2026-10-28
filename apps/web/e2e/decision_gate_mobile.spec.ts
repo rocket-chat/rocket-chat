@@ -22,7 +22,7 @@ test.describe("Decision gate on an iPhone", () => {
   test("the card keeps its full height and its confirm button can be reached and tapped", async ({ page }) => {
     let socket: WebSocketRoute | null = null;
     const answers: string[] = [];
-    await page.routeWebSocket(/\/ws/, (ws) => {
+    await page.routeWebSocket(/\/v1\/sessions\/[^/]+\/ws/, (ws) => {
       socket = ws;
       ws.onMessage((message) => {
         try {

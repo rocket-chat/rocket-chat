@@ -24,6 +24,7 @@ from api.turns.context import TurnSelection
 from api.turns.runner import execute_turn_background
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
+from specifications.interfaces.events import organization_channel
 from specifications.interfaces.llm import LLMGatewayProtocol, StreamChunk, current_model_scope
 from specifications.interfaces.session import SessionRecord
 
@@ -186,6 +187,8 @@ class TurnOutcome:
     events: list[Any]
     model: ScriptedModel
     driver: FakeSandboxDriver
+    # What the organization's sidebars were told (``session_updated`` on its topic).
+    organization_events: list[Any] = field(default_factory=list)
 
     @property
     def last_request(self) -> Any:
@@ -268,6 +271,13 @@ async def run_turn(
         events, _ = bus.replay_since(session_id, 0)
         record = await store.get_session(session_id)
         assert record is not None
-        return TurnOutcome(session=record, events=events, model=model, driver=driver)
+        organization_events, _ = bus.replay_since(organization_channel(org), 0)
+        return TurnOutcome(
+            session=record,
+            events=events,
+            model=model,
+            driver=driver,
+            organization_events=organization_events,
+        )
     finally:
         current_tenant_org_id.reset(token)

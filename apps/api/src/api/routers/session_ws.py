@@ -1,8 +1,9 @@
-"""The session WebSocket: live events and steering frames."""
+"""The session WebSocket (live events and steering frames) and the sidebar's."""
 
 from fastapi import APIRouter, Query, WebSocket
 
 from api.sockets.session_socket import WRITE_FRAMES, SessionSocket
+from api.sockets.sidebar_socket import SidebarSocket
 
 router = APIRouter(prefix="/v1", tags=["Sessions & Telemetry"])
 
@@ -18,3 +19,12 @@ async def session_websocket_endpoint(
 ) -> None:
     """Stream SessionEvents and tool states to the client; accept steering frames from it."""
     await SessionSocket(websocket, session_id, token).serve()
+
+
+@router.websocket("/sidebar/ws")
+async def sidebar_websocket_endpoint(
+    websocket: WebSocket,
+    token: str = Query(default=""),
+) -> None:
+    """Stream where each session the caller may see stands (``session_updated``) as it changes."""
+    await SidebarSocket(websocket, token).serve()

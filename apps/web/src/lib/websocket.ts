@@ -8,6 +8,7 @@ import {
   ReplayFrame,
   SessionData,
   SyncFrame,
+  TurnBinding,
 } from "../types/mission";
 import {
   advanceCursor,
@@ -18,6 +19,7 @@ import {
   selectUnseenEvents,
 } from "./session-cursor";
 import { planSync, type SyncPlan } from "./sync-plan";
+import { sessionUpdateFrom } from "./session-update";
 
 /**
  * The transport boundary. Server frames are untyped JSON whose payload shape is
@@ -116,6 +118,17 @@ export function getDefaultWsBaseUrl(): string {
 }
 
 let activeMissionWebSocket: MissionWebSocket | null = null;
+
+/**
+ * Who answers the turn still running when a tab connects. The live "running" status that names
+ * them went out before this tab was here; the turn's prompt records them, the trace the model.
+ */
+function runningTurnBinding(frame: SyncFrame): TurnBinding | null {
+  const prompt = [...(frame.session?.conversation_history ?? [])].reverse().find((m) => m.role === "user");
+  if (prompt?.model) return { agentName: prompt.agent_name || "", model: prompt.model };
+  const model = frame.running_turn?.model;
+  return model ? { agentName: "", model } : null;
+}
 
 export function getActiveMissionWebSocket(): MissionWebSocket | null {
   return activeMissionWebSocket;
@@ -269,13 +282,18 @@ export class MissionWebSocket {
    * unclaimed until the replayed events have been applied.
    */
   private handleSyncFrame(frame: SyncFrame): void {
+    // Only the socket of the conversation on screen applies its snapshot. The store may still hold
+    // the conversation open before (a switch) or none at all: the socket's session is the one asked
+    // for, and its snapshot is the only record that comes with the running turn.
+    if (activeMissionWebSocket !== this) return;
     const store = useMissionStore.getState();
-    const active = store.session;
-    if (frame.session && (!active || active.session_id === this.sessionId)) {
+    if (frame.session && frame.session.session_id === this.sessionId) {
       store.setSession(frame.session);
     }
     if (frame.running_turn && frame.running_turn.status === "running") {
       store.setIsExecuting(true);
+      const binding = runningTurnBinding(frame);
+      if (binding) store.setTurnBinding(binding);
     }
     this.applySyncPlan(planSync(frame));
     // A turn paused on a person before this tab connected: show the card it is waiting on.
@@ -850,16 +868,7 @@ export class MissionWebSocket {
 
       case "session_updated": {
         const targetSessionId = payload.session_id || frameSessionId;
-        if (targetSessionId) {
-          store.applySessionUpdate(targetSessionId, {
-            title: typeof payload.title === "string" ? payload.title : undefined,
-            is_pinned: typeof payload.is_pinned === "boolean" ? payload.is_pinned : undefined,
-            is_archived: typeof payload.is_archived === "boolean" ? payload.is_archived : undefined,
-            is_processing: typeof payload.is_processing === "boolean" ? payload.is_processing : undefined,
-            awaiting_input: typeof payload.awaiting_input === "string" ? payload.awaiting_input : undefined,
-            last_turn_status: typeof payload.last_turn_status === "string" ? payload.last_turn_status : undefined,
-          });
-        }
+        if (targetSessionId) store.applySessionUpdate(targetSessionId, sessionUpdateFrom(payload));
         break;
       }
 

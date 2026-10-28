@@ -52,9 +52,11 @@ export const ArtifactsPanel: React.FC = () => {
     }
   }, [sessionId, loadArtifacts]);
 
+  // A selection the list no longer holds (another session opened) falls back to its first artifact.
   useEffect(() => {
-    if (storeArtifacts.length > 0 && !selectedId) {
-      setSelectedId(storeArtifacts[0].id);
+    if (!storeArtifacts.some((a) => a.id === selectedId)) {
+      setSelectedId(storeArtifacts[0]?.id ?? null);
+      setSelectedContent(null);
     }
   }, [storeArtifacts, selectedId]);
 

@@ -49,6 +49,15 @@ class EventType(str, Enum):
     ERROR = "error"  # Unrecoverable or tool error
 
 
+def organization_channel(org_id: str) -> str:
+    """The bus topic carrying every session's ``session_updated`` events for one organization.
+
+    A session's own topic reaches only the people who have that conversation open; the sidebar
+    lists them all, so it follows this one. Session ids never start with ``org:``.
+    """
+    return f"org:{org_id}"
+
+
 @dataclass
 class SessionEvent:
     session_id: str

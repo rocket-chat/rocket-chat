@@ -31,6 +31,7 @@ from api.services.repository_setups import RepositorySetupStore
 from api.services.repository_setups import prepare_folder as prepare_repository_folder
 from api.services.session_env import remember_agent_env
 from api.services.session_support import choose_active_repository, remember_active_repository
+from api.services.session_updates import publish_session_update
 from api.services.settings import effective_settings
 from api.services.skills import test_skill_execution
 from api.services.skills_lookup import _find_visible_skill
@@ -720,12 +721,8 @@ async def build_turn_callbacks(
             record.title = new_title
 
         if await store.mutate_session(target_session_id, session.tenant_org_id, set_title):
-            await event_bus.publish(
-                SessionEvent(
-                    session_id=target_session_id,
-                    event_type=EventType.SESSION_UPDATED,
-                    payload={"title": new_title, "session_id": target_session_id},
-                )
+            await publish_session_update(
+                event_bus, target_session_id, session.tenant_org_id, {"title": new_title}
             )
 
     async def kb_search(query: str, kb_id: str | None = None, limit: int = 5) -> str:

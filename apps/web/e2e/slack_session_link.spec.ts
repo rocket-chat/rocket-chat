@@ -7,7 +7,7 @@ test("a Slack session links to its thread in Slack", async ({ page, request }) =
   const created = await request.post(`${API}/v1/sessions`, { data: { title: "From Slack" } });
   const sessionId = (await created.json()).session_id as string;
   // Only the Slack bridge writes these keys, so the socket's session snapshot is given them.
-  await page.routeWebSocket(/\/ws/, (ws) => {
+  await page.routeWebSocket(/\/v1\/sessions\/[^/]+\/ws/, (ws) => {
     const server = ws.connectToServer();
     ws.onMessage((message) => server.send(message));
     server.onMessage((message) => {

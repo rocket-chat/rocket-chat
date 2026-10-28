@@ -49,6 +49,43 @@ test.describe("what a sync frame asks of the tab", () => {
     expect(selectUnseenEvents([event(1), event(2), event(3)], readCursor(id)).map((e) => e.seq)).toEqual([3]);
   });
 
+  test("a running turn's recorded steps are not rebuilt again from its replayed events", () => {
+    const frame = {
+      type: "sync",
+      last_seq: 6,
+      running_turn: {
+        turn_index: 1,
+        started_at: 1,
+        current_reasoning: "next",
+        steps: [{ id: "call_1", name: "bash_exec", status: "success", seq: 4, reasoning: "first" }],
+      },
+      catch_up: {
+        from_seq: 0,
+        events: [
+          event(2, "reasoning_token"),
+          { ...event(3, "tool_started"), payload: { id: "call_1" } },
+          { ...event(4, "tool_completed"), payload: { id: "call_1" } },
+          { ...event(5, "tool_started"), payload: { id: "call_2" } },
+          event(6, "reasoning_token"),
+        ],
+      },
+    } as SyncFrame;
+
+    const plan = planSync(frame);
+
+    // Text up to the last step is in its record; the call it made is too. A call still running,
+    // the completion (idempotent) and the thought since then are not.
+    expect(plan.events.map((e) => e.seq)).toEqual([4, 5, 6]);
+    // The replayed tokens rebuild the thought in progress, so the server's copy is not added.
+    expect(plan.runningTurn?.current_reasoning).toBe("");
+  });
+
+  test("without a catch-up the thought in progress comes from the running turn", () => {
+    const runningTurn = { turn_index: 1, started_at: 1, current_reasoning: "next", steps: [] };
+    const frame = { type: "sync", last_seq: 9, catch_up: null, running_turn: runningTurn } as SyncFrame;
+    expect(planSync(frame).runningTurn?.current_reasoning).toBe("next");
+  });
+
   test("an idle session's snapshot is complete through last_seq, for resuming and fresh tabs alike", () => {
     const frame = { type: "sync", last_seq: 12, catch_up: null } as SyncFrame;
     expect(planSync(frame)).toEqual({ rewindCursorTo: null, events: [], continueFrom: 12, runningTurn: null });

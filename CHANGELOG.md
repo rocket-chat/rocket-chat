@@ -10,12 +10,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `api`, `web`: The sidebar follows every conversation's status live over a session list socket (`/v1/sidebar/ws`), not only the open one's: `session_updated` is also published on the organization's topic and relayed to each member for the sessions they may open. The list is read again when the socket connects and polled only while it is down.
 - `web`: Animated `SessionLoadingScreen` featuring the floating rocket with thruster flare, exhaust particle sparks, and telemetry uplink HUD when hydrating an existing session, eliminating the flash of empty session state.
 - `agent-core`: Streaming n-gram repetition loop detector (`detect_repetition_loop`) in `_StreamCollector` and `reasoning_guard` to stop degenerate model attractor loops early before token exhaustion, and sanitized partial reasoning tails in decisive retries.
 - `llm-gateway`: Added `sanitize_replayed_reasoning` in gateway `_attach_reasoning` to clamp and clean trailing repetitive cycles from `reasoning_content`, preventing cross-step loop priming on DeepSeek reasoning models.
 - `web`, `agent-core`: Active context window modal and usage chip now display the complete operational breakdown: model physical capacity vs. working target (`models.context_target_tokens`) vs. overrides, detailing exact operational pruning (70%) and compaction (85%) token thresholds and explaining why working ceilings are enforced.
 
 ### Fixed
+- `web`: Opening a conversation no longer shows it empty, or the previous one's title, before its transcript arrives: the sidebar listing never picks the open session, and a conversation counts as open only once a full record is adopted.
+- `web`: A turn running when a tab connects, refreshes or switches to it shows each step once: the session socket's snapshot is always adopted (switching conversations used to drop it), and the catch-up no longer replays what the recorded steps show, which repeated tools and folded the whole turn's reasoning into one block.
+- `web`: A conversation opens at its end, even after scrolling up in the previous one, and stays there while long or virtualised content renders.
+- `web`: The thought being written opens its step group again, and the group stays open until the turn ends instead of folding at every tool call.
+- `web`: Another conversation's artifacts, context usage and selected artifact no longer show after a switch; the agent and model of a running turn show after a refresh.
 - `agent-core`, `api`: Answer preservation across verification gates. When `verification_gate_notice` triggers a test run after code edits, the pre-gate substantive explanation is preserved and merged with post-verification confirmation into the final Answer Card instead of being demoted into a collapsed tool preface.
 - `agent-core`: Non-blocking checklist reconciliation. Unfinished tasks on the checklist no longer block turn completion or reject the model's answer, allowing tasks to remain pending or in-progress across turns naturally without forcing unnecessary tool calls.
 - `web`: Unified rocket telemetry loading screen across the entire application. Replaced legacy "RC" box loaders on initial load (`/`) and dynamic chat route chunks (`/chat/[sessionId]`). Fixed session switching from the sidebar to show the animated rocket telemetry screen instead of flashing a temporary fresh/empty session state while history hydrates.

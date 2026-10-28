@@ -35,10 +35,17 @@ class InMemorySessionStore(SessionStoreProtocol):
         self._sessions[record.session_id] = record
 
     async def get_session(
-        self, session_id: str, tenant_org_id: str | None = None
+        self,
+        session_id: str,
+        tenant_org_id: str | None = None,
+        *,
+        include_history: bool = True,
     ) -> SessionRecord | None:
         """Retrieve a session by its unique ID (one process-wide dict: no tenant scoping)."""
-        return self._sessions.get(session_id)
+        record = self._sessions.get(session_id)
+        if record is None or include_history:
+            return record
+        return replace(record, conversation_history=[])
 
     async def update_session(self, record: SessionRecord) -> None:
         """Update session record with latest timestamp and conversation history."""
