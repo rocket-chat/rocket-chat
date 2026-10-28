@@ -56,6 +56,12 @@ export interface SessionsSlice {
   isLoadingOlderHistory: boolean;
   historyStartIndex: number;
   loadOlderHistory: () => Promise<void>;
+  /**
+   * The session whose full record (transcript included) the cockpit holds. A sidebar row names a
+   * session but carries no transcript, so the open conversation waits for this, not for `session`.
+   */
+  hydratedSessionId: string | null;
+  /** Adopts a full session record: the socket's snapshot or a direct read, never a list row. */
   setSession: (session: SessionData | null) => void;
   setSessions: (sessions: SessionData[]) => void;
   /** Re-lists page one; arguments left out keep the current archived view and scope. */
@@ -169,7 +175,22 @@ export interface StreamSlice {
   setStreamContinuous: (continuous: boolean) => void;
   contextTokens: number | null;
   contextLimit: number | null;
-  setContextUsage: (tokens: number, limit: number) => void;
+  contextModelLimit: number | null;
+  contextTargetTokens: number | null;
+  contextSource: string | null;
+  contextTier2Tokens: number | null;
+  contextTier3Tokens: number | null;
+  setContextUsage: (
+    tokens: number,
+    limit: number,
+    details?: {
+      modelLimit?: number;
+      targetTokens?: number;
+      source?: string;
+      tier2Tokens?: number;
+      tier3Tokens?: number;
+    }
+  ) => void;
   updateLastAgentLog: (delta: string, timestamp?: string) => void;
   appendReasoning: (delta: string, timestamp?: string) => void;
   clearReasoning: () => void;
@@ -194,6 +215,11 @@ export interface StreamSlice {
   artifacts: ArtifactItem[];
   upsertArtifact: (artifact: ArtifactItem) => void;
   setArtifacts: (artifacts: ArtifactItem[]) => void;
+  /** The artifact the Artifacts panel shows; null lets it pick the latest. */
+  selectedArtifactId: string | null;
+  selectArtifact: (id: string | null) => void;
+  /** Shows one artifact in the inspector, as a click on its card in the conversation asks. */
+  openArtifact: (id: string) => void;
 }
 
 /** A message sent while a turn ran, not yet taken by a turn. */

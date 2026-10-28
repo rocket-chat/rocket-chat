@@ -27,15 +27,14 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
   const router = useRouter();
   const wsRef = useRef<MissionWebSocket | null>(null);
   const session = useMissionStore((s) => s.session);
-  // The URL names a conversation the store has not opened yet: text typed now would be saved
-  // under whatever was open before and lost when this one arrives.
-  const opening =
-    !!sessionId && sessionId !== "draft" && sessionId !== "new" && session?.session_id !== sessionId;
-  const sessions = useMissionStore((s) => s.sessions);
+  const hydratedSessionId = useMissionStore((s) => s.hydratedSessionId);
+  // The URL names a conversation whose full record has not arrived: text typed now would be saved
+  // under whatever was open before, and a sidebar row has no transcript to show.
+  const isTargetSession = !!sessionId && sessionId !== "draft" && sessionId !== "new";
+  const opening = isTargetSession && (hydratedSessionId !== sessionId || session?.session_id !== sessionId);
   const setSession = useMissionStore((s) => s.setSession);
   const isRightPanelOpen = useMissionStore((s) => s.isRightPanelOpen);
   const fetchSessions = useMissionStore((s) => s.fetchSessions);
-  useSessionStatusPolling();
   const fetchAgents = useMissionStore((s) => s.fetchAgents);
   const fetchModels = useMissionStore((s) => s.fetchModels);
   const initDraftSession = useMissionStore((s) => s.initDraftSession);
@@ -83,27 +82,25 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
       }
       return;
     }
-    if (session?.session_id === sessionId) return;
+    if (hydratedSessionId === sessionId) return;
 
-    const matched = sessions.find((s) => s.session_id === sessionId);
-    if (matched) {
-      setSession(matched);
-    }
-    fetch(`/v1/sessions/${sessionId}`)
+    // The socket's snapshot is the baseline (it alone carries a running turn); this read only
+    // shows the transcript sooner when the socket is slow, so it asks for the recent tail.
+    fetch(`/v1/sessions/${sessionId}?tail=50`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        // The socket's snapshot may have arrived first and live events built on it; this
-        // older read must not rewind the transcript (it cannot hold a running turn's answer).
-        if (useMissionStore.getState().session?.session_id === sessionId) return;
+        // Arriving after the snapshot, it would rewind the transcript live events built on.
+        if (useMissionStore.getState().hydratedSessionId === sessionId) return;
         if (data && data.session_id === sessionId) {
           setSession(data);
         }
       })
       .catch(() => {});
-  }, [sessionId, sessions, session, setSession, initDraftSession]);
+  }, [sessionId, session, hydratedSessionId, setSession, initDraftSession]);
 
   const { user } = useAuth();
   const token = user?.accessToken || "";
+  useSessionStatusPolling(token);
   const activeSessionId = sessionId || session?.session_id;
   const isDraft = !activeSessionId || activeSessionId === "draft" || activeSessionId === "new" || session?.is_draft;
 
@@ -212,6 +209,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                   onAnswerQuestion={handleAnswerQuestion}
                   onApprove={handleApprove}
                   onReject={handleReject}
+                  opening={opening}
                 />
               <IgnitionConsole
                 onIgnite={handleIgnite}
@@ -262,6 +260,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                   onAnswerQuestion={handleAnswerQuestion}
                   onApprove={handleApprove}
                   onReject={handleReject}
+                  opening={opening}
                 />
                 <IgnitionConsole
                 onIgnite={handleIgnite}

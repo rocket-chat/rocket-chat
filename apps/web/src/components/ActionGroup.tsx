@@ -124,8 +124,11 @@ const TitledPreview: React.FC<{ title: string; text: string }> = ({ title, text 
 );
 
 export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = false }) => {
-  // Null until the person toggles the group: it is open while a thought is being written.
+  // Null until the person toggles the group.
   const [chosenOpen, setChosenOpen] = useState<boolean | null>(null);
+  // Set by the first thought written while the group runs, cleared when it stops. Following the
+  // thought itself would close the group at every tool call and reopen it at the next thought.
+  const [followingTurn, setFollowingTurn] = useState(false);
   const fileDiffs = useMissionStore((state) => state.fileDiffs);
   const selectChange = useMissionStore((state) => state.selectChange);
   const setIsRightPanelOpen = useMissionStore((state) => state.setIsRightPanelOpen);
@@ -134,7 +137,9 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
   // Only the last step of the running group can still be receiving its thought.
   const lastEntry = entries[entries.length - 1];
   const liveThoughtId = isActive && lastEntry?.reasoning && lastEntry.isReasoningActive ? lastEntry.id : null;
-  const isOpen = chosenOpen ?? liveThoughtId !== null;
+  if (liveThoughtId !== null && !followingTurn) setFollowingTurn(true);
+  if (!isActive && followingTurn) setFollowingTurn(false);
+  const isOpen = chosenOpen ?? (isActive && (followingTurn || liveThoughtId !== null));
   // What the command running now has printed shows under the group even while it is collapsed.
   const runningCall = [...entries].reverse().find((entry) => entry.toolCall && isPending(entry.toolCall))?.toolCall;
 
@@ -238,7 +243,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                     ) : undefined
                   }
                 >
-                  <div className="text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+                  <div className="max-h-[50vh] overflow-y-auto overscroll-contain pr-2 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 scrollbar-thin">
                     <MarkdownRenderer content={entry.reasoning} />
                   </div>
                 </StepRow>
@@ -263,7 +268,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                     ) : undefined
                   }
                 >
-                  <div className="text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">
+                  <div className="max-h-[50vh] overflow-y-auto overscroll-contain pr-2 text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 scrollbar-thin">
                     <MarkdownRenderer content={entry.content} />
                   </div>
                 </StepRow>

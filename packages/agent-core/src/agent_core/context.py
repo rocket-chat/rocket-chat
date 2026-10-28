@@ -61,7 +61,7 @@ DEFAULT_MODEL_CONTEXT_LIMITS: dict[str, int] = {
     "o4": 200_000,
     "deepseek-r1": 64_000,
     "deepseek-v3": 64_000,
-    "deepseek-v4": 131_072,
+    "deepseek-v4": 1_048_576,
     "gemini": 1_000_000,
     "mimo": 1_000_000,
     "kimi": 256_000,
@@ -385,7 +385,7 @@ class ContextManager:
         messages: list[ChatMessage],
         max_tail_tokens: int = 24_000,
         min_turns: int = 2,
-        max_turns: int = 64,
+        max_turns: int = 32,
     ) -> int | None:
         """Where the recent tail begins, accumulating whole step groups up to max_tail_tokens."""
         boundaries = [i for i, message in enumerate(messages) if message.role == "assistant"]
@@ -400,7 +400,9 @@ class ContextManager:
             start_i = boundaries[-step_idx]
             end_i = boundaries[-step_idx + 1] if step_idx > 1 else len(messages)
             step_chars = sum(
-                len(m.content or "") + sum(len(str(c)) for c in (m.tool_calls or []))
+                len(m.content or "")
+                + len(m.reasoning or "")
+                + sum(len(str(c)) for c in (m.tool_calls or []))
                 for m in messages[start_i:end_i]
             )
             if step_idx > min_turns and (accumulated_chars + step_chars) > target_chars:
@@ -638,7 +640,7 @@ class ContextManager:
             max_tail = (
                 None
                 if force_compaction
-                else min(80_000, max(4_000, int(limit * self.target_summary_ratio)))
+                else min(24_000, max(4_000, int(limit * self.target_summary_ratio)))
             )
             compaction = await self._compact(
                 messages,

@@ -18,7 +18,7 @@ export const createAgentsSlice: StateCreator<MissionStore, [], [], AgentsSlice> 
   })(),
   modelsLoaded: false,
   availableModels: [
-    { id: "openrouter/deepseek/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", context_window: 131072, provider: "DeepSeek" },
+    { id: "openrouter/deepseek/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", context_window: 1048576, provider: "DeepSeek" },
     { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet", context_window: 200000, provider: "Anthropic" },
     { id: "anthropic/claude-3.7-sonnet", name: "Claude 3.7 Sonnet", context_window: 200000, provider: "Anthropic" },
     { id: "openai/gpt-4o", name: "GPT-4o Omnimodel", context_window: 128000, provider: "OpenAI" },

@@ -111,7 +111,7 @@ async def test_get_session_messages_pagination(monkeypatch: pytest.MonkeyPatch) 
 
 @pytest.mark.asyncio
 async def test_socket_reads_current_reasoning_from_running_turn() -> None:
-    from api.turns.runner import _active_running_turns
+    from api.turns.running import _active_running_turns
 
     fake_ws = SimpleNamespace(
         app=SimpleNamespace(
@@ -124,27 +124,29 @@ async def test_socket_reads_current_reasoning_from_running_turn() -> None:
     )
     handler = SessionSocket(fake_ws, "s_active")  # type: ignore[arg-type]
 
-    # Mock an active running turn with partial reasoning in flight
-    fake_ctx = SimpleNamespace(
-        state=SimpleNamespace(
-            reasoning_parts=["Thought 1. ", "Thought 2."],
-            reasoning_attached=0,
-            executed_tools=[],
-        )
-    )
+    # The turn's handlers say what it streamed since its last step (an active thought here).
+    async def live_snapshot() -> dict[str, object]:
+        return {
+            "current_reasoning": "Thought 1. Thought 2.",
+            "current_text": "",
+            "seq": 7,
+            "step_ids": [],
+        }
+
     _active_running_turns["s_active"] = {
         "turn_index": 1,
         "started_at": 1000,
         "model": "model-pro",
         "status": "running",
         "steps": [],
-        "ctx": fake_ctx,
+        "handlers": SimpleNamespace(live_snapshot=live_snapshot),
     }
 
     try:
         running = await handler._read_running_turn()
         assert running is not None
         assert running["current_reasoning"] == "Thought 1. Thought 2."
+        assert running["seq"] == 7
         assert running["status"] == "running"
     finally:
         _active_running_turns.pop("s_active", None)

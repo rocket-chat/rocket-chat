@@ -1,6 +1,54 @@
 {
   "components": {
     "schemas": {
+      "ActiveContextModel": {
+        "properties": {
+          "limit": {
+            "default": 0,
+            "description": "Effective context limit enforced",
+            "title": "Limit",
+            "type": "integer"
+          },
+          "model_limit": {
+            "default": 0,
+            "description": "Raw model capacity",
+            "title": "Model Limit",
+            "type": "integer"
+          },
+          "source": {
+            "default": "",
+            "description": "Source of the context limit",
+            "title": "Source",
+            "type": "string"
+          },
+          "target_tokens": {
+            "default": 0,
+            "description": "Configured working target tokens",
+            "title": "Target Tokens",
+            "type": "integer"
+          },
+          "tier2_tokens": {
+            "default": 0,
+            "description": "Pruning threshold tokens",
+            "title": "Tier2 Tokens",
+            "type": "integer"
+          },
+          "tier3_tokens": {
+            "default": 0,
+            "description": "Compaction threshold tokens",
+            "title": "Tier3 Tokens",
+            "type": "integer"
+          },
+          "tokens": {
+            "default": 0,
+            "description": "Active context token count",
+            "title": "Tokens",
+            "type": "integer"
+          }
+        },
+        "title": "ActiveContextModel",
+        "type": "object"
+      },
       "AgentLimitsResponse": {
         "properties": {
           "max_turns": {
@@ -5025,6 +5073,17 @@
       },
       "SessionUsage": {
         "properties": {
+          "active_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ActiveContextModel"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Context tokens and window breakdown of the session"
+          },
           "before_first_turn": {
             "$ref": "#/components/schemas/UsageTotals",
             "description": "Calls made before the first recorded turn started"
@@ -7414,7 +7473,7 @@
   "info": {
     "description": "FastAPI service hosting the ReAct agent engine and embedded Slack Assistant.",
     "title": "Rocket Chat Control Plane",
-    "version": "0.7.1"
+    "version": "0.7.2"
   },
   "openapi": "3.1.0",
   "paths": {

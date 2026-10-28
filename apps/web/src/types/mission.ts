@@ -112,6 +112,10 @@ export interface RunningTurnData {
   }>;
   /** In-flight reasoning of the active step, recovered on refresh. */
   current_reasoning?: string;
+  /** Text streamed since the last step (a preface or the answer so far), recovered on refresh. */
+  current_text?: string;
+  /** The sequence `current_reasoning` and `current_text` cover through. */
+  seq?: number;
 }
 
 export interface SyncFrame {
@@ -312,6 +316,8 @@ export interface FlightLogEntry {
   wait?: WaitEntry;
   /** A GitHub event on a followed pull request, kept apart so a wait card can show the latest. */
   githubEvent?: GithubEventEntry;
+  /** A deliverable saved where no call of this conversation shows it (a subagent's, for one). */
+  artifact?: ArtifactItem;
 }
 
 export interface WaitEntry {

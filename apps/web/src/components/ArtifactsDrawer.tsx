@@ -20,8 +20,11 @@ export const ArtifactsPanel: React.FC = () => {
   const storeArtifacts = useMissionStore((s) => s.artifacts);
   const setStoreArtifacts = useMissionStore((s) => s.setArtifacts);
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedId = useMissionStore((s) => s.selectedArtifactId);
+  const setSelectedId = useMissionStore((s) => s.selectArtifact);
+  // Null while it loads; "" is an artifact that is empty.
   const [selectedContent, setSelectedContent] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [versions, setVersions] = useState<{ version: number; created_at: number; size: number }[]>([]);
   // The version being read; null is the current one.
   const [shownVersion, setShownVersion] = useState<number | null>(null);
@@ -52,30 +55,38 @@ export const ArtifactsPanel: React.FC = () => {
     }
   }, [sessionId, loadArtifacts]);
 
+  // No selection, or one the list does not hold (yet: a card opened before the list loaded), shows
+  // the latest; a card's own artifact is kept once the list has it.
+  const selectedIsListed = storeArtifacts.some((a) => a.id === selectedId);
   useEffect(() => {
-    if (storeArtifacts.length > 0 && !selectedId) {
+    if (!selectedIsListed && storeArtifacts.length > 0 && (selectedId === null || !isLoading)) {
       setSelectedId(storeArtifacts[0].id);
     }
-  }, [storeArtifacts, selectedId]);
+  }, [storeArtifacts, selectedId, selectedIsListed, isLoading, setSelectedId]);
 
   const activeArtifact = storeArtifacts.find((a) => a.id === selectedId);
   const currentVersion = activeArtifact?.version;
 
-  const loadDetail = useCallback(async (artId: string, version: number | null) => {
-    if (!sessionId) return;
-    try {
-      const query = version === null ? "" : `?version=${version}`;
-      const res = await fetch(`/v1/sessions/${sessionId}/artifacts/${artId}${query}`, {
-        signal: AbortSignal.timeout(8000),
-      });
-      if (res.ok) {
+  const loadDetail = useCallback(
+    async (artId: string, version: number | null, signal: AbortSignal) => {
+      if (!sessionId) return;
+      setSelectedContent(null);
+      setLoadFailed(false);
+      try {
+        const query = version === null ? "" : `?version=${version}`;
+        const res = await fetch(`/v1/sessions/${sessionId}/artifacts/${artId}${query}`, {
+          signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        setSelectedContent(data.content || "");
+        setSelectedContent(typeof data.content === "string" ? data.content : "");
+      } catch {
+        // A newer selection replaced this read: what it shows is not this artifact's to set.
+        if (!signal.aborted) setLoadFailed(true);
       }
-    } catch {
-      setSelectedContent("Failed to load artifact content.");
-    }
-  }, [sessionId]);
+    },
+    [sessionId]
+  );
 
   // Another artifact starts at its latest version.
   useEffect(() => {
@@ -84,12 +95,14 @@ export const ArtifactsPanel: React.FC = () => {
 
   // Read again when the agent saves a new version of the one being shown.
   useEffect(() => {
-    if (selectedId) {
-      void loadDetail(selectedId, shownVersion);
-    } else {
+    if (!selectedId || !selectedIsListed) {
       setSelectedContent(null);
+      return;
     }
-  }, [selectedId, shownVersion, currentVersion, loadDetail]);
+    const reading = new AbortController();
+    void loadDetail(selectedId, shownVersion, reading.signal);
+    return () => reading.abort();
+  }, [selectedId, selectedIsListed, shownVersion, currentVersion, loadDetail]);
 
   useEffect(() => {
     if (!selectedId || !sessionId) {
@@ -115,7 +128,7 @@ export const ArtifactsPanel: React.FC = () => {
   };
 
   const handleDownload = () => {
-    if (!activeArtifact || !selectedContent) return;
+    if (!activeArtifact || selectedContent === null) return;
     const mime = activeArtifact.artifact_type === "html" ? "text/html" : activeArtifact.artifact_type === "json" ? "application/json" : "text/plain";
     const blob = new Blob([selectedContent], { type: `${mime};charset=utf-8` });
     const url = URL.createObjectURL(blob);
@@ -246,12 +259,27 @@ export const ArtifactsPanel: React.FC = () => {
 
             {/* Document Render Body */}
             <div className="flex-1 overflow-y-auto p-4">
-              {selectedContent ? (
-                <ArtifactBody type={activeArtifact.artifact_type} content={selectedContent} />
-              ) : (
+              {loadFailed ? (
+                <div role="alert" className="flex h-full flex-col items-center justify-center gap-2 text-xs text-muted-foreground">
+                  <span>This artifact could not be loaded.</span>
+                  <button
+                    type="button"
+                    onClick={() => void loadDetail(activeArtifact.id, shownVersion, new AbortController().signal)}
+                    className="rounded border border-border px-2 py-0.5 text-foreground hover:bg-surface-elevated"
+                  >
+                    Try again
+                  </button>
+                </div>
+              ) : selectedContent === null ? (
                 <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
                   Loading content...
                 </div>
+              ) : selectedContent === "" ? (
+                <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+                  This artifact is empty.
+                </div>
+              ) : (
+                <ArtifactBody type={activeArtifact.artifact_type} content={selectedContent} />
               )}
             </div>
           </>

@@ -59,6 +59,16 @@ async def test_a_finished_turn_records_how_it_ended() -> None:
     assert updates and updates[-1].payload["last_turn_status"] == "completed"
 
 
+async def test_sidebars_hear_a_turn_start_and_end_on_the_organization_topic() -> None:
+    outcome = await run_turn("attention_sidebar")
+
+    updates = [e.payload for e in outcome.organization_events]
+    assert all(update["session_id"] == "session_attention_sidebar" for update in updates)
+    processing = [u["is_processing"] for u in updates if "is_processing" in u]
+    assert processing == [True, False]
+    assert updates[-1]["last_turn_status"] == "completed"
+
+
 def test_the_settings_schema_says_what_is_advanced_and_what_a_number_counts(
     client: TestClient,
 ) -> None:

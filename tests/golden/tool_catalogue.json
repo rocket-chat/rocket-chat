@@ -1050,7 +1050,7 @@
     }
   },
   {
-    "description": "Write or overwrite file contents in the sandbox workspace.",
+    "description": "Write or overwrite file contents in the sandbox workspace. A document written for the person to read (a report, plan, spec or diagram) belongs in `create_artifact` instead: it is kept with the session and opens from the conversation.",
     "name": "file_write",
     "parameters": {
       "properties": {

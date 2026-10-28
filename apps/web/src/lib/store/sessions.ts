@@ -62,6 +62,17 @@ function restoreStagedFiles(files: File[], err: unknown): Partial<MissionStore> 
   };
 }
 
+/** What one session's context-window readout showed; another session starts without it. */
+const NO_CONTEXT_USAGE = {
+  contextTokens: null,
+  contextLimit: null,
+  contextModelLimit: null,
+  contextTargetTokens: null,
+  contextSource: null,
+  contextTier2Tokens: null,
+  contextTier3Tokens: null,
+};
+
 const SESSIONS_CACHE_KEY = "rocket_sessions_cache_v1";
 
 function readCachedSessions(): SessionData[] {
@@ -97,9 +108,10 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
   hasOlderHistory: false,
   isLoadingOlderHistory: false,
   historyStartIndex: 0,
+  hydratedSessionId: null,
   setSession: (session) => {
     if (!session) {
-      set({ session: null, hasOlderHistory: false, historyStartIndex: 0 });
+      set({ session: null, hydratedSessionId: null, hasOlderHistory: false, historyStartIndex: 0 });
       return;
     }
     if (
@@ -138,6 +150,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
 
     set({
       session,
+      hydratedSessionId: session.session_id,
       permissionMode: (meta.permission_mode as PermissionMode | undefined) ?? "",
       inferenceMode: mode,
       activeAgent: targetAgent || get().activeAgent,
@@ -174,6 +187,8 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       runningProcesses: sessionChanged ? 0 : get().runningProcesses,
       terminalEpoch: sessionChanged ? get().terminalEpoch + 1 : get().terminalEpoch,
       liveToolOutput: sessionChanged ? {} : get().liveToolOutput,
+      // The pre-fetch below lists this session's artifacts; until then none of another's show.
+      ...(sessionChanged ? { artifacts: [], selectedArtifactId: null, ...NO_CONTEXT_USAGE } : {}),
       checklist: session.checklist ?? [],
       suggestedFollowup:
         session.suggested_followup ||
@@ -272,9 +287,6 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
             sessionsNextCursor: res.headers.get("X-Next-Cursor"),
           });
           writeCachedSessions(data);
-          if (!get().session && data.length > 0) {
-            set({ session: data[0] });
-          }
         }
       }
     } catch {
@@ -354,6 +366,10 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
     };
     set({
       session: draft,
+      hydratedSessionId: null,
+      artifacts: [],
+      selectedArtifactId: null,
+      ...NO_CONTEXT_USAGE,
       flightLog: [],
       terminalLogs: "[AVIONICS] Ready for prompt dispatch.\r\n",
       terminalBase: 0,
@@ -426,6 +442,11 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
             ),
           ],
           session: newSession,
+          // Created here, so already complete: the prompt shows at once, and the snapshot follows.
+          hydratedSessionId: newSession.session_id,
+          artifacts: [],
+          selectedArtifactId: null,
+          ...NO_CONTEXT_USAGE,
           flightLog: initialLogs,
           pendingSelfPrompts: [
             ...state.pendingSelfPrompts,
@@ -479,6 +500,10 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         set((state) => ({
           sessions: [newSession, ...state.sessions],
           session: newSession,
+          hydratedSessionId: newSession.session_id,
+          artifacts: [],
+          selectedArtifactId: null,
+          ...NO_CONTEXT_USAGE,
           flightLog: [],
           terminalLogs: `\x1b[38;5;208m[AVIONICS]\x1b[0m Workspace initialized for ${newSession.session_id}.\r\n`,
           terminalBase: 0,
@@ -556,7 +581,16 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       if (!res.ok) return null;
       const data = await res.json();
       const newSession: SessionData = data.new_session;
-      set({ session: newSession, flightLog: [], checklist: [], fileDiffs: [] });
+      set({
+        session: newSession,
+        hydratedSessionId: newSession.session_id,
+        flightLog: [],
+        checklist: [],
+        fileDiffs: [],
+        artifacts: [],
+        selectedArtifactId: null,
+        ...NO_CONTEXT_USAGE,
+      });
       // Only the caller's sessions were deleted; re-list so sessions shared with them (and,
       // in the organization view, other members' sessions) stay in the sidebar.
       await get().fetchSessions();

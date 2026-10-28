@@ -93,7 +93,13 @@ def _register_file_editing_tools(registry: "ToolRegistry") -> None:
         )
         return registry.explain_missing(path, result)
 
-    @registry._tool(description="Write or overwrite file contents in the sandbox workspace.")
+    @registry._tool(
+        description=(
+            "Write or overwrite file contents in the sandbox workspace. A document written for "
+            "the person to read (a report, plan, spec or diagram) belongs in `create_artifact` "
+            "instead: it is kept with the session and opens from the conversation."
+        )
+    )
     async def file_write(
         path: Annotated[
             str, Field(description=RELATIVE_PATHS.format("File to create or overwrite"))

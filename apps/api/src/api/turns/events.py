@@ -7,7 +7,8 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from typing import Any
 
 from api.services.metrics import record_tool_call
@@ -17,7 +18,7 @@ from api.services.turn_trace import record_running_tool_call
 from api.turns.attention import update_attention
 from api.turns.context import TurnContext
 from api.turns.gates import _forget_pending_decisions, _remember_pending_decision
-from specifications.interfaces.agent import AgentEvent
+from specifications.interfaces.agent import AgentEvent, RunningTurnLive
 from specifications.interfaces.events import EventType, SessionEvent
 from specifications.interfaces.llm import ChatMessage
 from specifications.interfaces.session import SessionRecord
@@ -111,6 +112,12 @@ class TokenCoalescer:
             return
         await self.flush()
 
+    @asynccontextmanager
+    async def held(self) -> AsyncIterator[None]:
+        """No chunk is being published while inside: what was published so far is settled."""
+        async with self._flushing:
+            yield
+
     async def flush(self) -> None:
         self._cancel_timer()
         async with self._flushing:
@@ -132,7 +139,10 @@ class TurnEventHandlers:
 
     def __init__(self, ctx: TurnContext) -> None:
         self.ctx = ctx
-        self._coalescer = TokenCoalescer(self._publish)
+        self._coalescer = TokenCoalescer(self._publish_streamed)
+        # Characters streamed into the turn's text and reasoning that no published event holds
+        # yet; changed only inside the coalescer's publish lock, so a snapshot taken there is exact.
+        self._unpublished: dict[EventType, int] = {EventType.TOKEN: 0, EventType.REASONING_TOKEN: 0}
         self._question_timers: set[asyncio.Task[None]] = set()
         self._intervening_tool_called = False
         self._step_text_parts: list[str] = []
@@ -155,6 +165,7 @@ class TurnEventHandlers:
             "approval_required": self._approval_required,
             "plan_updated": self._plan_updated,
             "status": self._status,
+            "answer": self._answer,
             "subagent_started": self._forward(EventType.SUBAGENT_STARTED),
             "subagent_progress": self._forward(EventType.SUBAGENT_PROGRESS),
             "subagent_completed": self._forward(EventType.SUBAGENT_COMPLETED),
@@ -270,6 +281,7 @@ class TurnEventHandlers:
         else:
             state.reasoning_parts.append(delta)
         event_type = EventType.REASONING_TOKEN if is_reasoning else EventType.TOKEN
+        self._unpublished[event_type] += len(delta)
         await self._coalescer.add(event_type, delta)
         await asyncio.sleep(0)
 
@@ -523,6 +535,35 @@ class TurnEventHandlers:
             self.ctx.session_id, self.ctx.session.tenant_org_id, keep_checklist
         )
         await self._publish(EventType.PLAN_UPDATED, event.payload)
+
+    async def _publish_streamed(self, event_type: EventType, payload: dict[str, Any]) -> None:
+        await self._publish(event_type, payload)
+        self._unpublished[event_type] -= len(str(payload.get("delta") or ""))
+
+    async def live_snapshot(self) -> RunningTurnLive:
+        """What the turn has streamed since its last recorded step, exactly through ``seq``.
+
+        Taken while no chunk is being published: text still buffered is left out, since it
+        goes out later with a higher sequence, which a tab applies as a live event.
+        """
+        state = self.ctx.state
+        async with self._coalescer.held():
+            text = "".join(state.assistant_parts) + "".join(self._step_text_parts)
+            reasoning = "".join(state.reasoning_parts[state.reasoning_attached :])
+            text = text[: max(0, len(text) - self._unpublished[EventType.TOKEN])]
+            reasoning = reasoning[
+                : max(0, len(reasoning) - self._unpublished[EventType.REASONING_TOKEN])
+            ]
+            seq = self.ctx.req.event_bus.latest_seq(self.ctx.session_id)
+        return {
+            "current_reasoning": reasoning,
+            "current_text": text,
+            "seq": seq,
+            "step_ids": [str(step["id"]) for step in state.executed_tools if step.get("id")],
+        }
+
+    async def _answer(self, event: AgentEvent) -> None:
+        self.ctx.state.final_answer = str(event.payload.get("content") or "").strip()
 
     async def _status(self, event: AgentEvent) -> None:
         if event.payload.get("discard_partial"):

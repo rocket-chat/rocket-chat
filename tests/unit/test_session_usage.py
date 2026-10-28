@@ -148,3 +148,21 @@ def test_a_finished_turn_carries_its_metrics_and_a_running_one_none() -> None:
     assert finished.metrics is not None and finished.metrics.steps == 12
     assert finished.metrics.model_ms == 60_000 and finished.metrics.compactions == 0
     assert running.metrics is None
+
+
+def test_session_usage_includes_active_context_at_rest(client: TestClient) -> None:
+    created = client.post("/v1/sessions", json={"title": "Context Test"}, headers=OWNER)
+    session_id = created.json()["session_id"]
+    body = client.get(f"/v1/sessions/{session_id}/usage", headers=OWNER).json()
+    assert "active_context" in body
+    assert body["active_context"] is not None
+    assert body["active_context"]["limit"] > 0
+    assert body["active_context"]["tokens"] >= 0
+
+
+async def test_session_usage_recovers_tokens_from_recent_event(client: TestClient) -> None:
+    created = client.post("/v1/sessions", json={"title": "Real Context"}, headers=OWNER)
+    session_id = created.json()["session_id"]
+    await _record(app.state.usage_ledger, session_id)
+    body = client.get(f"/v1/sessions/{session_id}/usage", headers=OWNER).json()
+    assert body["active_context"]["tokens"] == 4000

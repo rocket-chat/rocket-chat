@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { planSync } from "../src/lib/sync-plan";
+import { isCoveredText, planSync } from "../src/lib/sync-plan";
 import {
   adoptCursor,
   advanceCursor,
@@ -49,9 +49,74 @@ test.describe("what a sync frame asks of the tab", () => {
     expect(selectUnseenEvents([event(1), event(2), event(3)], readCursor(id)).map((e) => e.seq)).toEqual([3]);
   });
 
+  test("a running turn's recorded steps are not rebuilt again from its replayed events", () => {
+    const frame = {
+      type: "sync",
+      last_seq: 6,
+      running_turn: {
+        turn_index: 1,
+        started_at: 1,
+        current_reasoning: "next",
+        steps: [{ id: "call_1", name: "bash_exec", status: "success", seq: 4, reasoning: "first" }],
+      },
+      catch_up: {
+        from_seq: 0,
+        events: [
+          event(2, "reasoning_token"),
+          { ...event(3, "tool_started"), payload: { id: "call_1" } },
+          { ...event(4, "tool_completed"), payload: { id: "call_1" } },
+          { ...event(5, "tool_started"), payload: { id: "call_2" } },
+          event(6, "reasoning_token"),
+        ],
+      },
+    } as SyncFrame;
+
+    const plan = planSync(frame);
+
+    // Without its own sequence the snapshot covers through its latest step: text up to it is in
+    // the record, as is the call it made. A call still running, the completion (idempotent) and
+    // the thought since then are not.
+    expect(plan.textCoveredThrough).toBe(4);
+    expect(plan.events.map((e) => e.seq)).toEqual([4, 5, 6]);
+  });
+
+  test("a snapshot taken at a sequence covers the text streamed up to it, replayed or live", () => {
+    const frame = {
+      type: "sync",
+      last_seq: 9,
+      running_turn: {
+        turn_index: 1,
+        started_at: 1,
+        seq: 7,
+        current_reasoning: "weighing two fixes",
+        current_text: "The cause is",
+        steps: [{ id: "call_1", name: "bash_exec", status: "success", seq: 4 }],
+      },
+      catch_up: {
+        from_seq: 0,
+        events: [event(6, "reasoning_token"), event(7, "token"), event(8, "token"), event(9, "plan_updated")],
+      },
+    } as SyncFrame;
+
+    const plan = planSync(frame);
+
+    expect(plan.runningTurn?.current_reasoning).toBe("weighing two fixes");
+    expect(plan.events.map((e) => e.seq)).toEqual([8, 9]);
+    // The same rule for frames still arriving live, from another replica for instance.
+    expect(isCoveredText({ event_type: "token", seq: 7 }, plan.textCoveredThrough)).toBe(true);
+    expect(isCoveredText({ event_type: "token", seq: 8 }, plan.textCoveredThrough)).toBe(false);
+    expect(isCoveredText({ event_type: "tool_started", seq: 5 }, plan.textCoveredThrough)).toBe(false);
+  });
+
   test("an idle session's snapshot is complete through last_seq, for resuming and fresh tabs alike", () => {
     const frame = { type: "sync", last_seq: 12, catch_up: null } as SyncFrame;
-    expect(planSync(frame)).toEqual({ rewindCursorTo: null, events: [], continueFrom: 12, runningTurn: null });
+    expect(planSync(frame)).toEqual({
+      rewindCursorTo: null,
+      events: [],
+      continueFrom: 12,
+      runningTurn: null,
+      textCoveredThrough: null,
+    });
   });
 
   test("running_turn data is passed through to the plan", () => {

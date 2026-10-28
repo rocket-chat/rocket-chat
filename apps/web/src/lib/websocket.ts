@@ -8,6 +8,7 @@ import {
   ReplayFrame,
   SessionData,
   SyncFrame,
+  TurnBinding,
 } from "../types/mission";
 import {
   advanceCursor,
@@ -17,7 +18,9 @@ import {
   rewindCursor,
   selectUnseenEvents,
 } from "./session-cursor";
-import { planSync, type SyncPlan } from "./sync-plan";
+import { isCoveredText, planSync, type SyncPlan } from "./sync-plan";
+import { sessionUpdateFrom } from "./session-update";
+import { isArtifactCall } from "./artifact-calls";
 
 /**
  * The transport boundary. Server frames are untyped JSON whose payload shape is
@@ -117,6 +120,17 @@ export function getDefaultWsBaseUrl(): string {
 
 let activeMissionWebSocket: MissionWebSocket | null = null;
 
+/**
+ * Who answers the turn still running when a tab connects. The live "running" status that names
+ * them went out before this tab was here; the turn's prompt records them, the trace the model.
+ */
+function runningTurnBinding(frame: SyncFrame): TurnBinding | null {
+  const prompt = [...(frame.session?.conversation_history ?? [])].reverse().find((m) => m.role === "user");
+  if (prompt?.model) return { agentName: prompt.agent_name || "", model: prompt.model };
+  const model = frame.running_turn?.model;
+  return model ? { agentName: "", model } : null;
+}
+
 export function getActiveMissionWebSocket(): MissionWebSocket | null {
   return activeMissionWebSocket;
 }
@@ -134,6 +148,8 @@ export class MissionWebSocket {
   private resumeRequestedSeq: number | null = null;
   /** True while the transcript is being rebuilt from the session snapshot. */
   private isResyncingFromSnapshot = false;
+  /** Streamed text up to this sequence is in the running turn's snapshot (see `planSync`). */
+  private textCoveredThrough: number | null = null;
 
   constructor(sessionId: string, baseUrl?: string, token?: string) {
     this.sessionId = sessionId;
@@ -232,6 +248,9 @@ export class MissionWebSocket {
     // redelivery of the same event.
     if (this.isResyncingFromSnapshot) return;
     if (seq !== null && isAlreadyApplied(this.sessionId, seq)) return;
+    // Published before the running turn's snapshot was taken (on another replica, it may still
+    // be on its way): that snapshot already shows it.
+    if (isCoveredText({ event_type: String(data.event_type || ""), seq: seq ?? undefined }, this.textCoveredThrough)) return;
 
     const timestampMs = typeof data.timestamp_ms === "number" ? data.timestamp_ms : undefined;
     this.applyEvent(
@@ -269,13 +288,18 @@ export class MissionWebSocket {
    * unclaimed until the replayed events have been applied.
    */
   private handleSyncFrame(frame: SyncFrame): void {
+    // Only the socket of the conversation on screen applies its snapshot. The store may still hold
+    // the conversation open before (a switch) or none at all: the socket's session is the one asked
+    // for, and its snapshot is the only record that comes with the running turn.
+    if (activeMissionWebSocket !== this) return;
     const store = useMissionStore.getState();
-    const active = store.session;
-    if (frame.session && (!active || active.session_id === this.sessionId)) {
+    if (frame.session && frame.session.session_id === this.sessionId) {
       store.setSession(frame.session);
     }
     if (frame.running_turn && frame.running_turn.status === "running") {
       store.setIsExecuting(true);
+      const binding = runningTurnBinding(frame);
+      if (binding) store.setTurnBinding(binding);
     }
     this.applySyncPlan(planSync(frame));
     // A turn paused on a person before this tab connected: show the card it is waiting on.
@@ -318,6 +342,7 @@ export class MissionWebSocket {
    * ignored by the store, so overlap with the record is harmless.
    */
   private applySyncPlan(plan: SyncPlan): void {
+    this.textCoveredThrough = plan.textCoveredThrough;
     if (plan.rewindCursorTo !== null) rewindCursor(this.sessionId, plan.rewindCursorTo);
     if (plan.runningTurn && Array.isArray(plan.runningTurn.steps)) {
       const store = useMissionStore.getState();
@@ -368,6 +393,7 @@ export class MissionWebSocket {
         store.appendReasoning(plan.runningTurn.current_reasoning);
         store.setIsReasoningActive(true);
       }
+      if (plan.runningTurn.current_text) store.updateLastAgentLog(plan.runningTurn.current_text);
     }
     for (const event of selectUnseenEvents(plan.events, readCursor(this.sessionId))) {
       this.applyEvent(
@@ -466,7 +492,13 @@ export class MissionWebSocket {
         store.setStatusMessage(message);
 
         if (typeof payload.context_tokens === "number" && typeof payload.context_limit === "number") {
-          store.setContextUsage(payload.context_tokens, payload.context_limit);
+          store.setContextUsage(payload.context_tokens, payload.context_limit, {
+            modelLimit: typeof payload.context_model_limit === "number" ? payload.context_model_limit : undefined,
+            targetTokens: typeof payload.context_target_tokens === "number" ? payload.context_target_tokens : undefined,
+            source: typeof payload.context_source === "string" ? payload.context_source : undefined,
+            tier2Tokens: typeof payload.context_tier2_tokens === "number" ? payload.context_tier2_tokens : undefined,
+            tier3Tokens: typeof payload.context_tier3_tokens === "number" ? payload.context_tier3_tokens : undefined,
+          });
         }
 
         if (payload.discard_partial || rawStatus === "retrying") {
@@ -717,12 +749,18 @@ export class MissionWebSocket {
         const art = payload as unknown as ArtifactItem;
         if (art && art.id) {
           store.upsertArtifact(art);
-          store.appendFlightLog({
-            id: `artifact-${art.id}-${art.version || Date.now()}`,
-            role: "SYSTEM",
-            content: `Deliverable: ${art.title} (${art.filename})`,
-            timestamp: eventTime,
-          });
+          // The call that saved it is the conversation's card; one saved by no call shown here
+          // (a subagent's) gets a card of its own.
+          const shownByCall = store.flightLog.some((entry) => isArtifactCall(entry.toolCall) && entry.toolCall.status === "pending");
+          if (!shownByCall) {
+            store.appendFlightLog({
+              id: `artifact-${art.id}-${art.version || eventKey}`,
+              role: "SYSTEM",
+              content: `Deliverable: ${art.title} (${art.filename})`,
+              timestamp: eventTime,
+              artifact: art,
+            });
+          }
         }
         break;
       }
@@ -844,16 +882,7 @@ export class MissionWebSocket {
 
       case "session_updated": {
         const targetSessionId = payload.session_id || frameSessionId;
-        if (targetSessionId) {
-          store.applySessionUpdate(targetSessionId, {
-            title: typeof payload.title === "string" ? payload.title : undefined,
-            is_pinned: typeof payload.is_pinned === "boolean" ? payload.is_pinned : undefined,
-            is_archived: typeof payload.is_archived === "boolean" ? payload.is_archived : undefined,
-            is_processing: typeof payload.is_processing === "boolean" ? payload.is_processing : undefined,
-            awaiting_input: typeof payload.awaiting_input === "string" ? payload.awaiting_input : undefined,
-            last_turn_status: typeof payload.last_turn_status === "string" ? payload.last_turn_status : undefined,
-          });
-        }
+        if (targetSessionId) store.applySessionUpdate(targetSessionId, sessionUpdateFrom(payload));
         break;
       }
 

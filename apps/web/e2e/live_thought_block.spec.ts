@@ -4,7 +4,7 @@ const BACKEND = "http://localhost:8000";
 
 async function openSession(page: Page): Promise<{ socket: WebSocketRoute; sessionId: string }> {
   let socket: WebSocketRoute | null = null;
-  await page.routeWebSocket(/\/ws/, (ws) => {
+  await page.routeWebSocket(/\/v1\/sessions\/[^/]+\/ws/, (ws) => {
     ws.connectToServer();
     socket = ws;
   });
@@ -15,6 +15,7 @@ async function openSession(page: Page): Promise<{ socket: WebSocketRoute; sessio
   });
   await page.goto(`/chat/${sessionId}`);
   await expect(page.getByTestId("flight-log-stream")).toContainText("Look into it");
+  await expect.poll(() => socket !== null, { message: "the session socket opens" }).toBe(true);
   if (!socket) throw new Error("no session socket");
   return { socket, sessionId };
 }

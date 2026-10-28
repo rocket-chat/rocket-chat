@@ -41,17 +41,21 @@ CONTROL_PHRASES = ("Budget notice", "maximum allowed turn limit", "Do NOT", "ope
 class _ScriptedGateway(LLMGatewayProtocol):
     """Tool calls until ``tool_steps`` are used, then answers; records every request."""
 
-    def __init__(self, tool_steps: int, first_call: dict[str, object] | None = None) -> None:
+    def __init__(
+        self,
+        tool_steps: int,
+        first_call: dict[str, object] | None = None,
+        calls: list[dict[str, object]] | None = None,
+    ) -> None:
         self.tool_steps = tool_steps
-        self.first_call = first_call
+        self.calls = list(calls) if calls is not None else ([first_call] if first_call else [])
         self.requests: list[ModelRequest] = []
 
     async def chat_stream(self, request: ModelRequest) -> AsyncIterator[StreamChunk]:
         self.requests.append(request)
         if request.tool_choice != "none" and self.tool_steps > 0:
             self.tool_steps -= 1
-            call = self.first_call or _TOOL_CALL
-            self.first_call = None
+            call = self.calls.pop(0) if self.calls else _TOOL_CALL
             yield StreamChunk(tool_call_delta=call)
             return
         yield StreamChunk(text_delta="ANSWER")
@@ -93,15 +97,39 @@ async def test_a_spent_budget_does_not_follow_the_session_into_the_next_turn() -
 
 @pytest.mark.asyncio
 async def test_every_request_has_only_leading_system_messages() -> None:
-    gateway = _ScriptedGateway(tool_steps=1, first_call=CHECKLIST_CALL)
+    calls = [
+        {
+            "index": 0,
+            "id": "c1",
+            "type": "function",
+            "function": {
+                "name": "file_write",
+                "arguments": '{"path": "foo.py", "content": "x=1"}',
+            },
+        },
+        {
+            "index": 0,
+            "id": "c2",
+            "type": "function",
+            "function": {
+                "name": "update_task_checklist",
+                "arguments": '{"tasks": [{"id": "1", "title": "Do it", "status": "completed"}]}',
+            },
+        },
+    ]
+    gateway = _ScriptedGateway(tool_steps=2, calls=calls)
     registry = ToolRegistry(driver=FakeSandboxDriver(), session_id="s_lead")
     orchestrator = AsyncReActOrchestrator(gateway, registry)
 
     await _turn(orchestrator, "s_lead", limit=10)
 
-    assert len(gateway.requests) >= 3, "tool step, answer, checklist reminder, answer"
+    assert len(gateway.requests) >= 3, (
+        "tool step 1, tool step 2, answer, verification reminder, answer"
+    )
     assert all(misplaced_system_messages(r.messages) == 0 for r in gateway.requests)
-    reminded = [r for r in gateway.requests if "open tasks" in (r.messages[-1].content or "")]
+    reminded = [
+        r for r in gateway.requests if "Verification gate" in (r.messages[-1].content or "")
+    ]
     assert len(reminded) == 1 and reminded[0].messages[-1].role == "user"
 
 

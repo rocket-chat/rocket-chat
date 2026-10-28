@@ -20,7 +20,8 @@ from pydantic import BaseModel, Field
 from api.auth.access import _check_session_access, _get_request_identity
 from api.models import SessionResponse
 from api.services.session_support import _to_response
-from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
+from api.services.session_updates import publish_session_update
+from specifications.interfaces.events import EventBusProtocol
 from specifications.interfaces.session import (
     SessionCursor,
     SessionStoreProtocol,
@@ -73,17 +74,15 @@ async def _publish_session_updated(request: Request, record: Any) -> None:
     event_bus: EventBusProtocol | None = getattr(request.app.state, "event_bus", None)
     if event_bus is None:
         return
-    await event_bus.publish(
-        SessionEvent(
-            session_id=record.session_id,
-            event_type=EventType.SESSION_UPDATED,
-            payload={
-                "session_id": record.session_id,
-                "title": record.title,
-                "is_pinned": bool(record.is_pinned),
-                "is_archived": bool(record.is_archived),
-            },
-        )
+    await publish_session_update(
+        event_bus,
+        record.session_id,
+        record.tenant_org_id,
+        {
+            "title": record.title,
+            "is_pinned": bool(record.is_pinned),
+            "is_archived": bool(record.is_archived),
+        },
     )
 
 

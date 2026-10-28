@@ -31,7 +31,7 @@ async def test_d5d6109b52_replay_executes_reasoning_and_completes() -> None:
         pass
 
     # Verify that the turn didn't abort on length-truncated reasoning steps
-    assert len(gateway.requests) == 5
+    assert len(gateway.requests) == 4
     # Verify memory note placement: must be inserted immediately after the user message
     assert gateway.requests[0].messages[0].content == gateway.data["initial_prompt"]
     assert gateway.memory_note in (gateway.requests[0].messages[1].content or "")
@@ -48,9 +48,7 @@ async def test_d5d6109b52_replay_executes_reasoning_and_completes() -> None:
     assert "output token limit while you were still reasoning" in (
         gateway.requests[3].messages[-1].content or ""
     )
-    # Step 5: checklist reminder before finish
-    assert "Before you answer" in (gateway.requests[4].messages[-1].content or "")
     history = orchestrator._session_histories[session_id]
     final_message = history[-1]
     assert final_message.role == "assistant"
-    assert "Replay finished" in (final_message.content or "")
+    assert "Rebase onto origin/beta complete" in (final_message.content or "")

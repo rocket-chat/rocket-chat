@@ -202,3 +202,22 @@ def verification_gate_notice(conversation: Sequence[ChatMessage]) -> str | None:
                     "give your final answer now and say in one line what was not verified."
                 )
     return None
+
+
+def merge_verified_answers(draft_answer: str, verification_text: str) -> str:
+    """Combine a substantive pre-verification draft answer with post-verification confirmation.
+
+    Avoids losing the substantive explanation when a verification gate prompts the agent to run
+    tests or linters before finishing the turn.
+    """
+    draft = draft_answer.strip()
+    verif = verification_text.strip()
+    if not draft:
+        return verif
+    if not verif:
+        return draft
+    if draft in verif:
+        return verif
+    if verif in draft:
+        return draft
+    return f"{draft}\n\n**Verification:**\n{verif}"

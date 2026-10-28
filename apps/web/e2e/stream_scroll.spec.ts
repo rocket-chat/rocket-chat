@@ -9,7 +9,7 @@ async function openLongSession(page: Page): Promise<WebSocketRoute> {
   let socket: WebSocketRoute | null = null;
   // Proxy the real socket (the transcript arrives in its `sync`), and keep a handle for injecting
   // extra frames into the page.
-  await page.routeWebSocket(/\/ws/, (ws) => {
+  await page.routeWebSocket(/\/v1\/sessions\/[^/]+\/ws/, (ws) => {
     ws.connectToServer();
     socket = ws;
   });
@@ -24,6 +24,7 @@ async function openLongSession(page: Page): Promise<WebSocketRoute> {
 
   await page.goto(`/chat/${sessionId}`);
   await expect(page.getByTestId("flight-log-stream")).toContainText("Answer number 39");
+  await expect.poll(() => socket !== null, { message: "the session socket opens" }).toBe(true);
   if (!socket) throw new Error("no session socket");
   return socket;
 }

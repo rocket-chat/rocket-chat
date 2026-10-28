@@ -36,10 +36,11 @@ from api.services.session_support import (
     apply_sharing,
     slice_history_tail,
 )
+from api.services.session_updates import publish_session_update
 from api.services.turn_trace import session_running_turn
 from api.turns.context import TurnSelection
 from api.turns.gates import _forget_pending_decisions, take_stored_question
-from api.turns.runner import _active_running_turns
+from api.turns.running import running_turn_snapshot
 from api.turns.tasks import _spawn_background_turn
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
 from specifications.interfaces.sandbox import SandboxDriverProtocol
@@ -213,36 +214,32 @@ class SessionSocket:
         self._running_turn = await self._read_running_turn()
 
     async def _read_running_turn(self) -> dict[str, Any] | None:
-        running = _active_running_turns.get(self._session_id)
-        if running is not None:
-            ctx = running.get("ctx")
-            current_reasoning = ""
-            if ctx is not None and getattr(ctx, "state", None) is not None:
-                parts = getattr(ctx.state, "reasoning_parts", [])
-                attached = getattr(ctx.state, "reasoning_attached", 0)
-                if parts and len(parts) > attached:
-                    current_reasoning = "".join(parts[attached:]).strip()
-            return {
-                "turn_index": running["turn_index"],
-                "started_at": running["started_at"],
-                "model": running.get("model") or "",
-                "status": running.get("status") or "running",
-                "steps": list(running.get("steps") or []),
-                "current_reasoning": current_reasoning,
-            }
-        if self._db is None:
-            return None
+        local = await running_turn_snapshot(self._session_id)
+        if local is not None or self._db is None:
+            return local
+        # Run by another replica: its steps are stored as they complete, and what it streamed
+        # since the last one is asked of it, so this tab does not wait for the turn to end.
         trace = await session_running_turn(self._db, self._session_id, self._org_id)
         if trace is None:
             return None
-        return {
+        relay = self._orchestrator.cluster_relay
+        live = await relay.fetch_running_turn(self._session_id) if relay is not None else None
+        if live is not None and not set(live["step_ids"]) <= _step_ids(trace.tool_calls):
+            # A step completed on that replica just before it answered and is not stored yet.
+            await asyncio.sleep(_STEP_STORE_GRACE_SECONDS)
+            trace = await session_running_turn(self._db, self._session_id, self._org_id) or trace
+        snapshot: dict[str, Any] = {
             "turn_index": trace.turn_index,
             "started_at": trace.started_at,
             "model": trace.tokens.get("model") or "",
             "status": trace.status,
             "steps": list(trace.tool_calls or []),
-            "current_reasoning": "",
+            "current_reasoning": live["current_reasoning"] if live else "",
+            "current_text": live["current_text"] if live else "",
         }
+        if live is not None:
+            snapshot["seq"] = live["seq"]
+        return snapshot
 
     def _snapshot(self, seq_before_read: int) -> tuple[dict[str, Any], int]:
         """The sync frame and the sequence the live stream must continue after.
@@ -504,12 +501,11 @@ class SessionSocket:
             record.tenant_org_id,
             lambda current: apply_sharing(current, is_shared, collaborators),
         )
-        await self._event_bus.publish(
-            SessionEvent(
-                session_id=self._session_id,
-                event_type=EventType.SESSION_UPDATED,
-                payload={"is_shared": is_shared, "collaborators": collaborators},
-            )
+        await publish_session_update(
+            self._event_bus,
+            self._session_id,
+            record.tenant_org_id,
+            {"is_shared": is_shared, "collaborators": collaborators},
         )
 
     async def _on_ping(self, data: dict[str, Any]) -> None:
@@ -517,6 +513,12 @@ class SessionSocket:
 
 
 _TURN_OVER_STATUSES = frozenset({"completed", "error", "cancelled"})
+# How long a step another replica reported as done may take to reach the store.
+_STEP_STORE_GRACE_SECONDS = 0.25
+
+
+def _step_ids(steps: list[dict[str, Any]] | None) -> set[str]:
+    return {str(step["id"]) for step in steps or [] if step.get("id")}
 
 
 def _in_flight_turn_cursor(history: list[SessionEvent], latest: int) -> int:

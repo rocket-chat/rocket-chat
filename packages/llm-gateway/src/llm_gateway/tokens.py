@@ -22,6 +22,15 @@ MIN_ESTIMATED_COMPLETION_TOKENS = 10
 IMAGE_TOKEN_ESTIMATE = 1_600
 
 
+def _current_turn_start(messages: Sequence[ChatMessage]) -> int:
+    """Index of the latest message the person wrote (the tool loop of the turn follows it)."""
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if message.role == "user" and not (message.content or "").startswith("<system-reminder>"):
+            return index
+    return 0
+
+
 def request_tokens(
     model: str, messages: Sequence[ChatMessage], tools: Sequence[ToolDefinition] | None = ()
 ) -> int:
@@ -30,14 +39,19 @@ def request_tokens(
     replay = reasoning_replay(model)
     parts: list[str] = []
     images = 0
-    for message in messages:
+    turn_start = _current_turn_start(messages) if replay == _CONTENT else 0
+    for index, message in enumerate(messages):
         parts.append(message.content or "")
         if message.tool_calls:
             parts.append(json.dumps(message.tool_calls))
         # Only count reasoning tokens if the model family re-sends reasoning blocks on the wire.
-        # Otherwise, historical reasoning is not sent and counting it inflates context estimation.
-        if message.reasoning and replay in (_BLOCKS, _CONTENT):
-            parts.append(message.reasoning)
+        # DeepSeek (_CONTENT) only replays reasoning within the current turn's tool loop;
+        # counting historical reasoning inflates context estimation by hundreds of thousands of dead tokens.
+        if message.reasoning:
+            if replay == _BLOCKS:
+                parts.append(message.reasoning)
+            elif replay == _CONTENT and index >= turn_start and message.tool_calls:
+                parts.append(message.reasoning)
         images += sum(1 for item in message.attachments or [] if item.is_image)
     for tool in tools or ():
         parts.append(f"{tool.name} {tool.description} {json.dumps(tool.parameters_json_schema)}")

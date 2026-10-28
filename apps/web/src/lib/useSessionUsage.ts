@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionUsage } from "./session-usage";
+import { useMissionStore } from "./store";
 
 const POLL_MS = 8000;
 
@@ -13,13 +14,34 @@ const POLL_MS = 8000;
 export function useSessionUsage(sessionId: string | undefined, running: boolean) {
   const [usage, setUsage] = useState<SessionUsage | null>(null);
   const wasRunning = useRef(false);
+  const runningRef = useRef(running);
+  runningRef.current = running;
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
       if (!sessionId) return;
       try {
         const res = await fetch(`/v1/sessions/${sessionId}/usage`, { signal });
-        if (res.ok) setUsage((await res.json()) as SessionUsage);
+        if (res.ok) {
+          const data = (await res.json()) as SessionUsage;
+          setUsage(data);
+          if (
+            data.active_context &&
+            typeof data.active_context.tokens === "number" &&
+            typeof data.active_context.limit === "number"
+          ) {
+            const store = useMissionStore.getState();
+            if (!runningRef.current || store.contextTokens == null) {
+              store.setContextUsage(data.active_context.tokens, data.active_context.limit, {
+                modelLimit: data.active_context.model_limit,
+                targetTokens: data.active_context.target_tokens,
+                source: data.active_context.source,
+                tier2Tokens: data.active_context.tier2_tokens,
+                tier3Tokens: data.active_context.tier3_tokens,
+              });
+            }
+          }
+        }
       } catch {
         // A missed read leaves the last figures: the next one corrects them.
       }

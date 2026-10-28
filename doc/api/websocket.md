@@ -31,8 +31,8 @@ Upon connection the server rehydrates the session and emits a state sync frame:
 
 `catch_up` is `null` for an idle session. When a turn is still running (or ended while the
 session record was being read) it is `{"from_seq": 398, "events": [...]}`: the events the
-record cannot hold yet, to apply on top of `session`. `running_turn` provides the in-flight turn metadata and its completed steps (`steps` list with `id`, `name`, `arguments`, `result`, `status`, `duration_ms`, `redacted`, `seq`, and `reasoning`: what the model thought before the call, on the first call of each step) so a client connecting or refreshing mid-turn renders the full flight log without waiting for the turn to complete. Events are idempotent by `seq`, and
-tokens of an answer that is already stored are ignored, so overlap with the record is safe. A client that applies a `sync` with a `catch_up` must rewind its resume cursor to `from_seq` first: the snapshot replaced the transcript, so anything it had applied beyond that point has to be applied again.
+record cannot hold yet, to apply on top of `session`. `running_turn` provides the in-flight turn metadata, `current_reasoning` and `current_text` (what it has streamed since its last step: the thought in progress, and a preface or the answer so far), `seq` (the sequence those two cover through: every `token`/`reasoning_token` up to it is in them, none after it), and its completed steps (`steps` list with `id`, `name`, `arguments`, `result`, `status`, `duration_ms`, `redacted`, `seq`, and `reasoning`: what the model thought before the call, on the first call of each step) so a client connecting or refreshing mid-turn renders the full flight log without waiting for the turn to complete. Events are idempotent by `seq`, and
+tokens of an answer that is already stored are ignored, so overlap with the record is safe. `catch_up` starts where the running turn began, so it also holds the events of the steps `running_turn` already lists: a client showing them skips the catch-up's `tool_started` for a listed call, and every `token`/`reasoning_token` up to `running_turn.seq` (or, without it, up to the highest step `seq`, the sequence just after that step's `tool_completed`), in the catch-up and among the live events that follow alike. On a replica that is not running the turn, `running_turn` holds the stored steps and the live part reported by the replica that is, and there may be no `catch_up`. A client that applies a `sync` with a `catch_up` must rewind its resume cursor to `from_seq` first: the snapshot replaced the transcript, so anything it had applied beyond that point has to be applied again.
 
 A turn is over when a `status_changed` event with `"final": true` arrives (completed, or error). The orchestrator also reports `completed` earlier, before the answer is stored, which is why that one does not carry the flag.
 
@@ -124,7 +124,7 @@ Reports one edit the agent made to a file, with its unified diff. It is also the
 ```
 
 ### E. Status, Plans, Subagents, Synthesis, and Errors
-The remaining catalogue uses the same envelope: `token`, `status_changed` (payload: `status`, `message`, `context_tokens`, `context_limit`; while a step runs tools, `status: "running"` carries a short action such as `Reading files...` or `Running a command...`, never the model's own text, which arrives as `token` events; `context_tokens` and `context_limit` provide live context window gauge metrics),
+The remaining catalogue uses the same envelope: `token`, `status_changed` (payload: `status`, `message`, `context_tokens`, `context_limit`, `context_model_limit`, `context_target_tokens`, `context_source`, `context_tier2_tokens`, `context_tier3_tokens`; while a step runs tools, `status: "running"` carries a short action such as `Reading files...` or `Running a command...`, never the model's own text, which arrives as `token` events; `context_tokens` and `context_limit` provide live context window gauge metrics with pruning and compaction thresholds),
 `plan_updated`, `post_failure_synthesis`, `subagent_started`,
 `subagent_progress`, `subagent_completed`, `followup_suggestion`,
 `session_updated`, `sandbox_state` (payload: `state`, `message`; `state: "failed"` means the sandbox could not start and `message` says why, for example an image that cannot be pulled), `decision_submitted`, `user_message`, `message_pending` (payload: `message_id`, `delivery`, `content`, `author_user_id`), `message_cancelled` (payload: `message_id`), `process_started`,
@@ -299,6 +299,28 @@ missed, instead of losing everything published in the gap:
 ```
 The server answers with a control frame containing the missed suffix (see `replay` in §2),
 after which live delivery continues on the same socket.
+
+## 4. The Session List Socket (`/v1/sidebar/ws`)
+
+`ws://<host>/v1/sidebar/ws?token=<token>` follows where every session the caller may see stands,
+for a list of conversations. It authenticates like the session socket and closes with `1008`
+without credentials. Once it is listening it sends `{"type": "ready"}`; read the list
+(`GET /v1/sessions`) then, since nothing from before is replayed. It then sends each
+`session_updated` event of the caller's organization whose session the caller may open (the
+same rule as the session socket, checked against the session as stored when the event is
+relayed, so a session unshared since the socket opened is no longer reported):
+
+```json
+{
+  "event_type": "session_updated",
+  "session_id": "session_8f2a",
+  "payload": { "session_id": "session_8f2a", "is_processing": false, "last_turn_status": "waiting" },
+  "timestamp_ms": 1793191830000
+}
+```
+
+The payload is the one documented in §2 E. It accepts `{"type": "ping"}` (answered with
+`{"type": "pong"}`) and no other message.
 
 ## `plan_updated`
 

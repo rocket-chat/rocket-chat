@@ -54,6 +54,11 @@ class StatusPayload(TypedDict):
     discard_partial: NotRequired[bool]
     context_tokens: NotRequired[int]
     context_limit: NotRequired[int]
+    context_model_limit: NotRequired[int]
+    context_target_tokens: NotRequired[int]
+    context_source: NotRequired[str]
+    context_tier2_tokens: NotRequired[int]
+    context_tier3_tokens: NotRequired[int]
 
 
 class ToolStartedPayload(TypedDict):

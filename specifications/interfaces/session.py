@@ -100,12 +100,18 @@ class SessionStoreProtocol(ABC):
 
     @abstractmethod
     async def get_session(
-        self, session_id: str, tenant_org_id: str | None = None
+        self,
+        session_id: str,
+        tenant_org_id: str | None = None,
+        *,
+        include_history: bool = True,
     ) -> SessionRecord | None:
         """Retrieves a session record by its unique ID.
 
         ``tenant_org_id`` scopes the read to one organization where the store enforces tenancy
         (row-level security); a store that keeps one process-wide dict ignores it.
+        ``include_history=False`` leaves ``conversation_history`` empty: a read of who may see
+        the session or where it stands need not load a transcript that can run to megabytes.
         """
         pass
 

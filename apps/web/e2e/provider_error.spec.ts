@@ -7,9 +7,10 @@ import { test, expect, type WebSocketRoute } from "@playwright/test";
 const REFUSAL =
   "anthropic refused the credentials: add or fix the provider key in Settings > Models (invalid x-api-key)";
 
-async function openSession(page: import("@playwright/test").Page): Promise<() => WebSocketRoute> {
+/** The session socket, once the cockpit has opened it (it may still be connecting). */
+async function openSession(page: import("@playwright/test").Page): Promise<() => WebSocketRoute | null> {
   let socket: WebSocketRoute | null = null;
-  await page.routeWebSocket(/\/ws/, (ws) => {
+  await page.routeWebSocket(/\/v1\/sessions\/[^/]+\/ws/, (ws) => {
     socket = ws;
     ws.send(JSON.stringify({ type: "sync" }));
   });
@@ -17,10 +18,7 @@ async function openSession(page: import("@playwright/test").Page): Promise<() =>
   await page.getByTestId("instruction-input").fill("Say hello");
   await page.getByTestId("ignite-button").click();
   await expect(page).toHaveURL(/\/chat\/session_.+/, { timeout: 15000 });
-  return () => {
-    if (!socket) throw new Error("The cockpit did not open a telemetry WebSocket");
-    return socket;
-  };
+  return () => socket;
 }
 
 test("a refused provider shows an actionable error, not an answer", async ({ page }) => {
@@ -32,7 +30,7 @@ test("a refused provider shows an actionable error, not an answer", async ({ pag
   await expect
     .poll(
       async () => {
-        socket().send(
+        socket()?.send(
           JSON.stringify({
             event_type: "status_changed",
             payload: { status: "error", message: REFUSAL, error: REFUSAL, final: true },

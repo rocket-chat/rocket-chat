@@ -14,6 +14,7 @@ import sys
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -22,9 +23,10 @@ from agent_core.tools.registry import ToolRegistry
 from api.db.session import DatabaseSessionManager
 from api.events_shared import PostgresEventBus, asyncpg_dsn
 from api.services.cluster import ClusterRelay
+from api.turns.running import _active_running_turns
 from sqlalchemy import text
 
-from specifications.interfaces.agent import ApprovalRequest, InteractiveQuestion
+from specifications.interfaces.agent import ApprovalRequest, InteractiveQuestion, RunningTurnLive
 from specifications.interfaces.events import EventType, SessionEvent
 from specifications.interfaces.llm import LLMGatewayProtocol
 
@@ -297,6 +299,45 @@ async def test_an_answer_given_on_another_replica_reaches_the_asking_turn(
 
     await asyncio.wait_for(wait.wait(), 3)
     assert turn_pod.gates.get_question_answer(qid) == (["safe"], "because")
+
+
+@pytest.mark.asyncio
+async def test_a_tab_on_another_replica_gets_what_the_running_turn_streamed(
+    pair: tuple[PostgresEventBus, PostgresEventBus],
+) -> None:
+    bus_a, bus_b = pair
+    _orchestrator(bus_a)
+    tab_pod = _orchestrator(bus_b)
+    sid = _sid()
+    live: RunningTurnLive = {
+        "current_reasoning": "Compare the two lock orders.",
+        "current_text": "The deadlock comes from",
+        "seq": 42,
+        "step_ids": ["call_1"],
+    }
+
+    async def live_snapshot() -> RunningTurnLive:
+        return live
+
+    # Both replicas share this process's registry; a replica never hears its own request, so
+    # only the other one answers, as the replica running the turn would.
+    _active_running_turns[sid] = {"handlers": SimpleNamespace(live_snapshot=live_snapshot)}
+    try:
+        relay = tab_pod.cluster_relay
+        assert relay is not None
+        assert await relay.fetch_running_turn(sid) == live
+    finally:
+        _active_running_turns.pop(sid, None)
+
+
+@pytest.mark.asyncio
+async def test_a_turn_no_replica_runs_yields_nothing_rather_than_a_wait(
+    pair: tuple[PostgresEventBus, PostgresEventBus],
+) -> None:
+    _, bus_b = pair
+    relay = _orchestrator(bus_b).cluster_relay
+    assert relay is not None
+    assert await relay.fetch_running_turn(_sid()) is None
 
 
 @pytest.mark.asyncio

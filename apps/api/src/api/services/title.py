@@ -18,7 +18,8 @@ from typing import Any
 from llm_gateway.structured import StructuredOutputError, generate_structured
 from pydantic import BaseModel, Field
 
-from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
+from api.services.session_updates import publish_session_update
+from specifications.interfaces.events import EventBusProtocol
 from specifications.interfaces.llm import ChatMessage, LLMGatewayProtocol, ModelRequest
 from specifications.interfaces.session import SessionRecord, SessionStoreProtocol
 
@@ -178,12 +179,8 @@ async def apply_ai_title(
             return None
         session.title = title
         if event_bus is not None:
-            await event_bus.publish(
-                SessionEvent(
-                    session_id=session.session_id,
-                    event_type=EventType.SESSION_UPDATED,
-                    payload={"title": title, "session_id": session.session_id},
-                )
+            await publish_session_update(
+                event_bus, session.session_id, session.tenant_org_id, {"title": title}
             )
         return title
     except Exception:

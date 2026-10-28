@@ -22,7 +22,7 @@
     "web_fetch",
     "web_search"
   ],
-  "tool_definition_chars": 16297,
+  "tool_definition_chars": 16472,
   "system_prompt_chars": 9211,
-  "overhead_tokens": 5784
+  "overhead_tokens": 5821
 }

@@ -27,13 +27,67 @@ DECIDE_NOW_NOTE = (
 class StepReasoningOverrunError(Exception):
     """The model reasoned past the step limit before acting; ``collector`` holds what it wrote."""
 
-    def __init__(self, collector: object) -> None:
-        super().__init__("reasoning limit reached before the model acted")
+    def __init__(self, collector: object, reason: str = "token_limit") -> None:
+        super().__init__(f"reasoning limit reached before the model acted ({reason})")
         self.collector = collector
+        self.reason = reason
 
 
 def reasoning_tokens_estimate(reasoning: str) -> int:
     return len(reasoning) // CHARACTERS_PER_TOKEN
+
+
+def detect_repetition_loop(reasoning: str) -> bool:
+    """True if the recent tail of the reasoning stream contains degenerate repeating cycles.
+
+    Catches autoregressive attractor loops early (e.g. models repeating 'OK. Writing. Let me go.'
+    dozens of times) without waiting for whole-step token exhaustion.
+    """
+    if len(reasoning) < 120:
+        return False
+    tail = reasoning[-2000:]
+    words = tail.split()
+    if len(words) < 15:
+        return False
+    for cycle_len in range(1, 25):
+        if len(words) < cycle_len * 3:
+            continue
+        pattern = words[-cycle_len:]
+        repeats = 0
+        idx = len(words)
+        while idx >= cycle_len and words[idx - cycle_len : idx] == pattern:
+            repeats += 1
+            idx -= cycle_len
+        threshold = 8 if cycle_len == 1 else (5 if cycle_len <= 4 else 3)
+        if repeats >= threshold:
+            return True
+    return False
+
+
+def sanitize_partial_reasoning(reasoning: str, max_chars: int = 3000) -> str:
+    """Strips trailing repetitive loops and bounds the reasoning tail kept for retry notes."""
+    if not reasoning or not reasoning.strip():
+        return ""
+    text = reasoning.strip()
+    words = text.split()
+    if len(words) >= 15:
+        for cycle_len in range(1, 25):
+            if len(words) < cycle_len * 3:
+                continue
+            pattern = words[-cycle_len:]
+            repeats = 0
+            idx = len(words)
+            while idx >= cycle_len and words[idx - cycle_len : idx] == pattern:
+                repeats += 1
+                idx -= cycle_len
+            threshold = 8 if cycle_len == 1 else (5 if cycle_len <= 4 else 3)
+            if repeats >= threshold:
+                kept = words[:idx]
+                text = " ".join(kept) if kept else ""
+                break
+    if not text:
+        return ""
+    return text[-max_chars:].strip()
 
 
 def decisive_request(
@@ -44,10 +98,9 @@ def decisive_request(
 ) -> ModelRequest:
     """``request`` again with reasoning off and the note to decide appended."""
     notes = [DECIDE_NOW_NOTE]
-    if partial_reasoning and partial_reasoning.strip():
-        # Keep the tail of the reasoning so the decision can act on what was gathered
-        tail = partial_reasoning.strip()[-3000:]
-        notes.append(f"Your partial analysis before stopping was:\n{tail}")
+    clean_tail = sanitize_partial_reasoning(partial_reasoning or "")
+    if clean_tail:
+        notes.append(f"Your partial analysis before stopping was:\n{clean_tail}")
     return replace(
         request,
         messages=[

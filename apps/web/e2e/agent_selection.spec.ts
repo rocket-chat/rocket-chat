@@ -45,7 +45,7 @@ test("an answer keeps the agent that wrote it when the selection changes", async
   const created = await request.post(`${API}/v1/sessions`, { data: { title: "Who answered" } });
   const sessionId = (await created.json()).session_id as string;
   const sent: Record<string, unknown>[] = [];
-  await page.routeWebSocket(/\/ws/, (ws) => {
+  await page.routeWebSocket(/\/v1\/sessions\/[^/]+\/ws/, (ws) => {
     const server = ws.connectToServer();
     ws.onMessage((message) => {
       const frame = JSON.parse(String(message));
