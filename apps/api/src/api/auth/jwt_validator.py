@@ -145,6 +145,8 @@ class JWTValidator:
         roles = claims.get("roles") or ["developer"]
         if not isinstance(roles, list):
             roles = [str(roles)]
+        # A ``guest`` claim is held to ``readonly``, as for a signed-in member (``roles_for``).
+        roles = ["readonly" if str(role) == "guest" else str(role) for role in roles]
 
         return RequestContext(
             user_id=str(user_id),

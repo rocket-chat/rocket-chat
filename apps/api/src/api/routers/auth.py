@@ -27,6 +27,7 @@ from api.auth.local import (
 )
 from api.auth.oidc import OidcConfig, OidcError, begin_login, complete_login
 from api.auth.origin import public_origin
+from api.auth.roles import roles_for
 from api.auth.session_manager import (
     clear_session_cookie,
     create_session_token,
@@ -131,6 +132,15 @@ def is_admin_email(email: str) -> bool:
     return norm_email in admin_emails
 
 
+WRONG_ORGANIZATION = (
+    "This account belongs to another organization. Ask your administrator to move it."
+)
+
+
+class MemberOfAnotherOrganization(Exception):
+    """The member's row belongs to another organization than the one this sign-in maps to."""
+
+
 async def _ensure_db_user_and_org(
     db_mgr: DatabaseSessionManager | None,
     user_id: str,
@@ -143,9 +153,14 @@ async def _ensure_db_user_and_org(
 
     Determines roles through the following hierarchy:
     1. Direct admin configuration via INITIAL_ADMIN_EMAIL or ADMIN_EMAILS env vars.
-    2. Bootstrap rule: First user in the database is automatically granted the admin role.
+    2. Bootstrap rule: the organization's first member is granted the admin role.
     3. Existing role persisted on UserModel.
     4. Default role provided (or 'developer').
+
+    ``users`` has no row-level security (it is the identity registry), so every read here is
+    scoped to ``org_id`` by hand. A member whose row lives in another organization is refused
+    with :class:`MemberOfAnotherOrganization`: applying that row's role here would let one
+    organization's administrator sign in as an administrator of another.
     """
     admin_roles = ["admin", "owner", "developer"]
     matches_admin_email = is_admin_email(email)
@@ -154,76 +169,82 @@ async def _ensure_db_user_and_org(
         if matches_admin_email:
             return admin_roles
         if role:
-            return admin_roles if role in ("admin", "owner") else [role]
+            return roles_for(role)
         return ["developer"]
 
     try:
-        async with db_mgr.session(tenant_org_id=org_id) as session:
-            org = await session.get(OrganizationModel, org_id)
-            if not org:
-                org = OrganizationModel(
-                    id=org_id,
-                    name=org_id.replace("_", " ").title(),
-                    slug=org_id.replace("_", "-").lower(),
-                )
-                session.add(org)
-                await session.flush()
-
-            user = await session.get(UserModel, user_id)
-            if user:
-                if matches_admin_email and user.role not in ("admin", "owner"):
-                    user.role = "admin"
-                    await session.flush()
-
-                if user.role in ("admin", "owner"):
-                    return admin_roles
-                return [user.role]
-
-            count_res = await session.execute(
-                select(func.count(UserModel.id)).where(UserModel.id != "dev_user")
-            )
-            total_users = count_res.scalar_one_or_none() or 0
-            is_first_user = total_users == 0
-
-            if matches_admin_email or is_first_user or (role in ("admin", "owner")):
-                assigned_role = "admin"
-                effective_roles = admin_roles
-            else:
-                assigned_role = role or "developer"
-                effective_roles = [assigned_role]
-
-            user = UserModel(
-                id=user_id,
-                org_id=org_id,
-                email=email,
-                name=name,
-                role=assigned_role,
-            )
-            session.add(user)
-            await session.flush()
-            return effective_roles
+        return await _provision_member(db_mgr, user_id, org_id, email, name, role)
+    except MemberOfAnotherOrganization:
+        raise
     except IntegrityError:
-        # Row-level security hides a member row of another organization, so the insert
-        # collides with it: the member exists, but not where this sign-in places them
-        # (ROCKET_SSO_ORG_MODE / ROCKET_DEFAULT_ORG_ID changed since they first signed in).
-        # Everything that needs their row in this organization (pairing, linked accounts)
-        # will fail until an operator moves it.
-        logger.error(
-            "Member %s already exists in another organization than %s, where this sign-in "
-            "places them; move the member (and their data) to one organization",
-            user_id,
-            org_id,
-        )
-        if matches_admin_email:
-            return admin_roles
-        return [role] if role else ["developer"]
+        # A concurrent first sign-in inserted the row between our read and our insert.
+        return await _provision_member(db_mgr, user_id, org_id, email, name, role)
     except Exception as err:
         logger.warning("Failed ensuring user/org in database: %s", err)
         if matches_admin_email:
             return admin_roles
         if role:
-            return admin_roles if role in ("admin", "owner") else [role]
+            return roles_for(role)
         return ["developer"]
+
+
+async def _provision_member(
+    db_mgr: DatabaseSessionManager,
+    user_id: str,
+    org_id: str,
+    email: str,
+    name: str,
+    role: str | None,
+) -> list[str]:
+    admin_roles = ["admin", "owner", "developer"]
+    matches_admin_email = is_admin_email(email)
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        org = await session.get(OrganizationModel, org_id)
+        if not org:
+            org = OrganizationModel(
+                id=org_id,
+                name=org_id.replace("_", " ").title(),
+                slug=org_id.replace("_", "-").lower(),
+            )
+            session.add(org)
+            await session.flush()
+
+        user = await session.get(UserModel, user_id)
+        if user and user.org_id != org_id:
+            logger.error(
+                "Refused sign-in: member %s belongs to another organization than %s, where "
+                "this sign-in places them (ROCKET_SSO_ORG_MODE / ROCKET_DEFAULT_ORG_ID changed "
+                "since they first signed in); move the member to one organization",
+                user_id,
+                org_id,
+            )
+            raise MemberOfAnotherOrganization(user_id)
+        if user:
+            if matches_admin_email and user.role not in ("admin", "owner"):
+                user.role = "admin"
+                await session.flush()
+
+            return roles_for(user.role)
+
+        count_res = await session.execute(
+            select(func.count(UserModel.id)).where(
+                UserModel.org_id == org_id, UserModel.id != "dev_user"
+            )
+        )
+        is_first_user = (count_res.scalar_one_or_none() or 0) == 0
+
+        if matches_admin_email or is_first_user or (role in ("admin", "owner")):
+            assigned_role = "admin"
+            effective_roles = admin_roles
+        else:
+            assigned_role = role or "developer"
+            effective_roles = roles_for(assigned_role)
+
+        session.add(
+            UserModel(id=user_id, org_id=org_id, email=email, name=name, role=assigned_role)
+        )
+        await session.flush()
+        return effective_roles
 
 
 @router.get("/providers", response_model=AuthProvidersResponse)
@@ -298,9 +319,12 @@ async def dev_login(req: DevLoginRequest, response: Response, request: Request) 
         if dev_identity_enabled() and any(r in ("admin", "owner") for r in req.roles)
         else "developer"
     )
-    assigned_roles = await _ensure_db_user_and_org(
-        db_mgr, user_id, org_id, email, name, role=initial_role
-    )
+    try:
+        assigned_roles = await _ensure_db_user_and_org(
+            db_mgr, user_id, org_id, email, name, role=initial_role
+        )
+    except MemberOfAnotherOrganization as refused:
+        raise HTTPException(status_code=403, detail=WRONG_ORGANIZATION) from refused
 
     token = create_session_token(
         user_id=user_id,
@@ -373,9 +397,12 @@ async def local_login(
         )
         raise HTTPException(status_code=401, detail=GENERIC_LOGIN_FAILURE) from failed
 
-    roles = await _ensure_db_user_and_org(
-        db_mgr, who.user_id, who.org_id, who.email, who.name, who.role
-    )
+    try:
+        roles = await _ensure_db_user_and_org(
+            db_mgr, who.user_id, who.org_id, who.email, who.name, who.role
+        )
+    except MemberOfAnotherOrganization as refused:
+        raise HTTPException(status_code=403, detail=WRONG_ORGANIZATION) from refused
     token = create_session_token(
         user_id=who.user_id, org_id=who.org_id, email=who.email, name=who.name, roles=roles
     )
@@ -683,7 +710,10 @@ async def _sign_in_sso_user(
     org_id = map_org(email, org_claim)
     if not await _sso_allowed(flow.db_mgr, org_id, email):
         return flow.login_error("AccessDenied")
-    roles = await _ensure_db_user_and_org(flow.db_mgr, user_id, org_id, email, name)
+    try:
+        roles = await _ensure_db_user_and_org(flow.db_mgr, user_id, org_id, email, name)
+    except MemberOfAnotherOrganization:
+        return flow.login_error("WrongOrganization")
     return flow.signed_in(user_id=user_id, org_id=org_id, email=email, name=name, roles=roles)
 
 
@@ -768,7 +798,10 @@ async def _complete_github(flow: _CallbackFlow, client: httpx.AsyncClient) -> Re
         return flow.login_error("AccessDenied")
 
     email = profile.email or f"{user_id}@rocket.internal"
-    roles = await _ensure_db_user_and_org(flow.db_mgr, user_id, org_id, email, profile.name)
+    try:
+        roles = await _ensure_db_user_and_org(flow.db_mgr, user_id, org_id, email, profile.name)
+    except MemberOfAnotherOrganization:
+        return flow.login_error("WrongOrganization")
     await store_user_credential(
         db_mgr=flow.db_mgr,
         user_id=user_id,

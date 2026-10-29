@@ -18,6 +18,8 @@ const ERROR_DESCRIPTIONS: Record<string, string> = {
     "Access denied: Your email address or organization domain is not permitted by sign-in policies.",
   Configuration:
     "Authentication provider configuration error. Please contact your system administrator.",
+  WrongOrganization:
+    "This account belongs to another organization. Ask your administrator to move it.",
   OAuthSignin: "Could not start sign-in process with identity provider.",
   OAuthCallback: "Error completing verification with identity provider.",
   OAuthCreateAccount: "Could not provision user identity from OAuth account.",

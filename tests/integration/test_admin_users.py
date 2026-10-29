@@ -81,20 +81,23 @@ async def test_changes_a_members_role(client: tuple[AsyncClient, str]) -> None:
     http, org = client
     response = await http.patch(
         "/v1/admin/users/u_dev",
-        json={"role": "guest"},
+        json={"role": "readonly"},
         headers=_headers(org, "u_admin", "admin"),
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["user"]["role"] == "guest"
+    assert body["user"]["role"] == "readonly"
     assert "reload" in body["note"].lower()
 
 
-async def test_rejects_an_invalid_role(client: tuple[AsyncClient, str]) -> None:
+@pytest.mark.parametrize("role", ["superuser", "guest"])
+async def test_rejects_an_invalid_or_internal_role(
+    client: tuple[AsyncClient, str], role: str
+) -> None:
     http, org = client
     response = await http.patch(
         "/v1/admin/users/u_dev",
-        json={"role": "superuser"},
+        json={"role": role},
         headers=_headers(org, "u_admin", "admin"),
     )
     assert response.status_code == 422
@@ -115,5 +118,5 @@ async def test_non_admin_cannot_list_or_change(client: tuple[AsyncClient, str]) 
     headers = _headers(org, "u_dev", "developer")
     assert (await http.get("/v1/admin/users", headers=headers)).status_code == 403
     assert (
-        await http.patch("/v1/admin/users/u_dev", json={"role": "guest"}, headers=headers)
+        await http.patch("/v1/admin/users/u_dev", json={"role": "readonly"}, headers=headers)
     ).status_code == 403

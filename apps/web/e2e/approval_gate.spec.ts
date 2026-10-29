@@ -82,6 +82,9 @@ test.describe("Human approval gate", () => {
     await expect(card).toContainText("git_revert_hard");
     await expect(card).toContainText("Irreversible");
 
+    // An irreversible action is approved only once the word is typed.
+    await expect(page.getByTestId("approval-approve")).toBeDisabled();
+    await card.getByTestId("approval-confirm").fill("approve");
     await page.getByTestId("approval-approve").click();
     await expect.poll(() => decisions.length, { timeout: 10000 }).toBeGreaterThan(0);
     expect(decisions[0]).toBe("ap_e2e_1:true");

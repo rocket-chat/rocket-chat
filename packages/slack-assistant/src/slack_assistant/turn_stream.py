@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import time
+import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
@@ -40,12 +41,19 @@ logger = logging.getLogger(__name__)
 class TurnOutcome:
     """What a shared turn produced, as seen by Slack."""
 
+    # The streamed text since the last tool call: the model's narration before a tool call is
+    # not part of its answer.
     chunks: list[str] = field(default_factory=list)
     diffs: list[FileDiff] = field(default_factory=list)
     error: str | None = None
+    # The answer as the runner stored it, read once the turn's final status arrives. The
+    # stream can drop events under load, so the stored answer wins when there is one.
+    stored_answer: str | None = None
 
     @property
     def text(self) -> str:
+        if self.stored_answer is not None:
+            return self.stored_answer.strip()
         return "".join(self.chunks).strip()
 
 
@@ -65,6 +73,11 @@ class TurnView:
     screenshots: list[str] = field(default_factory=list)
     # Private response mode: every message goes to the requester alone (ephemeral).
     private: bool = False
+    org_id: str = ""
+    # The id this view's turn records its user message under: events before that message
+    # belong to a turn already running in the session, which this view must not render.
+    message_id: str = field(default_factory=lambda: f"slack-{uuid.uuid4().hex}")
+    own_turn_started: bool = False
 
 
 def readable_tool(name: str) -> str:
@@ -162,6 +175,7 @@ class SlackTurnStreamMixin(SlackAssistantState):
                 prompt=prompt,
                 overlay=overlay,
                 author_user_id=author_user_id,
+                message_id=view.message_id,
             )
 
         runner: asyncio.Task[None] = asyncio.create_task(_run())
@@ -191,20 +205,65 @@ class SlackTurnStreamMixin(SlackAssistantState):
         done, _ = await asyncio.wait({getter, runner}, return_when=asyncio.FIRST_COMPLETED)
         if getter in done:
             event = getter.result()
+            if not await self._belongs_to_view(event, view):
+                return False
             await self._render_event(event, view)
-            return self._is_terminal(event)
+            if not self._is_terminal(event):
+                return False
+            await self._read_stored_answer(view)
+            return True
         getter.cancel()
+        # The runner returned: its turn is over, whether or not this view saw it begin (a
+        # refusal before the message was recorded, or a dropped event). What is left is all
+        # there is to show, and the stored answer, if any, is this turn's.
         while not queue.empty():
             await self._render_event(queue.get_nowait(), view)
+        await self._read_stored_answer(view)
         return True
+
+    async def _belongs_to_view(self, event: SessionEvent, view: TurnView) -> bool:
+        """Whether ``event`` is part of this view's turn, which begins with its user message.
+
+        A message sent while another turn runs waits for it (one writer per session); the
+        events of that earlier turn reach this queue too, and are its own listener's to show.
+        """
+        if view.own_turn_started:
+            return True
+        if (
+            event.event_type == EventType.USER_MESSAGE
+            and event.payload.get("message_id") == view.message_id
+        ):
+            view.own_turn_started = True
+            await self._own_turn_started(view)
+            return True
+        return False
+
+    async def _own_turn_started(self, view: TurnView) -> None:
+        """Hook for when this view's turn begins (the assistant records its requester)."""
+        return None
 
     @staticmethod
     def _is_terminal(event: SessionEvent) -> bool:
-        return event.event_type == EventType.STATUS_CHANGED and event.payload.get("status") in (
-            "completed",
-            "error",
-            "cancelled",
-        )
+        """The runner's closing event, published once the answer is stored."""
+        return event.event_type == EventType.STATUS_CHANGED and bool(event.payload.get("final"))
+
+    async def _read_stored_answer(self, view: TurnView) -> None:
+        """The turn's answer as stored: its last assistant message without tool calls."""
+        if self.session_store is None:
+            return
+        try:
+            record = await self.session_store.get_session(view.session_id, view.org_id or None)
+        except Exception as err:
+            logger.warning("Could not read the answer of %s: %s", view.session_id, err)
+            return
+        if record is None:
+            return
+        for message in reversed(record.conversation_history):
+            if message.role == "user":
+                return
+            if message.role == "assistant" and message.content and not message.tool_calls:
+                view.outcome.stored_answer = message.content
+                return
 
     async def _render_event(self, event: SessionEvent, view: TurnView) -> None:
         self._last_activity[view.session_id] = time.time()
@@ -213,6 +272,7 @@ class SlackTurnStreamMixin(SlackAssistantState):
             await handler(self, event.payload, view)
 
     async def _render_tool_started(self, payload: dict[str, Any], view: TurnView) -> None:
+        view.outcome.chunks.clear()
         name = str(payload.get("name", ""))
         arguments = payload.get("arguments")
         arguments = arguments if isinstance(arguments, dict) else {}

@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
 import { FlightTelemetryHeader } from "./FlightTelemetryHeader";
+import { ConnectionBanner } from "./ConnectionBanner";
 import { FlightLogStream } from "./FlightLogStream";
 import { IgnitionConsole } from "./IgnitionConsole";
 import { InspectorTop } from "./InspectorTop";
@@ -195,6 +196,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
     <div className="h-full w-full flex flex-col bg-surface-base text-foreground font-sans overflow-hidden">
       {/* Top Application Header */}
       <FlightTelemetryHeader />
+      {!isDraft && <ConnectionBanner key={activeSessionId} />}
 
       {/* Main Cockpit Layout with Collapsible Session Sidebar */}
       <div className="flex-1 flex overflow-hidden">

@@ -62,6 +62,8 @@ async def create_or_update_agent(persona: AgentPersonaModel, request: Request) -
     persona carries the stored id, which can differ from the proposed one.
     """
     org_id, user_id, roles = _get_request_identity(request)
+    if "readonly" in roles:
+        raise HTTPException(status_code=403, detail="Forbidden: Read-only role cannot edit agents")
     is_admin = "admin" in roles or "owner" in roles
     if persona.scope == "org" and not is_admin and "scope" not in persona.model_fields_set:
         persona.scope = "user"
@@ -104,6 +106,8 @@ async def delete_agent(
 ) -> dict[str, bool]:
     """Delete a custom agent persona, or reset/disable a built-in persona."""
     org_id, user_id, roles = _get_request_identity(request)
+    if "readonly" in roles:
+        raise HTTPException(status_code=403, detail="Forbidden: Read-only role cannot edit agents")
     is_admin = "admin" in roles or "owner" in roles
     try:
         await delete_persona(

@@ -21,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from api.db.models import AgentPersonaEntityModel
 from api.models import AgentPersonaModel
 from api.services.sandbox_catalogue import SandboxCatalogue
+from api.services.settings import effective_settings, resolve_settings
 from api.services.turn_limits import organization_max_turns
 from specifications.interfaces.agent import NO_STEP_LIMIT
 
@@ -387,9 +388,23 @@ async def _validate_sandbox_type(db_mgr: Any, org_id: str, persona: AgentPersona
         raise PersonaError(422, "That sandbox type is not in the organization's catalogue.")
 
 
+async def _validate_permission_mode(db_mgr: Any, org_id: str, persona: AgentPersonaModel) -> None:
+    mode = persona.default_permission_mode
+    if not mode:
+        return
+    preferences = await resolve_settings(db_mgr, org_id, "user_preferences")
+    locked_mode = preferences.effective.get("permission_mode")
+    if "permission_mode" in preferences.locked_keys and mode != locked_mode:
+        raise PersonaError(422, f"The organization locked the permission mode to '{locked_mode}'.")
+    governance = await effective_settings(db_mgr, org_id, "governance")
+    if mode == "bypass" and not governance.get("allow_bypass_permissions"):
+        raise PersonaError(422, "The organization does not allow the bypass permission mode.")
+
+
 async def _validate(db_mgr: Any, org_id: str, persona: AgentPersonaModel) -> None:
     await _validate_step_limit(db_mgr, org_id, persona)
     await _validate_sandbox_type(db_mgr, org_id, persona)
+    await _validate_permission_mode(db_mgr, org_id, persona)
 
 
 async def save_persona(

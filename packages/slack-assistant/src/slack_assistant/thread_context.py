@@ -116,6 +116,12 @@ def _to_messages(raw_messages: Any, bot_user_id: str | None = None) -> list[Slac
     return messages
 
 
+# ``conversations.replies`` returns a thread oldest first, a page at a time: reaching its newest
+# messages means reading every page. Bounded, so a runaway thread costs a known number of calls.
+REPLIES_PAGE_SIZE = 200
+MAX_REPLY_PAGES = 10
+
+
 async def fetch_thread_messages(
     client: Any,
     channel_id: str,
@@ -123,9 +129,31 @@ async def fetch_thread_messages(
     limit: int = 50,
     bot_user_id: str | None = None,
 ) -> list[SlackMessage]:
-    """Fetch messages belonging to a Slack thread (including the root message)."""
-    response = await client.conversations_replies(channel=channel_id, ts=thread_ts, limit=limit)
-    return _to_messages(_unwrap(response).get("messages", []), bot_user_id)
+    """The thread's root message and its ``limit`` most recent replies, oldest first."""
+    raw: list[Any] = []
+    cursor: str | None = None
+    for _ in range(MAX_REPLY_PAGES):
+        kwargs: dict[str, Any] = {
+            "channel": channel_id,
+            "ts": thread_ts,
+            "limit": REPLIES_PAGE_SIZE,
+        }
+        if cursor:
+            kwargs["cursor"] = cursor
+        data = _unwrap(await client.conversations_replies(**kwargs))
+        page = data.get("messages", [])
+        raw.extend(page if isinstance(page, list) else [])
+        metadata = data.get("response_metadata")
+        cursor = metadata.get("next_cursor") if isinstance(metadata, dict) else None
+        if not cursor or not data.get("has_more", True):
+            break
+    messages = _to_messages(raw, bot_user_id)
+    if not messages:
+        return []
+    root = next((m for m in messages if m.ts == thread_ts), None)
+    replies = [m for m in messages if m is not root]
+    recent = replies[-limit:] if limit > 0 else []
+    return ([root] if root is not None else []) + recent
 
 
 async def fetch_channel_history(
@@ -205,11 +233,18 @@ async def build_thread_transcript(
     limit: int = 20,
     max_chars: int = DEFAULT_MAX_CHARS,
     bot_user_id: str | None = None,
+    include_own_replies: bool = True,
 ) -> str:
-    """Fetch and render a bounded transcript of the current Slack thread."""
+    """Fetch and render a bounded transcript of the current Slack thread.
+
+    ``include_own_replies=False`` leaves out this bot's messages: as context for a turn, its
+    answers are already in the session's history, and would be read twice.
+    """
     messages = await fetch_thread_messages(
         client, channel_id, thread_ts, limit=limit, bot_user_id=bot_user_id
     )
+    if not include_own_replies and bot_user_id:
+        messages = [m for m in messages if m.user != bot_user_id]
     return await render_transcript(messages, name_resolver, max_chars=max_chars)
 
 

@@ -71,7 +71,7 @@ export const SubagentsPanel: React.FC = () => {
 
   const flightLog = useMissionStore((s) => s.flightLog);
   const completedSubagentsCount = flightLog.filter(
-    (e) => e.subagent && (e.subagent.status === "completed" || e.subagent.status === "error")
+    (e) => e.subagent && e.subagent.status !== "running"
   ).length;
 
   useEffect(() => {

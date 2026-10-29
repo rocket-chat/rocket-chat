@@ -192,18 +192,55 @@ async def refresh_github_user_token(
         )
 
 
-def _target_repositories(raw: object) -> list[str] | None:
-    """Repository names an App token is limited to; ``None`` means every installed repo."""
+def _allowed_repositories(raw: object) -> list[str] | None:
+    """The organization's allowlist as lower-case ``owner/name`` (or legacy bare ``name``)
+    entries; ``None`` means every installed repository."""
     text = str(raw or "all").strip()
     if text.lower() in ("", "all", "*"):
         return None
-    return [part.strip().rsplit("/", 1)[-1] for part in text.split(",") if part.strip()]
+    return [part.strip().lower() for part in text.split(",") if part.strip()]
+
+
+_warned_bare_entries: set[str] = set()
+
+
+def _allows(entry: str, repository: str) -> bool:
+    if "/" in entry:
+        return entry == repository.lower()
+    # Deprecated: a bare name matches that repository under every owner the App is installed on.
+    if entry not in _warned_bare_entries:
+        _warned_bare_entries.add(entry)
+        logger.warning(
+            "github.app_token_target_repositories entry %r has no owner and matches it under "
+            "every owner; write it as owner/%s",
+            entry,
+            entry,
+        )
+    return entry == repository.rsplit("/", 1)[-1].lower()
+
+
+def _target_repositories(raw: object, account_login: str | None = None) -> list[str] | None:
+    """The repository names an App token of the installation on ``account_login`` is limited to.
+
+    GitHub scopes an installation token by bare names, so the allowlist is narrowed to the
+    installation's owner first: ``acme/api`` must not admit ``evil/api``. ``None`` means every
+    installed repository; an empty list means none of this installation's.
+    """
+    allowed = _allowed_repositories(raw)
+    if allowed is None:
+        return None
+    owner = (account_login or "").lower()
+    return [
+        entry.rsplit("/", 1)[-1]
+        for entry in allowed
+        if "/" not in entry or not owner or entry.split("/", 1)[0] == owner
+    ]
 
 
 def app_may_act_on(org_github: Mapping[str, Any], repository: str) -> bool:
     """Whether the organization lets its GitHub App's tokens reach ``owner/name``."""
-    allowed = _target_repositories(org_github.get("app_token_target_repositories"))
-    return allowed is None or repository.rsplit("/", 1)[-1] in allowed
+    allowed = _allowed_repositories(org_github.get("app_token_target_repositories"))
+    return allowed is None or any(_allows(entry, repository) for entry in allowed)
 
 
 async def _linked_user_credential(
@@ -259,17 +296,21 @@ async def _app_read_token(
                 "issues": "read",
             }
         )
-        installation_id = pick_installation(
-            [
-                (i.installation_id, i.account_login)
-                for i in await installations_for_org(db_mgr, org_id)
-            ],
-            repo,
+        installations = [
+            (i.installation_id, i.account_login)
+            for i in await installations_for_org(db_mgr, org_id)
+        ]
+        installation_id = pick_installation(installations, repo)
+        account = next((login for iid, login in installations if iid == installation_id), None)
+        repositories = _target_repositories(
+            org_github.get("app_token_target_repositories"), account
         )
+        if repositories == [] or (repo is not None and not app_may_act_on(org_github, repo)):
+            return None
         token = await git_engine.get_github_access_token(
             repo=repo,
             permissions={str(k): str(v) for k, v in permissions.items()},
-            repositories=_target_repositories(org_github.get("app_token_target_repositories")),
+            repositories=repositories,
             installation_id=installation_id,
         )
         if token and (

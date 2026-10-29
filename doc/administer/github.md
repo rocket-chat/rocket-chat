@@ -137,7 +137,9 @@ Rocket Chat implements a two-tier hybrid GitHub engine designed for enterprise c
 
 ## 9. User Configuration & Cascading Settings (`/settings/github`)
 
-Three parts of the git policy are the organization's default, and each member may make them their own in **Settings → Git & version control → Your git policy**. A field left at the default follows the organization, including its later changes; a member's own value wins until they reset that field. An administrator who **locks** a field in the organization form keeps it the same for everyone.
+Commit authorship is the organization's default, and each member may make it their own in **Settings → Git & version control → Your git policy**. Left at the default, it follows the organization, including its later changes; a member's own value wins until they reset it. An administrator who **locks** it in the organization form keeps it the same for everyone.
+
+Pull request identity and commit signing are decided by administrators only: a member cannot choose to publish as the bot or to push unsigned commits. Values members chose before this was the case are ignored.
 
 1. **Commit authorship** (`commit_authorship_policy`):
    - `co_authored` (*default*): the GitHub App commits and the member is credited with a `Co-authored-by` trailer. The trailer is added when the branch is published, so it is there whatever made the commit (the `git_commit` tool or a plain `git commit` in the shell).

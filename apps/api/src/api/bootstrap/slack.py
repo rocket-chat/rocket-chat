@@ -319,13 +319,20 @@ class _SlackCallbacks:
         return await workspace_org(self._core.db_manager, team_id)
 
     async def run_turn(
-        self, *, session_id: str, prompt: str, overlay: TurnOverlay, author_user_id: str
+        self,
+        *,
+        session_id: str,
+        prompt: str,
+        overlay: TurnOverlay,
+        author_user_id: str,
+        message_id: str | None = None,
     ) -> None:
         """Run a Slack message through the same guarded turn the web cockpit uses."""
         core = self._core
         await run_guarded_turn(
             session_id=session_id,
             prompt=prompt,
+            message_id=message_id,
             orchestrator=core.orchestrator,
             event_bus=core.event_bus,
             driver=core.sandbox_driver,

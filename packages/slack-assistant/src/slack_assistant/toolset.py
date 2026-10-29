@@ -287,6 +287,7 @@ class SlackToolsetMixin(SlackDirectoryMixin):
                 limit=self.settings.slack_thread_context_limit,
                 max_chars=self.settings.slack_thread_context_max_chars,
                 bot_user_id=self.bot_user_id,
+                include_own_replies=False,
             )
         except Exception as err:
             logger.debug("Failed loading Slack thread context: %s", err)

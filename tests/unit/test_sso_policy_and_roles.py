@@ -41,13 +41,15 @@ def test_org_policy_requires_enforce_flag(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 class _User:
-    def __init__(self, role: str) -> None:
+    def __init__(self, role: str, org_id: str = "o") -> None:
         self.role = role
+        self.org_id = org_id
 
 
 class _Session:
-    def __init__(self, role: str | None) -> None:
+    def __init__(self, role: str | None, org_id: str = "o") -> None:
         self._role = role
+        self._org_id = org_id
 
     async def __aenter__(self) -> _Session:
         return self
@@ -56,19 +58,20 @@ class _Session:
         return None
 
     async def get(self, _model: object, _user_id: str) -> _User | None:
-        return None if self._role is None else _User(self._role)
+        return None if self._role is None else _User(self._role, self._org_id)
 
 
 class _Db:
     session_factory = object()
 
-    def __init__(self, role: str | None) -> None:
+    def __init__(self, role: str | None, org_id: str = "o") -> None:
         self.role = role
+        self.org_id = org_id
         self.lookups = 0
 
     def session(self) -> _Session:
         self.lookups += 1
-        return _Session(self.role)
+        return _Session(self.role, self.org_id)
 
 
 def _ctx(source: str = "session", roles: list[str] | None = None) -> RequestContext:
@@ -83,6 +86,13 @@ async def test_demoted_admin_loses_rights_before_token_expiry() -> None:
     db = _Db("developer")
     live = await with_live_roles(_ctx(), db)
     assert live.roles == ["developer"]
+
+
+@pytest.mark.asyncio
+async def test_a_role_stored_in_another_organization_grants_nothing_here() -> None:
+    clear_role_cache()
+    live = await with_live_roles(_ctx(), _Db("admin", org_id="other_org"))
+    assert live.roles == ["readonly"]
 
 
 @pytest.mark.asyncio
@@ -110,3 +120,9 @@ async def test_only_session_identities_are_overridden() -> None:
 async def test_unknown_user_keeps_token_roles() -> None:
     clear_role_cache()
     assert (await with_live_roles(_ctx(), _Db(None))).roles == ["admin", "developer"]
+
+
+@pytest.mark.asyncio
+async def test_a_human_guest_is_held_to_read_only() -> None:
+    clear_role_cache()
+    assert (await with_live_roles(_ctx(), _Db("guest"))).roles == ["readonly"]

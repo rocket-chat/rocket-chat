@@ -19,10 +19,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `git`: Pull request identity (`github.pr_creation_policy`) and commit signing (`github.commit_signing_mode`) are decided by organization administrators only; members can no longer choose to publish as the bot or push unsigned commits, and choices stored before are ignored. Commit authorship stays a member's choice unless locked.
+- `api`, `web`: `guest` can no longer be assigned to a member; it is kept for guest tokens and Slack guests. A member who already holds it is treated as `readonly`.
+- `slack`: The thread context given to a turn leaves out the bot's own replies, which are already in the session's history.
 
 ### Fixed
+- `slack`: The answer posted in Slack is the one the turn stored, not every piece of text the model streamed (its narration before each tool call included), and it is no longer cut short when live events are dropped under load.
+- `slack`: A second message sent in a thread while a turn runs gets its own answer after the first one, instead of the first turn being shown twice and the second answer lost; the person who may answer a pending approval stays the one who asked for that turn.
+- `slack`: The context of a long thread is its first message and its most recent replies, not its oldest ones.
+- `web`: The live view keeps reconnecting after any outage (backoff with jitter, up to 30 s between attempts) instead of giving up silently after about 20 seconds, reconnects at once when the tab, window or network comes back, and shows a "Reconnecting…" or "Offline" banner meanwhile.
+- `web`: A subagent's live text and its outcome (`partial`, `cancelled` and failed runs no longer show as completed) are shown as the server sends them.
 
 ### Security
+- `api`: A personal agent's default permission mode can no longer get around a permission mode the organization locked, and an agent cannot be saved with a mode the lock or `allow_bypass_permissions` forbids.
+- `api`: Sign-in no longer reads or applies a member row of another organization: a member stored under another organization than the one the sign-in maps to is refused (`WrongOrganization`), and a session token whose member row belongs to another organization is held to `readonly`. The administrators' member list and the first-member bootstrap count only the organization's own members.
+- `api`: A member holding `guest` is held to `readonly` everywhere, and a `readonly` member can no longer create, change or delete agents.
+- `sandboxes`: An agent's CPU and memory can lower its sandbox's resources but no longer raise them above the sandbox type's or the organization's.
+- `git`: The GitHub App repository allowlist (`github.app_token_target_repositories`) matches `owner/name`: `acme/api` no longer admits `api` repositories of other owners the App is installed on. A bare name still matches every owner, with a deprecation warning.
+- `web`: Enter and Escape answer an approval only while focus is inside its card, and an irreversible action is approved only after typing "approve".
 
 ## [0.7.2] - 2026-10-28
 
@@ -53,16 +67,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - `web`: Sleek redesign of `MarkdownRenderer` and session stream typography inspired by Claude Desktop / Linear (neutral subtle code badges replacing neon cyan borders, relaxed 1.68 leading, airy spacing, and refined dark-mode codeblocks).
 - `models`: DeepSeek V4 family fallback context limit updated to its native 1,048,576 (1M) token window across the agent core, models catalog, and web stores.
-
-## [0.7.1] - 2026-10-25
-
-### Added
-
-### Changed
-
-### Fixed
-
-### Security
 
 ## [0.7.1] - 2026-10-25
 
