@@ -61,7 +61,7 @@ Change a member's role (admin/owner only). Takes effect on their next login.
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| role | string | yes | One of owner \| admin \| developer \| readonly \| guest |
+| role | string | yes | One of owner \| admin \| developer \| readonly |
 
 **Responses:** `200`
 

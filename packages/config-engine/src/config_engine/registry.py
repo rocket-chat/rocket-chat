@@ -556,7 +556,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "pr_creation_policy",
             "enum",
             "as_user",
-            "both",
+            "org",
             "apps/api/src/api/services/turn_service.py",
             "Open pull requests with the member's token (as_user) or the GitHub App (as_bot).",
             choices=("as_user", "as_bot"),
@@ -565,7 +565,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "commit_signing_mode",
             "enum",
             "github_app",
-            "both",
+            "org",
             "apps/api/src/api/services/turn_service.py",
             "github_app: commits are created through GitHub's API so GitHub signs them (verified, "
             "made by the GitHub App); gpg_key: members who imported a GPG key and chose to "
@@ -621,7 +621,8 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "org",
             _GIT_CREDS,
             'Repositories the GitHub App acts on for the agent, reading and changing: "all" or a '
-            "comma-separated list. Elsewhere the member's linked account is used.",
+            "comma-separated list of owner/name. Elsewhere the member's linked account is used. "
+            "A bare name (deprecated) matches that repository under every owner.",
         ),
     ),
     "mcp": (

@@ -239,14 +239,15 @@ function GitHubSettingsContent() {
             only={["git_author_name", "git_author_email", "git_branch_prefix"]}
           />
 
-          {/* The organization's git policy, which a member may make their own unless it is locked */}
+          {/* Authorship is the organization's default a member may make their own unless it is
+              locked; pull request identity and signing are the organization's alone. */}
           <SchemaSettingsForm
             domain="github"
             mode="user"
             idScope="mine"
             title="Your git policy"
-            description="Commit authorship, who opens pull requests and how commits are signed. Each follows your organization until you change it; reset a field to follow the organization again."
-            only={["commit_authorship_policy", "pr_creation_policy", "commit_signing_mode"]}
+            description="Who commits are attributed to. It follows your organization until you change it; reset it to follow the organization again. Pull request identity and commit signing are set by your administrators."
+            only={["commit_authorship_policy"]}
           />
 
           <GitSigningPanel />

@@ -84,7 +84,8 @@ One status line under the message reads left to right: how closely the agent is 
 
 ## Reading a session
 
-* **Needs you.** An approval or question waits just above the composer, whatever you scrolled to: **Enter** approves and **Esc** denies (only while you are not typing in the composer).
+* **Needs you.** An approval or question waits just above the composer, whatever you scrolled to. With focus in the approval card (click it or Tab to it), **Enter** approves and **Esc** denies; a key pressed elsewhere on the page never answers it. An irreversible action asks you to type **approve** first.
+* **Connection.** If the live connection drops, a **Reconnecting…** (or **Offline**) banner says so; the view keeps retrying, reconnects as soon as the tab or network comes back, and picks up the stream where it stopped.
 * **Progress.** The task list stays pinned above the conversation, folded to the task in progress; a long task's budget shows in the header.
 * **Inspector.** Opens by itself the first time the agent changes a file or starts a process, unless you have closed it before: your last choice (open or closed) is remembered in this browser, and once you have closed the panel only you open it again. Its tabs carry counts (files changed, processes running, artifacts), and the terminal stays folded until a command prints.
 * **After each turn,** a summary lists what it did, with **Review changes** and a button for each pull request that turn opened or worked on, named by repository and number (`acme/api#7`). Pull requests of earlier turns of the session wait behind *N other pull requests in this session*, so a session that handles several stays readable.

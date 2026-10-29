@@ -44,6 +44,10 @@ Each built-in role has 12 steps. A subagent works in the session's sandbox and a
 
 Create password members (with a one-time temporary password), change roles, and see who is active. With SSO, members are created at first sign-in and roles can come from a `roles` claim in the token (see [SSO](/administer/sso)).
 
+The roles are `owner`, `admin`, `developer` and `readonly`. A `readonly` member can open what is shared with them but change nothing. `guest` is not assigned to people: it belongs to guest API tokens and Slack guests, and a member who holds it from an earlier version, or from a `roles` claim, is treated as `readonly`.
+
+A member belongs to one organization. A sign-in that maps someone to another organization than the one they were created in is refused with "This account belongs to another organization" until an operator moves them.
+
 ## Sandboxes
 
 See [Sandboxes](/administer/sandboxes).

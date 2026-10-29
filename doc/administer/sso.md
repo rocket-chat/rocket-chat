@@ -199,7 +199,7 @@ Users carrying the `"admin"` role in their claims are authorized to:
 When launching Rocket Chat for the first time, administrators can be bootstrapped seamlessly through two mechanisms:
 
 1. **Zero-Configuration First User Rule:**
-   If the PostgreSQL database contains no users, the very first user who signs in (via Google, GitHub, or OIDC) is automatically provisioned as an **Administrator** (`role="admin"` with roles `["admin", "owner", "developer"]`).
+   If an organization has no members yet, the first person who signs in to it (via Google, GitHub, or OIDC) is automatically provisioned as its **Administrator** (`role="admin"` with roles `["admin", "owner", "developer"]`). Members of other organizations do not count.
 2. **Explicit Administrator Emails (`INITIAL_ADMIN_EMAIL` & `ADMIN_EMAILS`):**
    You can specify administrator emails via environment variables or Helm values:
    ```bash

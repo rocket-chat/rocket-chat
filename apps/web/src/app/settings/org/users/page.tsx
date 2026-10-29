@@ -12,7 +12,7 @@ interface OrgUser {
   created_at: number;
 }
 
-const ROLES = ["owner", "admin", "developer", "readonly", "guest"] as const;
+const ROLES = ["owner", "admin", "developer", "readonly"] as const;
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "Owner",

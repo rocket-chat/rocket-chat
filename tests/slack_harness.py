@@ -9,6 +9,8 @@ orchestrator's events onto a real ``AsyncIOEventBus`` exactly as the turn handle
 
 from __future__ import annotations
 
+import asyncio
+from collections import defaultdict
 from typing import Any
 
 from api.events import AsyncIOEventBus
@@ -22,6 +24,8 @@ from specifications.interfaces.agent import (
     TurnOverlay,
 )
 from specifications.interfaces.events import EventType, SessionEvent
+from specifications.interfaces.llm import ChatMessage
+from specifications.interfaces.session import SessionStoreProtocol
 
 _DIRECT = {
     "tool_call": EventType.TOOL_STARTED,
@@ -63,14 +67,25 @@ class OrchestratorPipeline:
         orchestrator: AgentOrchestratorProtocol,
         bus: AsyncIOEventBus,
         binding: AgentBinding | None = None,
+        store: SessionStoreProtocol | None = None,
     ) -> None:
         self.orchestrator = orchestrator
         self.bus = bus
         self.binding = binding
+        self.store = store
         self.calls: list[dict[str, Any]] = []
+        # One writer per session, as ``run_guarded_turn``'s session lock: a second message
+        # waits for the turn before it.
+        self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
     async def __call__(
-        self, *, session_id: str, prompt: str, overlay: TurnOverlay, author_user_id: str
+        self,
+        *,
+        session_id: str,
+        prompt: str,
+        overlay: TurnOverlay,
+        author_user_id: str,
+        message_id: str | None = None,
     ) -> None:
         self.calls.append(
             {
@@ -80,6 +95,42 @@ class OrchestratorPipeline:
                 "author": author_user_id,
             }
         )
+        async with self._locks[session_id]:
+            await self._run(session_id, prompt, overlay, author_user_id, message_id)
+
+    async def _store(self, session_id: str, message: ChatMessage) -> None:
+        if self.store is None:
+            return
+        record = await self.store.get_session(session_id)
+        if record is not None:
+            await self.store.mutate_session(
+                session_id,
+                record.tenant_org_id,
+                lambda r: r.conversation_history.append(message),
+            )
+
+    async def _run(
+        self,
+        session_id: str,
+        prompt: str,
+        overlay: TurnOverlay,
+        author_user_id: str,
+        message_id: str | None,
+    ) -> None:
+        await self._store(session_id, ChatMessage(role="user", content=prompt))
+        await self.bus.publish(
+            SessionEvent(
+                session_id,
+                EventType.USER_MESSAGE,
+                {
+                    "message_id": message_id or "m",
+                    "role": "user",
+                    "content": prompt,
+                    "author_user_id": author_user_id,
+                },
+            )
+        )
+        answer: list[str] = []
         binding = self.binding
         persona = binding.system_prompt if binding and binding.system_prompt else ""
         tools = binding.whitelisted_tools if binding else None
@@ -99,23 +150,30 @@ class OrchestratorPipeline:
                 enabled_toolsets=overlay.enabled_toolsets,
             ):
                 translated = to_bus_event(session_id, event)
-                if translated is not None:
-                    await self.bus.publish(translated)
+                if translated is None:
+                    continue
+                if translated.event_type is EventType.TOOL_STARTED:
+                    answer.clear()
+                elif translated.event_type is EventType.TOKEN:
+                    answer.append(str(translated.payload.get("delta", "")))
+                await self.bus.publish(translated)
         except Exception as err:
             await self.bus.publish(SessionEvent(session_id, EventType.ERROR, {"error": str(err)}))
             await self.bus.publish(
                 SessionEvent(
                     session_id,
                     EventType.STATUS_CHANGED,
-                    {"status": "error", "message": f"Mission failed: {err}"},
+                    {"status": "error", "message": f"Mission failed: {err}", "final": True},
                 )
             )
             return
+        # As the runner: the answer is stored, then the closing event says so.
+        await self._store(session_id, ChatMessage(role="assistant", content="".join(answer)))
         await self.bus.publish(
             SessionEvent(
                 session_id,
                 EventType.STATUS_CHANGED,
-                {"status": "completed", "message": "Agent turn complete."},
+                {"status": "completed", "message": "Agent turn complete.", "final": True},
             )
         )
 
@@ -128,7 +186,7 @@ def make_slack(
 ) -> SlackAssistant:
     """A SlackAssistant whose turns run ``orchestrator`` through the shared-pipeline contract."""
     bus = AsyncIOEventBus()
-    pipeline = OrchestratorPipeline(orchestrator, bus, binding)
+    pipeline = OrchestratorPipeline(orchestrator, bus, binding, kwargs.get("session_store"))
     assistant = SlackAssistant(
         orchestrator=orchestrator, event_bus=bus, run_turn_fn=pipeline, **kwargs
     )

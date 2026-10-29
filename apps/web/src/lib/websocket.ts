@@ -5,6 +5,7 @@ import {
   ChecklistTask,
   DecisionQuestion,
   FileDiffItem,
+  FlightLogEntry,
   ReplayFrame,
   SessionData,
   SyncFrame,
@@ -45,9 +46,12 @@ interface EventPayload {
   subagent_id?: string;
   role?: string;
   task?: string;
-  turn?: number;
-  thought?: string;
+  is_reasoning?: boolean;
   summary?: string;
+  tokens?: number;
+  cost?: number;
+  changed_files?: string[];
+  artefacts?: string[];
   text?: string;
   tool_call_id?: string;
   awaiting_input?: string;
@@ -135,14 +139,33 @@ export function getActiveMissionWebSocket(): MissionWebSocket | null {
   return activeMissionWebSocket;
 }
 
+/** The live text kept for a subagent: its latest part, so a long child cannot grow the page without end. */
+const SUBAGENT_THOUGHT_CHARS = 4000;
+
+function subagentThought(log: FlightLogEntry[], subagentId: string): string {
+  for (let i = log.length - 1; i >= 0; i--) {
+    const subagent = log[i].subagent;
+    if (subagent && subagent.subagentId === subagentId) return subagent.thought ?? "";
+  }
+  return "";
+}
+
+/** The server's outcome (`completed`, `partial`, `failed`, `cancelled`) as the cockpit shows it. */
+function subagentStatus(status: unknown): string {
+  if (status === "failed" || status === "error") return "error";
+  if (status === "partial" || status === "cancelled") return status;
+  return "completed";
+}
+
 export class MissionWebSocket {
   private ws: WebSocket | null = null;
   private url: string;
   private sessionId: string;
   private token: string;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  /** Removes the page listeners that reconnect at once when the tab or network comes back. */
+  private detachWakeListeners: (() => void) | null = null;
   private isExplicitlyClosed = false;
   /** Cursor this connection asked the server to replay from, if any. */
   private resumeRequestedSeq: number | null = null;
@@ -178,6 +201,7 @@ export class MissionWebSocket {
       return;
     }
     this.isExplicitlyClosed = false;
+    this.attachWakeListeners();
 
     try {
       this.ws = new WebSocket(this.url);
@@ -213,12 +237,45 @@ export class MissionWebSocket {
     }
   }
 
+  /**
+   * Retries without a limit: a turn can run for half an hour, and a live view that gave up
+   * after a short outage would stop updating without saying so. Exponential backoff capped at
+   * 30 s, with jitter so a server restart is not met by every client at the same instant.
+   */
   private scheduleReconnect(): void {
-    if (this.isExplicitlyClosed) return;
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
+    if (this.isExplicitlyClosed || this.reconnectTimer) return;
     this.reconnectAttempts++;
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 5000);
-    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+    const ceiling = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
+    const delay = ceiling / 2 + Math.random() * (ceiling / 2);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect();
+    }, delay);
+  }
+
+  /** Reconnect now (resuming from the last applied sequence) instead of waiting out the backoff. */
+  private reconnectNow(): void {
+    if (this.isExplicitlyClosed || this.isConnectedOrConnecting()) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectAttempts = 0;
+    this.connect();
+  }
+
+  private attachWakeListeners(): void {
+    if (this.detachWakeListeners || typeof window === "undefined") return;
+    const wake = () => this.reconnectNow();
+    window.addEventListener("online", wake);
+    window.addEventListener("focus", wake);
+    document.addEventListener("visibilitychange", wake);
+    this.detachWakeListeners = () => {
+      window.removeEventListener("online", wake);
+      window.removeEventListener("focus", wake);
+      document.removeEventListener("visibilitychange", wake);
+    };
   }
 
   private handleMessage(dataStr: string): void {
@@ -671,12 +728,11 @@ export class MissionWebSocket {
       }
 
       case "subagent_progress": {
+        // SubagentProgressPayload: {subagent_id, delta, is_reasoning}, one piece of the child's text.
         const subagentId = payload.subagent_id;
-        if (subagentId) {
-          store.updateSubagent(subagentId, {
-            turn: payload.turn,
-            thought: payload.thought,
-          });
+        if (subagentId && typeof payload.delta === "string" && payload.delta) {
+          const current = subagentThought(store.flightLog, subagentId);
+          store.updateSubagent(subagentId, { thought: (current + payload.delta).slice(-SUBAGENT_THOUGHT_CHARS) });
         }
         break;
       }
@@ -685,9 +741,13 @@ export class MissionWebSocket {
         const subagentId = payload.subagent_id;
         if (subagentId) {
           store.updateSubagent(subagentId, {
-            status: payload.status === "error" ? "error" : "completed",
+            status: subagentStatus(payload.status),
             summary: payload.summary,
             duration_ms: payload.duration_ms,
+            tokens: payload.tokens,
+            cost: payload.cost,
+            changed_files: payload.changed_files,
+            artefacts: payload.artefacts,
           });
         }
         break;
@@ -1101,6 +1161,8 @@ export class MissionWebSocket {
 
   public disconnect(): void {
     this.isExplicitlyClosed = true;
+    this.detachWakeListeners?.();
+    this.detachWakeListeners = null;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;

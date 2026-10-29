@@ -51,7 +51,7 @@ test.describe("Session screen", () => {
     await expect(page.getByTestId("terminal-toggle")).toHaveAttribute("aria-expanded", "false");
   });
 
-  test("an approval waits above the composer and Enter approves it", async ({ page, request }) => {
+  test("an approval waits above the composer and Enter in the card approves it", async ({ page, request }) => {
     const { socket } = await openSession(page, request);
     socket.emit("approval_required", { action_id: "a1", action_type: "bash_exec", description: "rm -rf build", risk_level: "high" });
 
@@ -60,9 +60,56 @@ test.describe("Session screen", () => {
     await expect(dock).toContainText("Approve bash_exec?");
     await expect(dock).toContainText("High risk");
 
+    // Focus elsewhere on the page: Enter is not an answer.
+    await page.getByTestId("flight-log-stream").click();
+    await page.keyboard.press("Enter");
+    await expect(dock.getByTestId("approval-card")).toBeVisible();
+    expect(socket.sent.some((frame) => JSON.stringify(frame).includes("a1"))).toBe(false);
+
+    await dock.getByTestId("approval-card").focus();
     await page.keyboard.press("Enter");
     await expect.poll(() => socket.sent.some((frame) => JSON.stringify(frame).includes("a1"))).toBe(true);
     await expect(dock).toHaveCount(0);
+  });
+
+  test("an irreversible action is approved only once the word is typed", async ({ page, request }) => {
+    const { socket } = await openSession(page, request);
+    socket.emit("approval_required", { action_id: "a3", action_type: "git_revert", description: "hard reset", risk_level: "critical" });
+    const card = page.getByTestId("approval-card");
+    await expect(card).toBeVisible();
+    await expect(card.getByTestId("approval-approve")).toBeDisabled();
+
+    await card.focus();
+    await page.keyboard.press("Enter");
+    expect(socket.sent.some((frame) => JSON.stringify(frame).includes("a3"))).toBe(false);
+
+    await card.getByTestId("approval-confirm").fill("approve");
+    await card.getByTestId("approval-approve").click();
+    await expect.poll(() => socket.sent.some((frame) => JSON.stringify(frame).includes("a3"))).toBe(true);
+  });
+
+  test("a subagent's live text and its failed outcome are shown as sent", async ({ page, request }) => {
+    const { socket } = await openSession(page, request);
+    socket.emit("subagent_started", { subagent_id: "sa1", role: "explorer", task: "find the retry path" });
+    socket.emit("subagent_progress", { subagent_id: "sa1", delta: "Looking in ", is_reasoning: false });
+    socket.emit("subagent_progress", { subagent_id: "sa1", delta: "api/turns.", is_reasoning: false });
+
+    // Delegations fold into one group, opened to see the step.
+    await page.getByRole("button", { name: /Delegated to 1 specialist/ }).click();
+    const row = page.getByTestId("activity-step").and(page.getByTitle("Delegated to explorer: find the retry path"));
+    await expect(row).toBeVisible();
+    await row.click();
+    await expect(page.getByText("Looking in api/turns.")).toBeVisible();
+
+    socket.emit("subagent_completed", {
+      subagent_id: "sa1",
+      role: "explorer",
+      task: "find the retry path",
+      summary: "Gave up: the repository is not cloned.",
+      status: "failed",
+    });
+    await expect(page.getByText("Gave up: the repository is not cloned.")).toBeVisible();
+    await expect(page.getByText("error", { exact: true })).toBeVisible();
   });
 
   test("typing in the composer keeps Enter and Escape for the composer", async ({ page, request }) => {

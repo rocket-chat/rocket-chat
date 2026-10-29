@@ -95,11 +95,17 @@ class Stack:
             return org_policy
 
         async def run_turn(
-            *, session_id: str, prompt: str, overlay: TurnOverlay, author_user_id: str
+            *,
+            session_id: str,
+            prompt: str,
+            overlay: TurnOverlay,
+            author_user_id: str,
+            message_id: str | None = None,
         ) -> None:
             await run_guarded_turn(
                 session_id=session_id,
                 prompt=prompt,
+                message_id=message_id,
                 orchestrator=self.orchestrator,
                 event_bus=self.bus,
                 driver=None,

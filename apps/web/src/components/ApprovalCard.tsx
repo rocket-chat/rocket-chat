@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useState } from "react";
 import { ShieldAlert, ShieldCheck } from "lucide-react";
 
 import { ApprovalRequestInfo } from "../types/mission";
+import { Field, Input } from "./ui/Field";
 
 interface ApprovalCardProps {
   approval: ApprovalRequestInfo;
@@ -25,31 +26,30 @@ const RISK_LABEL: Record<string, string> = {
   low: "Low risk",
 };
 
-/** Whether a key press is meant for the page, not for a field the person is typing in. */
-function isForThePage(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return true;
-  return !target.closest("input, textarea, select, [contenteditable='true']");
-}
+const CONFIRM_WORD = "approve";
 
 export const ApprovalCard: React.FC<ApprovalCardProps> = ({ approval, onApprove, onReject }) => {
   const riskClass = RISK_STYLES[approval.risk_level] || RISK_STYLES.medium;
+  const critical = approval.risk_level === "critical";
+  const [confirmation, setConfirmation] = useState("");
+  const confirmed = !critical || confirmation.trim().toLowerCase() === CONFIRM_WORD;
 
-  // Enter approves and Escape denies, but only when nothing is being typed: the composer keeps
-  // its own Enter and Escape.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || !isForThePage(event.target)) return;
-      if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement || event.target instanceof HTMLAnchorElement)) {
-        event.preventDefault();
-        onApprove(approval.action_id);
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        onReject(approval.action_id);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [approval.action_id, onApprove, onReject]);
+  // Enter approves and Escape denies only while focus is inside the card: a key pressed
+  // anywhere else on the page (the composer, the sidebar, a dialog) must never answer a gate.
+  // An irreversible action is never approved by a key alone: the word has to be typed.
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onReject(approval.action_id);
+      return;
+    }
+    const onControl = event.target instanceof HTMLButtonElement || event.target instanceof HTMLAnchorElement;
+    if (event.key === "Enter" && !onControl && confirmed) {
+      event.preventDefault();
+      onApprove(approval.action_id);
+    }
+  };
 
   return (
     <div
@@ -57,6 +57,8 @@ export const ApprovalCard: React.FC<ApprovalCardProps> = ({ approval, onApprove,
       className={`rounded-xl border ${riskClass} px-4 py-3 shadow-sm`}
       role="group"
       aria-label={`Approval required: ${approval.action_type}`}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
     >
       <div className="flex flex-wrap items-center gap-2">
         <ShieldAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
@@ -72,16 +74,33 @@ export const ApprovalCard: React.FC<ApprovalCardProps> = ({ approval, onApprove,
         </p>
       )}
 
+      {critical && (
+        <Field label={`This cannot be undone. Type "${CONFIRM_WORD}" to allow it`} className="mt-3">
+          {(control) => (
+            <Input
+              {...control}
+              data-testid="approval-confirm"
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              className="w-40 font-mono"
+            />
+          )}
+        </Field>
+      )}
+
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <button
           type="button"
           data-testid="approval-approve"
+          disabled={!confirmed}
           onClick={() => onApprove(approval.action_id)}
-          className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-500"
+          className="flex cursor-pointer items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Approve</span>
-          <kbd className="rounded bg-white/20 px-1 text-[10px] font-mono">Enter</kbd>
+          {!critical && <kbd className="rounded bg-white/20 px-1 text-[10px] font-mono">Enter</kbd>}
         </button>
         <button
           type="button"

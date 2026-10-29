@@ -24,7 +24,8 @@ from api.services.audit import AuditService
 router = APIRouter(prefix="/v1", tags=["Admin · Users"])
 
 # Roles a user may hold. `owner` and `admin` both carry administrative privileges.
-ALLOWED_USER_ROLES: tuple[str, ...] = ("owner", "admin", "developer", "readonly", "guest")
+# ``guest`` is internal (guest tokens, Slack guests), never a role an administrator assigns.
+ALLOWED_USER_ROLES: tuple[str, ...] = ("owner", "admin", "developer", "readonly")
 _ADMIN_ROLES = ("owner", "admin")
 
 
@@ -42,7 +43,7 @@ class UserPage(BaseModel):
 
 
 class UpdateUserRoleRequest(BaseModel):
-    role: str = Field(..., description="One of owner | admin | developer | readonly | guest")
+    role: str = Field(..., description="One of owner | admin | developer | readonly")
 
 
 class UpdateUserRoleResponse(BaseModel):
@@ -75,16 +76,26 @@ async def list_org_users(
         raise HTTPException(status_code=503, detail="Database is not available")
 
     async with db_mgr.session(tenant_org_id=org_id) as session:
-        stmt = select(UserModel).where(UserModel.org_id == org_id)
+        # ``users`` has no row-level security: every read names the organization.
+        conditions = [UserModel.org_id == org_id]
         if q:
             like = f"%{q.strip()}%"
-            stmt = stmt.where((UserModel.email.ilike(like)) | (UserModel.name.ilike(like)))
+            conditions.append((UserModel.email.ilike(like)) | (UserModel.name.ilike(like)))
         if role:
-            stmt = stmt.where(UserModel.role == role)
-        stmt = stmt.order_by(UserModel.created_at.asc(), UserModel.id.asc()).limit(limit)
+            conditions.append(UserModel.role == role)
+        stmt = (
+            select(UserModel)
+            .where(*conditions)
+            .order_by(UserModel.created_at.asc(), UserModel.id.asc())
+            .limit(limit)
+        )
         users = list((await session.execute(stmt)).scalars().all())
         total = int(
-            (await session.execute(select(func.count()).select_from(UserModel))).scalar_one()
+            (
+                await session.execute(
+                    select(func.count()).select_from(UserModel).where(*conditions)
+                )
+            ).scalar_one()
         )
     return UserPage(users=[_to_summary(u) for u in users], total=total)
 

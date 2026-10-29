@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from sandbox_driver.exceptions import SandboxError
+from sandbox_driver.utils import parse_memory_to_bytes
 
 from api.services.git_credentials import (
     inject_git_credentials_into_sandbox,
@@ -253,9 +254,22 @@ async def _expand_slash_command(
 def _resources(
     binding: Any, sandbox_type: SandboxEntry | None, sandbox_cfg: dict[str, Any]
 ) -> ResourceLimits:
+    """The sandbox's resources: the type's, else the organization's, which an agent may lower.
+
+    An agent is edited by members (a personal one by its owner), so its CPU and memory are a
+    request under the administrator's value, never a way above it.
+    """
     own = sandbox_type or SandboxEntry(id="", org_id="", name="", image="")
+    cpu_ceiling = float(own.cpu_limit or sandbox_cfg["cpu_limit"])
+    memory_ceiling = own.memory_limit or str(sandbox_cfg["memory_limit"])
+    cpu = min(float(binding.cpu_limit), cpu_ceiling) if binding.cpu_limit else cpu_ceiling
+    memory = memory_ceiling
+    if binding.memory_limit and parse_memory_to_bytes(binding.memory_limit) < parse_memory_to_bytes(
+        memory_ceiling
+    ):
+        memory = binding.memory_limit
     return ResourceLimits(
-        cpu_cores=float(binding.cpu_limit or own.cpu_limit or sandbox_cfg["cpu_limit"]),
-        memory_limit=binding.memory_limit or own.memory_limit or str(sandbox_cfg["memory_limit"]),
+        cpu_cores=cpu,
+        memory_limit=memory,
         disk_size=own.disk_size or ResourceLimits().disk_size,
     )

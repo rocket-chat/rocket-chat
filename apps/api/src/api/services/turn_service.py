@@ -75,17 +75,22 @@ def resolve_permission_mode(
     *,
     locked: bool,
     allow_bypass: bool,
+    agent_mode: str | None = None,
 ) -> str:
-    """The supervision level for a turn: the session's choice, else the effective preference.
+    """The supervision level for a turn: the session's choice, else the agent's, else the preference.
 
     The preference already cascades organization default -> member override. When the
-    organization locked it, neither a member nor a session may choose another mode. Bypass
-    removes every gate, so it only applies where the organization allows it; otherwise a
-    request for it is honoured as ``ask`` (more supervision, never less).
+    organization locked it, neither a member, an agent nor a session may choose another mode:
+    a personal agent is written by the member, so its default is no more trusted than theirs.
+    Bypass removes every gate, so it only applies where the organization allows it; otherwise
+    a request for it is honoured as ``ask`` (more supervision, never less).
     """
     chosen = preferred_mode
-    if not locked and session_mode in PERMISSION_MODES:
-        chosen = str(session_mode)
+    if not locked:
+        chosen = next(
+            (str(mode) for mode in (session_mode, agent_mode) if mode in PERMISSION_MODES),
+            preferred_mode,
+        )
     if chosen not in PERMISSION_MODES:
         return DEFAULT_PERMISSION_MODE
     if chosen == "bypass" and not allow_bypass:
@@ -366,13 +371,10 @@ class TurnService:
             hooks=parse_hooks(governance.get("hooks")),
             permission_mode=resolve_permission_mode(
                 session_permission_mode,
-                str(
-                    getattr(agent, "default_permission_mode", None)
-                    or prefs.get("permission_mode")
-                    or ""
-                ),
+                str(prefs.get("permission_mode") or ""),
                 locked="permission_mode" in resolved_prefs.locked_keys,
                 allow_bypass=bool(governance.get("allow_bypass_permissions")),
+                agent_mode=getattr(agent, "default_permission_mode", None),
             ),
             tool_loading=tool_loading_for(agent),
             output_offload_threshold=int(general.get("output_offload_threshold", 6000)),

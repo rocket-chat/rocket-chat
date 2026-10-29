@@ -740,7 +740,7 @@ class SlackAssistant(
     ) -> None:
         """Run the turn, its steps streamed into its reply, then post the result."""
         session_id = view.session_id
-        await self._remember_requester(session_id, admitted.session_org_id, view.requester_slack_id)
+        view.org_id = admitted.session_org_id
         if admitted.org_policy.live_progress and self._slack_api_ready and not view.private:
             view.stream = TurnStream(
                 self.app.client,
@@ -750,6 +750,10 @@ class SlackAssistant(
                 recipient_team_id=admitted.team_id or None,
                 clock=self._clock,
             )
+        if session_id not in self._active_turns:
+            # No Slack turn runs before this one: it is the session's next at once, so who may
+            # stop it or answer its gates is known before its first step.
+            await self._remember_requester(session_id, view.org_id, view.requester_slack_id)
         self._active_turns.add(session_id)
         error: str | None = None
         try:
@@ -844,6 +848,11 @@ class SlackAssistant(
             await view.say_fn(text=notice, thread_ts=view.thread_ts)
         await self._set_session_status(view.channel_id, view.thread_ts, "active")
         return True
+
+    async def _own_turn_started(self, view: TurnView) -> None:
+        # Only now: until this turn begins, the gates in flight belong to the turn before it,
+        # whose requester must stay the one who may answer them.
+        await self._remember_requester(view.session_id, view.org_id, view.requester_slack_id)
 
     async def _remember_requester(
         self, session_id: str, org_id: str, slack_user_id: str | None

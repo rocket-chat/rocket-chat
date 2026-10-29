@@ -95,6 +95,25 @@ def test_mode_resolution_prefers_the_most_specific_and_never_loosens_by_default(
     )
 
 
+@pytest.mark.parametrize(
+    "session, agent, locked, expected",
+    [
+        (None, "auto", False, "auto"),  # the agent's default beats the member preference
+        ("plan", "auto", False, "plan"),  # the session's choice beats the agent's default
+        (None, "auto", True, "ask"),  # an organization lock beats the agent's default
+        ("auto", "bypass", True, "ask"),
+        (None, "nonsense", False, "ask"),
+    ],
+)
+def test_an_agent_default_never_escapes_an_organization_lock(
+    session: str | None, agent: str, locked: bool, expected: str
+) -> None:
+    assert (
+        resolve_permission_mode(session, "ask", locked=locked, allow_bypass=True, agent_mode=agent)
+        == expected
+    )
+
+
 # --- enforcement through the orchestrator -------------------------------------------------
 
 
@@ -258,6 +277,7 @@ async def _turn_with_org_settings(
     *,
     preferences: dict[str, Any] | None = None,
     locked: list[str] | None = None,
+    agent_id: str | None = None,
 ) -> tuple[list[Any], int]:
     """Run a whole web turn (events published on the bus); return (approval events, tool runs)."""
     from api.events import AsyncIOEventBus
@@ -273,6 +293,8 @@ async def _turn_with_org_settings(
     await save_org_config(None, org, "user_preferences", preferences or {}, locked or [])
     store = InMemorySessionStore()
     metadata = {"permission_mode": session_mode} if session_mode else {}
+    if agent_id:
+        metadata["agent_id"] = agent_id
     await store.create_session(
         SessionRecord(
             session_id="s_perm", tenant_org_id=org, tenant_user_id="u", title="t", metadata=metadata
@@ -392,3 +414,65 @@ async def test_a_locked_organization_mode_cannot_be_loosened_by_the_session() ->
         locked=["permission_mode"],
     )
     assert [g["action_type"] for g in gates] == ["bash_exec"]
+
+
+async def test_a_personal_agent_cannot_escape_a_locked_organization_mode() -> None:
+    from api.models import AgentPersonaModel
+    from api.services.personas import save_persona
+
+    # Saved before the lock, as when an administrator locks the mode later.
+    agent = await save_persona(
+        None,
+        "perm_org",
+        "u",
+        False,
+        AgentPersonaModel(
+            id="persona-personal-auto",
+            name="Mine",
+            role_title="Personal",
+            system_prompt="p",
+            scope="user",
+            default_permission_mode="auto",
+        ),
+    )
+    gates, _ = await _turn_with_org_settings(
+        {},
+        None,
+        "bash_exec",
+        {"command": "ls"},
+        preferences={"permission_mode": "ask"},
+        locked=["permission_mode"],
+        agent_id=agent.id,
+    )
+    assert [g["action_type"] for g in gates] == ["bash_exec"]
+
+
+async def test_saving_an_agent_checks_its_mode_against_the_organization_policy() -> None:
+    from api.models import AgentPersonaModel
+    from api.services.personas import PersonaError, save_persona
+    from api.services.settings import save_org_config
+
+    org = "perm_save_org"
+
+    def agent(mode: str) -> AgentPersonaModel:
+        return AgentPersonaModel(
+            id=f"persona-{mode}",
+            name=mode,
+            role_title="r",
+            system_prompt="p",
+            scope="user",
+            default_permission_mode=mode,
+        )
+
+    await save_org_config(None, org, "governance", {"allow_bypass_permissions": False}, [])
+    with pytest.raises(PersonaError, match="bypass"):
+        await save_persona(None, org, "u", False, agent("bypass"))
+
+    await save_org_config(
+        None, org, "user_preferences", {"permission_mode": "ask"}, ["permission_mode"]
+    )
+    with pytest.raises(PersonaError, match="locked"):
+        await save_persona(None, org, "u", False, agent("auto"))
+    assert (
+        await save_persona(None, org, "u", False, agent("ask"))
+    ).default_permission_mode == "ask"

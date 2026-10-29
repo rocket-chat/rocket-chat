@@ -111,3 +111,12 @@ def test_attachments_survive_a_round_trip(client: TestClient) -> None:
     ).json()
 
     assert saved["skill_ids"] == ["sk1"] and saved["knowledge_base_ids"] == ["kb1"]
+
+
+def test_a_read_only_member_cannot_create_or_delete_agents(client: TestClient) -> None:
+    readonly = {**MEMBER_A, "X-User-Role": "readonly"}
+    created = client.post("/v1/agents", json=_persona("ro-agent", scope="user"), headers=readonly)
+    assert created.status_code == 403
+    mine = client.post("/v1/agents", json=_persona("ro-agent", scope="user"), headers=MEMBER_A)
+    deleted = client.delete(f"/v1/agents/{mine.json()['id']}", headers=readonly)
+    assert deleted.status_code == 403

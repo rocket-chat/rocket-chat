@@ -1,7 +1,9 @@
-"""A member's own git policy: authorship, pull request identity and signing.
+"""A member's own git policy: authorship only.
 
-Each follows the organization until the member changes it, keeps following the organization's
-later changes while left at its default, and stays the organization's when it is locked.
+Authorship follows the organization until the member changes it, keeps following the
+organization's later changes while left at its default, and stays the organization's when it
+is locked. Pull request identity and signing are the organization's alone: a member choosing
+``as_bot`` or unsigned commits would publish past the organization's policy.
 """
 
 from __future__ import annotations
@@ -25,29 +27,53 @@ async def _git_policy(org: str, user: str) -> Any:
 @pytest.mark.setting("github.commit_signing_mode")
 @pytest.mark.setting("github.commit_authorship_policy")
 @pytest.mark.setting("github.pr_creation_policy")
-async def test_a_members_choice_beats_the_organizations_unless_it_is_locked() -> None:
+async def test_only_authorship_is_the_members_choice_and_a_lock_still_wins() -> None:
     org = f"{ORG}_override"
     await save_org_config(
         None,
         org,
         "github",
         {"commit_signing_mode": "github_app", "commit_authorship_policy": "co_authored"},
-        ["commit_authorship_policy"],
+        [],
     )
+    # Stored before these keys became organization-only: they must not resurface.
     await save_user_config(
         None,
         org,
         "nathan",
         "github",
-        {"commit_signing_mode": "none", "pr_creation_policy": "as_bot"},
+        {
+            "commit_signing_mode": "none",
+            "pr_creation_policy": "as_bot",
+            "commit_authorship_policy": "user_only",
+        },
     )
 
     mine = await _git_policy(org, "nathan")
     theirs = await _git_policy(org, "alice")
 
-    assert (mine.signing_mode, mine.pr_creation) == ("none", "as_bot")
-    assert mine.authorship == "co_authored", "a locked key stays the organization's"
-    assert (theirs.signing_mode, theirs.pr_creation) == ("github_app", "as_user")
+    assert (mine.signing_mode, mine.pr_creation) == ("github_app", "as_user")
+    assert mine.authorship == "user_only"
+    assert theirs.authorship == "co_authored"
+
+    await save_org_config(
+        None,
+        org,
+        "github",
+        {"commit_authorship_policy": "bot_only"},
+        ["commit_authorship_policy"],
+    )
+    assert (await _git_policy(org, "nathan")).authorship == "bot_only", "a lock wins"
+
+
+def test_a_member_cannot_choose_the_pull_request_identity_or_signing() -> None:
+    headers = {"X-Tenant-Org-Id": f"{ORG}_refused", "X-Tenant-User-Id": "nathan"}
+    with TestClient(app) as client:
+        for key, value in (("pr_creation_policy", "as_bot"), ("commit_signing_mode", "none")):
+            response = client.put(
+                "/v1/settings/github", json={"overrides": {key: value}}, headers=headers
+            )
+            assert response.status_code in (403, 422), response.text
 
 
 async def test_a_reset_field_follows_the_organizations_later_changes() -> None:
@@ -56,24 +82,28 @@ async def test_a_reset_field_follows_the_organizations_later_changes() -> None:
     with TestClient(app) as client:
         saved = client.put(
             "/v1/settings/github",
-            json={"overrides": {"commit_signing_mode": "none"}},
+            json={"overrides": {"commit_authorship_policy": "user_only"}},
             headers=headers,
         ).json()
-        assert saved["field_status"]["commit_signing_mode"] == "overridden"
+        assert saved["field_status"]["commit_authorship_policy"] == "overridden"
 
-        reset = client.delete("/v1/settings/github/commit_signing_mode", headers=headers).json()
-        assert reset["field_status"]["commit_signing_mode"] == "org_default"
+        reset = client.delete(
+            "/v1/settings/github/commit_authorship_policy", headers=headers
+        ).json()
+        assert reset["field_status"]["commit_authorship_policy"] == "org_default"
 
         # Through the API, so the same store is written whether or not a database is in use.
         admin = {**headers, "X-Tenant-User-Id": "admin", "X-User-Role": "admin"}
         client.put(
             "/v1/admin/settings/github",
-            json={"config": {"commit_signing_mode": "gpg_key"}, "locked_keys": []},
+            json={"config": {"commit_authorship_policy": "bot_only"}, "locked_keys": []},
             headers=admin,
         ).raise_for_status()
         later = client.get("/v1/settings/github", headers=headers).json()
 
-    assert later["effective"]["commit_signing_mode"] == "gpg_key", "left at default, it follows"
+    assert later["effective"]["commit_authorship_policy"] == "bot_only", (
+        "left at default, it follows"
+    )
 
 
 def test_the_bot_identity_and_app_permissions_stay_the_organizations() -> None:

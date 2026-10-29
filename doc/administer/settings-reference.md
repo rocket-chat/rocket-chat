@@ -77,13 +77,13 @@ Every setting declares who may write it (**Scope**), its type, its default and t
 | Setting | Scope | Type / values | Default | Description |
 | :-- | :-- | :-- | :-- | :-- |
 | `commit_authorship_policy` | Org default, member override | `co_authored` / `user_only` / `bot_only` / `authored_by_user_committed_by_bot` | `co_authored` | co_authored = bot commits with the member as Co-authored-by, user_only = commits as the member, bot_only = commits as the bot, authored_by_user_committed_by_bot = member is git author and bot is committer (requires gpg_key or none signing). |
-| `pr_creation_policy` | Org default, member override | `as_user` / `as_bot` | `as_user` | Open pull requests with the member's token (as_user) or the GitHub App (as_bot). |
-| `commit_signing_mode` | Org default, member override | `github_app` / `gpg_key` / `none` | `github_app` | github_app: commits are created through GitHub's API so GitHub signs them (verified, made by the GitHub App); gpg_key: members who imported a GPG key and chose to commit as themselves sign with it, everyone else gets github_app; none: unsigned. |
+| `pr_creation_policy` | Organization | `as_user` / `as_bot` | `as_user` | Open pull requests with the member's token (as_user) or the GitHub App (as_bot). |
+| `commit_signing_mode` | Organization | `github_app` / `gpg_key` / `none` | `github_app` | github_app: commits are created through GitHub's API so GitHub signs them (verified, made by the GitHub App); gpg_key: members who imported a GPG key and chose to commit as themselves sign with it, everyone else gets github_app; none: unsigned. |
 | `bot_author_name` | Organization | str | `RocketChat Bot` | Name of the bot identity used for bot commits. |
 | `bot_author_email` | Organization | str | `bot@rocketchat.internal` | E-mail of the bot identity used for bot commits. |
 | `default_branch` | Organization | str | `main` | Base branch for pull requests when a repository's own default branch is not known (each cloned repository's own default branch is used first). |
 | `app_token_permissions` | Organization | dict | `{'contents': 'read', 'pull_requests': 'read', 'checks': 'read', 'actions': 'read', 'statuses': 'read', 'issues': 'read'}` | Permissions requested for the GitHub App token the sandbox receives. Always lowered to read: add reads such as actions, checks or statuses to let the agent follow CI; writing goes through git_push with a token that never enters the sandbox. |
-| `app_token_target_repositories` | Organization | str | `all` | Repositories the GitHub App acts on for the agent, reading and changing: "all" or a comma-separated list. Elsewhere the member's linked account is used. |
+| `app_token_target_repositories` | Organization | str | `all` | Repositories the GitHub App acts on for the agent, reading and changing: "all" or a comma-separated list of owner/name. Elsewhere the member's linked account is used. A bare name (deprecated) matches that repository under every owner. |
 
 ## MCP policy (`mcp`)
 

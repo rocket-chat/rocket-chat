@@ -8,13 +8,13 @@ test.describe("Personal git policy", () => {
     await request.delete(`${BACKEND}/v1/settings/github`);
   });
 
-  test("a member overrides signing, then follows the organization again", async ({ page }) => {
+  test("a member overrides authorship, then follows the organization again", async ({ page }) => {
     await page.goto("/settings/github");
 
-    const badge = page.getByTestId("settings-inheritance-mine-github-commit_signing_mode");
+    const badge = page.getByTestId("settings-inheritance-mine-github-commit_authorship_policy");
     await expect(badge).toContainText("Org Default");
 
-    await page.getByTestId("settings-field-mine-github-commit_signing_mode").selectOption("none");
+    await page.getByTestId("settings-field-mine-github-commit_authorship_policy").selectOption("user_only");
     await page.getByTestId("settings-save-all").click();
     await expect(badge).toContainText("Overridden");
 
