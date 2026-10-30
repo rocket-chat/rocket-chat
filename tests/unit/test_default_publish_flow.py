@@ -82,8 +82,7 @@ async def test_clone_commit_then_git_push_publishes_with_the_members_account_whe
         )
     )  # type: ignore[arg-type]
     policy = GitPolicy(
-        signing_mode="github_app",
-        authorship="co_authored",
+        signing="github",
         user_token="gho_member",
         app_installations=(),
     )

@@ -2,8 +2,9 @@
 
 import React from "react";
 import { SchemaSettingsForm } from "../../../../components/settings/SchemaSettingsForm";
-import { ProviderKeysPanel } from "../../../../components/settings/ProviderKeysPanel";
+import { CredentialsPanel } from "../../../../components/settings/CredentialsPanel";
 import type { CustomControl } from "../../../../components/settings/SchemaSettingsForm";
+import { SettingsPage } from "../../../../components/settings/SettingsPage";
 import { ModelPicker } from "../../../../components/ui/ModelPicker";
 
 function modelControl(inheritLabel: string) {
@@ -21,57 +22,27 @@ function modelControl(inheritLabel: string) {
   };
 }
 
-const MODEL_CONTROLS = { default_model: modelControl("Platform default") };
-const ROUTING_CONTROLS = {
+const MODEL_CONTROLS = {
+  default_model: modelControl("Platform default"),
   fast_model: modelControl("Not set"),
   economy_model: modelControl("Not set"),
 };
 
 export default function Page() {
   return (
-    <div className="flex flex-col min-h-full">
-      <div className="border-b border-surface-border bg-surface-subnav/50 px-8 py-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400 mb-2">
-            <span>Settings</span>
-            <span>/</span>
-            <span>Organization</span>
-            <span>/</span>
-            <span className="text-foreground font-medium">Models</span>
-          </div>
-          <h1 className="text-xl md:text-2xl font-display font-bold text-foreground tracking-tight">
-            Models & Routing
-          </h1>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5">
-            Which models members may use, fail-over, sampling defaults and cost routing.
-          </p>
-        </div>
-      </div>
-      <div className="flex-1 p-8">
-        <div className="max-w-5xl mx-auto space-y-10">
-          <SchemaSettingsForm
-            domain="models"
-            mode="org"
-            title="Model policy"
-            description="Allow and deny lists apply to every model choice, including fail-over."
-            controls={MODEL_CONTROLS}
-          />
-          <SchemaSettingsForm
-            domain="routing"
-            mode="org"
-            title="Cost routing"
-            description="Send auxiliary work (titles, suggestions, summaries) to a cheaper model."
-            controls={ROUTING_CONTROLS}
-          />
-          <SchemaSettingsForm
-            domain="budgets"
-            mode="org"
-            title="Budgets & provider keys"
-            description="Spending caps stop new model calls before they are made (0 = no cap); the key policy decides whose provider keys may be used."
-          />
-          <ProviderKeysPanel mode="org" />
-        </div>
-      </div>
-    </div>
+    <SettingsPage
+      section="Organization"
+      title="Models & credentials"
+      description="The keys the organization pays for, which models members may use, fail-over and routing."
+    >
+      <CredentialsPanel mode="org" />
+      <SchemaSettingsForm
+        domain="models"
+        mode="org"
+        title="Model policy"
+        description="Allow and deny lists apply to every model choice, including fail-over and routing tiers."
+        controls={MODEL_CONTROLS}
+      />
+    </SettingsPage>
   );
 }

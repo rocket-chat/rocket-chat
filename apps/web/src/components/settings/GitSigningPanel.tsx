@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { useConfirm } from "../ui/ConfirmDialog";
 import { AlertCircle, CheckCircle2, Copy, ExternalLink, KeyRound, Trash2 } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Field, Input, Textarea } from "../ui/Field";
-import { SchemaSettingsForm } from "./SchemaSettingsForm";
 
 interface GitSigningStatus {
   available: boolean;
@@ -18,17 +18,16 @@ interface GitSigningStatus {
   expires_at?: number | null;
   has_passphrase?: boolean;
   public_key?: string | null;
-  commit_as_me?: boolean;
 }
 
 const MODE_NOTES: Record<string, string> = {
-  github_app:
+  github:
     "Your organization has commits created through GitHub's API, so GitHub signs them as the GitHub App and they show as verified. You do not need a key.",
   none: "Your organization does not sign commits.",
 };
 
 const ENABLE_KEYS =
-  "Members can import their own GPG key once an administrator sets the commit signing mode to “gpg_key” in Organization GitHub App Policies, below.";
+  "Members can import their own GPG key once an administrator sets the commit signing mode to “member_gpg” (Organization > Git & GitHub).";
 
 function formatFingerprint(fingerprint: string): string {
   return fingerprint.replace(/(.{4})/g, "$1 ").trim();
@@ -36,6 +35,7 @@ function formatFingerprint(fingerprint: string): string {
 
 /** Import a GPG key so commits the agent makes as you are signed (verified on GitHub). */
 export const GitSigningPanel: React.FC = () => {
+  const [confirm, confirmDialog] = useConfirm();
   const [status, setStatus] = useState<GitSigningStatus | null>(null);
   const [privateKey, setPrivateKey] = useState("");
   const [passphrase, setPassphrase] = useState("");
@@ -89,7 +89,7 @@ export const GitSigningPanel: React.FC = () => {
   };
 
   const handleRemove = async () => {
-    if (!confirm("Remove your signing key? Commits will no longer be signed with it.")) return;
+    if (!(await confirm({ title: "Remove your signing key?", message: "Commits will no longer be signed with it.", confirmLabel: "Remove key", tone: "danger" }))) return;
     setBusy(true);
     try {
       const res = await fetch("/v1/user/git-signing", { method: "DELETE" });
@@ -113,10 +113,11 @@ export const GitSigningPanel: React.FC = () => {
     }
   };
 
-  const usesKeys = status.mode === "gpg_key";
+  const usesKeys = status.mode === "member_gpg";
 
   return (
     <section data-testid="git-signing" className="space-y-3 rounded-lg border border-border bg-surface-card p-4">
+      {confirmDialog}
       <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
         <KeyRound className="h-4 w-4 text-brand" aria-hidden="true" />
         Commit signing
@@ -273,15 +274,6 @@ export const GitSigningPanel: React.FC = () => {
             </p>
           )}
 
-          {status.configured && (
-            <SchemaSettingsForm
-              domain="user_preferences"
-              mode="user"
-              title="Commit as me"
-              description="Commit as yourself, signed with this key, instead of as the bot."
-              only={["commit_as_me"]}
-            />
-          )}
         </>
       )}
     </section>

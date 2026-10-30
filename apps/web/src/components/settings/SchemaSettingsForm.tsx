@@ -2,25 +2,32 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle2, ChevronRight, Lock, RotateCcw } from "lucide-react";
-import { useSession } from "../AuthProvider";
-import { InheritanceBadge, type InheritanceStatus } from "./InheritanceBadge";
+import { InheritanceBadge, type Provenance } from "./InheritanceBadge";
 import { useSettingsFormHandle } from "./SettingsSave";
 import { humanize, settingLabel } from "../../lib/settings-labels";
+import { useAccess } from "../../lib/access";
 
 type Kind = "bool" | "int" | "float" | "str" | "enum" | "list" | "dict";
-type Scope = "org" | "user" | "both";
+/** Who decides a setting (`config_engine.policy`). */
+type Policy = "instance" | "org" | "org_default" | "member";
 
 interface FieldSchema {
   key: string;
   kind: Kind;
   default: unknown;
-  scope: Scope;
+  policy: Policy;
+  /** Lower levels may lower this number, never raise it. */
+  ceiling?: boolean;
+  /** Environment variables holding the operator's value. */
+  instance_env?: string[];
   description: string;
   choices: string[];
   minimum: number | null;
   maximum: number | null;
   label?: string;
   unit?: string;
+  /** Under `org_default`: false when only presets (a Slack bot), not members, may override. */
+  member_override?: boolean;
   advanced?: boolean;
   deprecated?: boolean;
 }
@@ -110,9 +117,7 @@ export function SchemaSettingsForm({
   idScope,
 }: SchemaSettingsFormProps) {
   const key = idScope ? `${idScope}-${domain}` : domain;
-  const { data: session } = useSession();
-  const roles = (session?.user as unknown as { roles?: string[] })?.roles || [];
-  const isAdmin = !session || roles.includes("admin") || roles.includes("owner");
+  const { isAdmin, loaded: accessLoaded } = useAccess();
   const canEdit = mode === "user" || isAdmin;
 
   const [schema, setSchema] = useState<FieldSchema[]>([]);
@@ -125,16 +130,20 @@ export function SchemaSettingsForm({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [orgLocked, setOrgLocked] = useState<string[]>([]);
-  // Member mode: whether each key follows the organization or is the member's own.
-  const [fieldStatus, setFieldStatus] = useState<Record<string, InheritanceStatus>>({});
+  // Where each value comes from (platform, operator, organization, the member's own).
+  const [provenance, setProvenance] = useState<Record<string, Provenance>>({});
   const [issues, setIssues] = useState<FieldIssue[]>([]);
   const [banner, setBanner] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
   const [, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const fields = useMemo(() => {
+    // Organization forms also show operator values (read-only); member forms only what a
+    // member may choose.
     const writable = schema.filter((f) =>
-      mode === "org" ? f.scope === "org" || f.scope === "both" : f.scope === "user" || f.scope === "both",
+      mode === "org"
+        ? f.policy !== "member"
+        : f.policy === "member" || (f.policy === "org_default" && f.member_override !== false),
     );
     // A superseded setting only shows while it still holds a stored value.
     const visible = writable.filter(
@@ -157,17 +166,18 @@ export function SchemaSettingsForm({
         const res = await fetch(`/v1/admin/settings/${domain}`);
         if (!res.ok) throw new Error(`settings HTTP ${res.status}`);
         const data = await res.json();
-        source = data.config;
+        source = { ...(data.instance ?? {}), ...data.config };
         setLockedKeys(data.locked_keys ?? []);
         setInitialLocked(data.locked_keys ?? []);
         setDefaults(data.system_defaults ?? {});
+        setProvenance(data.provenance ?? {});
       } else {
         const res = await fetch(`/v1/settings/${domain}`);
         if (!res.ok) throw new Error(`settings HTTP ${res.status}`);
         const data = await res.json();
         source = data.effective;
         setOrgLocked(data.locked_keys ?? []);
-        setFieldStatus(data.field_status ?? {});
+        setProvenance(data.provenance ?? {});
       }
       const editable: FieldValues = {};
       for (const [key, raw] of Object.entries(source)) {
@@ -181,9 +191,11 @@ export function SchemaSettingsForm({
     }
   }, [domain, mode, isAdmin]);
 
+  // Loading before the role is known reads the member view, then reloads as an administrator
+  // and overwrites whatever was typed in between.
   useEffect(() => {
-    load();
-  }, [load]);
+    if (accessLoaded) load();
+  }, [load, accessLoaded]);
 
   const issueFor = (key: string) => issues.find((i) => i.key === key)?.message;
 
@@ -203,6 +215,7 @@ export function SchemaSettingsForm({
     const local: FieldIssue[] = [];
     const payload: Record<string, unknown> = {};
     for (const field of fields) {
+      if (field.policy === "instance") continue;
       const edited = values[field.key];
       if (mode === "user" && JSON.stringify(edited) === JSON.stringify(initial[field.key])) continue;
       if (orgLocked.includes(field.key) && mode === "user") continue;
@@ -221,6 +234,7 @@ export function SchemaSettingsForm({
         // Keep keys this form does not render exactly as stored.
         const keep: Record<string, unknown> = {};
         for (const field of schema) {
+          if (field.policy === "instance" || field.policy === "member") continue;
           if (!(field.key in payload) && field.key in initial) {
             keep[field.key] = fromEditable(field, initial[field.key]).value;
           }
@@ -282,7 +296,7 @@ export function SchemaSettingsForm({
   };
 
   const renderControl = (field: FieldSchema) => {
-    const locked = mode === "user" && orgLocked.includes(field.key);
+    const locked = (mode === "user" && orgLocked.includes(field.key)) || field.policy === "instance";
     // Until the stored values arrive the inputs show blanks, and the arrival would overwrite
     // anything typed into them, so they stay disabled until then.
     const disabled = !canEdit || locked || !loaded;
@@ -458,12 +472,23 @@ export function SchemaSettingsForm({
                 <Lock className="h-3 w-3" /> LOCKED BY ORG
               </span>
             )}
-            {mode === "user" && !memberLocked && field.scope === "both" && fieldStatus[field.key] && (
+            {provenance[field.key] && !memberLocked && (
               <span data-testid={`settings-inheritance-${key}-${field.key}`}>
-                <InheritanceBadge status={fieldStatus[field.key]} onReset={() => resetField(field.key)} />
+                <InheritanceBadge
+                  provenance={provenance[field.key]}
+                  onReset={mode === "user" ? () => resetField(field.key) : undefined}
+                />
               </span>
             )}
-            {mode === "org" && field.scope === "both" && canEdit && (
+            {field.ceiling && (
+              <span
+                className="text-[10px] text-neutral-500"
+                title="Agents and members may lower this value, never raise it"
+              >
+                Ceiling
+              </span>
+            )}
+            {mode === "org" && field.policy === "org_default" && canEdit && (
               <label className="inline-flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
                 <input
                   type="checkbox"
@@ -475,7 +500,7 @@ export function SchemaSettingsForm({
                     setLockedKeys((prev) => (e.target.checked ? [...prev, field.key] : prev.filter((k) => k !== field.key)))
                   }
                 />
-                Lock for members
+                {field.member_override === false ? "Lock for bots" : "Lock for members"}
               </label>
             )}
           </span>

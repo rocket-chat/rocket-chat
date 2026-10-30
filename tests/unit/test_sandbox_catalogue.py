@@ -26,8 +26,13 @@ def test_an_organization_starts_with_the_platform_default_in_its_catalogue(
     client: TestClient,
 ) -> None:
     body = client.get("/v1/sandboxes", headers=MEMBER).json()
-    (default,) = body["sandboxes"]
+    default = body["sandboxes"][0]
     assert default["name"] == "Devbox" and default["is_default"] and default["capabilities"] == []
+    shipped = {e["name"]: e for e in body["sandboxes"][1:]}
+    assert set(shipped) == {"Browser", "Polyglot"}
+    assert (
+        shipped["Browser"]["capabilities"] == ["browser"] and not shipped["Polyglot"]["is_default"]
+    )
     assert "browser" in body["capabilities"], "the page can explain what each capability needs"
 
 
@@ -50,6 +55,7 @@ def test_the_catalogue_is_seeded_from_what_the_organization_already_configured(
     )
     headers = {**MEMBER, "X-Tenant-Org-Id": "legacy_org"}
     entries = client.get("/v1/sandboxes", headers=headers).json()["sandboxes"]
+    entries = [e for e in entries if e["name"] not in ("Browser", "Polyglot")]
     assert [(e["image"], e["is_default"]) for e in entries] == [
         ("registry.example/custom:1", True),
         ("registry.example/other:2", False),
@@ -57,11 +63,11 @@ def test_the_catalogue_is_seeded_from_what_the_organization_already_configured(
 
 
 def test_only_administrators_change_the_catalogue(client: TestClient) -> None:
-    body = {"name": "Browser", "image": "registry.example/box:1", "capabilities": ["browser"]}
+    body = {"name": "Headless", "image": "registry.example/box:1", "capabilities": ["browser"]}
     assert client.post("/v1/admin/sandboxes", json=body, headers=MEMBER).status_code == 403
     created = client.post("/v1/admin/sandboxes", json=body, headers=ADMIN)
     assert created.status_code == 200 and created.json()["capabilities"] == ["browser"]
-    assert "Browser" in _names(client)
+    assert "Headless" in _names(client)
 
 
 @pytest.mark.parametrize(
@@ -79,7 +85,7 @@ def test_a_bad_entry_is_refused_with_the_reason(client: TestClient, body: dict[s
 
 
 def test_the_default_and_the_last_entry_cannot_be_removed(client: TestClient) -> None:
-    (default,) = client.get("/v1/sandboxes", headers=ADMIN).json()["sandboxes"]
+    default = client.get("/v1/sandboxes", headers=ADMIN).json()["sandboxes"][0]
     assert client.delete(f"/v1/admin/sandboxes/{default['id']}", headers=ADMIN).status_code == 409
 
     other = client.post(
@@ -100,7 +106,7 @@ def test_a_session_picks_a_sandbox_by_id_and_unknown_choices_are_refused(
     box = client.post(
         "/v1/admin/sandboxes",
         json={
-            "name": "Browser",
+            "name": "Headless",
             "image": "registry.example/browser:1",
             "capabilities": ["browser"],
         },

@@ -1,14 +1,13 @@
-"""Generic Cascading Settings Engine supporting Org Defaults, User Overrides, and Admin Lockouts."""
+"""Settings resolution for a whole domain, and model routing, on top of ``config_engine.policy``."""
 
 import fnmatch
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from dataclasses import dataclass, field, replace
+from typing import Any
 
 from .exceptions import PolicyViolationError
-from .registry import domains, system_defaults
-
-FieldStatus = Literal["org_default", "overridden", "locked"]
+from .policy import Policy, Preset, ResolveContext, Resolved, resolve
+from .registry import SettingSpec, domains, instance_values, specs_for, system_defaults
 
 # The three task-aware routing modes. ``frontier`` is today's behaviour:
 # one model for everything. ``balanced`` splits cheap auxiliary work from the ReAct loop.
@@ -21,7 +20,7 @@ ROUTING_MODES = ("frontier", "balanced", "economy")
 AUXILIARY_ROLES = frozenset({"summarize", "suggest", "subagent:researcher"})
 
 # Platform defaults come from the typed registry (``config_engine.registry``), the single
-# declaration of every setting's scope, type and runtime consumer.
+# declaration of every setting's policy, type and runtime consumer.
 SYSTEM_DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
     domain: system_defaults(domain) for domain in domains()
 }
@@ -29,11 +28,11 @@ SYSTEM_DOMAIN_DEFAULTS: dict[str, dict[str, Any]] = {
 
 @dataclass
 class ResolvedSettings:
-    """Resolved cascading configuration with inheritance tracking and locked key enforcement."""
+    """A domain's effective values, each with where it came from (``provenance``)."""
 
     domain: str
     effective: dict[str, Any]
-    field_status: dict[str, FieldStatus]
+    provenance: dict[str, Resolved]
     locked_keys: list[str] = field(default_factory=list)
     org_defaults: dict[str, Any] = field(default_factory=dict)
     user_overrides: dict[str, Any] = field(default_factory=dict)
@@ -43,7 +42,7 @@ class ResolvedSettings:
         return {
             "domain": self.domain,
             "effective": self.effective,
-            "field_status": self.field_status,
+            "provenance": {key: value.to_dict() for key, value in self.provenance.items()},
             "locked_keys": self.locked_keys,
             "org_defaults": self.org_defaults,
             "user_overrides": self.user_overrides,
@@ -51,13 +50,10 @@ class ResolvedSettings:
 
 
 class CascadingSettingsResolver:
-    """Resolves effective settings following: System Defaults -> Org Policy -> User Override.
-
-    Enforces that keys present in `locked_keys` cannot be overridden by user configurations.
-    """
+    """Resolves every key of a domain by its policy: platform -> instance -> org -> member -> presets."""
 
     def __init__(self, custom_defaults: dict[str, dict[str, Any]] | None = None) -> None:
-        self.defaults = dict(SYSTEM_DOMAIN_DEFAULTS)
+        self.defaults = {domain: dict(values) for domain, values in SYSTEM_DOMAIN_DEFAULTS.items()}
         if custom_defaults:
             for domain, conf in custom_defaults.items():
                 self.defaults.setdefault(domain, {}).update(conf)
@@ -72,42 +68,29 @@ class CascadingSettingsResolver:
         org_config: dict[str, Any] | None = None,
         locked_keys: list[str] | None = None,
         user_overrides: dict[str, Any] | None = None,
+        presets: Sequence[Preset] = (),
     ) -> ResolvedSettings:
-        """Calculate effective configuration, field status annotations, and enforce locked keys."""
-        system_base = self.get_system_defaults(domain)
-        org_conf = dict(org_config or {})
-        locked = list(locked_keys or [])
-        user_over = dict(user_overrides or {})
-
-        # Step 1: Base org defaults = system_base merged with org_conf
-        merged_org: dict[str, Any] = dict(system_base)
-        merged_org.update(org_conf)
-
-        effective: dict[str, Any] = dict(merged_org)
-        field_status: dict[str, FieldStatus] = {}
-
-        # Default all known keys to org_default
-        for key in merged_org:
-            field_status[key] = "locked" if key in locked else "org_default"
-
-        # Step 2: Apply user overrides where not locked
-        for key, value in user_over.items():
-            if key in locked:
-                # User cannot override locked keys
-                field_status[key] = "locked"
-                # Keep org value in effective
-                effective[key] = merged_org.get(key, value)
-            else:
-                effective[key] = value
-                field_status[key] = "overridden"
-
+        """Each key of ``domain`` resolved by its policy, lock and ceiling."""
+        ctx = ResolveContext(
+            org=dict(org_config or {}),
+            locked=frozenset(locked_keys or ()),
+            member=dict(user_overrides or {}),
+            presets=tuple(presets),
+            instance=instance_values(domain),
+        )
+        defaults = self.get_system_defaults(domain)
+        provenance = {
+            key: resolve(_with_default(spec, defaults), ctx)
+            for key, spec in specs_for(domain).items()
+        }
+        org_defaults = {**defaults, **ctx.instance, **ctx.org}
         return ResolvedSettings(
             domain=domain,
-            effective=effective,
-            field_status=field_status,
-            locked_keys=locked,
-            org_defaults=merged_org,
-            user_overrides=user_over,
+            effective={key: value.value for key, value in provenance.items()},
+            provenance=provenance,
+            locked_keys=sorted(ctx.locked),
+            org_defaults=org_defaults,
+            user_overrides=dict(ctx.member),
         )
 
     def filter_valid_user_overrides(
@@ -131,6 +114,11 @@ class CascadingSettingsResolver:
                 allowed[key] = value
 
         return allowed, rejected
+
+
+def _with_default(spec: SettingSpec, defaults: Mapping[str, Any]) -> SettingSpec:
+    """``spec`` with this resolver's default (tests and deployments may replace a default)."""
+    return replace(spec, default=defaults.get(spec.key, spec.default))
 
 
 def _as_model_list(value: Any) -> tuple[str, ...]:
@@ -179,7 +167,27 @@ def image_is_allowed(image: str, *, default_image: str, allowed_images: Sequence
     return any(fnmatch.fnmatchcase(candidate, pattern) for pattern in allowed_images)
 
 
-def resolve_model_precedence(
+_MODEL_REASONS = {
+    "session": "the model selected for this turn",
+    "member": "your saved model preference",
+    "org": "the organization model policy",
+    "instance": "the deployment default",
+    "platform": "the platform default",
+}
+
+
+@dataclass(frozen=True)
+class _ModelSpec:
+    """The model choice as a setting: an organization default every level may change."""
+
+    default: str
+    key: str = "model"
+    policy: Policy = "org_default"
+    ceiling: bool = False
+    member_override: bool = True
+
+
+def resolve_model(
     *,
     agent_model: str | None,
     request_model: str | None,
@@ -188,34 +196,48 @@ def resolve_model_precedence(
     global_default_model: str,
     allowed_models: Sequence[str] = (),
     forbidden_models: Sequence[str] = (),
-) -> tuple[str, str]:
-    """Resolve the effective model and validate it against the allowlist.
+    agent_source: str = "agent",
+) -> Resolved:
+    """The turn's model through the policy resolver, with the allowlist as its acceptance test.
 
-    Precedence, highest first: ``session.agent.model`` > this turn's explicit model
-    (the user's picker at dispatch time) > the saved user preference > organization model
-    policy > global default. Every candidate is checked against the org allowlist; a
-    disallowed candidate is skipped rather than used, so a user preference can never
-    escape a locked-down org. Returns ``(model, human_readable_reason)``.
+    Precedence, highest first: the agent bound to the session (a preset) > this turn's
+    explicit model (the session's choice) > the member's preference > the organization's
+    default > the platform default. A candidate the allowlist refuses is skipped, never used,
+    so no preset or preference escapes a locked-down organization.
     """
-    candidates: tuple[tuple[str | None, str], ...] = (
-        (agent_model, "the agent bound to this session"),
-        (request_model, "the model selected for this turn"),
-        (user_preferred_model, "your saved model preference"),
-        (org_default_model, "the organization model policy"),
-        (global_default_model, "the platform default"),
+    ctx = ResolveContext(
+        org={"model": (org_default_model or "").strip()},
+        member={"model": (user_preferred_model or "").strip()},
+        presets=(
+            Preset(agent_source, {"model": (agent_model or "").strip()}),
+            Preset("session", {"model": (request_model or "").strip()}),
+        ),
+        accept=lambda model: (
+            bool(model)
+            and model_is_allowed(
+                str(model), allowed_models=allowed_models, forbidden_models=forbidden_models
+            )
+        ),
     )
-    for candidate, reason in candidates:
-        model = (candidate or "").strip()
-        if model and model_is_allowed(
-            model, allowed_models=allowed_models, forbidden_models=forbidden_models
-        ):
-            return model, reason
+    try:
+        return resolve(_ModelSpec(default=(global_default_model or "").strip()), ctx)
+    except PolicyViolationError as err:
+        raise PolicyViolationError(
+            "No usable model: every candidate (agent, turn selection, user preference, org "
+            f"policy, platform default) is excluded by the organization allowlist "
+            f"({list(allowed_models)})."
+        ) from err
 
-    raise PolicyViolationError(
-        "No usable model: every candidate (agent, turn selection, user preference, org "
-        f"policy, platform default) is excluded by the organization allowlist "
-        f"({list(allowed_models)})."
+
+def resolve_model_precedence(**kwargs: Any) -> tuple[str, str]:
+    """``(model, human-readable reason)`` from :func:`resolve_model`."""
+    resolved = resolve_model(**kwargs)
+    reason = (
+        "the agent bound to this session"
+        if resolved.source.startswith("agent")
+        else _MODEL_REASONS.get(resolved.source, resolved.source)
     )
+    return str(resolved.value), reason
 
 
 @dataclass(frozen=True)
@@ -230,9 +252,9 @@ class RoutingPolicy:
 
     @classmethod
     def from_settings(cls, config: Mapping[str, Any] | None) -> "RoutingPolicy":
-        """Build a policy from a raw org ``routing`` settings mapping."""
+        """Build a policy from the organization's ``models`` settings."""
         source = config or {}
-        mode = str(source.get("mode") or "frontier").strip().lower()
+        mode = str(source.get("routing_mode") or "frontier").strip().lower()
         if mode not in ROUTING_MODES:
             mode = "frontier"
         return cls(

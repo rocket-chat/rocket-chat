@@ -19,6 +19,7 @@ from opentelemetry.trace import Status, StatusCode
 
 from agent_core.context import current_execution_ctx
 from agent_core.repeats import repeat_note
+from agent_core.subagent_scope import current_tool_call_id
 from agent_core.tool_slot import ToolSlot, current_tool_slot
 from agent_core.tools.live_output import LiveOutput, current_live_output
 from agent_core.tools.offload import DEFAULT_OFFLOAD_THRESHOLD, offload_tool_output
@@ -238,6 +239,7 @@ class ToolDispatcher:
         timed_out = False
         # Tool arguments are deliberately not span attributes: they can carry secrets.
         live_token = current_live_output.set(live)
+        call_token = current_tool_call_id.set(call_id)
         with _tracer.start_as_current_span(
             "agent.tool", attributes={"rocket.tool": tool_name, "rocket.session_id": session_id}
         ) as span:
@@ -263,6 +265,7 @@ class ToolDispatcher:
                 span.record_exception(err)
                 span.set_status(Status(StatusCode.ERROR, str(err)))
             span.set_attribute("rocket.tool_status", status)
+            current_tool_call_id.reset(call_token)
             current_live_output.reset(live_token)
             live.close()
 

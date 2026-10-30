@@ -24,6 +24,7 @@ from api.services.repository_hint import with_repository_hint
 from api.services.title import TITLE_SOURCE_USER
 from api.services.turn_resume import RESUME_NOTICE
 from api.turns.context import TurnSelection
+from api.turns.failure import FAILED_ANSWER_PREFIX
 from api.turns.runner import execute_turn_background
 from api.turns.shared import _background_tasks
 from specifications.interfaces.agent import (
@@ -232,7 +233,7 @@ def _report_mission_to_slack(app: FastAPI, mission: Mission, session_id: str) ->
                 mission_name=mission.name,
                 session_id=session_id,
                 answer=answer,
-                succeeded=bool(answers) and "Mission Error" not in answer[:40],
+                succeeded=bool(answers) and not answer.startswith(FAILED_ANSWER_PREFIX),
             )
         except Exception:
             logger.exception("Could not report mission %s to Slack", mission.id)

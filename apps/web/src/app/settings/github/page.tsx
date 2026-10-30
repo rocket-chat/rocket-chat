@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, Suspense } from "react";
+import { useConfirm } from "../../../components/ui/ConfirmDialog";
 import { useSearchParams } from "next/navigation";
 import { SchemaSettingsForm } from "../../../components/settings/SchemaSettingsForm";
 import {
@@ -13,13 +14,8 @@ import {
   EyeOff,
   GitPullRequest,
 } from "lucide-react";
-import { GithubInstallationsPanel } from "../../../components/settings/GithubInstallationsPanel";
 import { GitSigningPanel } from "../../../components/settings/GitSigningPanel";
-import {
-  UserScopeSection,
-  ScopeDivider,
-  OrgScopeSection,
-} from "../../../components/settings/ScopedSettingsSection";
+import { UserScopeSection } from "../../../components/settings/ScopedSettingsSection";
 
 // How the platform reads GitHub for the member's sessions; the sandbox itself holds no credential.
 const READ_ACCESS_LABELS: Record<string, string> = {
@@ -51,6 +47,7 @@ const IDENTITY_SOURCES: Record<string, string> = {
 };
 
 function GitHubSettingsContent() {
+  const [confirm, confirmDialog] = useConfirm();
   const searchParams = useSearchParams();
   const urlStatus = searchParams?.get("status");
   const urlError = searchParams?.get("error");
@@ -113,7 +110,7 @@ function GitHubSettingsContent() {
   };
 
   const handleUnlinkUserGit = async () => {
-    if (!confirm("Unlink your personal GitHub credentials?")) return;
+    if (!(await confirm({ title: "Unlink your GitHub credentials?", message: "The agent will no longer push or open pull requests as you.", confirmLabel: "Unlink", tone: "danger" }))) return;
     try {
       const res = await fetch("/v1/user/credentials/github", { method: "DELETE" });
       if (res.ok) {
@@ -135,6 +132,7 @@ function GitHubSettingsContent() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
+      {confirmDialog}
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
         <div>
@@ -239,15 +237,15 @@ function GitHubSettingsContent() {
             only={["git_author_name", "git_author_email", "git_branch_prefix"]}
           />
 
-          {/* Authorship is the organization's default a member may make their own unless it is
-              locked; pull request identity and signing are the organization's alone. */}
+          {/* Who publishes is the organization's default a member may change unless it is locked
+              (bot needs the publish_as_bot capability); signing is the organization's alone. */}
           <SchemaSettingsForm
             domain="github"
             mode="user"
             idScope="mine"
-            title="Your git policy"
-            description="Who commits are attributed to. It follows your organization until you change it; reset it to follow the organization again. Pull request identity and commit signing are set by your administrators."
-            only={["commit_authorship_policy"]}
+            title="Publishing"
+            description="Who opens your pull requests: you (your linked account) or the GitHub App. It follows your organization until you change it."
+            only={["publish_as"]}
           />
 
           <GitSigningPanel />
@@ -290,22 +288,6 @@ function GitHubSettingsContent() {
         </div>
       </UserScopeSection>
 
-      {/* VISUAL SEPARATOR */}
-      <ScopeDivider label="Organization Scope" />
-
-      {/* TIER 2: ORGANIZATION-WIDE GIT CONFIGURATION */}
-      <OrgScopeSection
-        title="Organization GitHub App Policies"
-        description="Workspace-wide Git governance: commit authorship and signing, pull request identity, and the permissions of GitHub App tokens."
-      >
-        <SchemaSettingsForm
-          domain="github"
-          mode="org"
-          title="Git governance"
-          description="Applied to every agent commit and pull request in this organization."
-        />
-        <GithubInstallationsPanel />
-      </OrgScopeSection>
     </div>
   );
 }

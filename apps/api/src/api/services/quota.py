@@ -1,7 +1,8 @@
 """Per-workspace quota enforcement for the unauthenticated Slack path.
 
 ``slack_workspace_quotas`` (migration ``007``) holds one row per Slack workspace with the
-configured caps (``monthly_usd_cap``, ``turns_per_hour``, ``max_concurrent_sessions``) and
+configured caps (``turns_per_hour``, ``max_concurrent_sessions``, plus the organization's
+``slack_workspace`` spend limits) and
 the mutable counters the pre-dispatch check reads. This service turns that row into an
 admission decision and consumes the hourly budget atomically, so two concurrent turns
 cannot both slip past the last turn of the window.
@@ -41,18 +42,18 @@ _HOUR_SECONDS = 3600
 class WorkspaceQuotaState:
     """The caps and counters of one workspace, decoupled from the ORM entity."""
 
-    monthly_usd_cap: float = 0.0
     turns_per_hour: int = 0
     max_concurrent_sessions: int = 0
-    current_month_spend_usd: float = 0.0
+    # A ``slack_workspace`` spend limit of the organization is used up (``spend_limits``).
+    over_spend_limit: bool = False
     turns_this_hour: int = 0
     hour_window_start: float | None = None
 
 
 def _budget_message() -> str:
     return (
-        "🚫 *Workspace budget reached.* This Slack workspace has used its monthly model "
-        "budget. An administrator can raise the cap in the Slack settings."
+        "🚫 *Workspace budget reached.* This Slack workspace has used its spend limit. "
+        "An administrator can raise it under Settings > Organization > Spend."
     )
 
 
@@ -77,7 +78,7 @@ def _decide(state: WorkspaceQuotaState, *, active_sessions: int, now: float) -> 
         return QuotaDecision(
             False, "concurrency", _concurrency_message(state.max_concurrent_sessions)
         )
-    if state.monthly_usd_cap and state.current_month_spend_usd >= state.monthly_usd_cap:
+    if state.over_spend_limit:
         return QuotaDecision(False, "budget", _budget_message())
     if state.turns_per_hour:
         window_expired = (
@@ -104,8 +105,8 @@ def _consume_turn(state: WorkspaceQuotaState, now: float) -> None:
     state.turns_this_hour += 1
 
 
-SpendProvider = Callable[[str], Awaitable[float]]
-"""Month-to-date Slack spend of an organization, computed from the usage ledger."""
+SpendProvider = Callable[[str, str], Awaitable[bool]]
+"""Whether a ``slack_workspace`` spend limit of (organization, Slack team) is used up."""
 
 
 class InMemoryWorkspaceQuotaStore:
@@ -127,7 +128,7 @@ class InMemoryWorkspaceQuotaStore:
     ) -> QuotaDecision:
         state = self._states.get(team_id, self._default)
         if self._spend is not None:
-            state.current_month_spend_usd = await self._spend(org_id)
+            state.over_spend_limit = await self._spend(org_id, team_id)
         decision = _decide(state, active_sessions=active_sessions, now=now)
         if decision.allowed:
             _consume_turn(state, now)
@@ -155,20 +156,15 @@ class PostgresWorkspaceQuotaStore:
             if row is None:
                 return QuotaDecision(True)
             state = WorkspaceQuotaState(
-                monthly_usd_cap=row.monthly_usd_cap,
                 turns_per_hour=row.turns_per_hour,
                 max_concurrent_sessions=row.max_concurrent_sessions,
-                current_month_spend_usd=row.current_month_spend_usd,
                 turns_this_hour=row.turns_this_hour,
                 hour_window_start=(
                     float(row.hour_window_start) if row.hour_window_start is not None else None
                 ),
             )
             if self._spend is not None:
-                # The counter used to be read but never written, so a spend cap never fired.
-                # The ledger is the source of truth; the column mirrors it for display.
-                state.current_month_spend_usd = await self._spend(org_id)
-                row.current_month_spend_usd = state.current_month_spend_usd
+                state.over_spend_limit = await self._spend(org_id, team_id)
             decision = _decide(state, active_sessions=active_sessions, now=now)
             if decision.allowed:
                 _consume_turn(state, now)

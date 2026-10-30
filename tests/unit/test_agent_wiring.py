@@ -42,13 +42,11 @@ async def test_the_personas_generation_settings_reach_the_model_request() -> Non
     outcome = await _run_with_persona(
         "wire_persona_generation",
         temperature=0.35,
-        thinking_budget_tokens=2048,
         reasoning_effort="high",
     )
 
     request = _first_agent_request(outcome)
     assert request.temperature == 0.35
-    assert request.thinking_budget_tokens == 2048
     assert request.reasoning_effort == "high"
 
 
@@ -91,14 +89,17 @@ async def test_the_personas_sandbox_choices_and_attachments_reach_the_binding() 
     from api.turns.shared import _turn_service
 
     org = "wire_persona_binding"
+    from api.services.sandbox_catalogue import SandboxCatalogue
+
+    builder = await SandboxCatalogue(None).create(
+        org, name="Builder", image="registry.example/builder:1"
+    )
     persona = AgentPersonaModel(
         id="persona-binding",
         name="Builder",
         role_title="r",
         system_prompt="s",
-        sandbox_image="registry.example/builder:1",
-        cpu_limit="1.5",
-        memory_limit="3Gi",
+        sandbox_id=builder.id,
         skill_ids=["skill-a"],
         knowledge_base_ids=["kb-a"],
         scope="org",
@@ -109,11 +110,7 @@ async def test_the_personas_sandbox_choices_and_attachments_reach_the_binding() 
         db_mgr=None, org_id=org, user_id="u1", agent_id=saved.id, global_default_model="p/m"
     )
 
-    assert (plan.sandbox_image, plan.cpu_limit, plan.memory_limit) == (
-        "registry.example/builder:1",
-        "1.5",
-        "3Gi",
-    )
+    assert plan.sandbox_id == builder.id, "the agent picks a sandbox type, never resources"
     assert (plan.skill_ids, plan.knowledge_base_ids) == (("skill-a",), ("kb-a",))
 
 
@@ -153,7 +150,7 @@ async def test_a_roles_prompt_model_and_temperature_drive_the_delegate() -> None
 async def test_a_roles_tool_whitelist_limits_what_the_delegate_is_offered() -> None:
     outcome = await _delegate("wire_sub_tools", whitelisted_tools=["file_read"])
 
-    assert {tool.name for tool in _subagent_request(outcome).tools} == {"file_read"}
+    assert {tool.name for tool in _subagent_request(outcome).tools} == {"file_read", "report"}
 
 
 async def test_a_disabled_role_refuses_the_delegation() -> None:

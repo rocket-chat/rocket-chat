@@ -23,7 +23,7 @@ async function openSession(page: import("@playwright/test").Page): Promise<() =>
 
 test("a refused provider shows an actionable error, not an answer", async ({ page }) => {
   const socket = await openSession(page);
-  const notice = page.getByText(/Mission Execution Error/);
+  const notice = page.getByText(/The turn failed/);
 
   // The cockpit resets session state once the snapshot loads, so the frame is re-sent until
   // the notice shows (as in the approval-gate spec).

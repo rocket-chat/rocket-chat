@@ -5,7 +5,7 @@ from typing import Any
 
 from config_engine import REGISTRY, FieldError, validate_locked_keys
 from config_engine import validate as validate_setting
-from config_engine.registry import writable_keys
+from config_engine.registry import instance_values, writable_keys
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -13,6 +13,7 @@ from fastapi import (
 )
 
 from api.auth.access import _get_request_identity, _require_admin
+from api.auth.roles import can_write
 from api.models import (
     UpdateOrgSettingsRequest,
     UpdateUserSettingsRequest,
@@ -48,7 +49,7 @@ def _require_known_domain(domain: str) -> None:
 
 @router.get("/settings-schema")
 async def get_settings_schema(request: Request) -> dict[str, Any]:
-    """Every settings domain's fields (type, scope, default, constraints) for form rendering.
+    """Every settings domain's fields (type, policy, default, constraints) for form rendering.
 
     The cockpit builds its organization and member settings forms from this, so a field
     exists in the UI if and only if it is declared in the registry.
@@ -61,7 +62,9 @@ async def get_settings_schema(request: Request) -> dict[str, Any]:
                     "key": spec.key,
                     "kind": spec.kind,
                     "default": spec.default,
-                    "scope": spec.scope,
+                    "policy": spec.policy,
+                    "ceiling": spec.ceiling,
+                    "instance_env": list(spec.env),
                     "description": spec.description,
                     "choices": list(spec.choices),
                     "minimum": spec.minimum,
@@ -95,12 +98,12 @@ async def update_user_domain_settings(
 ) -> dict[str, Any]:
     """Save member overrides for a domain; org-managed or locked keys are rejected."""
     org_id, user_id, roles = _get_request_identity(request)
-    if "readonly" in roles:
+    if not can_write(roles):
         raise HTTPException(
-            status_code=403, detail="Forbidden: Read-only role cannot update user settings"
+            status_code=403, detail="Forbidden: viewers cannot update user settings"
         )
     _require_known_domain(domain)
-    checked = validate_setting(domain, body.overrides, writer="user")
+    checked = validate_setting(domain, body.overrides, writer="member")
     if not checked.ok:
         raise _settings_validation_error(checked.errors)
 
@@ -130,10 +133,8 @@ async def update_user_domain_settings(
 async def reset_user_domain_settings(domain: str, request: Request) -> dict[str, Any]:
     """Reset member overrides for a domain back to organization defaults."""
     org_id, user_id, roles = _get_request_identity(request)
-    if "readonly" in roles:
-        raise HTTPException(
-            status_code=403, detail="Forbidden: Read-only role cannot reset settings"
-        )
+    if not can_write(roles):
+        raise HTTPException(status_code=403, detail="Forbidden: viewers cannot reset settings")
     _require_known_domain(domain)
     db_mgr = getattr(request.app.state, "db_manager", None)
     await delete_user_config(db_mgr, org_id, user_id, domain)
@@ -145,10 +146,8 @@ async def reset_user_setting(domain: str, key: str, request: Request) -> dict[st
     """Remove one personal override: the setting follows the organization's value again,
     including its later changes."""
     org_id, user_id, roles = _get_request_identity(request)
-    if "readonly" in roles:
-        raise HTTPException(
-            status_code=403, detail="Forbidden: Read-only role cannot reset settings"
-        )
+    if not can_write(roles):
+        raise HTTPException(status_code=403, detail="Forbidden: viewers cannot reset settings")
     _require_known_domain(domain)
     db_mgr = getattr(request.app.state, "db_manager", None)
     current = await load_user_config(db_mgr, org_id, user_id, domain)
@@ -159,22 +158,27 @@ async def reset_user_setting(domain: str, key: str, request: Request) -> dict[st
 
 @router.get("/admin/settings/{domain}")
 async def get_org_admin_settings(domain: str, request: Request) -> dict[str, Any]:
-    """Retrieve organization-wide policy configuration and locked keys (admin only)."""
+    """The organization's values, locks and where each value comes from (admin only).
+
+    ``provenance`` says, per key, whether the value is the platform default, the operator's
+    (``instance``: an environment variable, read-only here) or the organization's own.
+    """
     org_id, _, _ = _require_admin(request)
     _require_known_domain(domain)
     db_mgr = getattr(request.app.state, "db_manager", None)
-    org_conf, locked_keys = await load_org_config(db_mgr, org_id, domain)
+    _, locked_keys = await load_org_config(db_mgr, org_id, domain)
+    resolved = await resolve_settings(db_mgr, org_id, domain)
     org_keys = writable_keys(domain, "org")
     system_defaults = {
         k: v for k, v in _settings_resolver.get_system_defaults(domain).items() if k in org_keys
     }
-    merged_config = dict(system_defaults)
-    merged_config.update({k: v for k, v in org_conf.items() if k in org_keys})
     return {
         "domain": domain,
-        "config": merged_config,
+        "config": {k: v for k, v in resolved.effective.items() if k in org_keys},
         "locked_keys": locked_keys,
         "system_defaults": system_defaults,
+        "instance": instance_values(domain),
+        "provenance": {k: v.to_dict() for k, v in resolved.provenance.items()},
     }
 
 

@@ -1,4 +1,4 @@
-"""A whole turn: ``git_push`` publishes the way the organization and the member's choice say."""
+"""A whole turn: ``git_push`` publishes as the organization's signing and the member's key say."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 from api.services.credentials import store_user_credential
-from api.services.settings import save_org_config, save_user_config
+from api.services.settings import save_org_config
 from turn_harness import run_turn
 
 from specifications.interfaces.git import PublishResult, PublishSpec, SigningMode
@@ -40,10 +40,10 @@ async def _push(org: str, engine: _Engine) -> str:
     return str(done[0].payload["result"])
 
 
-@pytest.mark.setting("github.commit_signing_mode")
+@pytest.mark.setting("github.signing")
 async def test_a_turn_publishes_through_the_api_so_github_signs_the_commits() -> None:
     org = "push_turn_app"
-    await save_org_config(None, org, "github", {"commit_signing_mode": "github_app"}, [])
+    await save_org_config(None, org, "github", {"signing": "github"}, [])
     engine = _Engine()
 
     result = await _push(org, engine)
@@ -55,11 +55,10 @@ async def test_a_turn_publishes_through_the_api_so_github_signs_the_commits() ->
     assert "executable bit" in result, "what the member should know is passed on"
 
 
-@pytest.mark.setting("github.commit_signing_mode")
-@pytest.mark.setting("user_preferences.commit_as_me")
-async def test_a_turn_signs_with_the_members_key_when_they_chose_to_commit_as_themselves() -> None:
+@pytest.mark.setting("github.signing")
+async def test_a_turn_signs_with_the_members_key_when_they_stored_one() -> None:
     org = "push_turn_gpg"
-    await save_org_config(None, org, "github", {"commit_signing_mode": "gpg_key"}, [])
+    await save_org_config(None, org, "github", {"signing": "member_gpg"}, [])
     await store_user_credential(
         None,
         "u1",
@@ -68,7 +67,6 @@ async def test_a_turn_signs_with_the_members_key_when_they_chose_to_commit_as_th
         json.dumps({"private_key": "KEY", "passphrase": ""}),
         {"fingerprint": FINGERPRINT, "commit_email": "octo@example.com"},
     )
-    await save_user_config(None, org, "u1", "user_preferences", {"commit_as_me": True})
     engine = _Engine()
 
     result = await _push(org, engine)
@@ -77,10 +75,10 @@ async def test_a_turn_signs_with_the_members_key_when_they_chose_to_commit_as_th
     assert result.startswith("Pushed acme/widgets@feat/x")
 
 
-@pytest.mark.setting("github.commit_signing_mode")
-async def test_gpg_mode_without_a_key_publishes_github_signed_commits_instead() -> None:
+@pytest.mark.setting("github.signing")
+async def test_member_gpg_without_a_key_publishes_github_signed_commits_instead() -> None:
     org = "push_turn_no_key"
-    await save_org_config(None, org, "github", {"commit_signing_mode": "gpg_key"}, [])
+    await save_org_config(None, org, "github", {"signing": "member_gpg"}, [])
     engine = _Engine()
 
     await _push(org, engine)

@@ -63,6 +63,10 @@ async def ensure_tenant_identity(session: AsyncSession, org_id: str, user_id: st
             )
         )
         await session.flush()
+        # Imported here: the services layer imports this package.
+        from api.services.memberships import ensure_membership
+
+        await ensure_membership(session, user_id, org_id, "member")
 
 
 @dataclass

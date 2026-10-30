@@ -13,7 +13,7 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | Environment Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `DEFAULT_SANDBOX_DRIVER` | string | `docker` | Active sandbox driver: `docker` for local container runtimes, `k8s` for Kubernetes clusters. |
-| `ROCKET_DEFAULT_MODEL` | string | `openrouter/deepseek/deepseek-v4.1-flash` | Default model identifier passed to LiteLLM for sessions that do not specify a model. |
+| `ROCKET_DEFAULT_MODEL` | string | from the keys | Default model for sessions that do not specify one. Empty (the default) picks it from the provider keys the deployment holds, Anthropic first: `anthropic/claude-sonnet-5-5` with `ANTHROPIC_API_KEY`, else `openrouter/anthropic/claude-sonnet-5.5`, then OpenAI, Gemini and DeepSeek. An organization can prefer another provider (`models.default_provider`). |
 | `LOG_LEVEL` | string | `INFO` | Configurable backend log verbosity: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
 | `LOG_FORMAT` | string | `console` | Logging output structure: `console` (colored human-readable) or `json` (structured machine-readable for Datadog, Loki, CloudWatch). |
 | `AGENT_MAX_TURNS` | int | `100` | Deployment default for the step limit of a turn (`0` = no limit). The organization's *Max steps per turn* setting and an agent's own limit take precedence. |
@@ -39,15 +39,16 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | `ROCKET_DB_PING_TIMEOUT_SECONDS` | int | `2` | Deadline for the `/v1/ready` PostgreSQL ping. |
 | `ROCKET_DOCKER_THREADS` | int | `64` | Size of the Docker driver's private thread pool for the blocking Docker SDK (a long command holds a thread for its whole run). When full, further Docker calls queue; the rest of the API is unaffected. Watch `rocket_docker_blocking_calls`. |
 | `ROCKET_TURN_AUTO_RESUME_ATTEMPTS` | int | `2` | How many times a task is resumed automatically after a restart interrupted it (`0` disables). Organizations can also opt out with `governance.auto_resume_turns`. |
-| `ROCKET_SEARCH_PROVIDER` | enum | `duckduckgo` | `web_search` backend: `duckduckgo` (zero-config HTML fallback, fragile), `searxng` (your own instance; set `ROCKET_SEARXNG_URL`, enable the `json` format) or `brave` (set `ROCKET_BRAVE_API_KEY`). A misconfigured provider is reported to the model, never silently replaced. |
+| `ROCKET_SEARCH_PROVIDER` | enum | `duckduckgo` | `web_search` backend: `duckduckgo` (zero-config HTML fallback, fragile), `searxng` (your own instance; set `ROCKET_SEARXNG_URL`, enable the `json` format) `brave` (set `ROCKET_BRAVE_API_KEY`) or `tavily` (set `ROCKET_TAVILY_API_KEY`). Setup health warns while it is `duckduckgo`. A misconfigured provider is reported to the model, never silently replaced. |
 | `ROCKET_SEARXNG_URL` | url | – | Base URL of the SearXNG instance (operator-configured, so a private address is fine). |
 | `ROCKET_BRAVE_API_KEY` | secret | – | Brave Search API key, sent as a header only. |
+| `ROCKET_TAVILY_API_KEY` | secret | – | Tavily API key, sent as a header only. |
 | `ROCKET_WEB_FETCH_PROXY` | url | – | Egress proxy for `web_fetch`. Every hop is still vetted for private/link-local targets, but the address cannot be pinned, so the proxy should enforce its own allowlist. |
 | `ROCKET_KB_MAX_DOCUMENT_CHARS` | int | `2000000` | Largest knowledge-base document accepted (`413` above it). |
 | `ROCKET_KB_MAX_CHUNKS_PER_DOCUMENT` | int | `2000` | Most chunks one document may be split into and embedded (`413` above it). |
 | `ROCKET_API_RATE_LIMIT_PER_USER` | int | `60` | Per-user API turn rate limit (per minute) on the authenticated path. Counted **per replica**: with N replicas the effective ceiling is up to N times this value. |
 | `ROCKET_API_RATE_LIMIT_PER_ORG` | int | `300` | Per-organisation API turn rate limit (per minute) on the authenticated path. Counted per replica, like the per-user limit. |
-| `ENCRYPTION_MASTER_KEY` | string | *(Required)* | 32-character hex key (256-bit) used by `CredentialCipher` to encrypt BYOK credentials at rest via AES-256-GCM. |
+| `ENCRYPTION_MASTER_KEY` | string | *(Required)* | 32-character hex key (256-bit) used by `CredentialCipher` to encrypt stored model credentials (organization and member keys) at rest via AES-256-GCM. |
 | `CREDENTIALS_ENCRYPTION_KEY` | secret | *(dev fallback)* | Fernet key protecting user OAuth/PAT tokens at rest (`services/credentials.py`): a base64 32-byte key, or any string (SHA-256-derived). **Required in production**; when unset a deterministic development key is used. Rotating it requires re-encrypting stored tokens. |
 | `DATABASE_URL` | string | *(Required)* | Async PostgreSQL connection string for application runtime (e.g. `postgresql+asyncpg://rocket_app:pass@host:5432/rocket_chat`). Enforces Row-Level Security. |
 | `ADMIN_DATABASE_URL` | string | `None` | Schema-owner PostgreSQL connection string used by Alembic migrations (DDL, RLS policies) and by the cross-tenant maintenance loops (interrupted-turn recovery, retention, MCP refresh) that row-level security would otherwise hide. |
@@ -163,8 +164,10 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 | Environment Variable | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `GITHUB_APP_ID` | string | `None` | GitHub App ID used for authenticating API calls and generating installation tokens. |
-| `GITHUB_APP_SLUG` | string | `None` | The App's URL slug; enables the "Install on a GitHub account" link in Settings > GitHub. |
-| `ROCKET_DEFAULT_SANDBOX_IMAGE` | string | `ghcr.io/rocket-chat/sandbox:latest` | Default image for new sandboxes (`sandboxes.default_image`): the devbox with git, Python, Node, uv and ripgrep (its `gh` only points the agent to the `github_*` tools, since the sandbox holds no GitHub credential). Set it to a mirror in your own registry for private or air-gapped installs. |
+| `GITHUB_APP_SLUG` | string | `None` | The App's URL slug; enables the "Install on a GitHub account" link in Settings > Organization > Git & GitHub. |
+| `ROCKET_DEFAULT_SANDBOX_IMAGE` | string | `ghcr.io/rocket-chat/sandbox:0.7.2` | Default image for new sandboxes (`sandboxes.default_image`): the devbox with git, Python, Node, uv and ripgrep (its `gh` only points the agent to the `github_*` tools, since the sandbox holds no GitHub credential). Pinned to the platform's release. Set it to a mirror in your own registry for private or air-gapped installs. |
+| `ROCKET_POLYGLOT_SANDBOX_IMAGE` | string | `ghcr.io/rocket-chat/sandbox-polyglot:0.7.2` | The *Polyglot* sandbox type every organization starts with: the devbox plus Go, Rust and Java 21. |
+| `ROCKET_BROWSER_SANDBOX_IMAGE` | string | `ghcr.io/rocket-chat/sandbox-browser:0.7.2` | The *Browser* sandbox type every organization starts with: the devbox plus a headless Chromium (`browser` capability). |
 | `GITHUB_APP_ALLOW_UNMAPPED_INSTALLATIONS` | bool | `false` | Legacy single-organization mode: mint App tokens for an installation no organization has mapped. Leave off when organizations share the platform. |
 | `GITHUB_APP_PRIVATE_KEY` | string | `None` | RSA private key PEM for the GitHub App. |
 | `GITHUB_WEBHOOK_SECRET` | string | `None` | HMAC SHA-256 secret configured in GitHub App settings to verify webhook payloads. |
@@ -188,7 +191,7 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 | `ROCKET_EGRESS_PROXY_IMAGE` | string | `python:3.12-slim` | Docker driver only. Image of the allow-listing egress proxy started for organizations with an egress allow-list. |
 | `CORS_ALLOW_ORIGINS` | string | `http://localhost:3000` | Comma-separated origins the API accepts cross-origin browser requests from. |
 | `ADMIN_EMAILS` | string | *(unset)* | Comma-separated e-mail addresses that receive the administrator role when they sign in (`INITIAL_ADMIN_EMAIL` does the same for one address). |
-| `OPENROUTER_API_KEY` | secret | *(unset)* | The deployment's own OpenRouter key: the fallback when a member and the organization have no key of their own (see the *Whose provider keys* budget setting). |
+| `OPENROUTER_API_KEY` | secret | *(unset)* | The deployment's own OpenRouter key: the fallback when a member and the organization have no key of their own (see the *Members' own keys* model setting); an organization credential for the same provider replaces it for that organization. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | string | *(unset)* | Turns on OpenTelemetry tracing and names the OTLP collector. Without it tracing is off. |
 | `OTEL_SERVICE_NAME` | string | `rocket-chat-api` | Service name reported with traces. |
 | `ROCKET_TERMINAL_IDLE_SECONDS` | int | `900` | Seconds without input after which an interactive terminal session is closed. |
@@ -212,4 +215,4 @@ These names still work but log a warning at start-up; use the name on the right.
 
 ## 2. Settings you change in the app
 
-Environment variables configure the **deployment**. Everything about how the agent behaves for your organization (models, budgets, approval policy, sandboxes, Slack, GitHub rules, member defaults) is a **setting** you change in the app under *Settings*, layered as platform default, organization, then member, and lockable by an administrator. They are all listed, with defaults and descriptions, in the [settings reference](/administer/settings-reference).
+Environment variables configure the **deployment**. Everything about how the agent behaves for your organization (models, spend, approval policy, sandboxes, Slack, GitHub rules, member defaults) is a **setting** you change in the app under *Settings*. Each setting has a policy saying who decides it (the operator, the organization, or the member within the organization's default, which an administrator can lock); a few take their operator default from an environment variable (for example `AGENT_MAX_TURNS`, `GIT_BOT_NAME`, `GIT_BOT_EMAIL`, `GIT_DEFAULT_BRANCH`, `GITHUB_APP_DEFAULT_PERMISSIONS`). They are all listed, with defaults and descriptions, in the [settings reference](/administer/settings-reference).

@@ -16,9 +16,9 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
 
     const picker = page.getByTestId("agent-model-picker");
     await picker.click();
-    await page.getByRole("button", { name: /Security & Penetration Auditor/i }).first().click();
+    await page.getByRole("button", { name: /Security Auditor/i }).first().click();
 
-    await expect(picker).toContainText("Security & Penetration Auditor");
+    await expect(picker).toContainText("Security Auditor");
   });
 
   test("creates new mission session in sidebar list", async ({ page }) => {
@@ -64,13 +64,14 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     await expect(page.getByText("Settings Console").first()).toBeVisible();
 
     // Navigate to Custom Agents page
-    await page.getByRole("link", { name: "Agents", exact: true }).click();
+    await page.getByRole("navigation", { name: "Organization" }).getByRole("link", { name: /^Agents/ }).click();
     await expect(page).toHaveURL(/\/settings\/agents/);
-    await expect(page.getByText("Custom agent personas")).toBeVisible();
-    await expect(page.getByText(/EDIT:/i).first()).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
+    await page.getByTestId("agent-item-persona-general").click();
+    await expect(page.getByTestId("agent-editor-title")).toBeVisible();
 
     // Test Markdown Preview toggle for system prompt
-    const previewBtn = page.getByRole("button", { name: /Preview Markdown/i });
+    const previewBtn = page.getByRole("button", { name: "Preview", exact: true });
     await previewBtn.click();
     await expect(page.getByTestId("markdown-preview-box")).toBeVisible();
 
@@ -96,66 +97,58 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
   });
 
   test("configures agent tool permissions including Allow All option", async ({ page }) => {
-    // Navigate to settings -> agents
     await page.goto("/settings/agents");
-    await expect(page.getByText("Custom agent personas")).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
 
-    // The built-in agent already allows every tool, so configure a fresh one
-    await page.getByRole("button", { name: /New agent/i }).first().click();
+    await page.getByTestId("agent-new").click();
+    await page.getByTestId("agent-name").fill("Narrowed Tool User");
+    await page.getByTestId("agent-section-tools").click();
 
-    // Verify Allow All switch is present
-    const allowAllBtn = page.getByRole("button", { name: /ALLOW ALL TOOLS/i });
-    await expect(allowAllBtn).toBeVisible();
+    // A new agent may use every tool, including ones added later.
+    const allowAll = page.getByTestId("agent-allow-all");
+    await expect(allowAll).toBeChecked();
 
-    // The tool list is driven by the live backend catalog, grouped by category.
-    await expect(page.getByText("AUTHORIZED TOOLS & MCP SERVERS")).toBeVisible();
-    await expect(page.getByText("Sandbox & Repository", { exact: true })).toBeVisible();
+    // The tool list is driven by the live backend catalog, grouped by the approval it needs.
+    await expect(page.getByRole("region", { name: "Commands tools" })).toBeVisible();
     await expect(page.getByTestId("agent-tool-bash_exec")).toBeVisible();
 
-    // Click Allow All
-    await allowAllBtn.click();
-    await expect(page.getByText(/Full Access Granted:/i)).toBeVisible();
+    // Narrow it, then allow everything again.
+    await allowAll.uncheck();
+    await expect(page.getByTestId("agent-tool-bash_exec").getByRole("checkbox")).not.toBeChecked();
+    await allowAll.check();
+    await expect(page.getByTestId("agent-tool-bash_exec").getByRole("checkbox")).toBeChecked();
 
-    // Save configuration and verify backend response 200
     const savePromise = page.waitForResponse(
       (res) => res.url().includes("/v1/agents") && res.request().method() === "POST"
     );
-    const saveBtn = page.getByRole("button", { name: /SAVE PERSONA/i });
-    await saveBtn.click();
+    await page.getByTestId("agent-save").click();
     const saveRes = await savePromise;
     expect(saveRes.status()).toBe(200);
+    expect((await saveRes.json()).whitelisted_tools).toEqual(["*"]);
 
     await expect(page.getByTestId("persona-save-error")).not.toBeVisible();
-    await expect(page.getByText("SAVED!")).toBeVisible();
+    await expect(page.getByTestId("agent-save")).toHaveText(/Saved/);
   });
 
   test("creates, configures, and saves a brand new custom agent persona with 200 OK persistence", async ({ page }) => {
     await page.goto("/settings/agents");
-    await expect(page.getByText("Custom agent personas")).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
 
-    // Click New Agent Persona
-    const newAgentBtn = page.getByRole("button", { name: /New agent/i });
-    await newAgentBtn.click();
+    await page.getByTestId("agent-new").click();
+    await page.getByTestId("agent-name").fill("Autonomous Chaos Engineer");
 
-    // Form should have default name input
-    const nameInput = page.locator("input").first();
-    await nameInput.fill("Autonomous Chaos Engineer");
-
-    // Click Save Persona and verify network response is 200
     const savePromise = page.waitForResponse(
       (res) => res.url().includes("/v1/agents") && res.request().method() === "POST"
     );
-    const saveBtn = page.getByRole("button", { name: /SAVE PERSONA/i });
-    await saveBtn.click();
+    await page.getByTestId("agent-save").click();
     const saveRes = await savePromise;
     expect(saveRes.status()).toBe(200);
 
-    // Verify no error banner and saved indicator
     await expect(page.getByTestId("persona-save-error")).not.toBeVisible();
-    await expect(page.getByText("SAVED!")).toBeVisible();
+    await expect(page.getByTestId("agent-save")).toHaveText(/Saved/);
 
-    // Verify new persona appears in available catalog list
-    await expect(page.getByText("Autonomous Chaos Engineer").first()).toBeVisible();
+    // Verify new persona appears in the list
+    await expect(page.getByRole("list", { name: "Agents" }).getByText("Autonomous Chaos Engineer")).toBeVisible();
 
     // Return to Cockpit and verify the agent is available in the composer's picker
     await page.goto("/");

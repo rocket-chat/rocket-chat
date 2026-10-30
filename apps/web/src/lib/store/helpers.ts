@@ -14,7 +14,7 @@ export const DEFAULT_AGENTS: AgentPersonaConfig[] = [
       "Autonomous full-stack engineering agent with full access to terminal execution, file inspection and editing, web lookup, git operations, and interactive decision gates.",
     system_prompt:
       "You are a Senior Autonomous Software Engineer. You write clean, modular, production-grade code adhering to strict types and software craftsmanship. Plan methodically, inspect files, apply surgical diffs, and verify your work with automated tests.",
-    model: "openrouter/deepseek/deepseek-v4.1-flash",
+    model: "",
     built_in: true,
     whitelisted_tools: [
       "bash_exec",
@@ -33,13 +33,13 @@ export const DEFAULT_AGENTS: AgentPersonaConfig[] = [
   },
   {
     id: "persona-security",
-    name: "Security & Penetration Auditor",
+    name: "Security Auditor",
     role_title: "Application Security Specialist",
     description:
-      "Audits source code for injection attacks, RLS boundary leaks, secret exposure, and permissions.",
+      "Audits code for vulnerabilities: entry points, untrusted input, secrets, access control. Reports findings by severity with evidence and fixes; changes nothing.",
     system_prompt:
-      "You are a dedicated Security Auditor persona. Inspect source files and configuration for vulnerabilities (OWASP Top 10, SQL injection, RLS bypasses, secret leakage).",
-    model: "openrouter/anthropic/claude-3.5-sonnet",
+      "You are a security auditor. Build a short threat model, list the entry points, follow untrusted data to where it is used, and report findings by severity with file, line, evidence and a fix. Never change files.",
+    model: "",
     whitelisted_tools: ["file_read", "web_search", "web_fetch"],
     built_in: true,
     enabled: true,

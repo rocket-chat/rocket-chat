@@ -8,18 +8,20 @@ test.describe("Personal git policy", () => {
     await request.delete(`${BACKEND}/v1/settings/github`);
   });
 
-  test("a member overrides authorship, then follows the organization again", async ({ page }) => {
+  test("a member chooses who publishes, then follows the organization again", async ({ page }) => {
     await page.goto("/settings/github");
 
-    const badge = page.getByTestId("settings-inheritance-mine-github-commit_authorship_policy");
-    await expect(badge).toContainText("Org Default");
+    const badge = page.getByTestId("settings-inheritance-mine-github-publish_as");
+    const provenance = badge.locator("[data-provenance]");
+    await expect(provenance).not.toHaveAttribute("data-provenance", "member");
 
-    await page.getByTestId("settings-field-mine-github-commit_authorship_policy").selectOption("user_only");
+    await page.getByTestId("settings-field-mine-github-publish_as").selectOption("bot");
     await page.getByTestId("settings-save-all").click();
-    await expect(badge).toContainText("Overridden");
+    await expect(provenance).toHaveAttribute("data-provenance", "member");
+    await expect(badge).toContainText("Yours");
 
-    await badge.getByRole("button", { name: /reset/i }).click();
-    await expect(badge).toContainText("Org Default");
+    await badge.getByRole("button", { name: "Use the organization's value" }).click();
+    await expect(provenance).not.toHaveAttribute("data-provenance", "member");
     await expect(page.getByText("follows the organization again")).toBeVisible();
   });
 });

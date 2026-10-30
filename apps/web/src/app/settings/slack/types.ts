@@ -5,6 +5,9 @@ export interface SlackRoute {
   examples: string[];
   response_mode: string;
   enabled: boolean;
+  /** Stored with the route ("owner/name" and a branch); nothing clones it yet. */
+  repository?: string;
+  branch?: string;
 }
 
 export interface SlackRouterConfig {
@@ -25,6 +28,9 @@ export interface ChannelProfile {
   allowed_tools?: string[];
   sandbox_image?: string;
   response_mode?: "" | "thread" | "private";
+  /** Stored for the channel's sessions ("owner/name" and a branch); nothing clones it yet. */
+  repository?: string;
+  branch?: string;
 }
 
 export interface SlackBot {

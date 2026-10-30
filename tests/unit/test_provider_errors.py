@@ -30,7 +30,7 @@ async def test_a_refused_key_is_an_error_status_and_no_stored_answer(
 
     shown = [m.content or "" for m in outcome.session.conversation_history if m.role == "assistant"]
     # Shown to the person as a labelled error, never as something the model said.
-    assert all(text.startswith("⚠️ **Mission Error**") for text in shown if "x-api-key" in text)
+    assert all(text.startswith("**The turn failed:**") for text in shown if "x-api-key" in text)
     errors = [e for e in outcome.events_of("status_changed") if e.payload.get("status") == "error"]
     assert errors and "Settings > Models" in outcome.text_of_events()
     assert not [e for e in outcome.events_of("thought") if "invalid" in str(e.payload)]

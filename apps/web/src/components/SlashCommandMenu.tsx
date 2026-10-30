@@ -1,69 +1,86 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { BUILTIN_COMMANDS } from "../lib/composer-commands";
 
-interface Command {
+export interface SlashCommand {
   name: string;
   description: string;
+  builtin: boolean;
 }
 
-/**
- * Suggests prompt skills while the message starts with `/`. Choosing one fills in `/name `;
- * the server expands it, so the conversation still shows what was typed.
- */
-export const SlashCommandMenu: React.FC<{
-  input: string;
-  onPick: (completion: string) => void;
-}> = ({ input, onPick }) => {
-  const [commands, setCommands] = useState<Command[]>([]);
+const MAX_SHOWN = 8;
+
+/** The commands that match what is typed after `/`: the composer's own, then the skills
+ * (the organization's, the member's and the starter skills). */
+export function useSlashMatches(input: string): SlashCommand[] {
+  const [skills, setSkills] = useState<SlashCommand[] | null>(null);
   const active = /^\/[A-Za-z0-9_-]*$/.test(input);
 
   useEffect(() => {
-    if (!active || commands.length > 0) return;
+    if (!active || skills !== null) return;
     let cancelled = false;
-    fetch("/v1/skills")
-      .then((res) => (res.ok ? res.json() : []))
-      .then((skills: { name: string; description?: string; runtime?: string }[]) => {
-        if (cancelled || !Array.isArray(skills)) return;
-        setCommands(
-          skills
-            .filter((s) => (s.runtime ?? "text") === "text")
-            .map((s) => ({ name: s.name, description: s.description ?? "" })),
-        );
-      })
-      .catch(() => {});
+    Promise.all([
+      fetch("/v1/skills").then((res) => (res.ok ? res.json() : [])).catch(() => []),
+      fetch("/v1/skills/starter").then((res) => (res.ok ? res.json() : [])).catch(() => []),
+    ]).then(([own, starter]: [{ name: string; description?: string; runtime?: string }[], { name: string; description: string; enabled: boolean }[]]) => {
+      if (cancelled) return;
+      const list: SlashCommand[] = [
+        ...(Array.isArray(own) ? own : [])
+          .filter((s) => (s.runtime ?? "text") === "text")
+          .map((s) => ({ name: s.name, description: s.description ?? "", builtin: false })),
+      ];
+      for (const s of Array.isArray(starter) ? starter : []) {
+        if (s.enabled && !list.some((c) => c.name === s.name)) list.push({ name: s.name, description: s.description, builtin: false });
+      }
+      setSkills(list);
+    });
     return () => {
       cancelled = true;
     };
-  }, [active, commands.length]);
+  }, [active, skills]);
 
-  if (!active) return null;
-  const typed = input.slice(1).toLowerCase();
-  const matches = commands.filter((c) => c.name.toLowerCase().startsWith(typed)).slice(0, 6);
+  return useMemo(() => {
+    if (!active) return [];
+    const typed = input.slice(1).toLowerCase();
+    const all = [...BUILTIN_COMMANDS.map((c) => ({ ...c, builtin: true })), ...(skills ?? [])];
+    return all.filter((c) => c.name.toLowerCase().startsWith(typed)).slice(0, MAX_SHOWN);
+  }, [active, input, skills]);
+}
+
+/** The matching commands above the composer; the composer moves `active` with the arrow keys. */
+export function SlashCommandMenu({
+  matches,
+  active,
+  onPick,
+}: {
+  matches: SlashCommand[];
+  active: number;
+  onPick: (command: SlashCommand) => void;
+}) {
   if (matches.length === 0) return null;
-
   return (
     <ul
+      id="slash-menu"
       role="listbox"
-      aria-label="Slash commands"
+      aria-label="Commands and skills"
       data-testid="slash-menu"
-      className="absolute bottom-full mb-1 left-0 z-20 w-72 rounded-lg border border-border bg-surface-base shadow-xl overflow-hidden"
+      className="absolute bottom-full left-0 z-20 mb-1 w-80 overflow-hidden rounded-lg border border-border bg-surface-base shadow-xl"
     >
-      {matches.map((c) => (
-        <li key={c.name} role="option" aria-selected={false}>
+      {matches.map((c, index) => (
+        <li key={`${c.builtin}-${c.name}`} id={`slash-option-${index}`} role="option" aria-selected={index === active}>
           <button
             type="button"
             data-testid="slash-option"
-            onClick={() => onPick(`/${c.name} `)}
-            className="w-full text-left px-3 py-1.5 hover:bg-elevated cursor-pointer"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onPick(c)}
+            className={`w-full cursor-pointer px-3 py-1.5 text-left hover:bg-elevated ${index === active ? "bg-elevated" : ""}`}
           >
-            <span className="text-xs font-mono text-foreground">/{c.name}</span>
-            {c.description && (
-              <span className="ml-2 text-[11px] text-muted-foreground truncate">{c.description}</span>
-            )}
+            <span className="font-mono text-xs text-foreground">/{c.name}</span>
+            {c.description && <span className="ml-2 truncate text-[11px] text-neutral-600 dark:text-neutral-400">{c.description}</span>}
           </button>
         </li>
       ))}
     </ul>
   );
-};
+}

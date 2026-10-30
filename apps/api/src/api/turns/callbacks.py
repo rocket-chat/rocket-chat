@@ -17,6 +17,7 @@ from api.services.artifacts import get_artifact_store
 from api.services.git_credentials import GitCredentialBundle, app_may_act_on
 from api.services.git_gateway_env import github_api_url_of
 from api.services.github_installations import installations_for_org
+from api.services.github_read_access import github_read_access
 from api.services.github_watches import (
     GithubWatchStore,
     pushed_head,
@@ -26,6 +27,7 @@ from api.services.github_watches import (
 from api.services.knowledge import search_knowledge
 from api.services.mcp_runtime import McpToolProvider
 from api.services.memory import MemoryService
+from api.services.plan_approval import plan_decision_reader
 from api.services.process_tracker import ProcessTracker
 from api.services.repository_setups import RepositorySetupStore
 from api.services.repository_setups import prepare_folder as prepare_repository_folder
@@ -35,8 +37,6 @@ from api.services.session_updates import publish_session_update
 from api.services.settings import effective_settings
 from api.services.skills import test_skill_execution
 from api.services.skills_lookup import _find_visible_skill
-from api.services.subagent_transcripts import get_subagent_transcript_store
-from api.services.subagents import load_subagent_configs
 from api.services.tool_loading import (
     remember_guidance_read,
     remember_loaded,
@@ -45,7 +45,10 @@ from api.services.tool_loading import (
 from api.services.waits import get_wait_store, settle_waits
 from api.turns.context import TurnContext
 from api.turns.provisioning import provision_session_sandbox, run_repository_setup
+from api.turns.remembered_approvals import remembered_approval_callbacks
 from api.turns.shared import _background_tasks
+from api.turns.subagent_callbacks import subagent_callbacks
+from api.turns.subagent_wake import schedule_subagent_wake
 from specifications.interfaces.agent import (
     FolderSetupOutcome,
     GithubAccess,
@@ -569,6 +572,13 @@ def _arm_wake(
         if ctx is not None:
             _schedule_time_wake(ctx, float(identifier), wait_id=wait_id)
         return f"Waiting for timer delay of {identifier}s. Turn paused; will wake after delay."
+    if target == "subagent":
+        if ctx is not None:
+            schedule_subagent_wake(ctx, identifier, timeout, wait_id)
+        return (
+            f"Waiting for subagent {identifier} (timeout: {timeout}s). Turn paused; it wakes "
+            "with the subagent's report."
+        )
     if target == "process_exit":
         if ctx is not None:
             _schedule_process_wake(ctx, identifier, timeout, wait_id=wait_id)
@@ -800,14 +810,20 @@ async def build_turn_callbacks(
         update_artifact=_update_artifact,
         get_artifact=art_store.get_artifact,
         list_artifacts=art_store.list_artifacts,
+        plan_decision=plan_decision_reader(
+            store,
+            db_mgr,
+            session.tenant_org_id,
+            binding.policy.attribution.requester_user_id or session.tenant_user_id,
+        ),
         **_session_record_callbacks(ctx),
+        **remembered_approval_callbacks(ctx),
         processes_changed=processes_changed if driver else None,
         max_background_processes=int(sandbox_settings["max_background_processes"]),
-        subagent_configs=await load_subagent_configs(db_mgr, session.tenant_org_id),
+        **await subagent_callbacks(ctx),
         redact_tool_output=ctx.redactor.redact_text
         if getattr(ctx, "redactor", None) is not None
         else None,
-        subagent_transcript_persister=get_subagent_transcript_store(db_mgr).save_transcript,
     )
 
 
@@ -890,52 +906,13 @@ def _session_record_callbacks(ctx: TurnContext) -> _SessionRecordCallbacks:
 def _github_read_access(
     ctx: TurnContext, git_bundle: GitCredentialBundle
 ) -> Callable[..., Awaitable[GithubAccess]]:
-    """Credential for read-only GitHub tools. Uses member token if linked, else dynamically
-    resolves an App installation token for the requested repository or organization."""
-    engine, api_url = ctx.req.git_engine, github_api_url_of(ctx.req.git_engine)
-    member = git_bundle.user_token
-    login = str(git_bundle.source_details.get("username") or "")
-    as_member = GithubAccess(
-        member, api_url, f"@{login}" if login else "your linked GitHub account"
-    )
-    app_actor = "the organization's GitHub App"
-    bundle_actor = (
-        app_actor
-        if git_bundle.mode == "app"
-        else (as_member.actor if git_bundle.mode == "member" else "")
-    )
+    """Credential for read-only GitHub tools: the App installation for the requested repository
+    when it may act on it, else the member's linked token (``github_read_access``)."""
 
     async def access(repository: str | None = None) -> GithubAccess:
-        org = ctx.session.tenant_org_id
-        if engine is not None:
-            clean = (
-                (repository or "")
-                .strip()
-                .removeprefix("https://github.com/")
-                .removesuffix(".git")
-                .strip("/")
-            )
-            github_settings = await effective_settings(ctx.req.db_mgr, org, "github")
-            if not clean or app_may_act_on(github_settings, clean):
-                mapped = await installations_for_org(ctx.req.db_mgr, org)
-                inst_id = pick_installation(
-                    [(i.installation_id, i.account_login) for i in mapped], clean or None
-                )
-                if inst_id is not None:
-                    repos = [clean.rsplit("/", 1)[-1]] if "/" in clean else None
-                    token = await engine.get_github_access_token(
-                        repo=clean or None,
-                        repositories=repos,
-                        installation_id=inst_id,
-                        inherit_permissions=True,
-                    )
-                    if token:
-                        return GithubAccess(token, api_url, app_actor)
-        if member:
-            return as_member
-        if git_bundle.token:
-            return GithubAccess(git_bundle.token, api_url, bundle_actor)
-        return GithubAccess(None, api_url, "")
+        return await github_read_access(
+            ctx.req.git_engine, ctx.req.db_mgr, ctx.session.tenant_org_id, git_bundle, repository
+        )
 
     return access
 
@@ -952,7 +929,7 @@ def _github_write_access(
     as_member = GithubAccess(member, api_url, f"@{login}" if login else "your GitHub account")
 
     async def access(repository: str) -> GithubAccess:
-        if member and ctx.binding.policy.git.pr_creation == "as_user":
+        if member and ctx.binding.policy.git.publishes_as_member:
             return as_member
         org = ctx.session.tenant_org_id
         if engine is not None and app_may_act_on(

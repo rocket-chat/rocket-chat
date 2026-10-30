@@ -1,8 +1,11 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Users, ShieldCheck, AlertCircle, RefreshCw } from "lucide-react";
-import { useSession } from "../../../../components/AuthProvider";
+import { ShieldCheck, AlertCircle, RefreshCw } from "lucide-react";
+import { useAccess } from "../../../../lib/access";
+import { SettingsPage } from "../../../../components/settings/SettingsPage";
+import { InvitesPanel } from "../../../../components/settings/InvitesPanel";
+import { CapabilitiesPanel } from "../../../../components/settings/CapabilitiesPanel";
 
 interface OrgUser {
   id: string;
@@ -12,20 +15,17 @@ interface OrgUser {
   created_at: number;
 }
 
-const ROLES = ["owner", "admin", "developer", "readonly"] as const;
+const ROLES = ["owner", "admin", "member", "viewer"] as const;
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "Owner",
   admin: "Admin",
-  developer: "Developer",
-  readonly: "Read-only",
-  guest: "Guest",
+  member: "Member",
+  viewer: "Viewer",
 };
 
 export default function OrgUsersPage() {
-  const { data: session } = useSession();
-  const userRoles = (session?.user as unknown as { roles?: string[] })?.roles || [];
-  const isAdmin = !session || userRoles.includes("admin") || userRoles.includes("owner");
+  const { isAdmin } = useAccess();
 
   const [users, setUsers] = useState<OrgUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,7 +65,7 @@ export default function OrgUsersPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || `Failed to update role (${res.status})`);
       setUsers((prev) => prev.map((u) => (u.id === userId ? { ...u, role } : u)));
-      setNotice(data.note || "Role updated. The user must reload to apply it.");
+      setNotice(data.note || "Role updated.");
       setTimeout(() => setNotice(null), 6000);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update role");
@@ -77,23 +77,18 @@ export default function OrgUsersPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
-        <div>
-          <h1 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2.5">
-            <Users className="w-5 h-5 text-brand" />
-            Users &amp; roles
-          </h1>
-          <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 mt-1">
-            Manage the members of this organization and their access level.
-          </p>
-        </div>
+    <SettingsPage
+      section="Organization"
+      title="Members & roles"
+      description="Who belongs to this organization, their role, invitations, and what each role may do."
+    >
+      <div className="flex justify-end">
         <button
           type="button"
           onClick={() => void fetchUsers()}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-xs text-neutral-300 transition-all cursor-pointer"
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3 py-1.5 text-xs text-foreground transition-all hover:bg-surface-elevated/80"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+          <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} aria-hidden="true" />
           <span>Refresh</span>
         </button>
       </div>
@@ -144,6 +139,7 @@ export default function OrgUsersPage() {
                   <td className="px-4 py-2">
                     <select
                       data-testid={`user-role-${user.id}`}
+                      aria-label={`Role of ${user.email}`}
                       disabled={!isAdmin || savingId === user.id}
                       value={user.role}
                       onChange={(e) => void changeRole(user.id, e.target.value)}
@@ -164,10 +160,12 @@ export default function OrgUsersPage() {
       </div>
 
       <p className="text-[11px] text-muted-foreground">
-        A role change is written immediately but is carried in the user&apos;s session token, so
-        the affected user must <span className="text-foreground">reload or sign in again</span>{" "}
-        for it to take effect. The last administrator of an organization cannot be demoted.
+        A role change applies to the member&apos;s open sessions within 15 seconds. The last
+        administrator of an organization cannot be demoted, and only an owner can make an owner.
       </p>
-    </div>
+
+      <InvitesPanel />
+      <CapabilitiesPanel />
+    </SettingsPage>
   );
 }

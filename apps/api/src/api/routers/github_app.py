@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from api.auth import oauth_state
 from api.auth.access import _require_admin
 from api.auth.identity import resolve_identity
-from api.auth.roles import with_live_roles
+from api.auth.roles import is_admin, with_live_roles
 from api.services.audit import AuditService
 from api.services.github_installations import (
     bind_installation,
@@ -134,7 +134,7 @@ async def map_installation(request: Request, installation_id: int, state: str) -
         claims.get("purpose") != _STATE_PURPOSE
         or claims.get("org_id") != org_id
         or claims.get("user_id") != user_id
-        or not any(role in ("admin", "owner") for role in roles)
+        or not is_admin(roles)
     ):
         raise _refused(403, "This install link was not issued to you.", installation_id)
     login = await _installation_account(_engine(request), installation_id)
@@ -152,7 +152,7 @@ async def map_installation(request: Request, installation_id: int, state: str) -
         result_summary=f"mapped GitHub installation {installation_id} ({login})",
         metadata={"provider": "github_app", "installation_id": installation_id},
     )
-    return RedirectResponse("/settings/github?installation=connected", status_code=303)
+    return RedirectResponse("/settings/org/git?installation=connected", status_code=303)
 
 
 def _refused(status: int, reason: str, installation_id: int) -> HTTPException:

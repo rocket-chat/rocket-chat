@@ -62,7 +62,7 @@ async def test_subagent_continues_on_reasoning_only_reply() -> None:
     req = SubagentTaskRequest(role="researcher", task="Find auth bug")
     result = await runner.run(req, session_id="s_sub_test")
 
-    assert len(gateway.requests) == 2
+    assert len(gateway.requests) == 3  # the last one asks for the report
     assert "output token limit while you were still reasoning" in (
         gateway.requests[1].messages[-1].content or ""
     )
@@ -99,7 +99,7 @@ async def test_subagent_preserves_reasoning_and_thinking_blocks_in_tool_loop() -
     req = SubagentTaskRequest(role="researcher", task="List files")
     result = await runner.run(req, session_id="s_sub_test")
 
-    assert len(gateway.requests) == 2
+    assert len(gateway.requests) == 3  # the last one asks for the report
     # In request 2, find the assistant message: it must have reasoning_blocks
     assistant_msg = next(m for m in gateway.requests[1].messages if m.role == "assistant")
     assert assistant_msg.reasoning_blocks == [thinking_block]
@@ -133,7 +133,7 @@ async def test_subagent_inherits_generation_params_from_turn_context() -> None:
     finally:
         current_execution_ctx.reset(token)
 
-    assert len(gateway.requests) == 1
+    assert len(gateway.requests) == 2  # then the report is asked for
     req_sent = gateway.requests[0]
     assert req_sent.max_tokens == 32_000
     assert req_sent.reasoning_effort == "high"

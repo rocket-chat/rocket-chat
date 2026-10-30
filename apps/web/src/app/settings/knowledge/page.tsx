@@ -1,9 +1,10 @@
 "use client";
 
 import { Button } from "../../../components/ui/Button";
+import { useConfirm } from "../../../components/ui/ConfirmDialog";
 import { PageHeader } from "../../../components/ui/PageHeader";
 
-import { Field, Input, Textarea } from "../../../components/ui/Field";
+import { Field, Input } from "../../../components/ui/Field";
 import React, { useState, useEffect, useCallback } from "react";
 import { KnowledgeBaseConfig } from "../../../types/mission";
 import {
@@ -15,12 +16,13 @@ import {
   AlertCircle,
   Trash2,
 } from "lucide-react";
-import { useSession } from "../../../components/AuthProvider";
 import {
   UserScopeSection,
   ScopeDivider,
   OrgScopeSection,
 } from "../../../components/settings/ScopedSettingsSection";
+import { useAccess } from "../../../lib/access";
+import { KnowledgeIngestDialog } from "../../../components/settings/KnowledgeIngestDialog";
 
 interface ChunkResult {
   id: string;
@@ -30,9 +32,8 @@ interface ChunkResult {
 }
 
 export default function KnowledgeSettingsPage() {
-  const { data: session } = useSession();
-  const userRoles = (session?.user as unknown as { roles?: string[] })?.roles || [];
-  const isAdmin = !session || userRoles.includes("admin") || userRoles.includes("owner");
+  const [confirm, confirmDialog] = useConfirm();
+  const { isAdmin } = useAccess();
 
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseConfig[]>([]);
   const [selectedKbId, setSelectedKbId] = useState<string>("");
@@ -48,9 +49,6 @@ export default function KnowledgeSettingsPage() {
   const [newKbIndex, setNewKbIndex] = useState("");
 
   const [showIngestModal, setShowIngestModal] = useState(false);
-  const [docTitle, setDocTitle] = useState("");
-  const [docContent, setDocContent] = useState("");
-  const [ingesting, setIngesting] = useState(false);
 
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
@@ -123,7 +121,7 @@ export default function KnowledgeSettingsPage() {
 
   const handleDeleteKb = async (id: string, name: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm(`Are you sure you want to delete knowledge base '${name}'?`)) {
+    if (!(await confirm({ title: `Delete the knowledge base “${name}”?`, message: "Its documents and their index are deleted. This cannot be undone.", confirmLabel: "Delete", tone: "danger" }))) {
       return;
     }
     try {
@@ -142,44 +140,6 @@ export default function KnowledgeSettingsPage() {
       }
     } catch {
       setErrorBanner("Failed to delete knowledge base");
-    }
-  };
-
-  const handleIngestDocument = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedKbId || !docTitle.trim() || !docContent.trim()) return;
-    setIngesting(true);
-    setErrorBanner(null);
-    try {
-      const res = await fetch(`/v1/knowledge/bases/${selectedKbId}/documents`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: docTitle.trim(),
-          content: docContent.trim(),
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.detail || "Failed to ingest document");
-      }
-      const data = await res.json();
-      setKnowledgeBases((prev) =>
-        prev.map((k) =>
-          k.id === selectedKbId ? { ...k, documents_count: (k.documents_count || 0) + 1 } : k
-        )
-      );
-      setShowIngestModal(false);
-      setDocTitle("");
-      setDocContent("");
-      setSuccessBanner(`Ingested '${data.title}' into ${data.chunks_count || 1} vector chunks`);
-      setTimeout(() => setSuccessBanner(null), 3500);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error ingesting document";
-      setErrorBanner(msg);
-      setTimeout(() => setErrorBanner(null), 6000);
-    } finally {
-      setIngesting(false);
     }
   };
 
@@ -254,6 +214,7 @@ export default function KnowledgeSettingsPage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6 px-4 py-8 sm:px-8">
+      {confirmDialog}
       {/* Page Header */}
       <PageHeader
         title="Knowledge bases"
@@ -472,66 +433,20 @@ export default function KnowledgeSettingsPage() {
         </div>
       )}
 
-      {/* Modal: Ingest Document */}
-      {showIngestModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="w-full max-w-lg p-5 rounded-lg border border-border bg-surface space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-border/60 pb-2">
-              <span className="text-xs font-bold text-cyan">
-                Ingest Document to {currentKb?.name}
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowIngestModal(false)}
-                className="text-neutral-400 hover:text-white text-xs cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form onSubmit={handleIngestDocument} className="space-y-3">
-              <Field label="Document Title *">
-                {(control) => (
-                  <Input {...control}
-                    placeholder="e.g. Deployment Guide v2"
-                    value={docTitle}
-                    onChange={(e) => setDocTitle(e.target.value)}
-                    required
-                  />
-                )}
-              </Field>
-
-              <Field label="Content (Markdown / Plain Text) *">
-                {(control) => (
-                  <Textarea {...control}
-                    rows={8}
-                    placeholder="Paste documentation text to be chunked and embedded..."
-                    value={docContent}
-                    onChange={(e) => setDocContent(e.target.value)}
-                    required
-                  />
-                )}
-              </Field>
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-border/60">
-                <button
-                  type="button"
-                  onClick={() => setShowIngestModal(false)}
-                  className="px-3 py-1.5 rounded-lg border border-border text-xs text-neutral-400 hover:text-white cursor-pointer"
-                >
-                  CANCEL
-                </button>
-                <button
-                  type="submit"
-                  disabled={ingesting}
-                  className="px-4 py-1.5 rounded-lg border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
-                >
-                  {ingesting ? "CHUNKING & EMBEDDING..." : "INGEST DOCUMENT"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {showIngestModal && currentKb && (
+        <KnowledgeIngestDialog
+          kbId={currentKb.id}
+          kbName={currentKb.name}
+          onClose={() => setShowIngestModal(false)}
+          onIngested={(title, chunks) => {
+            setKnowledgeBases((prev) =>
+              prev.map((k) => (k.id === currentKb.id ? { ...k, documents_count: (k.documents_count || 0) + 1 } : k)),
+            );
+            setShowIngestModal(false);
+            setSuccessBanner(`Added '${title}' as ${chunks} chunk${chunks === 1 ? "" : "s"}`);
+            setTimeout(() => setSuccessBanner(null), 3500);
+          }}
+        />
       )}
     </div>
   );

@@ -90,12 +90,13 @@ def test_a_public_link_shows_the_conversation_and_nothing_private(client: TestCl
     assert opened.status_code == 200
     body = opened.json()
     assert body["title"] == "Build fix"
-    assert body["messages"] == [
-        {"role": "user", "content": "Fix the build"},
-        {"role": "assistant", "content": "Done - I changed the config."},
+    assert [(m["role"], m["content"]) for m in body["messages"]] == [
+        ("user", "Fix the build"),
+        ("assistant", "Done - I changed the config."),
     ]
+    assert [s["name"] for s in body["messages"][1]["steps"]] == ["bash_exec"]
     text = opened.text
-    assert "SECRET" not in text and "private thoughts" not in text and "bash_exec" not in text
+    assert "SECRET" not in text and "private thoughts" not in text, "no output, no reasoning"
     assert opened.headers["cache-control"] == "no-store"
     assert "noindex" in opened.headers["x-robots-tag"]
 

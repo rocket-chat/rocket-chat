@@ -11,7 +11,13 @@ from enum import Enum
 from typing import Any, Protocol, TypedDict
 
 from specifications.interfaces.git import SigningKey
-from specifications.interfaces.llm import AttachmentRef, ModelRouterProtocol, ToolDefinition
+from specifications.interfaces.llm import (
+    AttachmentRef,
+    CredentialBinding,
+    ModelRouterProtocol,
+    ToolDefinition,
+)
+from specifications.interfaces.sandbox import WorkspaceSpec
 from specifications.interfaces.session import SessionArtifact
 
 
@@ -26,6 +32,27 @@ class SubAgentRole(str, Enum):
     GENERAL = "general"
 
 
+# Which model a role runs on when it names none: ``fast`` is the organization's fast model (cheap
+# searching and reading), ``default`` what the routing mode gives subagents, ``frontier`` the
+# session's own model.
+SUBAGENT_TIERS: tuple[str, ...] = ("fast", "default", "frontier")
+# Where a role's changes land: the shared tree (``none``), a git worktree of its own on a
+# ``subagent/<id>`` branch, or a sandbox of its own seeded from the session's workspace.
+SUBAGENT_ISOLATIONS: tuple[str, ...] = ("none", "worktree", "sandbox")
+# What a child starts with besides its role prompt and the task.
+SUBAGENT_INHERITABLE: tuple[str, ...] = ("agents_md", "memory", "checklist", "skills")
+DEFAULT_SUBAGENT_INHERIT: tuple[str, ...] = ("agents_md", "memory", "checklist")
+# A child's own budget: steps before it must report, and dollars (0 for either: no own limit;
+# the turn's limits still apply).
+DEFAULT_SUBAGENT_STEPS = 40
+DEFAULT_SUBAGENT_COST_USD = 3.0
+SUBAGENT_STATUSES: tuple[str, ...] = ("completed", "partial", "blocked", "failed", "cancelled")
+FINDING_SEVERITIES: tuple[str, ...] = ("critical", "high", "medium", "low", "info")
+# Where a role definition comes from: shipped, the organization's, or a repository's
+# ``.rocket/agents/*.md``.
+SUBAGENT_SOURCES: tuple[str, ...] = ("builtin", "org", "repository")
+
+
 @dataclass
 class SubagentConfig:
     """Configurable behavioral definition for a specialized subagent."""
@@ -33,17 +60,29 @@ class SubagentConfig:
     id: str
     name: str
     role_title: str
+    # When to use the role, and when not to: the parent reads it in the roles index.
     description: str
     system_prompt: str
+    # A named model wins over ``tier``.
     model: str | None = None
+    tier: str = "default"
     # Steps before the delegate must report; 0 lets it work until it has finished.
-    max_turns: int = 30
+    max_turns: int = DEFAULT_SUBAGENT_STEPS
     whitelisted_tools: list[str] = field(default_factory=lambda: ["*"])
+    disallowed_tools: list[str] = field(default_factory=list)
     temperature: float = 0.2
+    reasoning_effort: str | None = None
+    max_cost_usd: float = DEFAULT_SUBAGENT_COST_USD
+    max_wall_seconds: int = 0
+    isolation: str = "none"
+    # Enforced: a child that may not ask has its approvals and questions refused.
     can_ask_user: bool = False
     can_delegate: bool = False
+    inherit: list[str] = field(default_factory=lambda: list(DEFAULT_SUBAGENT_INHERIT))
+    # JSON Schema the ``data`` of the child's report must follow (None: no structured data).
+    output_schema: dict[str, Any] | None = None
     enabled: bool = True
-    isolate_worktree: bool = False
+    source: str = "builtin"
 
 
 @dataclass
@@ -54,6 +93,45 @@ class SubagentTaskRequest:
     task: str
     context: str = ""
     subagent_id: str | None = None
+    # Returns a handle at once; the result is read with ``subagent_status`` or ``wait_for``.
+    background: bool = False
+    # The parent's ``delegate_subagent`` call, so a client nests the child's steps under it.
+    parent_tool_call_id: str | None = None
+    # Skills put in effect for the child (they are inherited only when named).
+    skills: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SubagentFinding:
+    """One thing a child found: where, how serious, and what shows it."""
+
+    file: str = ""
+    line: int | None = None
+    severity: str = "info"
+    evidence: str = ""
+
+
+@dataclass
+class SubagentChanges:
+    """What a child changed, computed from ``git diff`` in its tree (not from its tool calls)."""
+
+    branch: str | None = None
+    diff_stat: str = ""
+    files: list[str] = field(default_factory=list)
+
+
+@dataclass
+class SubagentReport:
+    """The structured result a child ends with (its ``report`` call)."""
+
+    status: str
+    summary: str
+    findings: list[SubagentFinding] = field(default_factory=list)
+    changes: SubagentChanges | None = None
+    open_questions: list[str] = field(default_factory=list)
+    next_steps: list[str] = field(default_factory=list)
+    # Follows the role's ``output_schema`` when it has one.
+    data: dict[str, Any] | None = None
 
 
 @dataclass
@@ -63,7 +141,7 @@ class SubagentTaskResult:
     role: str
     task: str
     summary: str
-    status: str = "completed"  # "completed", "done", "partial", "blocked", "failed", "timeout"
+    status: str = "completed"  # one of SUBAGENT_STATUSES
     turns_taken: int = 1
     tool_calls_count: int = 0
     duration_ms: int = 0
@@ -73,6 +151,11 @@ class SubagentTaskResult:
     tokens: int = 0
     cost: float = 0.0
     branch: str | None = None
+    report: SubagentReport | None = None
+    model: str = ""
+    isolation: str = "none"
+    background: bool = False
+    parent_tool_call_id: str | None = None
 
 
 @dataclass
@@ -96,6 +179,62 @@ class SubagentTranscriptRecord:
     artefacts: list[str]
     messages: list[dict[str, Any]]
     created_at: int
+    # The child's whole structured report (the parent sees a clamped rendering of it).
+    report: dict[str, Any] | None = None
+    model: str = ""
+
+
+# A background child's run: queued until its task starts, running while it works (its lease
+# renewed), then one of SUBAGENT_STATUSES.
+SUBAGENT_RUN_ACTIVE: tuple[str, ...] = ("queued", "running")
+# How long a running child's lease lasts without renewal before another replica may recover it.
+SUBAGENT_LEASE_SECONDS = 90
+
+
+@dataclass
+class SubagentRunRecord:
+    """A delegated child as a supervised task (``subagent_runs``), so it outlives its turn."""
+
+    id: str
+    org_id: str
+    session_id: str
+    subagent_id: str
+    role: str
+    task: str
+    context: str = ""
+    status: str = "queued"
+    background: bool = False
+    parent_tool_call_id: str | None = None
+    lease_owner: str = ""
+    lease_expires_at: int = 0
+    attempts: int = 0
+    # The ``SubagentTaskResult`` once the child has finished, as plain data.
+    result: dict[str, Any] | None = None
+    cost_usd: float = 0.0
+    created_at: int = 0
+    updated_at: int = 0
+
+
+class SubagentRunStoreProtocol(Protocol):
+    """Storage contract for supervised subagent runs (forced row-level security on ``org_id``)."""
+
+    async def save_run(self, record: SubagentRunRecord) -> None:
+        """Insert or replace the run ``record.id``."""
+        ...
+
+    async def get_run(
+        self, org_id: str, session_id: str, subagent_id: str
+    ) -> SubagentRunRecord | None: ...
+
+    async def list_runs(self, org_id: str, session_id: str) -> list[SubagentRunRecord]: ...
+
+    async def renew_leases(self, owner: str, until: int) -> int:
+        """Extend the lease of every active run ``owner`` holds; how many were renewed."""
+        ...
+
+    async def claim_expired(self, owner: str, now: int, until: int) -> list[SubagentRunRecord]:
+        """Atomically take the active runs whose lease ran out (administrative connection)."""
+        ...
 
 
 class SubagentTranscriptStoreProtocol(Protocol):
@@ -144,6 +283,74 @@ class ApprovalRequest:
     command_or_path: str
     risk_level: str  # "low", "medium", "critical"
     metadata: dict[str, Any] = field(default_factory=dict)
+    # What the person is asked to allow, as the client shows it (see ``ApprovalDetails``).
+    tool: str = ""
+    arguments: dict[str, Any] = field(default_factory=dict)
+    diff: str = ""
+    repository: str = ""
+
+
+# Where a remembered approval applies: every later call of the tool in the session, or the
+# same command in the same repository in every session of the member who saved it.
+APPROVAL_RULE_SCOPES: tuple[str, ...] = ("session", "repository")
+# Bounds on what an approval request shows (event payloads, never the model's context).
+MAX_APPROVAL_ARGUMENT_CHARS = 2_000
+MAX_APPROVAL_ARGUMENTS_CHARS = 8_000
+MAX_APPROVAL_DIFF_CHARS = 20_000
+
+
+@dataclass(frozen=True)
+class ApprovalDetails:
+    """The structured call behind a gate: shown to the person, and what a rule is saved from.
+
+    ``arguments`` and ``diff`` are already bounded by the caller (``MAX_APPROVAL_*``);
+    ``repository`` is the active repository's ``owner/name`` (empty when unknown).
+    """
+
+    tool: str
+    arguments: Mapping[str, Any] = field(default_factory=dict)
+    diff: str = ""
+    repository: str = ""
+
+
+@dataclass(frozen=True)
+class ApprovalRule:
+    """A remembered approval: the gate it answers is not raised again.
+
+    ``command`` empty matches every call of ``tool``; otherwise the call's ``command`` must be
+    the same text (whitespace-normalised). ``repository`` is set for the ``repository`` scope.
+    """
+
+    id: str
+    scope: str
+    tool: str
+    command: str = ""
+    repository: str = ""
+
+
+@dataclass(frozen=True)
+class RememberedApprovals:
+    """The rules a turn may apply, and the risk levels they may answer.
+
+    The platform leaves ``risks`` empty when the organization switched remembered approvals off
+    or locked the permission mode, and never includes ``critical``: an irreversible call always
+    waits for a person.
+    """
+
+    rules: tuple[ApprovalRule, ...] = ()
+    risks: frozenset[str] = frozenset()
+
+
+class ApprovalCallback(Protocol):
+    """Raises a human gate and waits for the answer (``APPROVAL_GRANTED_PREFIX`` when allowed)."""
+
+    def __call__(
+        self,
+        action_type: str,
+        description: str,
+        risk_level: str,
+        details: ApprovalDetails | None = None,
+    ) -> Awaitable[str]: ...
 
 
 @dataclass
@@ -153,6 +360,40 @@ class InteractiveQuestion:
     options: list[str]
     is_multi_select: bool = False
     default_recommended_option: str | None = None
+
+
+# The ``action_type`` of the gate ``exit_plan_mode`` raises: the cockpit shows it as a plan card.
+PLAN_APPROVAL_ACTION = "execute_plan"
+# Bounds on what a plan decision carries back to the agent (it reaches the model's context).
+MAX_PLAN_TASKS = 30
+MAX_PLAN_TASK_CHARS = 300
+MAX_PLAN_FEEDBACK_CHARS = 4_000
+
+
+@dataclass(frozen=True)
+class PlanTaskEdit:
+    """One task of a plan as the person left it on the plan card."""
+
+    id: str
+    title: str
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class PlanDecision:
+    """What the person decided on a proposed plan.
+
+    ``permission_mode`` is the mode the rest of the work runs in, already checked against the
+    organization's lock and the member's ``use_bypass_mode`` capability (empty when rejected).
+    ``checklist`` is set only when the person edited the plan; ``feedback`` is free text.
+    Every field is bounded by the ``MAX_PLAN_*`` limits before it is stored.
+    """
+
+    approved: bool
+    permission_mode: str = ""
+    checklist: tuple[PlanTaskEdit, ...] = ()
+    feedback: str = ""
+    decided_at: float = 0.0
 
 
 # Rendered between the cacheable prefix and the volatile suffix of a system prompt.
@@ -278,7 +519,12 @@ class TurnCallbacks:
     # a skill in effect, so later turns carry it too.
     skills_read: Callable[[str, dict[str, str]], Awaitable[None]] | None = None
     question: Callable[[str, list[str], bool, str | None], Awaitable[str]] | None = None
-    approval: Callable[[str, str, str], Awaitable[str]] | None = None
+    approval: ApprovalCallback | None = None
+    # The approvals the person remembered that apply to this session (read before every gated
+    # call, so a rule saved or revoked during the turn applies at once).
+    approval_rules: Callable[[str], Awaitable[RememberedApprovals]] | None = None
+    # Called with (rule, tool name, risk level) when a rule answered a gate, for the audit.
+    approval_rule_used: Callable[[ApprovalRule, str, str], Awaitable[None]] | None = None
     diff: Callable[[FileDiff], None] | None = None
     plan: Callable[[list[dict[str, Any]]], None] | None = None
     subagent: Callable[[str, str, str], Awaitable[str]] | None = None
@@ -325,6 +571,19 @@ class TurnCallbacks:
     max_background_processes: int = 5
     # The organization's subagent roles for this turn (None = the built-in defaults).
     subagent_configs: Mapping[str, SubagentConfig] | None = None
+    # Resolves a role's model: its own, else its tier through the organization's routing.
+    subagent_model: Callable[[SubagentConfig], str] | None = None
+    # Supervised runs of children (None: background delegation is unavailable).
+    subagent_runs: SubagentRunStoreProtocol | None = None
+    # Memories relevant to a child's task, already bounded (None: no memory inheritance).
+    subagent_memories: Callable[[str], Awaitable[str]] | None = None
+    # The workspace a sandbox-isolated child's own sandbox is created from, by sandbox id.
+    subagent_sandbox_spec: Callable[[str], Awaitable[WorkspaceSpec]] | None = None
+    # How many children with edit or command tools may run at once, from the session sandbox's
+    # CPU and memory (read-only children always run in parallel).
+    max_parallel_writers: int = 1
+    # Where a background child's events go once the turn that started it has ended.
+    subagent_event_sink: Callable[[AgentEvent], Awaitable[None]] | None = None
     # Scrub secrets/sensitive data from tool execution results before they reach
     # conversation history, events, or the model. Returns (scrubbed_text, count).
     redact_tool_output: Callable[[str], tuple[str, int]] | None = None
@@ -337,6 +596,10 @@ class TurnCallbacks:
     update_artifact: Callable[[str, str, str, str], Awaitable[SessionArtifact | None]] | None = None
     get_artifact: Callable[[str, str, str], Awaitable[SessionArtifact | None]] | None = None
     list_artifacts: Callable[[str, str], Awaitable[list[SessionArtifact]]] | None = None
+    # Called with (session id, epoch seconds the plan was proposed) once its approval gate is
+    # answered: what the person decided on the plan card (mode, edited checklist, feedback), or
+    # None when the gate was answered without one (a plain approval, Slack).
+    plan_decision: Callable[[str, float], Awaitable[PlanDecision | None]] | None = None
 
 
 @dataclass(frozen=True)
@@ -425,21 +688,32 @@ class GenerationParams:
     context_target_tokens: int = 0
     # Provider preferences per model pattern, applied by the gateway (see ``ModelScope``).
     provider_preferences: tuple[tuple[str, dict[str, object]], ...] = ()
+    # Shares of the working context at which old tool results are pruned and the conversation
+    # compacted (``models.context_prune_percent`` / ``context_compact_percent``); 0 keeps the
+    # context manager's own (70% / 85%).
+    context_prune_ratio: float = 0.0
+    context_compact_ratio: float = 0.0
+
+
+GIT_PUBLISH_AS: tuple[str, ...] = ("member", "bot")
+GIT_SIGNING: tuple[str, ...] = ("github", "member_gpg", "none")
 
 
 @dataclass(frozen=True)
 class GitPolicy:
     """Organization git policy plus the member's identity, resolved once per turn.
 
-    ``authorship``: ``co_authored`` commits as the bot with the member as a
-    ``Co-authored-by`` trailer, ``user_only`` commits as the member, ``bot_only`` commits as
-    the bot. ``pr_creation`` ``as_user`` opens pull requests with the member's own token when
-    one is linked, ``as_bot`` always uses the GitHub App.
+    ``publish_as`` (``github.publish_as``): ``member`` opens pull requests and acts on GitHub
+    with the member's linked token when there is one, ``bot`` always through the GitHub App.
+    Commits the bot makes credit the member with a ``Co-authored-by`` trailer either way.
+
+    ``signing`` (``github.signing``): ``github`` creates the commits through GitHub's API so
+    GitHub signs them; ``member_gpg`` makes the member commit as themselves, signed with their
+    imported key (a member without one gets ``github``); ``none`` publishes them unsigned.
     """
 
-    authorship: str = "co_authored"
-    pr_creation: str = "as_user"
-    signing_mode: str = "github_app"
+    publish_as: str = "member"
+    signing: str = "github"
     default_branch: str = "main"
     bot_name: str = "RocketChat Bot"
     bot_email: str = "bot@rocketchat.internal"
@@ -447,13 +721,22 @@ class GitPolicy:
     user_email: str = ""
     user_token: str | None = field(default=None, repr=False)
     # The GPG key (fingerprint) the member's commits are signed with, when they commit as
-    # themselves under ``signing_mode == "gpg_key"``.
+    # themselves under ``signing == "member_gpg"``.
     signing_key_id: str = ""
     # That key, used on the platform when the branch is published; never given to a sandbox.
     signing_key: SigningKey | None = field(default=None, repr=False)
     # (installation id, account login) pairs the organization mapped; the only GitHub App
     # installations a bot-authored push or pull request may use.
     app_installations: tuple[tuple[int, str], ...] = ()
+
+    @property
+    def commits_as_member(self) -> bool:
+        """The member's own name is on the commits (``member_gpg``, once their identity is known)."""
+        return self.signing == "member_gpg" and bool(self.user_name)
+
+    @property
+    def publishes_as_member(self) -> bool:
+        return self.publish_as == "member"
 
 
 # Prefix of the text a granted approval returns to the tool that was waiting for it.
@@ -615,6 +898,21 @@ class TurnPolicy:
     output_offload_threshold: int = 6_000
     max_turn_cost_usd: float | None = None
     sandbox_profile: str = ""
+    attribution: ModelAttribution = field(default_factory=lambda: ModelAttribution())
+    # ``general.plan_critic``: a ``reviewer`` subagent reads a plan before the person decides.
+    plan_critic: bool = False
+
+
+@dataclass(frozen=True)
+class ModelAttribution:
+    """Who and what a turn's model calls are for, beyond the session (``ModelScope``)."""
+
+    # The person whose message started the turn (the session's owner when it is them).
+    requester_user_id: str | None = None
+    agent_id: str | None = None
+    credential_bindings: tuple[CredentialBinding, ...] = ()
+    strict_binding: bool = False
+    turn_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -637,13 +935,10 @@ class AgentBinding:
     model_router: Any = None
     routing_reason: str = ""
     policy: TurnPolicy = field(default_factory=TurnPolicy)
-    # Agent persona sandbox overrides; empty means "inherit the organization setting".
-    sandbox_image: str = ""
     # The sandbox type (catalogue entry) the agent's sessions start in when the session's
-    # creator chose none; empty means the organization's default.
+    # creator chose none; empty means the organization's default. The type holds the image,
+    # CPU and memory: an agent sets no resources of its own.
     sandbox_id: str = ""
-    cpu_limit: str = ""
-    memory_limit: str = ""
     # Knowledge collections the persona may search; empty means every collection the caller can see.
     knowledge_base_ids: tuple[str, ...] = ()
     # Skills the persona may run; empty means every skill the caller can see.

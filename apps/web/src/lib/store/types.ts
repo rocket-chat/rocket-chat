@@ -1,3 +1,4 @@
+import type { AgentDraft } from "../../components/agents/draft";
 import type {
   TurnBinding,
   AgentPersonaConfig,
@@ -12,6 +13,7 @@ import type {
   PermissionMode,
   SessionData,
   SubagentExecutionData,
+  SubagentStep,
   ToolCallData,
   WaitEntry,
   WaitStartedPayload,
@@ -55,6 +57,8 @@ export interface SessionsSlice {
   hasOlderHistory: boolean;
   isLoadingOlderHistory: boolean;
   historyStartIndex: number;
+  /** Messages the person sent before the first one loaded: turn numbers count from the start. */
+  historyUserTurnsBefore: number;
   loadOlderHistory: () => Promise<void>;
   /**
    * The session whose full record (transcript included) the cockpit holds. A sidebar row names a
@@ -125,6 +129,19 @@ export interface AgentsSlice {
   fetchModels: () => Promise<void>;
   setSelectedModel: (model: string) => void;
   setAvailableModels: (models: ModelOption[]) => void;
+  /** The agent or subagent role open in the settings editor, as edited, and as stored. */
+  agentDraft: AgentDraft | null;
+  agentDraftSaved: AgentDraft | null;
+  openAgentDraft: (draft: AgentDraft | null) => void;
+  patchAgentDraft: (changes: Partial<AgentDraft>) => void;
+}
+
+export interface TurnProgress {
+  startedAt: number | null;
+  /** The model call the turn is on, counted from 1. */
+  step: number | null;
+  lastActivityAt: number | null;
+  currentTool: { name: string; startedAt: number } | null;
 }
 
 export interface StreamSlice {
@@ -156,6 +173,11 @@ export interface StreamSlice {
   /** What running tool calls have printed so far, by call id (the tail only). */
   liveToolOutput: Record<string, string>;
   tokenRate: number;
+  /** Where the running turn stands, for its progress line. */
+  turnProgress: TurnProgress;
+  /** Merges what an event says about the running turn (times are epoch milliseconds). */
+  noteTurnProgress: (update: Partial<TurnProgress>) => void;
+  resetTurnProgress: () => void;
   /** The agent and model of the turn running now (from its "running" status). */
   turnBinding: TurnBinding | null;
   setTurnBinding: (binding: TurnBinding | null) => void;
@@ -210,6 +232,8 @@ export interface StreamSlice {
   setTokenRate: (rate: number) => void;
   updateToolCall: (nameOrId: string, data: Partial<ToolCallData>) => void;
   updateSubagent: (subagentId: string, data: Partial<SubagentExecutionData>) => void;
+  /** Add or settle one of a subagent's own steps on its card. */
+  upsertSubagentStep: (subagentId: string, step: SubagentStep) => void;
   /** Settle a wait's card in place; false when the log holds no card for that wait. */
   updateWait: (waitId: string, data: Partial<WaitEntry>) => boolean;
   artifacts: ArtifactItem[];
@@ -228,6 +252,8 @@ export interface PendingMessage {
   content: string;
   /** "steer": taken by the running turn at its next step; "queue": run after it. */
   delivery: "steer" | "queue";
+  /** Names of the files sent with it, shown in the tray until a turn takes it. */
+  attachments?: string[];
 }
 
 export interface ComposerSlice {
@@ -258,17 +284,19 @@ export interface LayoutSlice {
   isRightPanelOpen: boolean;
   isTurnInspectorOpen: boolean;
   isMemoryInspectorOpen: boolean;
-  isArtifactsDrawerOpen: boolean;
   setIsLeftSidebarOpen: (open: boolean) => void;
   isSettingsNavOpen: boolean;
   setIsSettingsNavOpen: (open: boolean) => void;
   setIsRightPanelOpen: (open: boolean) => void;
   setIsTurnInspectorOpen: (open: boolean) => void;
   setIsMemoryInspectorOpen: (open: boolean) => void;
-  setIsArtifactsDrawerOpen: (open: boolean) => void;
   /** The inspector's current tab, so the app can bring up the one that matters. */
   inspectorTab: InspectorTab;
   setInspectorTab: (tab: InspectorTab) => void;
+  /** Opens the inspector on one tab, as a person's choice (it is remembered). */
+  openInspectorTab: (tab: InspectorTab) => void;
+  /** Applies the remembered tab and sidebar state; called once the cockpit has mounted. */
+  restoreLayoutPreferences: () => void;
   /** Whether the app already opened the inspector by itself for this session (it does so once). */
   /** What the person last chose for the right panel; null until they choose. */
   inspectorPreference: InspectorPreference;
@@ -285,7 +313,7 @@ export interface LayoutSlice {
   adjustRunningProcesses: (delta: number) => void;
 }
 
-export type InspectorTab = "changes" | "files" | "processes" | "subagents" | "artifacts" | "preview";
+export type InspectorTab = "changes" | "git" | "files" | "processes" | "subagents" | "artifacts" | "preview";
 
 export type MissionStore = SessionsSlice &
   AgentsSlice &

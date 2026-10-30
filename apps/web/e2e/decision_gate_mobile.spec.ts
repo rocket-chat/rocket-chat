@@ -19,7 +19,7 @@ const DECISION_FRAME = {
 test.describe("Decision gate on an iPhone", () => {
   test.use({ viewport: { width: 402, height: 874 }, isMobile: true, hasTouch: true });
 
-  test("the card keeps its full height and its confirm button can be reached and tapped", async ({ page }) => {
+  test("the card keeps its full height and its answer button can be reached and tapped", async ({ page }) => {
     let socket: WebSocketRoute | null = null;
     const answers: string[] = [];
     await page.routeWebSocket(/\/v1\/sessions\/[^/]+\/ws/, (ws) => {
@@ -55,7 +55,7 @@ test.describe("Decision gate on an iPhone", () => {
     const clipped = await card.evaluate((el) => el.scrollHeight - el.clientHeight);
     expect(clipped).toBeLessThanOrEqual(1);
 
-    const confirm = card.getByRole("button", { name: /confirm decision/i });
+    const confirm = card.getByRole("button", { name: "Answer" });
     await confirm.scrollIntoViewIfNeeded();
     await expect(confirm).toBeInViewport();
     await confirm.tap();

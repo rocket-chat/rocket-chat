@@ -92,12 +92,21 @@ def apply_sharing(record: SessionRecord, is_shared: bool, collaborators: list[st
 # Metadata keys a client may set on its own session. Everything else (toolsets, fork and
 # Slack provenance, title provenance, suggestions) is written by the server only.
 _CLIENT_PATCHABLE_METADATA = frozenset(
-    {"inference_mode", "selected_model", "agent_id", "permission_mode"}
+    {"inference_mode", "selected_model", "agent_id", "permission_mode", "reasoning_effort"}
 )
 
 SYNC_HISTORY_TAIL = 50
 MAX_TAIL_TOOL_CALLS = 120
 MIN_TAIL_MESSAGES = 4
+
+
+def user_turns_in(messages: list[Any]) -> int:
+    """How many of ``messages`` the person sent (model objects or plain dicts)."""
+    return sum(
+        1
+        for m in messages
+        if (m.get("role") if isinstance(m, dict) else getattr(m, "role", None)) == "user"
+    )
 
 
 def slice_history_tail(
@@ -132,6 +141,7 @@ def _to_response(
     history_override: list[Any] | None = None,
     has_older_history: bool = False,
     total_messages: int | None = None,
+    user_turns_before: int = 0,
 ) -> SessionResponse:
     agent_id = None
     if isinstance(s.metadata, dict):
@@ -197,6 +207,7 @@ def _to_response(
         conversation_history=history,
         has_older_history=has_older_history,
         total_messages=computed_total,
+        user_turns_before=user_turns_before,
     )
 
 

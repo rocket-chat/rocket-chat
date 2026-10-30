@@ -20,23 +20,29 @@ from llm_gateway.reasoning import (
     reasoning_replay,
     sanitize_replayed_reasoning,
 )
-from llm_gateway.tokens import estimated_usage
+from llm_gateway.tokens import estimated_usage, request_tokens
 from specifications.interfaces.llm import (
     CONTEXT_WINDOW_EXCEEDED,
     AttachmentRef,
     BudgetGuardProtocol,
     BYOKCredentials,
+    CallRefusal,
     ChatMessage,
     CredentialResolverProtocol,
     LLMGatewayProtocol,
     ModelRequest,
     ModelScope,
+    Reservation,
     StreamChunk,
     ToolDefinition,
     UsageEvent,
     UsageSinkProtocol,
     current_model_scope,
 )
+
+# Completion tokens a spend reservation assumes when the request sets no ``max_tokens``: the
+# reservation is a worst case that settle corrects, so it errs on the high side.
+DEFAULT_ESTIMATED_COMPLETION_TOKENS = 8192
 
 # Substrings of the model ids the platform routes to that accept image input. Kept as an
 # explicit allowlist rather than a denylist: guessing wrong in the permissive direction
@@ -398,7 +404,9 @@ class LiteLLMGateway(LLMGatewayProtocol):
             "stream": True,
         }
         model_lower = (model or "").lower()
-        if (
+        if request.temperature is None:
+            kwargs.pop("temperature")
+        elif (
             "claude" in model_lower or "anthropic" in model_lower
         ) and request.thinking_budget_tokens is not None:
             # Anthropic extended thinking requires temperature to be omitted or default 1.0.
@@ -684,7 +692,6 @@ class LiteLLMGateway(LLMGatewayProtocol):
         are written to the usage ledger when the stream ends.
         """
         scope = current_model_scope.get()
-        key_source = "platform"
         if scope is not None and (scope.zero_retention or scope.region):
             request = dataclasses.replace(
                 request,
@@ -692,15 +699,15 @@ class LiteLLMGateway(LLMGatewayProtocol):
                 region=request.region or scope.region,
             )
         try:
-            if scope is not None and self.budget_guard is not None:
-                await self.budget_guard.check(scope)
-            if scope is not None and request.credentials is None and self.credential_resolver:
-                resolved = await self.credential_resolver.resolve(scope, request.model)
-                if resolved is not None:
-                    request = dataclasses.replace(request, credentials=resolved.credentials)
-                    key_source = resolved.key_source
+            request, key_source, credential_id = await self._with_credentials(scope, request)
+            reservation = await self._reserve(scope, request, key_source)
         except Exception as err:
-            yield StreamChunk(is_finished=True, finish_reason="error", error=str(err))
+            yield StreamChunk(
+                is_finished=True,
+                finish_reason="error",
+                error=str(err),
+                refusal=CallRefusal.from_error(err),
+            )
             return
 
         usage: dict[str, int] | None = None
@@ -732,8 +739,49 @@ class LiteLLMGateway(LLMGatewayProtocol):
             )
             yield StreamChunk(is_finished=True, finish_reason=reason, error=str(err))
         finally:
+            billed = 0.0
             if not failed or produced or usage:
-                await self._record_call(scope, request, usage, "".join(produced), key_source, cost)
+                billed = await self._record_call(
+                    scope, request, usage, "".join(produced), key_source, cost, credential_id
+                )
+            if reservation is not None:
+                await self._settle(reservation, billed)
+
+    async def _with_credentials(
+        self, scope: ModelScope | None, request: ModelRequest
+    ) -> tuple[ModelRequest, str, str | None]:
+        """The request with the member's, the agent's or the organization's key, and whose."""
+        if scope is None or request.credentials is not None or self.credential_resolver is None:
+            return request, "platform", None
+        resolved = await self.credential_resolver.resolve(scope, request.model)
+        if resolved is None:
+            return request, "platform", None
+        return (
+            dataclasses.replace(request, credentials=resolved.credentials),
+            resolved.key_source,
+            resolved.credential_id,
+        )
+
+    async def _reserve(
+        self, scope: ModelScope | None, request: ModelRequest, key_source: str
+    ) -> Reservation | None:
+        """Set the call's worst-case cost aside on the spend limits that apply."""
+        if scope is None or self.budget_guard is None:
+            return None
+        prompt = request_tokens(request.model, request.messages, request.tools)
+        completion = request.max_tokens or DEFAULT_ESTIMATED_COMPLETION_TOKENS
+        estimate = self._cost_usd(request.model, prompt, completion)
+        return await self.budget_guard.reserve(scope, estimate_usd=estimate, key_source=key_source)
+
+    async def _settle(self, reservation: Reservation, billed: float) -> None:
+        guard = self.budget_guard
+        if guard is None:
+            return
+        try:
+            await guard.settle(reservation, actual_usd=billed)
+        except Exception:
+            # The sweeper releases an unsettled reservation; the turn must not fail for it.
+            logger.exception("Could not settle spend reservation %s", reservation.id)
 
     def _usage_cost(self, model: str, usage: dict[str, int]) -> float:
         return self._cost_usd(
@@ -752,9 +800,11 @@ class LiteLLMGateway(LLMGatewayProtocol):
         produced: str,
         key_source: str,
         billed: float | None = None,
-    ) -> None:
+        credential_id: str | None = None,
+    ) -> float:
+        """Write the call to the ledger; returns what it cost."""
         if scope is None or self.usage_sink is None:
-            return
+            return float(billed or 0.0)
         if usage:
             prompt = int(usage.get("prompt_tokens", 0))
             completion = int(usage.get("completion_tokens", 0))
@@ -766,6 +816,11 @@ class LiteLLMGateway(LLMGatewayProtocol):
             )
             cache_read = 0
             cache_creation = 0
+        cost = (
+            billed
+            if billed is not None
+            else self._cost_usd(request.model, prompt, completion, cache_read, cache_creation)
+        )
         try:
             await self.usage_sink.record(
                 UsageEvent(
@@ -777,17 +832,20 @@ class LiteLLMGateway(LLMGatewayProtocol):
                     completion_tokens=completion,
                     cache_read_tokens=cache_read,
                     cache_creation_tokens=cache_creation,
-                    cost_usd=billed
-                    if billed is not None
-                    else self._cost_usd(
-                        request.model, prompt, completion, cache_read, cache_creation
-                    ),
+                    cost_usd=cost,
                     key_source=key_source,
+                    agent_id=scope.agent_id,
+                    credential_id=credential_id,
+                    turn_id=scope.turn_id,
+                    subagent_id=scope.subagent_id,
+                    call_role=scope.call_role,
+                    requester_user_id=scope.requester_user_id,
                 )
             )
         except Exception:
             # Accounting must never fail the user's turn; the failure is loud in the logs.
             logger.exception("Could not record model usage for %s", request.model)
+        return float(cost)
 
     @staticmethod
     def _cost_usd(
@@ -845,47 +903,6 @@ class LiteLLMGateway(LLMGatewayProtocol):
             cache_creation_tokens=cache_creation_tokens,
         )
 
-    def set_budget_cap(self, tenant_org_id: str, monthly_budget_usd: float) -> None:
-        """Set monthly spending budget cap for an organization."""
-        if not hasattr(self, "_budget_caps"):
-            self._budget_caps: dict[str, float] = {}
-        self._budget_caps[tenant_org_id] = monthly_budget_usd
-
-    def get_org_usage_summary(self, tenant_org_id: str) -> dict[str, Any]:
-        """Aggregate total tokens and cost for an organization."""
-        org_entries = [e for e in self._usage_ledger if e.get("tenant_org_id") == tenant_org_id]
-        total_prompt = sum(e.get("prompt_tokens", 0) for e in org_entries)
-        total_completion = sum(e.get("completion_tokens", 0) for e in org_entries)
-        total_cost = sum(e.get("cost_usd", 0.0) for e in org_entries)
-        total_cache_read = sum(e.get("cache_read_tokens", 0) for e in org_entries)
-        total_cache_creation = sum(e.get("cache_creation_tokens", 0) for e in org_entries)
-        budget_cap = getattr(self, "_budget_caps", {}).get(tenant_org_id, 250.0)
-
-        # Breakdown by model
-        by_model: dict[str, dict[str, Any]] = {}
-        for e in org_entries:
-            mod = e.get("model", "unknown")
-            if mod not in by_model:
-                by_model[mod] = {"prompt_tokens": 0, "completion_tokens": 0, "cost_usd": 0.0}
-            by_model[mod]["prompt_tokens"] += e.get("prompt_tokens", 0)
-            by_model[mod]["completion_tokens"] += e.get("completion_tokens", 0)
-            by_model[mod]["cost_usd"] = round(by_model[mod]["cost_usd"] + e.get("cost_usd", 0.0), 4)
-
-        return {
-            "tenant_org_id": tenant_org_id,
-            "total_tokens": total_prompt + total_completion,
-            "prompt_tokens": total_prompt,
-            "completion_tokens": total_completion,
-            "total_cost_usd": round(total_cost, 4),
-            "cache_read_tokens": total_cache_read,
-            "cache_creation_tokens": total_cache_creation,
-            "monthly_budget_cap_usd": budget_cap,
-            "budget_used_percent": round((total_cost / budget_cap) * 100, 2)
-            if budget_cap > 0
-            else 0,
-            "models": by_model,
-        }
-
     def get_user_usage_summary(self, tenant_user_id: str) -> dict[str, Any]:
         """Aggregate personal usage for a single developer."""
         user_entries = [e for e in self._usage_ledger if e.get("tenant_user_id") == tenant_user_id]
@@ -909,12 +926,8 @@ class LiteLLMGateway(LLMGatewayProtocol):
         tenant_org_id: str,
         tenant_user_id: str,
     ) -> bool:
-        budget_caps = getattr(self, "_budget_caps", {})
-        if tenant_org_id in budget_caps:
-            cap = budget_caps[tenant_org_id]
-            summary = self.get_org_usage_summary(tenant_org_id)
-            if summary["total_cost_usd"] >= cap:
-                return False
+        """Never refuses up front: spend limits hold per call, through ``budget_guard``'s
+        reservation in ``chat_stream``, which knows the call's worst-case cost."""
         return True
 
     async def record_usage(

@@ -21,8 +21,15 @@ export function parseCompaction(content: string): { headline: string; summary: s
  * The record that the working context was compacted. The summary the agent carries on from can be
  * long, so it is folded away: what happened is one line, the summary is there when you want it.
  */
-export const CompactionCard: React.FC<{ content: string }> = ({ content }) => {
-  const { headline, summary } = parseCompaction(content);
+export const CompactionCard: React.FC<{ content: string; headline?: string; summary?: string }> = ({
+  content,
+  headline: givenHeadline,
+  summary: givenSummary,
+}) => {
+  // A live event hands its fields over; a message restored from history is parsed from its text.
+  const parsed = givenHeadline === undefined ? parseCompaction(content) : null;
+  const headline = givenHeadline ?? parsed?.headline ?? "";
+  const summary = givenSummary ?? parsed?.summary ?? "";
   const [open, setOpen] = useState(false);
   const lines = summary ? summary.split("\n").length : 0;
 
@@ -30,16 +37,16 @@ export const CompactionCard: React.FC<{ content: string }> = ({ content }) => {
     <div data-testid="compaction-card" className="my-3 flex justify-center">
       <div className="w-full min-w-0 max-w-3xl rounded-xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-foreground">
         <div className="flex items-start gap-2.5">
-          <Archive className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" aria-hidden="true" />
+          <Archive className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-400" aria-hidden="true" />
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">Context Compacted</p>
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-800 dark:text-emerald-300">Context Compacted</p>
             {headline && (
               <p data-testid="compaction-headline" className="mt-0.5 text-xs text-neutral-700 dark:text-neutral-300">
                 {headline}
               </p>
             )}
           </div>
-          <span className="shrink-0 font-mono text-[10px] text-emerald-400/80">Checkpoint Saved</span>
+          <span className="shrink-0 font-mono text-[10px] text-emerald-800 dark:text-emerald-400/80">Checkpoint saved</span>
         </div>
 
         {summary && (

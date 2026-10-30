@@ -24,6 +24,7 @@ from api.services.git_credentials import (
     refresh_github_user_token,
     resolve_session_git_credentials,
 )
+from api.services.settings import save_org_config
 from git_engine.config import GitEngineSettings
 from git_engine.engine import GitEngine
 from sandbox_driver.fake_driver import FakeSandboxDriver
@@ -63,15 +64,21 @@ async def test_store_and_get_user_credential_in_memory() -> None:
     assert stored.secret == token
     assert stored.metadata["login"] == "octocat"
 
-    retrieved = await get_user_credential(db_mgr=None, user_id=user_id, provider="github")
+    retrieved = await get_user_credential(
+        db_mgr=None, user_id=user_id, provider="github", org_id=org_id
+    )
     assert retrieved is not None
     assert retrieved.secret == token
     assert retrieved.metadata["scopes"] == ["repo", "read:user"]
 
-    deleted = await delete_user_credential(db_mgr=None, user_id=user_id, provider="github")
+    deleted = await delete_user_credential(
+        db_mgr=None, user_id=user_id, provider="github", org_id=org_id
+    )
     assert deleted is True
 
-    after_delete = await get_user_credential(db_mgr=None, user_id=user_id, provider="github")
+    after_delete = await get_user_credential(
+        db_mgr=None, user_id=user_id, provider="github", org_id=org_id
+    )
     assert after_delete is None
 
 
@@ -107,7 +114,7 @@ async def test_resolve_git_credentials_priority_app() -> None:
     user_id = "unlinked_user"
     org_id = "space_agency"
     # Ensure unlinked
-    await delete_user_credential(db_mgr=None, user_id=user_id, provider="github")
+    await delete_user_credential(db_mgr=None, user_id=user_id, provider="github", org_id=org_id)
 
     settings = GitEngineSettings(
         github_app_id="app-123",
@@ -117,6 +124,14 @@ async def test_resolve_git_credentials_priority_app() -> None:
     )
     git_engine = GitEngine(settings=settings)
     git_engine.get_github_access_token = AsyncMock(return_value="ghs_temp_installation_token_abc")  # type: ignore[method-assign]
+    # The bot's identity is the organization's setting (the engine's is only its default).
+    await save_org_config(
+        None,
+        org_id,
+        "github",
+        {"bot_author_name": "Rocket Bot", "bot_author_email": "bot@rocket.test"},
+        [],
+    )
 
     bundle = await resolve_session_git_credentials(
         user_id=user_id,
@@ -135,7 +150,7 @@ async def test_resolve_git_credentials_priority_app() -> None:
 async def test_resolve_git_credentials_fallback_none() -> None:
     user_id = "no_auth_user"
     org_id = "space_agency"
-    await delete_user_credential(db_mgr=None, user_id=user_id, provider="github")
+    await delete_user_credential(db_mgr=None, user_id=user_id, provider="github", org_id=org_id)
 
     settings = GitEngineSettings()  # No app ID or private key
     git_engine = GitEngine(settings=settings)
@@ -360,7 +375,7 @@ async def test_an_expired_github_app_token_is_renewed_and_the_new_pair_stored(
         "AsyncClient",
         lambda **kw: _REAL_CLIENT(transport=httpx.MockTransport(handler), **kw),
     )
-    current = await get_user_credential(None, "renew_user", "github")
+    current = await get_user_credential(None, "renew_user", "github", org_id="org_r")
     assert current is not None
 
     renewed = await refresh_github_user_token(None, current)
@@ -370,7 +385,7 @@ async def test_an_expired_github_app_token_is_renewed_and_the_new_pair_stored(
     assert renewed.metadata["login"] == "octocat", "the rest of the link is kept"
     body = seen[0].content.decode()
     assert "grant_type=refresh_token" in body and "refresh_token=ghr_old" in body
-    stored = await get_user_credential(None, "renew_user", "github")
+    stored = await get_user_credential(None, "renew_user", "github", org_id="org_r")
     assert stored is not None and stored.secret == "ghu_new_access"
 
 
@@ -395,7 +410,7 @@ async def test_concurrent_turns_renew_once_because_refresh_tokens_are_single_use
         "AsyncClient",
         lambda **kw: _REAL_CLIENT(transport=httpx.MockTransport(handler), **kw),
     )
-    current = await get_user_credential(None, "race_user", "github")
+    current = await get_user_credential(None, "race_user", "github", org_id="org_r")
     assert current is not None
 
     results = await asyncio.gather(*(refresh_github_user_token(None, current) for _ in range(4)))
@@ -421,7 +436,7 @@ async def test_when_github_refuses_the_renewal_the_credential_is_left_for_the_va
             **kw,
         ),
     )
-    current = await get_user_credential(None, "refused_user", "github")
+    current = await get_user_credential(None, "refused_user", "github", org_id="org_r")
     assert current is not None
 
     assert (await refresh_github_user_token(None, current)).secret == "ghu_old_access"
@@ -432,7 +447,7 @@ async def test_a_token_without_expiry_or_with_time_left_is_never_refreshed() -> 
     await store_user_credential(
         None, "classic_user", "org_r", "github", "gho_classic", {"auth_type": "oauth"}
     )
-    classic = await get_user_credential(None, "classic_user", "github")
+    classic = await get_user_credential(None, "classic_user", "github", org_id="org_r")
     assert classic is not None
     assert await refresh_github_user_token(None, classic) is classic
 
@@ -440,6 +455,6 @@ async def test_a_token_without_expiry_or_with_time_left_is_never_refreshed() -> 
         None, "fresh_user", "org_r", "github", "ghu_fresh",
         {"expires_at": int(time.time()) + 3600, "refresh_token_enc": encrypt_secret("ghr_x")},
     )  # fmt: skip
-    fresh = await get_user_credential(None, "fresh_user", "github")
+    fresh = await get_user_credential(None, "fresh_user", "github", org_id="org_r")
     assert fresh is not None
     assert await refresh_github_user_token(None, fresh) is fresh

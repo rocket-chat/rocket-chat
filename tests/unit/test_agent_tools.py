@@ -205,7 +205,9 @@ async def test_apply_diff_file_denied_does_not_touch_workspace() -> None:
     registry = ToolRegistry(driver=mock_driver, session_id="s_diff")
     calls: list[str] = []
 
-    async def _deny(action_type: str, description: str, risk_level: str) -> str:
+    async def _deny(
+        action_type: str, description: str, risk_level: str, details: object = None
+    ) -> str:
         calls.append(action_type)
         return "Denied by user"
 
@@ -235,7 +237,9 @@ async def test_apply_diff_file_approved_applies_and_emits_diff() -> None:
         mock_driver.apply_patch.return_value = True
         registry = ToolRegistry(driver=mock_driver, session_id="s_diff")
 
-        async def _approve(action_type: str, description: str, risk_level: str) -> str:
+        async def _approve(
+            action_type: str, description: str, risk_level: str, details: object = None
+        ) -> str:
             return "Approved"
 
         registry.set_approval_callback(_approve)

@@ -37,8 +37,15 @@ from agent_core.compaction_summary import (
 )
 from agent_core.notes import REMINDER_CLOSE, REMINDER_OPEN, render_notes
 from agent_core.skill_blocks import is_skill_result, skill_blocks
+from agent_core.subagent_scope import SubagentFrame, TurnSpend
 from agent_core.transcript import repair_tool_pairs
-from specifications.interfaces.agent import AgentEvent, ServerGuidance, TurnCallbacks, TurnPolicy
+from specifications.interfaces.agent import (
+    AgentEvent,
+    ServerGuidance,
+    SubagentConfig,
+    TurnCallbacks,
+    TurnPolicy,
+)
 from specifications.interfaces.llm import (
     AttachmentRef,
     ChatMessage,
@@ -189,6 +196,15 @@ class ExecutionContext:
     # Folders whose setups were checked this turn (``prepare_folder``): checked once, not before
     # every command.
     prepared_folders: set[str] = field(default_factory=set)
+    # folder -> ``owner/name`` of its clone ("" for none), looked up when a gated call raised the
+    # question of which repository a remembered approval applies to.
+    repository_slugs: dict[str, str] = field(default_factory=dict)
+    # The turn's spend, shared with its subagents' contexts (see ``subagent_scope``).
+    turn_spend: TurnSpend = field(default_factory=TurnSpend)
+    # Set on a subagent's own context: which child it is.
+    subagent: SubagentFrame | None = None
+    # Roles a repository defines in ``.rocket/agents/*.md``, found when it was cloned.
+    repository_subagents: dict[str, SubagentConfig] = field(default_factory=dict)
 
 
 current_execution_ctx: contextvars.ContextVar[ExecutionContext | None] = contextvars.ContextVar(
@@ -568,6 +584,15 @@ class ContextManager:
         )
         return list(messages) if compaction is None else compaction.composed
 
+    def ratios(self) -> tuple[float, float]:
+        """(prune, compact) shares of the window for the running turn: its organization's
+        settings when the turn carries them, else this manager's own."""
+        ctx = current_execution_ctx.get()
+        generation = ctx.policy.generation if ctx is not None else None
+        prune = generation.context_prune_ratio if generation else 0.0
+        compact = generation.context_compact_ratio if generation else 0.0
+        return (prune or self.tier2_threshold_ratio, compact or self.tier3_threshold_ratio)
+
     def should_compact_tier3(
         self,
         tokens: int,
@@ -580,7 +605,7 @@ class ContextManager:
         """Determines whether Tier 3 compaction should trigger, enforcing hysteresis."""
         if force_compaction:
             return True
-        if tokens < threshold(limit, self.tier3_threshold_ratio, reserve_tokens):
+        if tokens < threshold(limit, self.ratios()[1], reserve_tokens):
             return False
         # If tokens are above emergency threshold (> 90%), compact regardless of step frequency
         if tokens >= threshold(limit, self.emergency_threshold_ratio, reserve_tokens):
@@ -626,7 +651,7 @@ class ContextManager:
         tokens_before = tokens
 
         # Tier 2 check (> 70%): batch-prune oldest payloads down to target_prune_ratio (45%)
-        if tokens >= threshold(limit, self.tier2_threshold_ratio, reserve_tokens):
+        if tokens >= threshold(limit, self.ratios()[0], reserve_tokens):
             target_after = int(limit * self.target_prune_ratio)
             target_chars = max(0, (tokens - target_after) * 4)
             messages = self.prune_tool_payloads(messages, target_chars_to_free=target_chars)

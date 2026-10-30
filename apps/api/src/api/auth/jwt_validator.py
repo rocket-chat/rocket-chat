@@ -8,6 +8,8 @@ import httpx
 import jwt
 from jwt import PyJWKClient
 
+from api.auth.roles import expand_roles
+
 from .context import RequestContext
 
 logger = logging.getLogger(__name__)
@@ -142,11 +144,11 @@ class JWTValidator:
             # Map primary group to team
             team_id = groups[0]
 
-        roles = claims.get("roles") or ["developer"]
+        roles = claims.get("roles") or ["member"]
         if not isinstance(roles, list):
             roles = [str(roles)]
-        # A ``guest`` claim is held to ``readonly``, as for a signed-in member (``roles_for``).
-        roles = ["readonly" if str(role) == "guest" else str(role) for role in roles]
+        # Bearer roles are expanded like a stored role: a ``guest`` claim is a viewer.
+        roles = expand_roles([str(role) for role in roles])
 
         return RequestContext(
             user_id=str(user_id),

@@ -3,20 +3,23 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, Building2, X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 
 import { AppVersion } from "./AppVersion";
-import { useSession } from "../AuthProvider";
 import { useMissionStore } from "../../lib/store";
 import { SettingsSearchButton } from "./SettingsSearch";
-import { NAV_SECTIONS } from "./nav-data";
+import { NAV_SECTIONS, type NavItem } from "./nav-data";
+import { OrgSwitcher } from "../OrgSwitcher";
+import { hasCapability, type Access } from "../../lib/access";
+import { useAccess } from "../../lib/access";
 
 export const SettingsNav: React.FC = () => {
   const pathname = usePathname();
-  const { data: session } = useSession();
-  const userRoles = (session?.user as unknown as { roles?: string[] })?.roles || [];
-  const isAdmin = !session || userRoles.includes("admin") || userRoles.includes("owner");
-  const tenantOrg = (session?.user as unknown as { orgId?: string })?.orgId || "default_org";
+  const access = useAccess();
+  const sections = NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => visible(item, access)),
+  })).filter((section) => section.items.length > 0);
 
   const missionSession = useMissionStore((s) => s.session);
   const isSettingsNavOpen = useMissionStore((s) => s.isSettingsNavOpen);
@@ -75,27 +78,11 @@ export const SettingsNav: React.FC = () => {
             </button>
           </div>
 
-          {/* Console Scope Banner */}
-          <div className="px-2.5 py-2 rounded-lg bg-surface-card/60 border border-surface-border flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Building2 className="w-4 h-4 text-brand" />
-              <div className="flex flex-col">
-                <span className="text-xs font-display font-medium text-foreground leading-tight">
-                  {tenantOrg}
-                </span>
-                <span className="text-[10px] text-neutral-500 dark:text-neutral-400">
-                  {isAdmin ? "Admin Access" : "Member"}
-                </span>
-              </div>
-            </div>
-            <span className="px-1.5 py-0.5 text-[9px] rounded-lg bg-brand/10 text-brand border border-brand/20">
-              {isAdmin ? "ADMIN" : "USER"}
-            </span>
-          </div>
+          <OrgSwitcher />
 
           <SettingsSearchButton />
 
-          {NAV_SECTIONS.map((section) => (
+          {sections.map((section) => (
             <div key={section.title}>
               <div className="flex items-baseline justify-between px-2.5 pb-1.5">
                 <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-300">{section.title}</span>
@@ -105,7 +92,6 @@ export const SettingsNav: React.FC = () => {
                 {section.items.map((item) => {
                   const Icon = item.icon;
                   const isActive = pathname === item.href;
-                  const isLocked = item.requiresAdmin && !isAdmin;
                   return (
                     <Link
                       key={item.href}
@@ -115,9 +101,7 @@ export const SettingsNav: React.FC = () => {
                       className={`group flex items-center justify-between rounded-lg px-2.5 py-2 text-xs transition-colors ${
                         isActive
                           ? "border-l-2 border-brand bg-surface-elevated font-semibold text-foreground shadow-sm"
-                          : isLocked
-                            ? "cursor-not-allowed text-neutral-500 opacity-75"
-                            : "text-neutral-700 hover:bg-surface-elevated/60 hover:text-foreground dark:text-neutral-300"
+                          : "text-neutral-700 hover:bg-surface-elevated/60 hover:text-foreground dark:text-neutral-300"
                       }`}
                     >
                       <span className="flex items-center gap-2.5">
@@ -142,17 +126,17 @@ export const SettingsNav: React.FC = () => {
           ))}
         </div>
 
-        {/* Subnav Footer Info */}
-        <div className="p-3 border-t border-surface-border bg-surface-sidebar/50">
-          <div className="flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400">
-            <span>Tenant Scope: {tenantOrg}</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-          </div>
-          <div className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
-            Rocket Chat <AppVersion />
-          </div>
+        <div className="p-3 border-t border-surface-border bg-surface-sidebar/50 text-[11px] text-neutral-500 dark:text-neutral-400">
+          Rocket Chat <AppVersion />
         </div>
       </aside>
     </>
   );
 };
+
+/** Admin-only pages are hidden from everyone else, and capability pages from roles without it. */
+export function visible(item: NavItem, access: Access): boolean {
+  if (!access.loaded) return !item.requiresAdmin && !item.capability;
+  if (item.requiresAdmin && !access.isAdmin) return false;
+  return !item.capability || hasCapability(access, item.capability);
+}

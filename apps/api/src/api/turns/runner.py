@@ -18,6 +18,7 @@ from agent_core.tools.registry import ToolRegistry
 from git_engine.engine import GitEngine
 
 from api.db.store import _auto_provision_tenants_enabled
+from api.services.agent_access import AgentAccessDenied
 from api.services.audit import AuditService, GovernancePolicy
 from api.services.budgets import BudgetService
 from api.services.git_credentials import (
@@ -61,11 +62,12 @@ from api.turns.callbacks import build_turn_callbacks
 from api.turns.context import TurnContext, TurnRequest, TurnSelection, TurnState
 from api.turns.continuation import check_and_schedule_continuation
 from api.turns.events import TurnEventHandlers
+from api.turns.failure import FAILED_ANSWER_PREFIX, classify_turn_error, refusal_of
 from api.turns.finalise import housekeeping, persist_trace, publish_followup, record_answer
 from api.turns.prompt import build_system_prompt
 from api.turns.provisioning import _expand_slash_command
 from api.turns.running import _active_running_turns
-from api.turns.shared import _turn_service
+from api.turns.shared import _turn_service, platform_default_model
 from specifications.interfaces.agent import (
     DEFAULT_MAX_TURNS,
     AgentBinding,
@@ -76,7 +78,11 @@ from specifications.interfaces.agent import (
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
 from specifications.interfaces.llm import ChatMessage, ModelScope
 from specifications.interfaces.sandbox import SandboxDriverProtocol, SandboxStatus
-from specifications.interfaces.session import SessionRecord, SessionStoreProtocol
+from specifications.interfaces.session import (
+    SessionRecord,
+    SessionStoreProtocol,
+    session_reasoning_effort,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +93,8 @@ class TurnRunner:
     def __init__(self, request: TurnRequest) -> None:
         self.req = request
         self.state = TurnState()
+        # Whether the turn's first ``running`` status (``turn_start``) went out.
+        self._started = False
         self._org_id: str | None = None
         self._hold_task: asyncio.Task[None] | None = None
 
@@ -247,7 +255,17 @@ class TurnRunner:
         # stored in the trace/history, the audit trail records every sensitive action, and
         # the per-org approval policy decides which risk levels need a human gate.
         settings, _ = await load_org_config(req.db_mgr, session.tenant_org_id, "governance")
-        governance = GovernancePolicy.from_settings(settings)
+        models = await effective_settings(req.db_mgr, session.tenant_org_id, "models")
+        # The model data rules live with the model policy (``models``); the rest of the
+        # governance policy reads them from one mapping.
+        governance = GovernancePolicy.from_settings(
+            {
+                **settings,
+                "provider_allowlist": models.get("provider_allowlist"),
+                "zero_retention": models.get("zero_retention"),
+                "region": models.get("region"),
+            }
+        )
 
         binding, model, reason = await self._plan(session, governance, trace)
         state.synthesis_turns = (
@@ -370,15 +388,17 @@ class TurnRunner:
             user_id=session.tenant_user_id,
             agent_id=_chosen_agent(_selection(req.selection, metadata), metadata, overlay),
             request_model=req.model,
-            reasoning_effort=req.reasoning_effort,
+            reasoning_effort=req.reasoning_effort or session_reasoning_effort(metadata),
             enabled_toolsets=self._toolsets(session),
-            global_default_model=req.orchestrator.default_model,
+            global_default_model=platform_default_model(req.orchestrator),
             session_permission_mode=metadata.get("permission_mode"),
+            requester_user_id=req.author_user_id or session.tenant_user_id,
+            turn_id=trace.trace_id,
         )
         if _selection(req.selection, metadata).raw:
             binding = _raw(binding)
         binding = await self._with_sandbox_type(binding, session, metadata)
-        model = binding.model or str(req.orchestrator.default_model)
+        model = binding.model or platform_default_model(req.orchestrator)
         router = binding.model_router
         state.effective_model, state.router = model, router
         # Model data governance: the org can restrict which providers may see its
@@ -412,7 +432,7 @@ class TurnRunner:
             agent_sandbox_id=binding.sandbox_id,
         )
         entry = chosen or await catalogue.resolve(
-            session.tenant_org_id, image=session.container_image or binding.sandbox_image or None
+            session.tenant_org_id, image=session.container_image or None
         )
         capabilities = entry.capability_set if entry is not None else frozenset[str]()
         apply_session_env(self.req.driver, session.session_id, entry, metadata)
@@ -435,15 +455,13 @@ class TurnRunner:
         await self._auto_title(ctx)
         agent = _answering_agent(ctx)
         await self._record_binding(ctx, agent)
-        await self._publish(
-            EventType.STATUS_CHANGED,
+        await self._announce_start(
             {
-                "status": "running",
                 "message": "Analyzing instruction...",
                 "agent_id": agent[0],
                 "agent_name": agent[1],
                 "model": ctx.effective_model,
-            },
+            }
         )
 
         _active_running_turns[req.session_id] = {
@@ -572,7 +590,7 @@ class TurnRunner:
             user_overrides=member_prefs,
             repo=_repo_slug(session.git_repo),
         )
-        if ctx.binding.policy.git.signing_mode == SIGNED_MODE:
+        if ctx.binding.policy.git.signing == SIGNED_MODE:
             signing = await member_signing_for_turn(
                 req.db_mgr, session.tenant_org_id, session.tenant_user_id, member_prefs
             )
@@ -623,29 +641,31 @@ class TurnRunner:
         )
 
     async def _warn_about_budget(self, ctx: TurnContext) -> None:
-        """Tell the member early when a spending cap is close, instead of refusing mid-task.
+        """Tell the member early when a spend limit is close, instead of refusing mid-task.
 
-        The cap itself is enforced by the gateway on every model call.
+        The limit itself is enforced by the gateway on every model call.
         """
         guard = getattr(self.req.orchestrator.gateway, "budget_guard", None)
         if not isinstance(guard, BudgetService):
             return
+        attribution = ctx.binding.policy.attribution
         try:
             status = await guard.status(
                 ModelScope(
                     org_id=ctx.session.tenant_org_id,
                     user_id=ctx.session.tenant_user_id,
                     session_id=self.req.session_id,
+                    requester_user_id=attribution.requester_user_id,
+                    agent_id=attribution.agent_id,
+                    turn_id=attribution.turn_id,
                 )
             )
             warnings = status.warnings()
         except Exception:
-            logger.exception("Could not evaluate budget warnings")
+            logger.exception("Could not evaluate spend limit warnings")
             return
         for warning in warnings:
-            await self._publish(
-                EventType.STATUS_CHANGED, {"status": "budget_warning", "message": f"⚠ {warning}"}
-            )
+            await self._publish(EventType.BUDGET_WARNING, warning.payload())
 
     async def _resolve_attachments(self, ctx: TurnContext) -> list[Any]:
         """Attachments belong to this turn only: the orchestrator never carries them forward."""
@@ -662,17 +682,42 @@ class TurnRunner:
 
     # -- failure and cleanup ---------------------------------------------------------------
 
+    async def _announce_start(self, extra: dict[str, Any]) -> None:
+        """The turn's first ``running`` status: where it begins on the bus, and which message
+        started it, so a client that sent it (Slack) knows its own turn from the one before."""
+        self._started = True
+        await self._publish(
+            EventType.STATUS_CHANGED,
+            {
+                "status": "running",
+                **extra,
+                "turn_start": True,
+                **({"message_id": self.req.message_id} if self.req.message_id else {}),
+            },
+        )
+
     async def _fail(self, err: Exception) -> None:
         req = self.req
         self.state.turn_error = err
         logger.exception("Error executing turn in session %s", req.session_id)
-        await self._publish(EventType.ERROR, {"error": str(err)})
+        if not self._started:
+            # Refused before it began (an agent not theirs, a spend limit): the turn still has
+            # a start, or the client that sent the message never sees its refusal.
+            await self._announce_start({"message": "Starting…"})
+        kind = classify_turn_error(err)
+        await self._publish_refusal(err)
+        await self._publish(EventType.ERROR, {"error": str(err), "error_kind": kind})
         await self._publish(
             EventType.STATUS_CHANGED,
-            {"status": "error", "message": f"Mission failed: {err!s}", "final": True},
+            {
+                "status": "error",
+                "message": f"The turn failed: {err!s}",
+                "final": True,
+                "error_kind": kind,
+            },
         )
         try:
-            failure = ChatMessage(role="assistant", content=f"⚠️ **Mission Error**: {err!s}")
+            failure = ChatMessage(role="assistant", content=f"{FAILED_ANSWER_PREFIX} {err!s}")
             if self._org_id is not None:
                 await req.store.mutate_session(
                     req.session_id,
@@ -681,6 +726,30 @@ class TurnRunner:
                 )
         except Exception:
             pass
+
+    async def _publish_refusal(self, err: Exception) -> None:
+        """The typed event a client acts on: which limit stopped the turn, or which agent the
+        person may not use."""
+        if isinstance(err, AgentAccessDenied):
+            await self._publish(
+                EventType.AGENT_ACCESS_DENIED,
+                {"agent_id": err.agent_id, "agent_name": err.agent_name, "message": str(err)},
+            )
+            return
+        refusal = refusal_of(err)
+        if refusal is not None and refusal.kind == "budget":
+            await self._publish(
+                EventType.BUDGET_BLOCKED,
+                {
+                    "limit_id": refusal.limit_id,
+                    "subject": refusal.subject,
+                    "period": refusal.period,
+                    "spent": round(refusal.spent_usd, 4),
+                    "amount": round(refusal.amount_usd, 4),
+                    "resets_at": refusal.resets_at,
+                    "message": refusal.message,
+                },
+            )
 
     async def _cleanup(self) -> None:
         if self.state.mcp_tools is not None:

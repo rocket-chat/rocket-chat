@@ -11,7 +11,7 @@ Keys marked ``NotRequired`` are optional on the wire; unknown keys are rejected.
 
 from __future__ import annotations
 
-from typing import Any, NotRequired, TypedDict
+from typing import Any, Literal, NotRequired, TypedDict
 
 from specifications.interfaces.events import EventType
 
@@ -46,6 +46,14 @@ class StatusPayload(TypedDict):
     sandbox_status: NotRequired[str]
     turns_taken: NotRequired[int]
     max_turns: NotRequired[int]
+    # The model call a running turn is on, counted from 1.
+    step: NotRequired[int]
+    # On a failed turn's closing status: what failed (see ``TurnErrorKind``).
+    error_kind: NotRequired[str]
+    # On the runner's first "running" status of a turn, with the id of the message that
+    # started it when the sender gave one.
+    turn_start: NotRequired[bool]
+    message_id: NotRequired[str]
     reason: NotRequired[str]
     # On the turn's "running" status: the agent (empty for a raw turn) and model it runs with.
     agent_id: NotRequired[str]
@@ -67,6 +75,10 @@ class ToolStartedPayload(TypedDict):
     arguments: dict[str, Any]
     created_at: NotRequired[int]
     preface: NotRequired[str]
+    # A subagent's own step: the child, and the parent's ``delegate_subagent`` call it runs
+    # under (absent for the agent's own steps).
+    subagent_id: NotRequired[str]
+    parent_tool_call_id: NotRequired[str | None]
 
 
 class ToolCompletedPayload(TypedDict):
@@ -78,6 +90,8 @@ class ToolCompletedPayload(TypedDict):
     duration_ms: NotRequired[int | float]
     redacted: NotRequired[int]
     created_at: NotRequired[int]
+    subagent_id: NotRequired[str]
+    parent_tool_call_id: NotRequired[str | None]
 
 
 class FileDiffPayload(TypedDict):
@@ -94,6 +108,9 @@ class DecisionRequiredPayload(TypedDict):
     options: NotRequired[list[str]]
     is_multi_select: NotRequired[bool]
     default_recommended_option: NotRequired[str | None]
+    # A question a subagent asked: which child, and its role.
+    subagent_id: NotRequired[str]
+    subagent_role: NotRequired[str]
 
 
 class DecisionSubmittedPayload(TypedDict):
@@ -109,6 +126,23 @@ class ApprovalRequiredPayload(TypedDict):
     risk_level: str
     policy_decision: NotRequired[str]
     metadata: NotRequired[dict[str, Any]]
+    # The structured call (bounded), a diff for an edit, and the repository it acts in.
+    tool: NotRequired[str]
+    arguments: NotRequired[dict[str, Any]]
+    diff: NotRequired[str]
+    repository: NotRequired[str]
+    # How the person may remember a "yes": "session", "repository" (empty when none applies).
+    remember_options: NotRequired[list[str]]
+    # An approval a subagent needs: which child, and its role.
+    subagent_id: NotRequired[str]
+    subagent_role: NotRequired[str]
+
+
+class ApprovalRulesChangedPayload(TypedDict):
+    # "added" or "revoked"; clients read the session's rules again.
+    change: str
+    rule_id: str
+    scope: str
 
 
 class LogChunkPayload(TypedDict):
@@ -164,9 +198,17 @@ class SubagentStartedPayload(TypedDict):
     role: str
     name: NotRequired[str]
     task: str
+    # The parent's ``delegate_subagent`` call the child's steps nest under.
+    parent_tool_call_id: NotRequired[str | None]
+    model: NotRequired[str]
+    # "none", "worktree" or "sandbox".
+    isolation: NotRequired[str]
+    background: NotRequired[bool]
 
 
 class SubagentProgressPayload(TypedDict):
+    """The child's streamed text, merged (at most one event per 250 ms or 200 characters)."""
+
     subagent_id: str
     delta: NotRequired[str]
     is_reasoning: NotRequired[bool]
@@ -183,11 +225,18 @@ class SubagentCompletedPayload(TypedDict):
     duration_ms: NotRequired[int]
     turns_taken: NotRequired[int]
     tool_calls_count: NotRequired[int]
+    # One of ``SUBAGENT_STATUSES``: completed, partial, blocked, failed, cancelled.
     status: NotRequired[str]
     tokens: NotRequired[int]
     cost: NotRequired[float]
     changed_files: NotRequired[list[str]]
     artefacts: NotRequired[list[str]]
+    parent_tool_call_id: NotRequired[str | None]
+    model: NotRequired[str]
+    # The worktree or sandbox branch holding the child's changes, to merge or reject.
+    branch: NotRequired[str | None]
+    # The whole structured report (``SubagentReport`` as plain data).
+    report: NotRequired[dict[str, Any] | None]
 
 
 class PostFailureSynthesisPayload(TypedDict):
@@ -197,8 +246,77 @@ class PostFailureSynthesisPayload(TypedDict):
     turns_taken: NotRequired[int]
 
 
+# What ended a turn, for the client's way out: retry, another model, the settings to fix, or
+# (``access``) another agent.
+TurnErrorKind = Literal["provider", "budget", "sandbox", "model", "access", "internal"]
+
+
+class SpendLimitPayload(TypedDict):
+    """A spend limit as the member sees it (``budget_warning``)."""
+
+    limit_id: str
+    # ``org``, ``member``, ``agent``, ``agent_member`` or ``slack_workspace``.
+    subject: str
+    subject_id: str
+    # ``day``, ``week``, ``month``, ``rolling_24h``, ``rolling_7d``, ``session`` or ``turn``.
+    period: str
+    mode: str
+    label: str
+    spent: float
+    amount: float
+    # Epoch seconds when room frees up; ``None`` for a session or turn limit.
+    resets_at: int | None
+
+
+class BudgetBlockedPayload(TypedDict):
+    """A spend limit refused the turn's next model call; nothing was bought."""
+
+    limit_id: str
+    subject: str
+    period: str
+    spent: float
+    amount: float
+    resets_at: int | None
+    message: str
+
+
+class AgentAccessDeniedPayload(TypedDict):
+    """The person who sent the message may not use the session's agent (revoked or never
+    granted); the turn did not start, and the client asks them to pick another agent."""
+
+    agent_id: str
+    agent_name: str
+    message: str
+
+
+class PlanDecidedPayload(TypedDict):
+    """A person answered a plan card: the gate ``action_id`` is released."""
+
+    action_id: str
+    approved: bool
+    # The mode the rest of the work runs in; empty when the plan was rejected.
+    permission_mode: str
+    # Whether the person edited the checklist before approving.
+    edited: bool
+    decided_by: str
+
+
+class GitPublishedPayload(TypedDict):
+    """A person committed, pushed or opened a pull request from the cockpit's Git tab."""
+
+    # ``commit``, ``push`` or ``pull_request``.
+    action: str
+    repository: str
+    # What the publishing path answered, for the conversation (bounded).
+    summary: str
+    url: NotRequired[str]
+    decided_by: str
+
+
 class ErrorPayload(TypedDict):
     error: str
+    # One of ``TurnErrorKind``.
+    error_kind: NotRequired[str]
 
 
 class ProcessPayload(TypedDict):
@@ -309,6 +427,7 @@ PAYLOAD_TYPES: dict[EventType, Any] = {
     EventType.DECISION_REQUIRED: DecisionRequiredPayload,
     EventType.DECISION_SUBMITTED: DecisionSubmittedPayload,
     EventType.APPROVAL_REQUIRED: ApprovalRequiredPayload,
+    EventType.APPROVAL_RULES_CHANGED: ApprovalRulesChangedPayload,
     EventType.LOG_CHUNK: LogChunkPayload,
     EventType.SANDBOX_STATE: SandboxStatePayload,
     EventType.SESSION_UPDATED: SessionUpdatedPayload,
@@ -331,5 +450,10 @@ PAYLOAD_TYPES: dict[EventType, Any] = {
     EventType.WAIT_COMPLETED: WaitCompletedPayload,
     EventType.ARTIFACT_CREATED: ArtifactCreatedPayload,
     EventType.ARTIFACT_UPDATED: ArtifactUpdatedPayload,
+    EventType.BUDGET_WARNING: SpendLimitPayload,
+    EventType.BUDGET_BLOCKED: BudgetBlockedPayload,
+    EventType.AGENT_ACCESS_DENIED: AgentAccessDeniedPayload,
+    EventType.PLAN_DECIDED: PlanDecidedPayload,
+    EventType.GIT_PUBLISHED: GitPublishedPayload,
     EventType.ERROR: ErrorPayload,
 }

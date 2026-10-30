@@ -1,47 +1,50 @@
 "use client";
 
 import { useShallow } from "zustand/react/shallow";
-import React, { useRef, useEffect, useState } from "react";
+import React, { useCallback, useRef, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMissionStore } from "../lib/store";
 import { useSession } from "./AuthProvider";
 import { DecisionCard } from "./DecisionCard";
 import { ApprovalCard } from "./ApprovalCard";
+import { TranscriptSearchResults } from "./TranscriptSearchResults";
+import { AnswerActions, UserMessageActions } from "./MessageActions";
+import { useCockpitRequest } from "../lib/cockpit-events";
 import { ActionGroup } from "./ActionGroup";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { CompactionCard, isCompactionMessage } from "./CompactionCard";
+import { SystemNoticeCard } from "./SystemNoticeCard";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { TaskChecklist } from "./TaskChecklist";
 import { TurnSummaryCard } from "./TurnSummaryCard";
 import { WaitCard, waitOf } from "./WaitCard";
-import { FlightLogEntry, TurnBinding } from "../types/mission";
+import { ApprovalRememberScope, ArtifactItem, FlightLogEntry, TurnBinding } from "../types/mission";
 import { RocketChatIcon } from "./RocketChatLogo";
 import { RocketLoader } from "./RocketLoader";
 import { useLoadingQuip } from "../lib/loadingQuips";
+import { QUICK_TURN_MS, TurnProgressLine, useNow } from "./TurnProgressLine";
+import { TurnErrorCard } from "./TurnErrorCard";
 import { useKeepAtBottom } from "../lib/useKeepAtBottom";
 import { describeArtifactCall, isArtifactCall, mentionOfArtifact, type ArtifactMention } from "../lib/artifact-calls";
 import { ArtifactCard } from "./ArtifactCard";
 import { CockpitEmptyState } from "./CockpitEmptyState";
 import { SessionLoadingScreen } from "./SessionLoadingScreen";
 import {
-  AlertTriangle,
   ArrowDown,
   Check,
   Copy,
   FileText,
   GitFork,
-  Info,
   Loader2,
-  RefreshCw,
   Search,
   X,
-  Zap,
 } from "lucide-react";
 
 interface FlightLogStreamProps {
   onAnswerQuestion: (questionId: string, selectedOptions: string[], customText?: string) => void;
-  onApprove?: (actionId: string) => void;
+  onApprove?: (actionId: string, remember?: ApprovalRememberScope) => void;
   onReject?: (actionId: string) => void;
+  /** Sends a failed turn's instruction again, on another model when one is given. */
+  onRetryTurn?: (prompt: string, model?: string) => void;
   opening?: boolean;
 }
 
@@ -51,166 +54,45 @@ interface ActionGroupData {
   isActive?: boolean;
 }
 
-const hasSubsequentToolsInTurn = (startIndex: number, logs: FlightLogEntry[]): boolean => {
-  for (let j = startIndex + 1; j < logs.length; j++) {
-    const next = logs[j];
-    if (next.role === "USER") break;
-    if (
-      next.toolCall ||
-      next.subagent ||
-      (next.content &&
-        (next.content.startsWith("Invoking tool:") ||
-          next.content.startsWith("Executing tool:") ||
-          next.content.startsWith("Delegating to subagent")))
-    ) {
-      return true;
-    }
+/** A conversation longer than this renders only the rows near the viewport. */
+const VIRTUALIZE_AFTER_ITEMS = 40;
+
+type StreamItem =
+  | { type: "user"; entry: FlightLogEntry }
+  | { type: "system"; entry: FlightLogEntry }
+  | { type: "action_group"; data: ActionGroupData }
+  | { type: "answer"; entry: FlightLogEntry }
+  | { type: "artifact"; entry: FlightLogEntry; mention: ArtifactMention };
+
+const isToolEntry = (entry: FlightLogEntry): boolean =>
+  Boolean(
+    entry.toolCall ||
+      entry.subagent ||
+      (entry.content &&
+        (entry.content.startsWith("Invoking tool:") ||
+          entry.content.startsWith("Executing tool:") ||
+          entry.content.startsWith("Delegating to subagent")))
+  );
+
+/** For each entry, whether a tool call follows it before the next user message: one backward pass. */
+const toolsFollowInTurn = (logs: FlightLogEntry[]): boolean[] => {
+  const follows = new Array<boolean>(logs.length).fill(false);
+  let seen = false;
+  for (let j = logs.length - 1; j >= 0; j--) {
+    follows[j] = seen;
+    if (logs[j].role === "USER") seen = false;
+    else if (isToolEntry(logs[j])) seen = true;
   }
-  return false;
+  return follows;
 };
 
-export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
-  onAnswerQuestion,
-  onApprove,
-  onReject,
-  opening,
-}) => {
-  const {
-    flightLog,
-    artifacts,
-    activeDecision,
-    activeApproval,
-    isExecuting,
-    statusMessage,
-    turnBinding,
-    isStreamContinuous,
-    session,
-    fetchSessions,
-    hasOlderHistory,
-    isLoadingOlderHistory,
-    loadOlderHistory,
-  } = useMissionStore(
-    useShallow((state) => ({
-      flightLog: state.flightLog,
-      artifacts: state.artifacts,
-      activeDecision: state.activeDecision,
-      activeApproval: state.activeApproval,
-      isExecuting: state.isExecuting,
-      statusMessage: state.statusMessage,
-      turnBinding: state.turnBinding,
-      isStreamContinuous: state.isStreamContinuous,
-      session: state.session,
-      fetchSessions: state.fetchSessions,
-      hasOlderHistory: state.hasOlderHistory,
-      isLoadingOlderHistory: state.isLoadingOlderHistory,
-      loadOlderHistory: state.loadOlderHistory,
-    }))
-  );
-
-  const quip = useLoadingQuip(isExecuting && !activeDecision);
-
-  const router = useRouter();
-  const { data: authSession } = useSession();
-  const currentUserId =
-    (authSession?.user as unknown as { user_id?: string } | undefined)?.user_id ?? null;
-  // Name the author of each message only when more than one person wrote in this session.
-  const showAuthors =
-    new Set(flightLog.filter((e) => e.role === "USER" && e.authorUserId).map((e) => e.authorUserId))
-      .size > 1;
-  const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
-  const [copiedEntryId, setCopiedEntryId] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const streamRef = useRef<HTMLDivElement>(null);
-  // Follow new content only while the reader is at the bottom; once they scroll up to review
-  // something, the stream must stay where they are. An empty conversation shows its starting
-  // points from the top; only real content is followed.
-  const { following: followingRef, setFollowing, readScroll } = useKeepAtBottom(
-    streamRef,
-    !opening && (flightLog.length > 0 || isExecuting)
-  );
-  const lastEntryCountRef = useRef(0);
-  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
-
-  const handleScroll = () => setShowJumpToLatest(!readScroll());
-
-  const jumpToLatest = () => {
-    const stream = streamRef.current;
-    if (!stream) return;
-    setFollowing(true);
-    setShowJumpToLatest(false);
-    stream.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
-  };
-
-  const handleCopy = (entryId: string, text: string) => {
-    void navigator.clipboard.writeText(text);
-    setCopiedEntryId(entryId);
-    setTimeout(() => setCopiedEntryId((current) => (current === entryId ? null : current)), 1500);
-  };
-
-  // Map each entry to how many user turns had started by the time it was rendered, so
-  // "Fork from here" on an assistant answer branches *through* the turn it belongs to.
-  const userTurnsByEntry = new Map<string, number>();
-  let userTurnsSoFar = 0;
-  for (const entry of flightLog) {
-    if (entry.role === "USER") userTurnsSoFar += 1;
-    userTurnsByEntry.set(entry.id, userTurnsSoFar);
-  }
-
-  const handleForkFrom = async (entryId: string) => {
-    if (!session || session.is_draft || session.session_id === "draft") return;
-    const upToTurn = userTurnsByEntry.get(entryId) ?? 0;
-    setForkingEntryId(entryId);
-    try {
-      const res = await fetch(`/v1/sessions/${session.session_id}/fork`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(upToTurn > 0 ? { up_to_turn: upToTurn } : {}),
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!res.ok) return;
-      const forked = (await res.json()) as { session_id: string };
-      await fetchSessions();
-      router.push(`/chat/${forked.session_id}`);
-    } catch {
-      // A failed fork leaves the user on the current session so they can retry.
-    } finally {
-      setForkingEntryId(null);
-    }
-  };
-
-  // Every conversation opens at its end: having scrolled up in the previous one says nothing here.
-  const openSessionId = session?.session_id;
-  useEffect(() => {
-    setFollowing(true);
-    lastEntryCountRef.current = 0;
-    setShowJumpToLatest(false);
-  }, [openSessionId, opening, setFollowing]);
-
-  // Follow new entries while at the bottom.
-  useEffect(() => {
-    // An empty conversation shows its starting points from the top; only follow real content.
-    if (flightLog.length === 0 && !isExecuting) return;
-    // Sending a message always brings you back to the conversation's end.
-    const grew = flightLog.length > lastEntryCountRef.current;
-    lastEntryCountRef.current = flightLog.length;
-    if (grew && flightLog[flightLog.length - 1]?.role === "USER") setFollowing(true);
-    if (!followingRef.current) return;
-    // Scroll the stream itself. scrollIntoView would also scroll every ancestor, including the
-    // overflow-hidden page root, which pushes the top bar off screen on a phone. The jump is
-    // instant: an animated one would fire scroll events that look like the reader leaving.
-    const stream = streamRef.current;
-    stream?.scrollTo({ top: stream.scrollHeight, behavior: "auto" });
-  }, [flightLog, activeDecision, activeApproval, isExecuting, statusMessage, followingRef, setFollowing]);
-
-  // Aggregate consecutive actions into distinct ActionGroups
-  const rawStreamItems: Array<
-    | { type: "user"; entry: FlightLogEntry }
-    | { type: "system"; entry: FlightLogEntry }
-    | { type: "action_group"; data: ActionGroupData }
-    | { type: "answer"; entry: FlightLogEntry }
-    | { type: "artifact"; entry: FlightLogEntry; mention: ArtifactMention }
-  > = [];
+/**
+ * The conversation as the stream shows it: consecutive steps folded into action groups between
+ * the messages and answers. Pure, so the component recomputes it only when the log changes.
+ */
+function groupFlightLog(flightLog: FlightLogEntry[], isExecuting: boolean, artifacts: ArtifactItem[]): StreamItem[] {
+  const rawStreamItems: StreamItem[] = [];
+  const toolFollows = toolsFollowInTurn(flightLog);
 
   let currentGroupEntries: FlightLogEntry[] = [];
 
@@ -275,7 +157,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
         !isSubagentInvocation &&
         !isToolInvocation &&
         !isPureReasoning &&
-        (hasSubsequentToolsInTurn(i, flightLog) ||
+        (toolFollows[i] ||
           (isExecuting && i === flightLog.length - 1 && (entry.isReasoningActive || !entry.content.trim())));
 
       if (isSubagentInvocation || isToolInvocation || isPureReasoning || isStepPreface) {
@@ -306,6 +188,158 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   if (currentGroupEntries.length > 0) {
     flushGroup(isExecuting);
   }
+  return rawStreamItems;
+}
+
+export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
+  onAnswerQuestion,
+  onApprove,
+  onReject,
+  onRetryTurn,
+  opening,
+}) => {
+  const {
+    flightLog,
+    artifacts,
+    activeDecision,
+    activeApproval,
+    isExecuting,
+    statusMessage,
+    turnBinding,
+    isStreamContinuous,
+    session,
+    fetchSessions,
+    hasOlderHistory,
+    isLoadingOlderHistory,
+    loadOlderHistory,
+  } = useMissionStore(
+    useShallow((state) => ({
+      flightLog: state.flightLog,
+      artifacts: state.artifacts,
+      activeDecision: state.activeDecision,
+      activeApproval: state.activeApproval,
+      isExecuting: state.isExecuting,
+      statusMessage: state.statusMessage,
+      turnBinding: state.turnBinding,
+      isStreamContinuous: state.isStreamContinuous,
+      session: state.session,
+      fetchSessions: state.fetchSessions,
+      hasOlderHistory: state.hasOlderHistory,
+      isLoadingOlderHistory: state.isLoadingOlderHistory,
+      loadOlderHistory: state.loadOlderHistory,
+    }))
+  );
+
+  const quip = useLoadingQuip(isExecuting && !activeDecision);
+  const turnStartedAt = useMissionStore((state) => state.turnProgress.startedAt);
+  const historyUserTurnsBefore = useMissionStore((state) => state.historyUserTurnsBefore);
+  const now = useNow(isExecuting);
+  // The playful line suits a quick turn; on a long one the real progress is what matters.
+  const showQuip = turnStartedAt === null || now - turnStartedAt < QUICK_TURN_MS;
+
+  const router = useRouter();
+  const { data: authSession } = useSession();
+  const currentUserId =
+    (authSession?.user as unknown as { user_id?: string } | undefined)?.user_id ?? null;
+  // Name the author of each message only when more than one person wrote in this session.
+  const showAuthors =
+    new Set(flightLog.filter((e) => e.role === "USER" && e.authorUserId).map((e) => e.authorUserId))
+      .size > 1;
+  const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
+  const [copiedEntryId, setCopiedEntryId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const openSearch = useCallback(() => setIsSearchOpen(true), []);
+  useCockpitRequest("open-transcript-search", openSearch);
+  const streamRef = useRef<HTMLDivElement>(null);
+  // Follow new content only while the reader is at the bottom; once they scroll up to review
+  // something, the stream must stay where they are. An empty conversation shows its starting
+  // points from the top; only real content is followed.
+  const { following: followingRef, setFollowing, readScroll } = useKeepAtBottom(
+    streamRef,
+    !opening && (flightLog.length > 0 || isExecuting)
+  );
+  const lastEntryCountRef = useRef(0);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
+
+  const handleScroll = () => setShowJumpToLatest(!readScroll());
+
+  const jumpToLatest = () => {
+    const stream = streamRef.current;
+    if (!stream) return;
+    setFollowing(true);
+    setShowJumpToLatest(false);
+    stream.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
+  };
+
+  const handleCopy = (entryId: string, text: string) => {
+    void navigator.clipboard.writeText(text);
+    setCopiedEntryId(entryId);
+    setTimeout(() => setCopiedEntryId((current) => (current === entryId ? null : current)), 1500);
+  };
+
+  // Map each entry to how many user turns had started by the time it was rendered, so
+  // "Fork from here" on an assistant answer branches *through* the turn it belongs to.
+  const userTurnsByEntry = new Map<string, number>();
+  const promptOfTurn = new Map<number, string>();
+  // Counted from the start of the conversation, not from the first message loaded.
+  let userTurnsSoFar = historyUserTurnsBefore;
+  for (const entry of flightLog) {
+    if (entry.role === "USER") {
+      userTurnsSoFar += 1;
+      promptOfTurn.set(userTurnsSoFar, entry.content);
+    }
+    userTurnsByEntry.set(entry.id, userTurnsSoFar);
+  }
+
+  const handleForkFrom = async (entryId: string) => {
+    if (!session || session.is_draft || session.session_id === "draft") return;
+    const upToTurn = userTurnsByEntry.get(entryId) ?? 0;
+    setForkingEntryId(entryId);
+    try {
+      const res = await fetch(`/v1/sessions/${session.session_id}/fork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(upToTurn > 0 ? { up_to_turn: upToTurn } : {}),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) return;
+      const forked = (await res.json()) as { session_id: string };
+      await fetchSessions();
+      router.push(`/chat/${forked.session_id}`);
+    } catch {
+      // A failed fork leaves the user on the current session so they can retry.
+    } finally {
+      setForkingEntryId(null);
+    }
+  };
+
+  // Every conversation opens at its end: having scrolled up in the previous one says nothing here.
+  const openSessionId = session?.session_id;
+  useEffect(() => {
+    setFollowing(true);
+    lastEntryCountRef.current = 0;
+    setShowJumpToLatest(false);
+  }, [openSessionId, opening, setFollowing]);
+
+  // Follow new entries while at the bottom.
+  useEffect(() => {
+    // An empty conversation shows its starting points from the top; only follow real content.
+    if (flightLog.length === 0 && !isExecuting) return;
+    // Sending a message always brings you back to the conversation's end.
+    const grew = flightLog.length > lastEntryCountRef.current;
+    lastEntryCountRef.current = flightLog.length;
+    if (grew && flightLog[flightLog.length - 1]?.role === "USER") setFollowing(true);
+    if (!followingRef.current) return;
+    // Scroll the stream itself. scrollIntoView would also scroll every ancestor, including the
+    // overflow-hidden page root, which pushes the top bar off screen on a phone. The jump is
+    // instant: an animated one would fire scroll events that look like the reader leaving.
+    const stream = streamRef.current;
+    stream?.scrollTo({ top: stream.scrollHeight, behavior: "auto" });
+  }, [flightLog, activeDecision, activeApproval, isExecuting, statusMessage, followingRef, setFollowing]);
+
+  // Aggregate consecutive actions into distinct ActionGroups (once per change of the log).
+  const rawStreamItems = useMemo(() => groupFlightLog(flightLog, isExecuting, artifacts), [flightLog, isExecuting, artifacts]);
 
   const filteredItems = searchQuery.trim()
     ? rawStreamItems.filter((item) => {
@@ -317,7 +351,8 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
       })
     : rawStreamItems;
 
-  const isVirtualized = filteredItems.length > 100;
+  // Rows are measured as they render (measureElement); below this count there is little to save.
+  const isVirtualized = filteredItems.length > VIRTUALIZE_AFTER_ITEMS;
   const rowVirtualizer = useVirtualizer({
     count: filteredItems.length,
     getScrollElement: () => streamRef.current,
@@ -329,7 +364,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   // following, the end is held by useKeepAtBottom instead.
   rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = () => !followingRef.current;
 
-  const renderItem = (item: (typeof rawStreamItems)[number]) => {
+  const renderItem = (item: StreamItem) => {
     if (item.type === "artifact") {
       return <ArtifactCard key={item.entry.id} mention={item.mention} />;
     }
@@ -376,14 +411,19 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
                 ))}
               </div>
             )}
-            {item.entry.timestamp && (
-              <div
-                suppressHydrationWarning
-                className="mt-1 text-right text-[11px] text-neutral-500"
-              >
-                {item.entry.timestamp}
-              </div>
-            )}
+            <div className="mt-1 flex items-center justify-end gap-1">
+              <UserMessageActions
+                sessionId={session && !session.is_draft ? session.session_id : null}
+                turn={userTurnsByEntry.get(item.entry.id) ?? 0}
+                content={item.entry.content}
+                busy={isExecuting}
+              />
+              {item.entry.timestamp && (
+                <span suppressHydrationWarning className="text-right text-[11px] text-neutral-500">
+                  {item.entry.timestamp}
+                </span>
+              )}
+            </div>
           </div>
         </div>
       );
@@ -392,81 +432,10 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     // SYSTEM MESSAGE: Clean pill or special card
     if (item.type === "system") {
       if (waitOf(item.entry)) return <WaitCard key={item.entry.id} entry={item.entry} />;
-      const content = item.entry.content;
-      const lower = content.toLowerCase();
-
-      // Compaction Card
-      if (isCompactionMessage(content)) {
-        return <CompactionCard key={item.entry.id} content={content} />;
+      if (item.entry.turnError) {
+        return <TurnErrorCard key={item.entry.id} error={item.entry.turnError} onRetry={onRetryTurn} />;
       }
-
-      // Goal Continuation Card
-      if (lower.includes("continuation")) {
-        return (
-          <div key={item.entry.id} data-testid="continuation-card" className="flex justify-center my-3">
-            <div className="w-full max-w-xl rounded-xl border border-sky-500/40 bg-sky-500/10 p-3.5 space-y-2 text-foreground">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <RefreshCw className="w-4 h-4 text-sky-400" />
-                  <span className="font-semibold text-xs text-sky-300 uppercase tracking-wide">
-                    Goal Continuation
-                  </span>
-                </div>
-                <span className="text-[10px] font-mono text-sky-400/80">Multi-Turn Resumed</span>
-              </div>
-              <div className="text-xs text-neutral-300 leading-relaxed font-sans">
-                <MarkdownRenderer content={content} />
-              </div>
-            </div>
-          </div>
-        );
-      }
-
-      // Telemetry Alert Card
-      if (lower.includes("cache collapse") || lower.includes("alert:")) {
-        return (
-          <div key={item.entry.id} data-testid="alert-card" className="flex justify-center my-3">
-            <div className="w-full max-w-xl rounded-xl border border-rose-500/40 bg-rose-500/10 p-3.5 space-y-2 text-foreground">
-              <div className="flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-400" />
-                  <span className="font-semibold text-xs text-rose-300 uppercase tracking-wide">
-                    Telemetry Alert
-                  </span>
-                </div>
-              </div>
-              <div className="text-xs text-rose-200 leading-relaxed font-sans">
-                <MarkdownRenderer content={content} />
-              </div>
-            </div>
-          </div>
-        );
-      }
-
-      const isTurnLimitWarning =
-        content.includes("⚡") ||
-        content.includes("Turn Budget Exceeded") ||
-        content.includes("Synthesizing final answer");
-
-      if (isTurnLimitWarning) {
-        return (
-          <div key={item.entry.id} className="flex justify-center my-3">
-            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-amber-500/40 bg-amber-500/10 text-amber-300 text-[11px] font-mono shadow-sm">
-              <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span>{content.replace(/^⚡\s*/, "")}</span>
-            </div>
-          </div>
-        );
-      }
-
-      return (
-        <div key={item.entry.id} className="flex justify-center my-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full border border-surface-border bg-surface-card/40 text-neutral-400 text-[11px] font-mono">
-            <Info className="w-3.5 h-3.5 text-neutral-400 shrink-0" />
-            <span>{content}</span>
-          </div>
-        </div>
-      );
+      return <SystemNoticeCard key={item.entry.id} entry={item.entry} />;
     }
 
     // DISCREET REASONING / TOOL CALLS ACCORDION
@@ -515,6 +484,12 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
                   <Copy className="h-3.5 w-3.5" />
                 )}
               </button>
+              <AnswerActions
+                sessionId={session && !session.is_draft ? session.session_id : null}
+                turn={userTurnsByEntry.get(item.entry.id) ?? 0}
+                prompt={promptOfTurn.get(userTurnsByEntry.get(item.entry.id) ?? 0) ?? null}
+                busy={isExecuting}
+              />
               <button
                 type="button"
                 data-testid="fork-from-here"
@@ -562,7 +537,8 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
               data-testid="stream-search-input"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search flight log..."
+              placeholder="Search this conversation…"
+              aria-label="Search this conversation"
               className="bg-transparent text-xs text-foreground placeholder-neutral-500 focus:outline-none w-36 sm:w-52"
               autoFocus
             />
@@ -586,12 +562,16 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-        ) : (
+        ) : null}
+        {isSearchOpen && (
+          <TranscriptSearchResults sessionId={session && !session.is_draft ? session.session_id : null} query={searchQuery} />
+        )}
+        {isSearchOpen ? null : (
           <button
             type="button"
             data-testid="stream-search-toggle"
-            aria-label="Search flight log"
-            onClick={() => setIsSearchOpen(true)}
+            aria-label="Search this conversation"
+            onClick={openSearch}
             className="rounded-lg border border-surface-border bg-surface-card/80 p-1.5 text-neutral-400 hover:bg-surface-elevated hover:text-foreground transition-colors shadow-sm"
           >
             <Search className="h-3.5 w-3.5" />
@@ -608,6 +588,9 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
         ref={streamRef}
         onScroll={handleScroll}
         data-testid="flight-log-stream"
+        role="log"
+        aria-live="polite"
+        aria-label="Conversation"
         data-stream-continuous={isStreamContinuous}
         className="continuous-flight-stream flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden [&>*]:shrink-0 px-4 sm:px-6 py-6 space-y-6 font-sans select-text max-w-3xl mx-auto w-full"
       >
@@ -670,19 +653,22 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
         <div data-testid="processing-indicator" className="flex items-start gap-2.5">
           <RocketLoader />
           <div className="min-w-0 font-sans text-xs">
-            <div
-              aria-hidden="true"
-              data-testid="loading-quip"
-              className="truncate italic text-orange-700 dark:text-brand"
-            >
-              {quip}
-            </div>
+            {showQuip && (
+              <div
+                aria-hidden="true"
+                data-testid="loading-quip"
+                className="truncate italic text-orange-700 dark:text-brand"
+              >
+                {quip}
+              </div>
+            )}
             <div className="flex items-center gap-2 text-neutral-500 dark:text-neutral-400">
               <span className="h-1.5 w-1.5 flex-none shrink-0 rounded-full bg-brand animate-ping" />
               <span className="truncate" title={statusMessage || undefined}>
-                {statusMessage || "Synthesizing answer..."}
+                {statusMessage || "Working…"}
               </span>
             </div>
+            <TurnProgressLine now={now} />
           </div>
         </div>
       )}
@@ -692,7 +678,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     </div>
     {/* Questions and approvals wait here, above the composer, whatever the stream is scrolled to */}
     {(activeDecision || activeApproval) && (
-      <div data-testid="gate-dock" className="max-h-[50vh] shrink-0 space-y-3 overflow-y-auto border-t border-amber-500/40 bg-surface-base px-4 py-3 sm:px-6">
+      <div data-testid="gate-dock" role="alert" aria-live="assertive" className="max-h-[50vh] shrink-0 space-y-3 overflow-y-auto border-t border-amber-500/40 bg-surface-base px-4 py-3 sm:px-6">
         <div className="mx-auto w-full max-w-3xl space-y-3">
       {/* Decision Card */}
       {activeDecision && (
@@ -708,7 +694,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
       {activeApproval && (
         <ApprovalCard
           approval={activeApproval}
-          onApprove={(actionId) => onApprove?.(actionId)}
+          onApprove={(actionId, remember) => onApprove?.(actionId, remember)}
           onReject={(actionId) => onReject?.(actionId)}
         />
       )}

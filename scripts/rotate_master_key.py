@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Re-encrypt ``byok_credentials`` after an ``ENCRYPTION_MASTER_KEY`` rotation.
+"""Re-encrypt ``provider_credentials`` after an ``ENCRYPTION_MASTER_KEY`` rotation.
 
 ``CredentialCipher`` derives one AES-256-GCM key from the configured master key
 string and has no key versioning: changing the environment variable makes every
@@ -36,8 +36,8 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "packages", "config-engine", "src"))
 
 from config_engine.crypto import CredentialCipher  # noqa: E402
 
-SELECT_SQL = "SELECT id, encrypted_api_key FROM byok_credentials ORDER BY id;"
-UPDATE_SQL = "UPDATE byok_credentials SET encrypted_api_key = $2 WHERE id = $1;"
+SELECT_SQL = "SELECT id, encrypted_secret FROM provider_credentials ORDER BY id;"
+UPDATE_SQL = "UPDATE provider_credentials SET encrypted_secret = $2 WHERE id = $1;"
 
 
 async def rotate(database_url: str, old_key: str, new_key: str, apply: bool) -> int:

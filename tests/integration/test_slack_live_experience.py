@@ -30,7 +30,11 @@ def _live(stack: Stack, **policy: Any) -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_a_turn_streams_its_current_step_then_the_answer_in_the_same_reply() -> None:
+async def test_a_turn_streams_its_current_step_then_the_answer_in_the_same_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Every step goes out here; merging steps that come too fast is test_slack_stream_throttle's.
+    monkeypatch.setattr("slack_assistant.stream.UPDATE_INTERVAL_SECONDS", 0.0)
     stack = Stack(
         ScriptedModel(
             script=[("think", {"thought": "plan"}), ("think", {"thought": "again"})],
@@ -254,7 +258,7 @@ async def test_a_channel_profile_sets_persona_rules_and_tools() -> None:
 
     request = model.agent_requests()[0]
     system_text = "\n".join(m.content or "" for m in request.messages if m.role == "system")
-    assert "Security Auditor persona" in system_text and "Answer in French." in system_text
+    assert "You are a security auditor" in system_text and "Answer in French." in system_text
     assert {t.name for t in request.tools} == {"file_read"}
     record = await stack.store.get_session(SESSION_ID)
     assert record is not None and record.container_image == "registry.example/sec-box:1"
@@ -275,7 +279,10 @@ async def test_browser_tools_follow_the_sandbox_the_session_uses(
 
     catalogue = SandboxCatalogue(None)
     box = await catalogue.create(
-        "default_org", name="Browser", image="registry.example/browser:1", capabilities=["browser"]
+        "default_org",
+        name="Headless browser",
+        image="registry.example/browser:1",
+        capabilities=["browser"],
     )
     browser_model = ScriptedModel()
     stack = Stack(browser_model)

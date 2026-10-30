@@ -1,6 +1,21 @@
 {
   "components": {
     "schemas": {
+      "AcceptInviteRequest": {
+        "properties": {
+          "token": {
+            "maxLength": 300,
+            "minLength": 10,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "AcceptInviteRequest",
+        "type": "object"
+      },
       "ActiveContextModel": {
         "properties": {
           "limit": {
@@ -49,6 +64,66 @@
         "title": "ActiveContextModel",
         "type": "object"
       },
+      "AgentAccessRequest": {
+        "properties": {
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/AgentGrantModel"
+            },
+            "maxItems": 500,
+            "title": "Grants",
+            "type": "array"
+          }
+        },
+        "title": "AgentAccessRequest",
+        "type": "object"
+      },
+      "AgentAccessResponse": {
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/AgentGrantModel"
+            },
+            "title": "Grants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "agent_id",
+          "grants"
+        ],
+        "title": "AgentAccessResponse",
+        "type": "object"
+      },
+      "AgentGrantModel": {
+        "properties": {
+          "principal_id": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Principal Id",
+            "type": "string"
+          },
+          "principal_kind": {
+            "enum": [
+              "everyone",
+              "member",
+              "role",
+              "guests"
+            ],
+            "title": "Principal Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "principal_kind"
+        ],
+        "title": "AgentGrantModel",
+        "type": "object"
+      },
       "AgentLimitsResponse": {
         "properties": {
           "max_turns": {
@@ -80,11 +155,13 @@
             "title": "Built In",
             "type": "boolean"
           },
-          "cpu_limit": {
-            "default": "",
-            "description": "CPU cores; empty inherits the org setting",
-            "title": "Cpu Limit",
-            "type": "string"
+          "credential_bindings": {
+            "description": "The agent's own provider credentials: a call on a bound provider uses the bound credential; administrators bind organization agents, owners their personal ones",
+            "items": {
+              "$ref": "#/components/schemas/CredentialBindingModel"
+            },
+            "title": "Credential Bindings",
+            "type": "array"
           },
           "customized": {
             "default": false,
@@ -149,12 +226,6 @@
             "description": "Maximum reasoning steps per turn for this agent (0: no limit); empty inherits the organization's limit, and a value above it is refused",
             "title": "Max Turns"
           },
-          "memory_limit": {
-            "default": "",
-            "description": "Memory limit; empty inherits the org setting",
-            "title": "Memory Limit",
-            "type": "string"
-          },
           "model": {
             "default": "",
             "description": "Model ID; empty inherits the user/org default",
@@ -189,12 +260,6 @@
             "title": "Sandbox Id",
             "type": "string"
           },
-          "sandbox_image": {
-            "default": "",
-            "description": "Sandbox image; empty inherits the organization default",
-            "title": "Sandbox Image",
-            "type": "string"
-          },
           "scope": {
             "default": "org",
             "description": "'org' or 'user'",
@@ -208,6 +273,12 @@
             },
             "title": "Skill Ids",
             "type": "array"
+          },
+          "strict_binding": {
+            "default": false,
+            "description": "Refuse calls on any provider the agent has no binding for",
+            "title": "Strict Binding",
+            "type": "boolean"
           },
           "system_prompt": {
             "description": "Agent system prompt / instructions",
@@ -227,18 +298,6 @@
             ],
             "description": "Sampling temperature override",
             "title": "Temperature"
-          },
-          "thinking_budget_tokens": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Extended thinking budget tokens override",
-            "title": "Thinking Budget Tokens"
           },
           "user_id": {
             "anyOf": [
@@ -362,12 +421,123 @@
             "description": "True if approved, False if denied",
             "title": "Approved",
             "type": "boolean"
+          },
+          "remember": {
+            "anyOf": [
+              {
+                "enum": [
+                  "session",
+                  "repository"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With approved: also allow later calls without asking: 'session' (this tool in this session) or 'repository' (this command in this repository, in all your sessions). Only a scope the approval offered (remember_options) is saved.",
+            "title": "Remember"
           }
         },
         "required": [
           "approved"
         ],
         "title": "ApprovalRequestModel",
+        "type": "object"
+      },
+      "ApprovalRuleView": {
+        "properties": {
+          "command": {
+            "default": "",
+            "description": "The exact command (empty: every call of the tool)",
+            "title": "Command",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "integer"
+          },
+          "created_by": {
+            "description": "Who saved it",
+            "title": "Created By",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "repository": {
+            "default": "",
+            "description": "owner/name, for a repository rule",
+            "title": "Repository",
+            "type": "string"
+          },
+          "scope": {
+            "description": "session or repository",
+            "title": "Scope",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "tool": {
+            "description": "The tool the rule allows",
+            "title": "Tool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "scope",
+          "tool",
+          "created_by",
+          "created_at"
+        ],
+        "title": "ApprovalRuleView",
+        "type": "object"
+      },
+      "ApprovalRulesView": {
+        "properties": {
+          "allowed_scopes": {
+            "description": "Scopes the organization lets members remember approvals in",
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Scopes",
+            "type": "array"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/ApprovalRuleView"
+            },
+            "title": "Rules",
+            "type": "array"
+          }
+        },
+        "required": [
+          "allowed_scopes",
+          "rules"
+        ],
+        "title": "ApprovalRulesView",
         "type": "object"
       },
       "ArtifactDetailResponse": {
@@ -943,6 +1113,41 @@
         "title": "ChangesResponse",
         "type": "object"
       },
+      "CheckItem": {
+        "properties": {
+          "conclusion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Conclusion"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "conclusion",
+          "url"
+        ],
+        "title": "CheckItem",
+        "type": "object"
+      },
       "CheckpointList": {
         "properties": {
           "available": {
@@ -1000,6 +1205,49 @@
           "created_at"
         ],
         "title": "CheckpointResponse",
+        "type": "object"
+      },
+      "CommitItem": {
+        "properties": {
+          "author": {
+            "title": "Author",
+            "type": "string"
+          },
+          "sha": {
+            "title": "Sha",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sha",
+          "author",
+          "timestamp",
+          "subject"
+        ],
+        "title": "CommitItem",
+        "type": "object"
+      },
+      "CommitRequest": {
+        "properties": {
+          "message": {
+            "maxLength": 5000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "CommitRequest",
         "type": "object"
       },
       "CompactSessionResponse": {
@@ -1133,6 +1381,86 @@
         "title": "CreateCheckpointRequest",
         "type": "object"
       },
+      "CreateCredentialRequest": {
+        "properties": {
+          "api_base": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Endpoint for self-hosted or proxied providers (Ollama, vLLM, ...)",
+            "title": "Api Base"
+          },
+          "api_key": {
+            "description": "The provider API key",
+            "maxLength": 500,
+            "minLength": 8,
+            "title": "Api Key",
+            "type": "string"
+          },
+          "default_for_provider": {
+            "default": true,
+            "title": "Default For Provider",
+            "type": "boolean"
+          },
+          "label": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Label",
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Provider",
+            "type": "string"
+          },
+          "restricted_to_agents": {
+            "default": false,
+            "description": "Skip it in the default chain: only the agents bound to it use it (admins)",
+            "title": "Restricted To Agents",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "provider",
+          "api_key"
+        ],
+        "title": "CreateCredentialRequest",
+        "type": "object"
+      },
+      "CreateInviteRequest": {
+        "properties": {
+          "email": {
+            "maxLength": 255,
+            "title": "Email",
+            "type": "string"
+          },
+          "lifetime_days": {
+            "default": 7,
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Lifetime Days",
+            "type": "integer"
+          },
+          "role": {
+            "default": "member",
+            "description": "One of owner | admin | member | viewer",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "CreateInviteRequest",
+        "type": "object"
+      },
       "CreateLinkRequest": {
         "properties": {
           "expires_in_days": {
@@ -1160,7 +1488,7 @@
             "type": "string"
           },
           "role": {
-            "default": "developer",
+            "default": "member",
             "title": "Role",
             "type": "string"
           }
@@ -1421,6 +1749,157 @@
         "title": "CreatedApiToken",
         "type": "object"
       },
+      "CreatedInvite": {
+        "properties": {
+          "invite": {
+            "$ref": "#/components/schemas/InviteSummary"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "invite",
+          "token"
+        ],
+        "title": "CreatedInvite",
+        "type": "object"
+      },
+      "CredentialBindingModel": {
+        "description": "An agent's own credential for one provider.",
+        "properties": {
+          "credential_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Credential Id",
+            "type": "string"
+          },
+          "provider": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "credential_id"
+        ],
+        "title": "CredentialBindingModel",
+        "type": "object"
+      },
+      "CredentialView": {
+        "properties": {
+          "api_base": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Base"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "integer"
+          },
+          "default_for_provider": {
+            "title": "Default For Provider",
+            "type": "boolean"
+          },
+          "fingerprint": {
+            "description": "A preview of the key, never the key itself",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "owner": {
+            "enum": [
+              "org",
+              "user"
+            ],
+            "title": "Owner",
+            "type": "string"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "restricted_to_agents": {
+            "title": "Restricted To Agents",
+            "type": "boolean"
+          },
+          "shared_with_org_agents": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Shared With Org Agents",
+            "type": "array"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "provider",
+          "kind",
+          "owner",
+          "fingerprint",
+          "default_for_provider",
+          "restricted_to_agents",
+          "shared_with_org_agents",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CredentialView",
+        "type": "object"
+      },
+      "CurrentOrganization": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CurrentOrganization",
+        "type": "object"
+      },
       "CustomSkillCreateRequest": {
         "properties": {
           "body": {
@@ -1660,7 +2139,6 @@
           },
           "roles": {
             "default": [
-              "developer",
               "admin"
             ],
             "items": {
@@ -1676,6 +2154,108 @@
           }
         },
         "title": "DevLoginRequest",
+        "type": "object"
+      },
+      "FeedbackRequest": {
+        "properties": {
+          "comment": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Comment",
+            "type": "string"
+          },
+          "rating": {
+            "enum": [
+              "up",
+              "down"
+            ],
+            "title": "Rating",
+            "type": "string"
+          },
+          "turn_number": {
+            "description": "The answered turn, counted from 1",
+            "minimum": 1.0,
+            "title": "Turn Number",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "turn_number",
+          "rating"
+        ],
+        "title": "FeedbackRequest",
+        "type": "object"
+      },
+      "FeedbackView": {
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "answer_excerpt": {
+            "title": "Answer Excerpt",
+            "type": "string"
+          },
+          "comment": {
+            "title": "Comment",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "prompt_excerpt": {
+            "title": "Prompt Excerpt",
+            "type": "string"
+          },
+          "rating": {
+            "title": "Rating",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "turn_number": {
+            "title": "Turn Number",
+            "type": "integer"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "integer"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "user_id",
+          "turn_number",
+          "rating",
+          "comment",
+          "prompt_excerpt",
+          "answer_excerpt",
+          "model",
+          "agent_id",
+          "updated_at"
+        ],
+        "title": "FeedbackView",
         "type": "object"
       },
       "FileContent": {
@@ -1800,6 +2380,39 @@
           }
         },
         "title": "ForkSessionRequest",
+        "type": "object"
+      },
+      "GitActionResult": {
+        "properties": {
+          "action": {
+            "enum": [
+              "commit",
+              "push",
+              "pull_request"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "ok",
+          "summary"
+        ],
+        "title": "GitActionResult",
         "type": "object"
       },
       "GitHubCredentialStatus": {
@@ -2019,12 +2632,6 @@
           "available": {
             "description": "This deployment can validate and use GPG keys",
             "title": "Available",
-            "type": "boolean"
-          },
-          "commit_as_me": {
-            "default": false,
-            "description": "The member chose to commit as themselves",
-            "title": "Commit As Me",
             "type": "boolean"
           },
           "commit_email": {
@@ -2257,6 +2864,82 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HealthCheckView": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "fix_href": {
+            "default": "",
+            "description": "Where to do it (a settings page or the docs)",
+            "title": "Fix Href",
+            "type": "string"
+          },
+          "fix_label": {
+            "default": "",
+            "description": "What to do, when something is missing",
+            "title": "Fix Label",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "ok, warning, error or unknown",
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "detail"
+        ],
+        "title": "HealthCheckView",
+        "type": "object"
+      },
+      "HunkView": {
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "header": {
+            "description": "The hunk's @@ line",
+            "title": "Header",
+            "type": "string"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "preview": {
+            "description": "Its first lines",
+            "title": "Preview",
+            "type": "string"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "index",
+          "header",
+          "added",
+          "removed",
+          "preview"
+        ],
+        "title": "HunkView",
+        "type": "object"
+      },
       "InstallationInfo": {
         "properties": {
           "account_login": {
@@ -2306,6 +2989,71 @@
           "app_configured"
         ],
         "title": "InstallationList",
+        "type": "object"
+      },
+      "InviteList": {
+        "properties": {
+          "invites": {
+            "items": {
+              "$ref": "#/components/schemas/InviteSummary"
+            },
+            "title": "Invites",
+            "type": "array"
+          }
+        },
+        "required": [
+          "invites"
+        ],
+        "title": "InviteList",
+        "type": "object"
+      },
+      "InviteSummary": {
+        "properties": {
+          "accepted_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted At"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "integer"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role",
+          "expires_at",
+          "created_by",
+          "created_at"
+        ],
+        "title": "InviteSummary",
         "type": "object"
       },
       "KnowledgeBaseCreateRequest": {
@@ -3553,33 +4301,42 @@
         "title": "MissionResponse",
         "type": "object"
       },
-      "ModelKeyRequest": {
+      "MissionTemplateResponse": {
         "properties": {
-          "api_base": {
-            "anyOf": [
-              {
-                "maxLength": 500,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Endpoint for self-hosted or proxied providers (Ollama, vLLM, ...)",
-            "title": "Api Base"
+          "cron": {
+            "title": "Cron",
+            "type": "string"
           },
-          "api_key": {
-            "description": "The provider API key",
-            "maxLength": 500,
-            "minLength": 8,
-            "title": "Api Key",
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "permission_mode": {
+            "title": "Permission Mode",
+            "type": "string"
+          },
+          "prompt": {
+            "title": "Prompt",
             "type": "string"
           }
         },
         "required": [
-          "api_key"
+          "id",
+          "name",
+          "description",
+          "prompt",
+          "cron",
+          "permission_mode"
         ],
-        "title": "ModelKeyRequest",
+        "title": "MissionTemplateResponse",
         "type": "object"
       },
       "ModelUsage": {
@@ -3642,6 +4399,114 @@
           "model"
         ],
         "title": "ModelUsage",
+        "type": "object"
+      },
+      "MyAccess": {
+        "description": "What the caller may do here: their role and their role's capabilities.",
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Capabilities",
+            "type": "array"
+          },
+          "org_id": {
+            "title": "Org Id",
+            "type": "string"
+          },
+          "org_name": {
+            "title": "Org Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "org_id",
+          "org_name",
+          "role",
+          "roles",
+          "capabilities"
+        ],
+        "title": "MyAccess",
+        "type": "object"
+      },
+      "OrgCredentialList": {
+        "properties": {
+          "credentials": {
+            "items": {
+              "$ref": "#/components/schemas/CredentialView"
+            },
+            "title": "Credentials",
+            "type": "array"
+          },
+          "shared_by_members": {
+            "items": {
+              "$ref": "#/components/schemas/CredentialView"
+            },
+            "title": "Shared By Members",
+            "type": "array"
+          }
+        },
+        "required": [
+          "credentials",
+          "shared_by_members"
+        ],
+        "title": "OrgCredentialList",
+        "type": "object"
+      },
+      "OrganizationList": {
+        "properties": {
+          "organizations": {
+            "items": {
+              "$ref": "#/components/schemas/OrganizationSummary"
+            },
+            "title": "Organizations",
+            "type": "array"
+          }
+        },
+        "required": [
+          "organizations"
+        ],
+        "title": "OrganizationList",
+        "type": "object"
+      },
+      "OrganizationSummary": {
+        "properties": {
+          "active": {
+            "default": false,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role"
+        ],
+        "title": "OrganizationSummary",
         "type": "object"
       },
       "PairRequest": {
@@ -3745,6 +4610,124 @@
           "message"
         ],
         "title": "PersonaWarning",
+        "type": "object"
+      },
+      "PlanDecisionRequest": {
+        "properties": {
+          "action_id": {
+            "description": "The plan's gate",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Action Id",
+            "type": "string"
+          },
+          "approved": {
+            "title": "Approved",
+            "type": "boolean"
+          },
+          "checklist": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PlanTaskInput"
+                },
+                "maxItems": 30,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The plan as edited on the card; omit when it was not edited",
+            "title": "Checklist"
+          },
+          "feedback": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Feedback",
+            "type": "string"
+          },
+          "permission_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "ask",
+                  "auto_edit",
+                  "auto",
+                  "bypass"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The mode the work continues in; required to approve",
+            "title": "Permission Mode"
+          }
+        },
+        "required": [
+          "action_id",
+          "approved"
+        ],
+        "title": "PlanDecisionRequest",
+        "type": "object"
+      },
+      "PlanDecisionResponse": {
+        "properties": {
+          "action_id": {
+            "title": "Action Id",
+            "type": "string"
+          },
+          "approved": {
+            "title": "Approved",
+            "type": "boolean"
+          },
+          "edited": {
+            "description": "The approved plan was edited on the card",
+            "title": "Edited",
+            "type": "boolean"
+          },
+          "permission_mode": {
+            "description": "The session's mode from now on; empty if rejected",
+            "title": "Permission Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action_id",
+          "approved",
+          "permission_mode",
+          "edited"
+        ],
+        "title": "PlanDecisionResponse",
+        "type": "object"
+      },
+      "PlanTaskInput": {
+        "properties": {
+          "description": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "default": "",
+            "maxLength": 100,
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "PlanTaskInput",
         "type": "object"
       },
       "PlatformKeyView": {
@@ -3937,6 +4920,94 @@
         "title": "PublicLinkView",
         "type": "object"
       },
+      "PullRequestItem": {
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CheckItem"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "draft": {
+            "title": "Draft",
+            "type": "boolean"
+          },
+          "head_sha": {
+            "title": "Head Sha",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "state": {
+            "description": "open, closed or merged",
+            "title": "State",
+            "type": "string"
+          },
+          "threads": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadItem"
+            },
+            "title": "Threads",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "url",
+          "title",
+          "state",
+          "draft",
+          "head_sha",
+          "checks",
+          "threads"
+        ],
+        "title": "PullRequestItem",
+        "type": "object"
+      },
+      "PullRequestRequest": {
+        "properties": {
+          "base": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base"
+          },
+          "body": {
+            "default": "",
+            "maxLength": 60000,
+            "title": "Body",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "PullRequestRequest",
+        "type": "object"
+      },
       "RepositoryChangesResponse": {
         "properties": {
           "base_label": {
@@ -4122,6 +5193,44 @@
         "title": "RetentionWindows",
         "type": "object"
       },
+      "RevertHunkRequest": {
+        "properties": {
+          "index": {
+            "description": "Which hunk of the file, from the hunk listing",
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "path": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "repository": {
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Repository",
+            "type": "string"
+          },
+          "scope": {
+            "default": "session",
+            "enum": [
+              "session",
+              "turn"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository",
+          "path",
+          "index"
+        ],
+        "title": "RevertHunkRequest",
+        "type": "object"
+      },
       "RevertRequest": {
         "properties": {
           "path": {
@@ -4202,6 +5311,21 @@
           "target_turn"
         ],
         "title": "RewindSessionRequest",
+        "type": "object"
+      },
+      "RotateCredentialRequest": {
+        "properties": {
+          "api_key": {
+            "maxLength": 500,
+            "minLength": 8,
+            "title": "Api Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_key"
+        ],
+        "title": "RotateCredentialRequest",
         "type": "object"
       },
       "RouterTryRequest": {
@@ -4689,6 +5813,88 @@
         "title": "SessionFlagsRequest",
         "type": "object"
       },
+      "SessionGitView": {
+        "properties": {
+          "ahead": {
+            "title": "Ahead",
+            "type": "integer"
+          },
+          "base": {
+            "title": "Base",
+            "type": "string"
+          },
+          "behind": {
+            "title": "Behind",
+            "type": "integer"
+          },
+          "branch": {
+            "title": "Branch",
+            "type": "string"
+          },
+          "commits": {
+            "items": {
+              "$ref": "#/components/schemas/CommitItem"
+            },
+            "title": "Commits",
+            "type": "array"
+          },
+          "folder": {
+            "title": "Folder",
+            "type": "string"
+          },
+          "publish_as": {
+            "description": "member or bot (github.publish_as)",
+            "title": "Publish As",
+            "type": "string"
+          },
+          "pull_request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PullRequestItem"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pull_request_error": {
+            "default": "",
+            "description": "Why the pull request could not be read",
+            "title": "Pull Request Error",
+            "type": "string"
+          },
+          "repository": {
+            "description": "owner/name of the active repository",
+            "title": "Repository",
+            "type": "string"
+          },
+          "signing": {
+            "description": "github, member_gpg or none (github.signing)",
+            "title": "Signing",
+            "type": "string"
+          },
+          "uncommitted": {
+            "description": "Files changed and not committed",
+            "title": "Uncommitted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "repository",
+          "folder",
+          "branch",
+          "base",
+          "ahead",
+          "behind",
+          "uncommitted",
+          "commits",
+          "pull_request",
+          "publish_as",
+          "signing"
+        ],
+        "title": "SessionGitView",
+        "type": "object"
+      },
       "SessionListItem": {
         "description": "A session as shown in the sidebar, carrying its pin/archive and fork state.",
         "properties": {
@@ -4860,6 +6066,12 @@
           },
           "updated_at": {
             "title": "Updated At",
+            "type": "integer"
+          },
+          "user_turns_before": {
+            "default": 0,
+            "description": "Messages the person sent before the first one returned, so a client numbers the turns it shows from the start of the conversation",
+            "title": "User Turns Before",
             "type": "integer"
           }
         },
@@ -5056,6 +6268,12 @@
           "updated_at": {
             "title": "Updated At",
             "type": "integer"
+          },
+          "user_turns_before": {
+            "default": 0,
+            "description": "Messages the person sent before the first one returned, so a client numbers the turns it shows from the start of the conversation",
+            "title": "User Turns Before",
+            "type": "integer"
           }
         },
         "required": [
@@ -5069,6 +6287,36 @@
           "sandbox_status"
         ],
         "title": "SessionResponse",
+        "type": "object"
+      },
+      "SessionSpend": {
+        "description": "The limits that apply to the caller in this session, tightest first.",
+        "properties": {
+          "limits": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Limits",
+            "type": "array"
+          },
+          "tightest": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tightest"
+          }
+        },
+        "required": [
+          "limits"
+        ],
+        "title": "SessionSpend",
         "type": "object"
       },
       "SessionUsage": {
@@ -5144,18 +6392,50 @@
         "title": "ShareSessionRequest",
         "type": "object"
       },
+      "SharedArtifact": {
+        "properties": {
+          "artifact_type": {
+            "title": "Artifact Type",
+            "type": "string"
+          },
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title",
+          "filename",
+          "artifact_type",
+          "content"
+        ],
+        "title": "SharedArtifact",
+        "type": "object"
+      },
       "SharedConversation": {
         "properties": {
+          "artifacts": {
+            "items": {
+              "$ref": "#/components/schemas/SharedArtifact"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
           "expires_at": {
             "title": "Expires At",
             "type": "integer"
           },
           "messages": {
             "items": {
-              "additionalProperties": {
-                "type": "string"
-              },
-              "type": "object"
+              "$ref": "#/components/schemas/SharedMessage"
             },
             "title": "Messages",
             "type": "array"
@@ -5176,6 +6456,63 @@
           "messages"
         ],
         "title": "SharedConversation",
+        "type": "object"
+      },
+      "SharedMessage": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "steps": {
+            "description": "The tool steps behind an answer (redacted, bounded)",
+            "items": {
+              "$ref": "#/components/schemas/SharedStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "steps_cut": {
+            "default": 0,
+            "description": "Earlier steps of that answer not shown",
+            "title": "Steps Cut",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "SharedMessage",
+        "type": "object"
+      },
+      "SharedStep": {
+        "properties": {
+          "arguments": {
+            "description": "Redacted and cut; never the step's output",
+            "title": "Arguments",
+            "type": "string"
+          },
+          "kind": {
+            "description": "edit (a file change) or step",
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "arguments"
+        ],
+        "title": "SharedStep",
         "type": "object"
       },
       "SharingView": {
@@ -5690,6 +7027,282 @@
         "title": "SlackBotUpdateRequest",
         "type": "object"
       },
+      "SpendLimitRequest": {
+        "properties": {
+          "amount_usd": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000.0,
+            "title": "Amount Usd",
+            "type": "number"
+          },
+          "is_ceiling": {
+            "default": false,
+            "title": "Is Ceiling",
+            "type": "boolean"
+          },
+          "member_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Id"
+          },
+          "mode": {
+            "default": "block",
+            "enum": [
+              "warn",
+              "block"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "period": {
+            "enum": [
+              "day",
+              "week",
+              "month",
+              "rolling_24h",
+              "rolling_7d",
+              "session",
+              "turn"
+            ],
+            "title": "Period",
+            "type": "string"
+          },
+          "subject_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Id"
+          },
+          "subject_kind": {
+            "enum": [
+              "org",
+              "member",
+              "agent",
+              "agent_member",
+              "slack_workspace"
+            ],
+            "title": "Subject Kind",
+            "type": "string"
+          },
+          "warn_at_percent": {
+            "default": 80,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Warn At Percent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "subject_kind",
+          "period",
+          "amount_usd"
+        ],
+        "title": "SpendLimitRequest",
+        "type": "object"
+      },
+      "SpendLimitUpdate": {
+        "properties": {
+          "amount_usd": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1000000.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount Usd"
+          },
+          "is_ceiling": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Ceiling"
+          },
+          "mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "warn",
+                  "block"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
+          },
+          "warn_at_percent": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warn At Percent"
+          }
+        },
+        "title": "SpendLimitUpdate",
+        "type": "object"
+      },
+      "SpendLimitView": {
+        "properties": {
+          "amount_usd": {
+            "title": "Amount Usd",
+            "type": "number"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "integer"
+          },
+          "created_by": {
+            "title": "Created By",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_ceiling": {
+            "title": "Is Ceiling",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "member_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member Id"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "resets_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resets At"
+          },
+          "spent_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spent Usd"
+          },
+          "subject_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subject Id"
+          },
+          "subject_kind": {
+            "title": "Subject Kind",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "integer"
+          },
+          "warn_at_percent": {
+            "title": "Warn At Percent",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "subject_kind",
+          "subject_id",
+          "member_id",
+          "period",
+          "amount_usd",
+          "mode",
+          "warn_at_percent",
+          "is_ceiling",
+          "label",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SpendLimitView",
+        "type": "object"
+      },
+      "StarterSkillResponse": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "enabled"
+        ],
+        "title": "StarterSkillResponse",
+        "type": "object"
+      },
       "StopResult": {
         "properties": {
           "message": {
@@ -5716,6 +7329,12 @@
             "title": "Built In",
             "type": "boolean"
           },
+          "can_ask_user": {
+            "default": false,
+            "description": "Whether its approvals and questions reach the person.",
+            "title": "Can Ask User",
+            "type": "boolean"
+          },
           "customized": {
             "default": false,
             "description": "A built-in role customized by the organization",
@@ -5726,6 +7345,14 @@
             "title": "Description",
             "type": "string"
           },
+          "disallowed_tools": {
+            "description": "Tools the role never gets, even under `*`.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Disallowed Tools",
+            "type": "array"
+          },
           "enabled": {
             "default": true,
             "title": "Enabled",
@@ -5735,12 +7362,53 @@
             "title": "Id",
             "type": "string"
           },
+          "inherit": {
+            "description": "What it starts with besides its prompt.",
+            "items": {
+              "enum": [
+                "agents_md",
+                "memory",
+                "checklist",
+                "skills"
+              ],
+              "type": "string"
+            },
+            "title": "Inherit",
+            "type": "array"
+          },
+          "isolation": {
+            "default": "none",
+            "description": "Where its changes land: the shared tree, a worktree, a sandbox.",
+            "enum": [
+              "none",
+              "worktree",
+              "sandbox"
+            ],
+            "title": "Isolation",
+            "type": "string"
+          },
+          "max_cost_usd": {
+            "default": 3.0,
+            "description": "Spend cap per run (0: none).",
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Max Cost Usd",
+            "type": "number"
+          },
           "max_turns": {
             "default": 30,
             "description": "Steps the subagent may take before it must report (0: until it finishes).",
             "maximum": 500.0,
             "minimum": 0.0,
             "title": "Max Turns",
+            "type": "integer"
+          },
+          "max_wall_seconds": {
+            "default": 0,
+            "description": "Wall-clock cap per run in seconds (0: none).",
+            "maximum": 86400.0,
+            "minimum": 0.0,
+            "title": "Max Wall Seconds",
             "type": "integer"
           },
           "model": {
@@ -5758,8 +7426,43 @@
             "title": "Name",
             "type": "string"
           },
+          "output_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "JSON Schema of the `data` its report must carry.",
+            "title": "Output Schema"
+          },
+          "reasoning_effort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Reasoning level for the role.",
+            "title": "Reasoning Effort"
+          },
           "role_title": {
             "title": "Role Title",
+            "type": "string"
+          },
+          "source": {
+            "default": "org",
+            "enum": [
+              "builtin",
+              "org",
+              "repository"
+            ],
+            "title": "Source",
             "type": "string"
           },
           "system_prompt": {
@@ -5770,6 +7473,17 @@
             "default": 0.2,
             "title": "Temperature",
             "type": "number"
+          },
+          "tier": {
+            "default": "default",
+            "description": "Model tier when `model` is empty: fast, default or frontier.",
+            "enum": [
+              "fast",
+              "default",
+              "frontier"
+            ],
+            "title": "Tier",
+            "type": "string"
           },
           "whitelisted_tools": {
             "items": {
@@ -5835,6 +7549,25 @@
             },
             "title": "Messages",
             "type": "array"
+          },
+          "model": {
+            "default": "",
+            "description": "The model the subagent ran on",
+            "title": "Model",
+            "type": "string"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The structured report it ended with: status, summary, findings (file, line, severity, evidence), changes (branch, diff_stat, files), open_questions, next_steps and data",
+            "title": "Report"
           },
           "role": {
             "description": "Role title or role key of the subagent",
@@ -5938,6 +7671,25 @@
             "title": "Id",
             "type": "string"
           },
+          "model": {
+            "default": "",
+            "description": "The model the subagent ran on",
+            "title": "Model",
+            "type": "string"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The structured report it ended with: status, summary, findings (file, line, severity, evidence), changes (branch, diff_stat, files), open_questions, next_steps and data",
+            "title": "Report"
+          },
           "role": {
             "description": "Role title or role key of the subagent",
             "title": "Role",
@@ -6000,6 +7752,42 @@
           "created_at"
         ],
         "title": "SubagentTranscriptSummary",
+        "type": "object"
+      },
+      "SwitchOrgRequest": {
+        "properties": {
+          "org_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Org Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "org_id"
+        ],
+        "title": "SwitchOrgRequest",
+        "type": "object"
+      },
+      "SwitchOrgResponse": {
+        "properties": {
+          "org_id": {
+            "title": "Org Id",
+            "type": "string"
+          },
+          "roles": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Roles",
+            "type": "array"
+          }
+        },
+        "required": [
+          "org_id",
+          "roles"
+        ],
+        "title": "SwitchOrgResponse",
         "type": "object"
       },
       "TemplateBody": {
@@ -6093,6 +7881,18 @@
             ],
             "title": "Agent Id"
           },
+          "blocked": {
+            "default": false,
+            "description": "The agent it names is no longer available to the caller (access revoked, or the agent deleted): starting it is refused",
+            "title": "Blocked",
+            "type": "boolean"
+          },
+          "blocked_reason": {
+            "default": "",
+            "description": "Why it is blocked, for the caller",
+            "title": "Blocked Reason",
+            "type": "string"
+          },
           "description": {
             "title": "Description",
             "type": "string"
@@ -6178,6 +7978,60 @@
         "title": "TemporaryCredential",
         "type": "object"
       },
+      "ThreadItem": {
+        "properties": {
+          "comments": {
+            "description": "(author, body) pairs",
+            "items": {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Comments",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "line": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Line"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "resolved": {
+            "title": "Resolved",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "resolved",
+          "path",
+          "line",
+          "comments"
+        ],
+        "title": "ThreadItem",
+        "type": "object"
+      },
       "ToolCatalogEntry": {
         "properties": {
           "category": {
@@ -6190,6 +8044,12 @@
           },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "permission": {
+            "default": "command",
+            "description": "read, edit, command or publish (what approval it needs)",
+            "title": "Permission",
             "type": "string"
           },
           "toolset": {
@@ -6307,6 +8167,85 @@
           }
         },
         "title": "ToolLoadingPreviewRequest",
+        "type": "object"
+      },
+      "TranscriptMatch": {
+        "description": "One message of the transcript that contains the searched text.",
+        "properties": {
+          "excerpt": {
+            "description": "The text around the first occurrence, trimmed",
+            "title": "Excerpt",
+            "type": "string"
+          },
+          "index": {
+            "description": "Position of the message in the conversation history",
+            "title": "Index",
+            "type": "integer"
+          },
+          "match_length": {
+            "description": "Length of the occurrence inside the excerpt",
+            "title": "Match Length",
+            "type": "integer"
+          },
+          "match_start": {
+            "description": "Where the occurrence starts inside the excerpt",
+            "title": "Match Start",
+            "type": "integer"
+          },
+          "occurrences": {
+            "description": "How many times the message contains the text",
+            "title": "Occurrences",
+            "type": "integer"
+          },
+          "role": {
+            "description": "user, assistant, system or tool",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "role",
+          "excerpt",
+          "match_start",
+          "match_length",
+          "occurrences"
+        ],
+        "title": "TranscriptMatch",
+        "type": "object"
+      },
+      "TranscriptSearchResult": {
+        "description": "The matches of a transcript search, oldest first.",
+        "properties": {
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptMatch"
+            },
+            "title": "Matches",
+            "type": "array"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "total_messages": {
+            "description": "Messages in the whole conversation history",
+            "title": "Total Messages",
+            "type": "integer"
+          },
+          "truncated": {
+            "description": "More messages matched than were returned",
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "query",
+          "matches",
+          "total_messages",
+          "truncated"
+        ],
+        "title": "TranscriptSearchResult",
         "type": "object"
       },
       "TreeEntry": {
@@ -6738,6 +8677,78 @@
         "title": "TurnUsage",
         "type": "object"
       },
+      "UpdateCredentialRequest": {
+        "properties": {
+          "api_base": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Base"
+          },
+          "clear_api_base": {
+            "default": false,
+            "title": "Clear Api Base",
+            "type": "boolean"
+          },
+          "default_for_provider": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default For Provider"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "restricted_to_agents": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restricted To Agents"
+          },
+          "shared_with_org_agents": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Organization agents that may use this member credential",
+            "title": "Shared With Org Agents"
+          }
+        },
+        "title": "UpdateCredentialRequest",
+        "type": "object"
+      },
       "UpdateOrgSettingsRequest": {
         "description": "Payload to update organization defaults and locked keys for a domain.",
         "properties": {
@@ -6887,7 +8898,7 @@
       "UpdateUserRoleRequest": {
         "properties": {
           "role": {
-            "description": "One of owner | admin | developer | readonly",
+            "description": "One of owner | admin | member | viewer",
             "title": "Role",
             "type": "string"
           }
@@ -6901,7 +8912,7 @@
       "UpdateUserRoleResponse": {
         "properties": {
           "note": {
-            "default": "The user must reload / sign in again for the new role to take effect.",
+            "default": "The new role applies to the member's open sessions within 15 seconds.",
             "title": "Note",
             "type": "string"
           },
@@ -8177,17 +10188,35 @@
         ]
       }
     },
-    "/v1/admin/budget": {
-      "put": {
-        "description": "Set the organization's monthly spend cap (shorthand for the ``budgets`` settings domain).",
-        "operationId": "update_org_budget_cap_v1_admin_budget_put",
+    "/v1/admin/credentials": {
+      "get": {
+        "description": "The organization's credentials, and members' credentials shared with its agents.",
+        "operationId": "list_org_credentials_v1_admin_credentials_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgCredentialList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Org Credentials",
+        "tags": [
+          "Model credentials"
+        ]
+      },
+      "post": {
+        "description": "Add an organization credential; a restricted one serves only the agents bound to it.",
+        "operationId": "create_org_credential_v1_admin_credentials_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "additionalProperties": true,
-                "title": "Body",
-                "type": "object"
+                "$ref": "#/components/schemas/CreateCredentialRequest"
               }
             }
           },
@@ -8198,8 +10227,79 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Update Org Budget Cap V1 Admin Budget Put",
+                  "$ref": "#/components/schemas/CredentialView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Org Credential",
+        "tags": [
+          "Model credentials"
+        ]
+      }
+    },
+    "/v1/admin/credentials/platform": {
+      "get": {
+        "description": "Providers whose key the deployment itself holds in the environment (administrators).\n\nMembers use these when neither they nor the organization stored a key; an organization key\nfor the same provider replaces the deployment's for this organization only.",
+        "operationId": "list_platform_credentials_v1_admin_credentials_platform_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PlatformKeyView"
+                  },
+                  "title": "Response List Platform Credentials V1 Admin Credentials Platform Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Platform Credentials",
+        "tags": [
+          "Model credentials"
+        ]
+      }
+    },
+    "/v1/admin/credentials/{credential_id}": {
+      "delete": {
+        "description": "Remove an organization credential; agents bound to it fail with \"credential withdrawn\".",
+        "operationId": "delete_org_credential_v1_admin_credentials__credential_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Delete Org Credential V1 Admin Credentials  Credential Id  Delete",
                   "type": "object"
                 }
               }
@@ -8217,9 +10317,159 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Update Org Budget Cap",
+        "summary": "Delete Org Credential",
         "tags": [
-          "Sessions & Telemetry"
+          "Model credentials"
+        ]
+      },
+      "patch": {
+        "operationId": "update_org_credential_v1_admin_credentials__credential_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCredentialRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Org Credential",
+        "tags": [
+          "Model credentials"
+        ]
+      }
+    },
+    "/v1/admin/credentials/{credential_id}/rotate": {
+      "post": {
+        "operationId": "rotate_org_credential_v1_admin_credentials__credential_id__rotate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateCredentialRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rotate Org Credential",
+        "tags": [
+          "Model credentials"
+        ]
+      }
+    },
+    "/v1/admin/feedback": {
+      "get": {
+        "description": "Every rating of the organization since ``since`` (epoch seconds), newest first, with\nthe prompt and answer excerpts (administrators).",
+        "operationId": "export_feedback_v1_admin_feedback_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Since",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FeedbackView"
+                  },
+                  "title": "Response Export Feedback V1 Admin Feedback Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Feedback",
+        "tags": [
+          "Feedback"
         ]
       }
     },
@@ -8306,122 +10556,35 @@
         ]
       }
     },
-    "/v1/admin/model-keys": {
+    "/v1/admin/invites": {
       "get": {
-        "description": "Provider keys shared by the organization (administrators).",
-        "operationId": "list_org_model_keys_v1_admin_model_keys_get",
+        "description": "The organization's invitations, newest first (admin/owner only).",
+        "operationId": "get_invites_v1_admin_invites_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "title": "Response List Org Model Keys V1 Admin Model Keys Get",
-                  "type": "array"
+                  "$ref": "#/components/schemas/InviteList"
                 }
               }
             },
             "description": "Successful Response"
           }
         },
-        "summary": "List Org Model Keys",
+        "summary": "Get Invites",
         "tags": [
-          "Sessions & Telemetry"
-        ]
-      }
-    },
-    "/v1/admin/model-keys/platform": {
-      "get": {
-        "description": "Providers whose key the deployment itself holds in the environment (administrators).\n\nMembers use these when neither they nor the organization stored a key; an organization key\nfor the same provider replaces the deployment's for this organization only.",
-        "operationId": "list_platform_model_keys_v1_admin_model_keys_platform_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/PlatformKeyView"
-                  },
-                  "title": "Response List Platform Model Keys V1 Admin Model Keys Platform Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List Platform Model Keys",
-        "tags": [
-          "Sessions & Telemetry"
-        ]
-      }
-    },
-    "/v1/admin/model-keys/{provider}": {
-      "delete": {
-        "operationId": "delete_org_model_key_v1_admin_model_keys__provider__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "provider",
-            "required": true,
-            "schema": {
-              "title": "Provider",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "boolean"
-                  },
-                  "title": "Response Delete Org Model Key V1 Admin Model Keys  Provider  Delete",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete Org Model Key",
-        "tags": [
-          "Sessions & Telemetry"
+          "Organizations"
         ]
       },
-      "put": {
-        "operationId": "put_org_model_key_v1_admin_model_keys__provider__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "provider",
-            "required": true,
-            "schema": {
-              "title": "Provider",
-              "type": "string"
-            }
-          }
-        ],
+      "post": {
+        "description": "Invite a person by e-mail; the link expires and works once (admin/owner only).",
+        "operationId": "post_invite_v1_admin_invites_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ModelKeyRequest"
+                "$ref": "#/components/schemas/CreateInviteRequest"
               }
             }
           },
@@ -8432,8 +10595,53 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Put Org Model Key V1 Admin Model Keys  Provider  Put",
+                  "$ref": "#/components/schemas/CreatedInvite"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Invite",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/v1/admin/invites/{invite_id}": {
+      "delete": {
+        "description": "Withdraw an invitation (admin/owner only).",
+        "operationId": "delete_invite_v1_admin_invites__invite_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "invite_id",
+            "required": true,
+            "schema": {
+              "title": "Invite Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Invite V1 Admin Invites  Invite Id  Delete",
                   "type": "object"
                 }
               }
@@ -8451,9 +10659,9 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Put Org Model Key",
+        "summary": "Delete Invite",
         "tags": [
-          "Sessions & Telemetry"
+          "Organizations"
         ]
       }
     },
@@ -8622,7 +10830,7 @@
     },
     "/v1/admin/settings/{domain}": {
       "get": {
-        "description": "Retrieve organization-wide policy configuration and locked keys (admin only).",
+        "description": "The organization's values, locks and where each value comes from (admin only).\n\n``provenance`` says, per key, whether the value is the platform default, the operator's\n(``instance``: an environment variable, read-only here) or the organization's own.",
         "operationId": "get_org_admin_settings_v1_admin_settings__domain__get",
         "parameters": [
           {
@@ -8715,6 +10923,32 @@
         "summary": "Update Org Admin Settings",
         "tags": [
           "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/admin/setup-health": {
+      "get": {
+        "description": "A provider key and a default model it can call, embeddings, web search, the GitHub App,\nand the sandbox images (administrators).",
+        "operationId": "get_setup_health_v1_admin_setup_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HealthCheckView"
+                  },
+                  "title": "Response Get Setup Health V1 Admin Setup Health Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Setup Health",
+        "tags": [
+          "Administration"
         ]
       }
     },
@@ -9184,6 +11418,168 @@
         ]
       }
     },
+    "/v1/admin/spend-limits": {
+      "get": {
+        "description": "The organization's spend limits, with what each has used in its current window.",
+        "operationId": "list_spend_limits_v1_admin_spend_limits_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SpendLimitView"
+                  },
+                  "title": "Response List Spend Limits V1 Admin Spend Limits Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Spend Limits",
+        "tags": [
+          "Spend limits"
+        ]
+      },
+      "post": {
+        "description": "Add a spend limit (needs ``manage_spend_limits``).",
+        "operationId": "create_spend_limit_v1_admin_spend_limits_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpendLimitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpendLimitView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Spend Limit",
+        "tags": [
+          "Spend limits"
+        ]
+      }
+    },
+    "/v1/admin/spend-limits/{limit_id}": {
+      "delete": {
+        "operationId": "delete_spend_limit_v1_admin_spend_limits__limit_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "limit_id",
+            "required": true,
+            "schema": {
+              "title": "Limit Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Delete Spend Limit V1 Admin Spend Limits  Limit Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Spend Limit",
+        "tags": [
+          "Spend limits"
+        ]
+      },
+      "patch": {
+        "operationId": "update_spend_limit_v1_admin_spend_limits__limit_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "limit_id",
+            "required": true,
+            "schema": {
+              "title": "Limit Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpendLimitUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpendLimitView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Spend Limit",
+        "tags": [
+          "Spend limits"
+        ]
+      }
+    },
     "/v1/admin/users": {
       "get": {
         "description": "List the organization's members (admin/owner only).",
@@ -9308,7 +11704,7 @@
     },
     "/v1/admin/users/{user_id}": {
       "patch": {
-        "description": "Change a member's role (admin/owner only). Takes effect on their next login.",
+        "description": "Change a member's role (admin/owner only). Applies to their open sessions within 15 seconds.",
         "operationId": "update_user_role_v1_admin_users__user_id__patch",
         "parameters": [
           {
@@ -9404,7 +11800,7 @@
     },
     "/v1/agents": {
       "get": {
-        "description": "List the built-in personas plus the organization's and the caller's own.",
+        "description": "The agents the caller may use: built-in, the organization's (per their access grants)\nand the caller's own. Administrators also see disabled organization agents.",
         "operationId": "list_agents_v1_agents_get",
         "responses": {
           "200": {
@@ -9589,6 +11985,207 @@
         ]
       }
     },
+    "/v1/agents/{persona_id}/access": {
+      "get": {
+        "description": "Who may use an organization agent (administrators).",
+        "operationId": "get_agent_access_v1_agents__persona_id__access_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "persona_id",
+            "required": true,
+            "schema": {
+              "title": "Persona Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentAccessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Agent Access",
+        "tags": [
+          "Agents"
+        ]
+      },
+      "put": {
+        "description": "Replace who may use an organization agent (administrators). Turns already running\nfinish; the next turn of someone who lost access fails with ``agent_access_denied``, and\nscheduled missions of people who lost it are paused.",
+        "operationId": "put_agent_access_v1_agents__persona_id__access_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "persona_id",
+            "required": true,
+            "schema": {
+              "title": "Persona Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentAccessRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentAccessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Agent Access",
+        "tags": [
+          "Agents"
+        ]
+      }
+    },
+    "/v1/approval-rules": {
+      "get": {
+        "description": "Your \"always for this command in this repository\" rules, in every session.",
+        "operationId": "list_my_repository_rules_v1_approval_rules_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalRulesView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List My Repository Rules",
+        "tags": [
+          "Approvals"
+        ]
+      }
+    },
+    "/v1/approval-rules/{rule_id}": {
+      "delete": {
+        "description": "Revoke one of your repository rules; it stops applying at the next gate of any turn.",
+        "operationId": "revoke_my_repository_rule_v1_approval_rules__rule_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalRuleView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke My Repository Rule",
+        "tags": [
+          "Approvals"
+        ]
+      }
+    },
+    "/v1/auth/switch-org": {
+      "post": {
+        "description": "Make another organization the active one: allowed only for one the caller belongs to.",
+        "operationId": "switch_organization_v1_auth_switch_org_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchOrgRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SwitchOrgResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Switch Organization",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
     "/v1/drain": {
       "post": {
         "description": "Marks this replica as draining: new work is refused with 503 while running turns finish. Called by the pod's preStop hook; administrators only.",
@@ -9691,6 +12288,48 @@
           }
         },
         "summary": "Health Check"
+      }
+    },
+    "/v1/invites/accept": {
+      "post": {
+        "description": "Join the invitation's organization; switch to it with ``POST /v1/auth/switch-org``.",
+        "operationId": "accept_v1_invites_accept_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInviteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept",
+        "tags": [
+          "Organizations"
+        ]
       }
     },
     "/v1/knowledge/bases": {
@@ -10386,6 +13025,50 @@
         ]
       }
     },
+    "/v1/me/access": {
+      "get": {
+        "description": "The caller's role and capabilities in the active organization (for the cockpit: what\nto show; the API enforces each of them again).",
+        "operationId": "my_access_v1_me_access_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyAccess"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "My Access",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
+    "/v1/me/organizations": {
+      "get": {
+        "description": "Every organization the caller belongs to, the active one marked.",
+        "operationId": "my_organizations_v1_me_organizations_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "My Organizations",
+        "tags": [
+          "Organizations"
+        ]
+      }
+    },
     "/v1/memories": {
       "get": {
         "description": "List the caller's visible long-term memories for the cockpit inspector.",
@@ -10581,6 +13264,32 @@
         ]
       }
     },
+    "/v1/missions/templates": {
+      "get": {
+        "description": "Starting points for recurring maintenance missions (created disabled until switched on).",
+        "operationId": "list_mission_templates_v1_missions_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MissionTemplateResponse"
+                  },
+                  "title": "Response List Mission Templates V1 Missions Templates Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Mission Templates",
+        "tags": [
+          "Missions"
+        ]
+      }
+    },
     "/v1/missions/{mission_id}": {
       "delete": {
         "operationId": "delete_mission_v1_missions__mission_id__delete",
@@ -10745,6 +13454,28 @@
         "summary": "List Available Models",
         "tags": [
           "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/organization": {
+      "get": {
+        "description": "The caller's active organization, by name.",
+        "operationId": "current_organization_v1_organization_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentOrganization"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Current Organization",
+        "tags": [
+          "Organizations"
         ]
       }
     },
@@ -11256,6 +13987,101 @@
         "summary": "Update Session",
         "tags": [
           "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/approval-rules": {
+      "get": {
+        "description": "What this session no longer asks about (\"Allow for this session\"), and the scopes the\norganization allows.",
+        "operationId": "list_session_rules_v1_sessions__session_id__approval_rules_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalRulesView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Session Rules",
+        "tags": [
+          "Approvals"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/approval-rules/{rule_id}": {
+      "delete": {
+        "description": "Ask again: the session's next call of the tool raises the approval it used to.",
+        "operationId": "revoke_session_rule_v1_sessions__session_id__approval_rules__rule_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "rule_id",
+            "required": true,
+            "schema": {
+              "title": "Rule Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalRuleView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Session Rule",
+        "tags": [
+          "Approvals"
         ]
       }
     },
@@ -11837,6 +14663,89 @@
         ]
       }
     },
+    "/v1/sessions/{session_id}/changes/hunks": {
+      "get": {
+        "description": "The changed regions of one file, to undo them one at a time.",
+        "operationId": "list_file_hunks_v1_sessions__session_id__changes_hunks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "repository",
+            "required": true,
+            "schema": {
+              "maxLength": 300,
+              "minLength": 1,
+              "title": "Repository",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "maxLength": 1000,
+              "minLength": 1,
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "session",
+              "enum": [
+                "session",
+                "turn"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/HunkView"
+                  },
+                  "title": "Response List File Hunks V1 Sessions  Session Id  Changes Hunks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List File Hunks",
+        "tags": [
+          "Changes"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/changes/revert": {
       "post": {
         "description": "Put one file back as it was at the base (or delete it when it did not exist then).",
@@ -11889,6 +14798,63 @@
           }
         },
         "summary": "Revert Changed File",
+        "tags": [
+          "Changes"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/changes/revert-hunk": {
+      "post": {
+        "description": "Undo one changed region of a file; the rest of the file is kept.",
+        "operationId": "revert_changed_hunk_v1_sessions__session_id__changes_revert_hunk_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevertHunkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Revert Changed Hunk V1 Sessions  Session Id  Changes Revert Hunk Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revert Changed Hunk",
         "tags": [
           "Changes"
         ]
@@ -12135,6 +15101,104 @@
         ]
       }
     },
+    "/v1/sessions/{session_id}/feedback": {
+      "get": {
+        "description": "The caller's own ratings on the session.",
+        "operationId": "my_feedback_v1_sessions__session_id__feedback_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FeedbackView"
+                  },
+                  "title": "Response My Feedback V1 Sessions  Session Id  Feedback Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "My Feedback",
+        "tags": [
+          "Feedback"
+        ]
+      },
+      "put": {
+        "description": "Rate one answer of a session the caller can see (again to change the rating).",
+        "operationId": "rate_answer_v1_sessions__session_id__feedback_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rate Answer",
+        "tags": [
+          "Feedback"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/flags": {
       "patch": {
         "description": "Pin or archive one session and broadcast the change to other tabs.",
@@ -12238,6 +15302,198 @@
         "summary": "Fork Session",
         "tags": [
           "Sessions"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/git": {
+      "get": {
+        "description": "The active repository's branch against its base, its commits, and its pull request.",
+        "operationId": "get_session_git_v1_sessions__session_id__git_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionGitView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Git",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/git/commit": {
+      "post": {
+        "description": "Commit every change in the active repository, under the organization's authorship and\nsigning policy (as the agent's ``git_commit``).",
+        "operationId": "commit_session_changes_v1_sessions__session_id__git_commit_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitActionResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Commit Session Changes",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/git/pull-request": {
+      "post": {
+        "description": "Publish the branch and open a pull request (as the agent's ``git_open_pr``).",
+        "operationId": "open_session_pull_request_v1_sessions__session_id__git_pull_request_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PullRequestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitActionResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Open Session Pull Request",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/git/push": {
+      "post": {
+        "description": "Publish the branch through the platform's publish path (as the agent's ``git_push``).",
+        "operationId": "push_session_branch_v1_sessions__session_id__git_push_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitActionResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Push Session Branch",
+        "tags": [
+          "Sessions & Telemetry"
         ]
       }
     },
@@ -12403,6 +15659,59 @@
         "summary": "Get Session Messages",
         "tags": [
           "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/plan/decision": {
+      "post": {
+        "description": "Approve (in a chosen permission mode, optionally with an edited plan) or reject the plan.\n\nApproving changes the session's permission mode, so it takes the session's owner or an\nadministrator, and the mode must pass the organization's lock and, for ``bypass``, the\n``use_bypass_mode`` capability. Any member who may write to the session can reject.",
+        "operationId": "decide_plan_v1_sessions__session_id__plan_decision_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanDecisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Decide Plan",
+        "tags": [
+          "Plans"
         ]
       }
     },
@@ -12834,6 +16143,76 @@
         ]
       }
     },
+    "/v1/sessions/{session_id}/search": {
+      "get": {
+        "description": "Find the messages of a session's whole history that contain ``q`` (case-insensitive).",
+        "operationId": "search_transcript_v1_sessions__session_id__search_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Text to find, any case",
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "description": "Text to find, any case",
+              "maxLength": 200,
+              "minLength": 1,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Most matches returned",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "Most matches returned",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptSearchResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Transcript",
+        "tags": [
+          "Sessions"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/share": {
       "post": {
         "description": "Share session across organization members or configure specific collaborators.",
@@ -13070,6 +16449,65 @@
         "summary": "Create Public Link",
         "tags": [
           "Sharing"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/spend": {
+      "get": {
+        "description": "What the caller has left under the limits of this session (the header chip).",
+        "operationId": "session_spend_v1_sessions__session_id__spend_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Agent Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionSpend"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Spend",
+        "tags": [
+          "Spend limits"
         ]
       }
     },
@@ -13697,7 +17135,7 @@
     },
     "/v1/settings-schema": {
       "get": {
-        "description": "Every settings domain's fields (type, scope, default, constraints) for form rendering.\n\nThe cockpit builds its organization and member settings forms from this, so a field\nexists in the UI if and only if it is declared in the registry.",
+        "description": "Every settings domain's fields (type, policy, default, constraints) for form rendering.\n\nThe cockpit builds its organization and member settings forms from this, so a field\nexists in the UI if and only if it is declared in the registry.",
         "operationId": "get_settings_schema_v1_settings_schema_get",
         "responses": {
           "200": {
@@ -13721,7 +17159,7 @@
     },
     "/v1/settings/org/usage": {
       "get": {
-        "description": "This month's token and dollar spend for the organization, from the persisted ledger.",
+        "description": "This month's token and dollar spend for the organization, from the persisted ledger,\nin total and grouped by agent, credential and member.",
         "operationId": "get_org_usage_telemetry_v1_settings_org_usage_get",
         "responses": {
           "200": {
@@ -14113,6 +17551,32 @@
         ]
       }
     },
+    "/v1/skills/starter": {
+      "get": {
+        "description": "The shipped instruction skills and whether the organization offers each\n(``general.starter_skills``; administrators switch them on and off).",
+        "operationId": "list_starter_skills_v1_skills_starter_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StarterSkillResponse"
+                  },
+                  "title": "Response List Starter Skills V1 Skills Starter Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Starter Skills",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      }
+    },
     "/v1/skills/{skill_id}": {
       "delete": {
         "description": "Delete a custom skill.",
@@ -14441,6 +17905,7 @@
     },
     "/v1/templates": {
       "get": {
+        "description": "The organization's templates and the caller's own; ``blocked`` marks those naming an\nagent the caller may no longer use.",
         "operationId": "list_templates_v1_templates_get",
         "responses": {
           "200": {
@@ -14551,7 +18016,7 @@
     },
     "/v1/templates/{template_id}/start": {
       "post": {
-        "description": "Start a session from the template (the opening prompt runs immediately).",
+        "description": "Start a session from the template (the opening prompt runs immediately); refused (403)\nwhile the template is blocked.",
         "operationId": "start_from_template_v1_templates__template_id__start_post",
         "parameters": [
           {
@@ -14765,6 +18230,72 @@
         ]
       }
     },
+    "/v1/user/credentials": {
+      "get": {
+        "description": "The signed-in member's own provider credentials (fingerprints only).",
+        "operationId": "list_my_credentials_v1_user_credentials_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CredentialView"
+                  },
+                  "title": "Response List My Credentials V1 User Credentials Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List My Credentials",
+        "tags": [
+          "Model credentials"
+        ]
+      },
+      "post": {
+        "description": "Store a provider key of the member's own (needs the ``bring_own_keys`` capability).",
+        "operationId": "create_my_credential_v1_user_credentials_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCredentialRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create My Credential",
+        "tags": [
+          "Model credentials"
+        ]
+      }
+    },
     "/v1/user/credentials/github": {
       "delete": {
         "description": "Unlink and delete stored GitHub credentials for the current user.",
@@ -14939,6 +18470,155 @@
         ]
       }
     },
+    "/v1/user/credentials/{credential_id}": {
+      "delete": {
+        "operationId": "delete_my_credential_v1_user_credentials__credential_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Delete My Credential V1 User Credentials  Credential Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete My Credential",
+        "tags": [
+          "Model credentials"
+        ]
+      },
+      "patch": {
+        "description": "Rename, re-point, make default, or share with organization agents (the owner only).",
+        "operationId": "update_my_credential_v1_user_credentials__credential_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCredentialRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update My Credential",
+        "tags": [
+          "Model credentials"
+        ]
+      }
+    },
+    "/v1/user/credentials/{credential_id}/rotate": {
+      "post": {
+        "operationId": "rotate_my_credential_v1_user_credentials__credential_id__rotate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateCredentialRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rotate My Credential",
+        "tags": [
+          "Model credentials"
+        ]
+      }
+    },
     "/v1/user/git-signing": {
       "delete": {
         "description": "Remove the member's imported signing key.",
@@ -15016,132 +18696,6 @@
           }
         },
         "summary": "Import Git Signing",
-        "tags": [
-          "Sessions & Telemetry"
-        ]
-      }
-    },
-    "/v1/user/model-keys": {
-      "get": {
-        "description": "Provider keys the signed-in member stored (fingerprints only, never the secret).",
-        "operationId": "list_my_model_keys_v1_user_model_keys_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "additionalProperties": true,
-                    "type": "object"
-                  },
-                  "title": "Response List My Model Keys V1 User Model Keys Get",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "List My Model Keys",
-        "tags": [
-          "Sessions & Telemetry"
-        ]
-      }
-    },
-    "/v1/user/model-keys/{provider}": {
-      "delete": {
-        "operationId": "delete_my_model_key_v1_user_model_keys__provider__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "provider",
-            "required": true,
-            "schema": {
-              "title": "Provider",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "boolean"
-                  },
-                  "title": "Response Delete My Model Key V1 User Model Keys  Provider  Delete",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete My Model Key",
-        "tags": [
-          "Sessions & Telemetry"
-        ]
-      },
-      "put": {
-        "description": "Store or replace the member's own key for a provider.",
-        "operationId": "put_my_model_key_v1_user_model_keys__provider__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "provider",
-            "required": true,
-            "schema": {
-              "title": "Provider",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ModelKeyRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Put My Model Key V1 User Model Keys  Provider  Put",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Put My Model Key",
         "tags": [
           "Sessions & Telemetry"
         ]

@@ -131,15 +131,14 @@ def test_usage_ledger_starts_empty() -> None:
 
 @pytest.mark.asyncio
 async def test_record_usage_feeds_the_summaries() -> None:
-    """Explicitly recorded usage is reflected in the org and user summaries."""
+    """Explicitly recorded usage is reflected in the user summary."""
     gateway = DeterministicStubGateway()
     await gateway.record_usage("org-1", "user-1", "stub/model", 10, 5, cache_read_tokens=3)
 
     assert gateway.usage_ledger[-1]["cache_read_tokens"] == 3
-    org_summary = gateway.get_org_usage_summary("org-1")
-    assert org_summary["total_tokens"] == 15
-    assert org_summary["total_cost_usd"] == 0.0
-    assert gateway.get_user_usage_summary("user-1")["total_tokens"] == 15
+    summary = gateway.get_user_usage_summary("user-1")
+    assert summary["total_tokens"] == 15
+    assert summary["total_cost_usd"] == 0.0
     assert await gateway.check_budget("org-1", "user-1") is True
 
 
@@ -155,7 +154,6 @@ def test_summary_keys_match_the_real_gateway_contract() -> None:
     real = LiteLLMGateway()
     stub = DeterministicStubGateway()
 
-    assert set(stub.get_org_usage_summary("org-1")) == set(real.get_org_usage_summary("org-1"))
     assert set(stub.get_user_usage_summary("user-1")) == set(real.get_user_usage_summary("user-1"))
 
 

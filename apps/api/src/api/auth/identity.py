@@ -26,6 +26,7 @@ from api.auth.api_tokens import ApiTokens, is_api_token
 from api.auth.context import RequestContext
 from api.auth.jwt_validator import JWTValidationError, JWTValidator
 from api.auth.nextauth_cookie import extract_nextauth_context
+from api.auth.roles import expand_roles
 from api.auth.session_manager import extract_session_context, verify_session_token
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _TRUTHY = ("true", "1", "yes")
-_DEV_ROLES = ["admin", "developer"]
+_DEV_ROLES = ["admin"]
 
 
 def _flag(name: str) -> bool:
@@ -68,8 +69,8 @@ def _header_context(conn: HTTPConnection) -> RequestContext | None:
     user_id = conn.headers.get("X-Tenant-User-Id")
     if not user_id:
         return None
-    raw_role = conn.headers.get("X-User-Role") or "developer"
-    roles = [role.strip() for role in raw_role.split(",") if role.strip()] or ["developer"]
+    raw_role = conn.headers.get("X-User-Role") or "member"
+    roles = expand_roles([role.strip() for role in raw_role.split(",") if role.strip()])
     org_id = conn.headers.get("X-Tenant-Org-Id") or "default_org"
     return RequestContext(
         user_id=user_id, org_id=org_id, email=f"{user_id}@{org_id}.internal", roles=roles
@@ -105,7 +106,7 @@ def _dev_context(conn: HTTPConnection) -> RequestContext | None:
         return None
     org_id = conn.headers.get("X-Tenant-Org-Id") or "default_org"
     raw_role = conn.headers.get("X-User-Role")
-    roles = [r.strip() for r in raw_role.split(",")] if raw_role else list(_DEV_ROLES)
+    roles = expand_roles([r.strip() for r in raw_role.split(",")] if raw_role else _DEV_ROLES)
     return RequestContext(
         user_id="dev_user", org_id=org_id, email="dev@rocket-chat.internal", roles=roles
     )

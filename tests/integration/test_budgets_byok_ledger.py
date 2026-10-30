@@ -15,8 +15,14 @@ from unittest.mock import MagicMock
 import litellm
 import pytest
 from api.services.budgets import BudgetService
-from api.services.model_credentials import CredentialResolver, ModelCredentialStore, provider_of
-from api.services.settings import reset_memory_settings, save_org_config
+from api.services.model_credentials import (
+    CredentialResolver,
+    ModelCredentialStore,
+    NewCredential,
+    provider_of,
+)
+from api.services.settings import reset_memory_settings
+from api.services.spend_limits import SpendLimit
 from api.services.usage import UsageLedger, month_start
 from llm_gateway.gateway import LiteLLMGateway
 
@@ -78,16 +84,12 @@ async def _call(gateway: LiteLLMGateway, user: str = USER, session: str = "s1") 
     token = current_model_scope.set(ModelScope(ORG, user, session))
     try:
         request = ModelRequest(
-            model="openrouter/anthropic/claude-3.7-sonnet",
+            model="openrouter/anthropic/claude-sonnet-5.5",
             messages=[ChatMessage(role="user", content="hi there")],
         )
         return [chunk async for chunk in gateway.chat_stream(request)]
     finally:
         current_model_scope.reset(token)
-
-
-async def _cap(**values: float | int | str) -> None:
-    await save_org_config(None, ORG, "budgets", dict(values), [])
 
 
 # -- ledger ---------------------------------------------------------------------------------
@@ -104,7 +106,7 @@ async def test_every_call_is_written_to_the_ledger_with_its_cost(
     summary = await ledger.summary(ORG, since=month_start())
     assert summary["calls"] == 1 and summary["total_tokens"] > 0
     assert summary["total_cost_usd"] > 0, "a call is never accounted as free"
-    assert "openrouter/anthropic/claude-3.7-sonnet" in summary["models"]
+    assert "openrouter/anthropic/claude-sonnet-5.5" in summary["models"]
 
 
 @pytest.mark.asyncio
@@ -121,101 +123,98 @@ async def test_a_failed_call_is_not_billed(stack: Any, monkeypatch: pytest.Monke
     assert (await ledger.summary(ORG, since=0))["calls"] == 0
 
 
-# -- budgets --------------------------------------------------------------------------------
+# -- spend limits ---------------------------------------------------------------------------
+
+
+def _limit(
+    amount: float,
+    *,
+    subject: str = "org",
+    subject_id: str | None = None,
+    period: str = "month",
+    mode: str = "block",
+) -> SpendLimit:
+    return SpendLimit(
+        id=f"lim_{subject}_{period}_{amount}",
+        org_id=ORG,
+        subject_kind=subject,  # type: ignore[arg-type]
+        subject_id=subject_id,
+        member_id=None,
+        period=period,  # type: ignore[arg-type]
+        amount_usd=amount,
+        mode=mode,  # type: ignore[arg-type]
+        warn_at_percent=80,
+        is_ceiling=False,
+        created_by="admin",
+        created_at=0,
+        updated_at=0,
+    )
+
+
+async def _spend(
+    budget: BudgetService, amount: float, user: str = OTHER, session: str = "s0"
+) -> None:
+    """Spend counted on the limits that apply, as a settled call does."""
+    reservation = await budget.reserve(
+        ModelScope(ORG, user, session), estimate_usd=amount, key_source="platform"
+    )
+    if reservation is not None:
+        await budget.settle(reservation, actual_usd=amount)
 
 
 @pytest.mark.asyncio
-async def test_a_turn_over_budget_makes_zero_provider_calls(
+async def test_a_turn_over_its_limit_makes_zero_provider_calls(
     provider: list[dict[str, Any]], stack: Any
 ) -> None:
-    gateway, ledger, *_ = stack
-    await _cap(monthly_budget_usd=1.0)
-    await ledger.record(UsageEvent(ORG, OTHER, "m", 10, 10, cost_usd=1.5))
+    gateway, _, budget, _ = stack
+    await budget.store.create(_limit(1.0))
+    await _spend(budget, 0.999)
 
     chunks = await _call(gateway)
 
-    assert provider == [], "no tokens may be bought once the cap is reached"
-    assert (
-        chunks[-1].error is not None and "Organization monthly budget reached" in chunks[-1].error
-    )
-    assert "$1.50 spent of $1.00" in chunks[-1].error
+    assert provider == [], "no tokens may be bought once the limit is reached"
+    assert chunks[-1].error is not None and chunks[-1].refusal is not None
 
 
 @pytest.mark.asyncio
-async def test_under_budget_calls_go_through_and_no_cap_means_no_limit(
+async def test_under_the_limit_calls_go_through_and_no_limit_means_none(
     provider: list[dict[str, Any]], stack: Any
 ) -> None:
-    gateway, ledger, *_ = stack
-    await ledger.record(UsageEvent(ORG, OTHER, "m", 10, 10, cost_usd=1_000.0))
-
-    await _call(gateway)  # no cap configured (0 = unlimited)
-    await _cap(monthly_budget_usd=5000.0)
+    gateway, _, budget, _ = stack
+    await _call(gateway)  # no limit configured
+    await budget.store.create(_limit(5000.0))
     await _call(gateway)
 
     assert len(provider) == 2
 
 
 @pytest.mark.asyncio
-async def test_member_and_session_caps_apply_independently(
+async def test_a_session_limit_applies_to_that_session_only(
     provider: list[dict[str, Any]], stack: Any
 ) -> None:
-    gateway, ledger, *_ = stack
-    await _cap(member_monthly_budget_usd=2.0, session_budget_usd=0.5)
-    await ledger.record(UsageEvent(ORG, USER, "m", 1, 1, cost_usd=0.6, session_id="busy"))
+    gateway, _, budget, _ = stack
+    await budget.store.create(_limit(0.5, period="session"))
+    await _spend(budget, 0.4999, user=USER, session="busy")
 
-    busy = await _call(gateway, session="busy")  # the session's own cap is hit
-    fresh = await _call(gateway, session="another")  # same member, other session: fine
-    other_member = await _call(gateway, user=OTHER, session="busy")  # session cap is per session
+    busy = await _call(gateway, session="busy")
+    fresh = await _call(gateway, session="another")
 
-    assert busy[-1].error and "Session budget reached" in busy[-1].error
+    assert busy[-1].error is not None
     assert fresh[-1].error is None
-    assert other_member[-1].error and "Session budget reached" in other_member[-1].error
-    await ledger.record(UsageEvent(ORG, USER, "m", 1, 1, cost_usd=2.0, session_id="x"))
-    capped = await _call(gateway, session="brand-new")
-    assert capped[-1].error and "Your monthly budget reached" in capped[-1].error
 
 
-@pytest.mark.asyncio
-async def test_spend_on_a_members_own_key_does_not_count_against_the_org(
-    provider: list[dict[str, Any]], stack: Any
+# -- credentials ----------------------------------------------------------------------------
+
+
+async def _key(
+    store: ModelCredentialStore, owner: str | None, api_key: str, api_base: str | None = None
 ) -> None:
-    gateway, ledger, *_ = stack
-    await _cap(monthly_budget_usd=1.0)
-    await ledger.record(UsageEvent(ORG, OTHER, "m", 1, 1, cost_usd=5.0, key_source="user"))
-
-    chunks = await _call(gateway)
-
-    assert chunks[-1].error is None and len(provider) == 1
-
-
-@pytest.mark.asyncio
-async def test_warnings_appear_before_the_cap_is_reached(stack: Any) -> None:
-    _, ledger, budget, _ = stack
-    await _cap(monthly_budget_usd=10.0, warn_at_percent=80)
-    await ledger.record(UsageEvent(ORG, OTHER, "m", 1, 1, cost_usd=8.5))
-
-    status = await budget.status(ModelScope(ORG, USER, "s"))
-
-    assert status.exceeded() is None
-    assert status.warnings() == ["Organization monthly budget is 85% used ($8.50 of $10.00)."]
-
-
-@pytest.mark.asyncio
-async def test_a_changed_cap_applies_after_the_cache_is_dropped(
-    provider: list[dict[str, Any]], stack: Any
-) -> None:
-    gateway, ledger, budget, _ = stack
-    await _cap(monthly_budget_usd=100.0)
-    await ledger.record(UsageEvent(ORG, OTHER, "m", 1, 1, cost_usd=50.0))
-    assert (await _call(gateway))[-1].error is None
-
-    await _cap(monthly_budget_usd=10.0)
-    budget.forget(ORG)
-
-    assert (await _call(gateway))[-1].error is not None
-
-
-# -- bring your own key ---------------------------------------------------------------------
+    await store.create(
+        ORG,
+        NewCredential(
+            "member" if owner else "org", owner, "openrouter", api_key, api_base=api_base
+        ),
+    )
 
 
 @pytest.mark.asyncio
@@ -223,8 +222,9 @@ async def test_the_members_own_key_is_used_and_recorded_as_theirs(
     provider: list[dict[str, Any]], stack: Any
 ) -> None:
     gateway, ledger, _, store = stack
-    await store.put(ORG, None, "openrouter", "sk-or-ORG-KEY-1234")
-    await store.put(ORG, USER, "openrouter", "sk-or-USER-KEY-5678", "https://proxy.example/v1")
+    gateway.credential_resolver = CredentialResolver(None, store, member_may_use_keys=_may)
+    await _key(store, None, "sk-or-ORG-KEY-1234")
+    await _key(store, USER, "sk-or-USER-KEY-5678", "https://proxy.example/v1")
 
     await _call(gateway)
     await _call(gateway, user=OTHER)
@@ -234,6 +234,10 @@ async def test_the_members_own_key_is_used_and_recorded_as_theirs(
     assert provider[1]["api_key"] == "sk-or-ORG-KEY-1234", "other members fall back to the org key"
     summary = await ledger.summary(ORG, since=0)
     assert summary["own_key_cost_usd"] > 0
+
+
+async def _may(org_id: str, user_id: str) -> bool:
+    return True
 
 
 @pytest.mark.asyncio
@@ -255,8 +259,7 @@ async def test_an_organization_key_replaces_the_deployments_environment_key(
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-DEPLOYMENT-1111")
 
     await _call(gateway)
-    await store.put(ORG, None, "openrouter", "sk-or-ORG-KEY-1234")
-    store._cache.clear()
+    await _key(store, None, "sk-or-ORG-KEY-1234")
     await _call(gateway)
 
     assert "api_key" not in provider[0], "the environment key is litellm's own fallback"
@@ -264,41 +267,21 @@ async def test_an_organization_key_replaces_the_deployments_environment_key(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("policy", "expected"),
-    [("platform_only", None), ("org_key", "ORG"), ("user_keys", "USER")],
-)
-async def test_the_org_policy_decides_whose_keys_may_be_used(
-    provider: list[dict[str, Any]], stack: Any, policy: str, expected: str | None
-) -> None:
-    gateway, _, _, store = stack
-    await store.put(ORG, None, "openrouter", "sk-or-ORG-KEY-1234")
-    await store.put(ORG, USER, "openrouter", "sk-or-USER-KEY-5678")
-    await _cap(byok_policy=policy)
-
-    await _call(gateway)
-
-    used = provider[0].get("api_key")
-    assert used == (
-        None
-        if expected is None
-        else f"sk-or-{expected}-KEY-{'1234' if expected == 'ORG' else '5678'}"
-    )
-
-
-@pytest.mark.asyncio
 async def test_keys_are_encrypted_at_rest_and_only_a_fingerprint_is_listed() -> None:
     store = ModelCredentialStore(None)
-    key = await store.put(ORG, USER, "anthropic", "sk-ant-api03-SECRETSECRET1234")
+    created = await store.create(
+        ORG, NewCredential("member", USER, "anthropic", "sk-ant-api03-SECRETSECRET1234")
+    )
 
-    assert key.fingerprint == "sk-...1234"
-    stored = store._memory[(ORG, USER, "anthropic")]
-    assert "SECRET" not in stored["encrypted"]
-    listed = await store.list(ORG, USER)
-    assert [(k.provider, k.fingerprint) for k in listed] == [("anthropic", "sk-...1234")]
+    assert created.fingerprint.endswith("1234") and "SECRET" not in created.fingerprint
+    assert "SECRET" not in repr(store._memory)
+    listed = await store.list(ORG, owner_kind="member", owner_user_id=USER)
+    assert [(k.provider, k.id) for k in listed] == [("anthropic", created.id)]
     assert "SECRET" not in repr(listed)
-    assert (await store.credentials(ORG, USER, "anthropic")).api_key.endswith("SECRETSECRET1234")  # type: ignore[union-attr]
-    assert await store.delete(ORG, USER, "anthropic") and await store.list(ORG, USER) == []
+    secret = await store.secret(ORG, created.id)
+    assert secret is not None and secret.api_key.endswith("SECRETSECRET1234")
+    assert await store.delete(ORG, created.id) is not None
+    assert await store.list(ORG, owner_kind="member", owner_user_id=USER) == []
 
 
 def test_the_provider_is_derived_from_the_model_id() -> None:
@@ -427,80 +410,3 @@ async def test_a_turn_runs_and_its_usage_is_attributed_to_org_member_and_session
         (ORG, USER, session_id)
     }
     assert all(e.cost_usd > 0 for e in entries)
-
-
-@pytest.mark.asyncio
-async def test_an_over_budget_turn_is_refused_before_any_model_call_and_says_why(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    reset_memory_settings()
-    await _cap(session_budget_usd=0.01)
-    original = UsageLedger.spend_usd
-
-    async def spent(self: UsageLedger, org_id: str, **kwargs: Any) -> float:
-        # Earlier spend in this session, as the persisted ledger would report it.
-        return 0.02 if kwargs.get("session_id") else await original(self, org_id, **kwargs)
-
-    monkeypatch.setattr(UsageLedger, "spend_usd", spent)
-    gateway, _, events, _ = await _run_turn()
-
-    assert gateway.call_count == 0, "zero model calls once the cap is reached"
-    messages = " ".join(str(e.payload) for e in events)
-    assert "Session budget reached" in messages
-    assert "$0.02 spent of $0.01" in messages
-
-
-@pytest.mark.asyncio
-async def test_the_member_sees_a_warning_before_the_cap_is_reached(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    reset_memory_settings()
-    await _cap(monthly_budget_usd=10.0, warn_at_percent=50)
-
-    async def spent(self: UsageLedger, org_id: str, **kwargs: Any) -> float:
-        return 6.0
-
-    monkeypatch.setattr(UsageLedger, "spend_usd", spent)
-    gateway, _, events, _ = await _run_turn()
-
-    warnings = [e.payload for e in events if e.payload.get("status") == "budget_warning"]
-    assert warnings and "60% used" in warnings[0]["message"]
-    assert gateway.call_count >= 1, "a warning does not stop the turn"
-
-
-# -- Slack workspace spend ----------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_a_slack_workspace_is_stopped_by_its_spend_from_the_ledger() -> None:
-    from api.services.quota import (
-        InMemoryWorkspaceQuotaStore,
-        SlackWorkspaceQuotaService,
-        WorkspaceQuotaState,
-    )
-
-    ledger = UsageLedger(None)
-    await ledger.record(
-        UsageEvent(ORG, "slack_global", "m", 1, 1, cost_usd=3.0, session_id="slack_C1_1")
-    )
-    await ledger.record(UsageEvent(ORG, USER, "m", 1, 1, cost_usd=40.0, session_id="web_session"))
-
-    async def slack_spend(org_id: str) -> float:
-        return await ledger.spend_usd(org_id, since=month_start(), session_prefix="slack_")
-
-    store = InMemoryWorkspaceQuotaStore(spend=slack_spend)
-    store.set_state("T1", WorkspaceQuotaState(monthly_usd_cap=2.0))
-    store.set_state("T2", WorkspaceQuotaState(monthly_usd_cap=10.0))
-    service = SlackWorkspaceQuotaService(in_memory_store=store)
-
-    over = await service.evaluate(
-        team_id="T1", org_id=ORG, user_id="U", channel_id="C", active_sessions=0
-    )
-    under = await service.evaluate(
-        team_id="T2", org_id=ORG, user_id="U", channel_id="C", active_sessions=0
-    )
-
-    assert over.allowed is False and over.reason == "budget", (
-        "web spend must not count, Slack spend must"
-    )
-    assert under.allowed is True

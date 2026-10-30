@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from api.services.settings import save_org_config
 from api.services.skills_lookup import _memory_skills, list_visible_skills
 from turn_harness import run_turn
 
@@ -40,6 +41,7 @@ async def test_visible_skills_are_listed_in_name_order_and_respect_the_persona_l
     _skill("org_a", "s5", "off", is_active=False)
     _skill("org_b", "s6", "other_org")
 
+    await save_org_config(None, "org_a", "general", {"starter_skills": []}, [])
     everything = await list_visible_skills(None, "org_a", "u1")
     restricted = await list_visible_skills(None, "org_a", "u1", allowed_ids=["s1"])
 
@@ -58,6 +60,7 @@ async def test_a_turn_tells_the_model_which_skills_it_can_load() -> None:
 
 
 async def test_without_skills_the_prompt_has_no_skills_section() -> None:
+    await save_org_config(None, "org_no_skills", "general", {"starter_skills": []}, [])
     outcome = await run_turn("org_no_skills")
 
     assert "[Skills]" not in _system_text(outcome)

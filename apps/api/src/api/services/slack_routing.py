@@ -22,6 +22,7 @@ from api.services.systemone import call_systemone_choice, is_systemone_model
 from api.turns.routing import _resolve_turn_routing
 from specifications.interfaces.llm import (
     ChatMessage,
+    CredentialBinding,
     LLMGatewayProtocol,
     ModelRequest,
     ModelScope,
@@ -103,7 +104,9 @@ async def _resolve_classifier_model(
     router = bot.router
     chosen = router.classifier_model if router else ""
     if router and not chosen and router.classifier_agent_id:
-        persona = await get_persona(db_mgr, bot.org_id, "", router.classifier_agent_id)
+        persona = await get_persona(
+            db_mgr, bot.org_id, "", router.classifier_agent_id, enforce_access=False
+        )
         chosen = persona.model if persona else ""
     _, model, _ = await _resolve_turn_routing(
         db_mgr=db_mgr,
@@ -117,10 +120,28 @@ async def _resolve_classifier_model(
 
 
 @asynccontextmanager
-async def _billed_to(bot: SlackBot, org_id: str) -> AsyncIterator[ModelScope]:
-    """Bill the classification to the bot's organization, with its keys and caps: it runs
-    before any session or turn exists, so no turn has bound the scope."""
-    scope = ModelScope(org_id=org_id, user_id=f"slack-bot:{bot.id}")
+async def _billed_to(
+    db_mgr: DatabaseSessionManager | None, bot: SlackBot, org_id: str
+) -> AsyncIterator[ModelScope]:
+    """Bill the classification to the bot's organization, with its keys and limits, and with
+    its classifier agent's credential bindings: it runs before any session or turn exists,
+    so no turn has bound the scope."""
+    agent_id = bot.router.classifier_agent_id if bot.router else ""
+    persona = (
+        await get_persona(db_mgr, org_id, "", agent_id, enforce_access=False) if agent_id else None
+    )
+    scope = ModelScope(
+        org_id=org_id,
+        user_id=f"slack-bot:{bot.id}",
+        agent_id=persona.id if persona else None,
+        credential_bindings=tuple(
+            CredentialBinding(b.provider, b.credential_id) for b in persona.credential_bindings
+        )
+        if persona
+        else (),
+        strict_binding=bool(persona.strict_binding) if persona else False,
+        call_role="slack_router",
+    )
     token = current_model_scope.set(scope)
     try:
         yield scope
@@ -188,13 +209,14 @@ async def _classify_via_structured(
 
 async def _dispatch_classification(
     gateway: LLMGatewayProtocol,
+    db_mgr: DatabaseSessionManager | None,
     bot: SlackBot,
     org_id: str,
     model_name: str,
     text: str,
     thread_excerpt: str,
 ) -> RouteDecision:
-    async with _billed_to(bot, org_id) as scope:
+    async with _billed_to(db_mgr, bot, org_id) as scope:
         if is_systemone_model(model_name):
             decision = await _try_systemone(gateway, scope, bot, model_name, text, thread_excerpt)
             if decision is not None:
@@ -217,7 +239,11 @@ async def _try_systemone(
         return None
     guard = getattr(gateway, "budget_guard", None)
     if guard is not None:
-        await guard.check(scope)
+        # The call costs input tokens only and has no LiteLLM price: nothing to set aside,
+        # but a limit that is already full refuses it.
+        reservation = await guard.reserve(scope, estimate_usd=0.0, key_source=key_source)
+        if reservation is not None:
+            await guard.settle(reservation, actual_usd=0.0)
     try:
         decision, input_tokens = await _classify_via_systemone(
             api_key, model_name, bot, text, thread_excerpt
@@ -239,6 +265,8 @@ async def _try_systemone(
                     completion_tokens=0,
                     cost_usd=0.0,
                     key_source=key_source,
+                    agent_id=scope.agent_id,
+                    call_role=scope.call_role,
                 )
             )
         except Exception:
@@ -351,7 +379,7 @@ async def classify_slack_message(
     t0 = time.perf_counter()
     try:
         decision = await _dispatch_classification(
-            gateway, bot, request.org_id, model_name, request.text, request.thread_excerpt
+            gateway, db_mgr, bot, request.org_id, model_name, request.text, request.thread_excerpt
         )
     except Exception as err:
         logger.warning("Classifier failed for bot %s: %s", bot.id, err)
@@ -393,7 +421,7 @@ async def try_classify(
 
     t0 = time.perf_counter()
     decision = await _dispatch_classification(
-        gateway, bot, org_id, model_name, text, thread_excerpt
+        gateway, db_mgr, bot, org_id, model_name, text, thread_excerpt
     )
     latency_ms = int((time.perf_counter() - t0) * 1000)
     applied = router.resolve(decision)

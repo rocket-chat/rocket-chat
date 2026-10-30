@@ -81,6 +81,8 @@ def test_update_file_versions_dry_run(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("scripts.release.PACKAGES_DIR", tmp_path / "nonexistent_dir")
     monkeypatch.setattr("scripts.release.HELM_DOC_MD", tmp_path / "nonexistent.md")
     monkeypatch.setattr("scripts.release.OPS_INDEX_MD", tmp_path / "nonexistent.md")
+    monkeypatch.setattr("scripts.release.SANDBOX_IMAGES_PY", tmp_path / "nonexistent.py")
+    monkeypatch.setattr("scripts.release.CONFIGURATION_MD", tmp_path / "nonexistent.md")
 
     update_file_versions("0.2.0")
 

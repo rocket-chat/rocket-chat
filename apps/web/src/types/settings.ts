@@ -21,5 +21,6 @@ export interface UserPreferencesSettings {
   preferred_model: string;
   theme_mode: "dark" | "light" | "system";
   notification_sound: boolean;
+  turn_notifications: boolean;
   suggest_next_questions: boolean;
 }

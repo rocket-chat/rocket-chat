@@ -60,6 +60,7 @@ async def test_the_turns_own_agent_answers_whatever_the_session_says() -> None:
         "agent_id": fixer,
         "agent_name": "Fixer",
         "model": "fixer/model",
+        "turn_start": True,
     }
     asked = next(m for m in outcome.session.conversation_history if m.role == "user")
     assert (asked.agent_id, asked.agent_name, asked.model) == (fixer, "Fixer", "fixer/model")

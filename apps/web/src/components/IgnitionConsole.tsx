@@ -7,11 +7,13 @@ import { useMissionStore } from "../lib/store";
 import { newMessageId } from "../lib/message-id";
 import { loadDraft, saveDraft } from "../lib/draft";
 import { useAuth } from "./AuthProvider";
-import { GitBranch, Rocket, ChevronDown, Check, Bot, Zap, Shield, Bug, Book, Search, Square, MessageSquarePlus, ListPlus, X, Paperclip, FileText, AlertTriangle, Brain } from "lucide-react";
+import { AlertTriangle, Book, Bot, Brain, Bug, Check, ChevronDown, Compass, FileText, GitBranch, ListPlus, MessageSquarePlus, Paperclip, Rocket, Search, SearchCheck, Shield, Square, X, Zap } from "lucide-react";
 import { AgentPersonaConfig, ModelOption } from "../types/mission";
 import { PermissionModePicker } from "./PermissionModePicker";
 import { SandboxPicker } from "./SandboxPicker";
-import { SlashCommandMenu } from "./SlashCommandMenu";
+import { SlashCommandMenu, useSlashMatches, type SlashCommand } from "./SlashCommandMenu";
+import { builtinCommand, runBuiltin } from "../lib/composer-commands";
+import { useRouter } from "next/navigation";
 import { MentionMenu } from "./composer/MentionMenu";
 import { ComposerHints } from "./composer/ComposerHints";
 import { mentionAt, useMentions, type MentionItem } from "./composer/useMentions";
@@ -42,6 +44,10 @@ const getAgentIcon = (iconName?: string) => {
       return <Bug className="w-3.5 h-3.5 text-amber-500" />;
     case "book":
       return <Book className="w-3.5 h-3.5 text-purple-500" />;
+    case "search-check":
+      return <SearchCheck className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400" />;
+    case "compass":
+      return <Compass className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />;
     case "bot":
     default:
       return <Bot className="w-3.5 h-3.5 text-primary" />;
@@ -68,6 +74,15 @@ const SandboxState: React.FC<{ status?: string; isDraft: boolean }> = ({ status,
   );
 };
 
+const REASONING_CHOICES: { value: string; label: string }[] = [
+  { value: "", label: "Auto" },
+  { value: "none", label: "Off" },
+  { value: "minimal", label: "Minimal" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" },
+];
+
 export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
   onIgnite,
   onCancel,
@@ -77,6 +92,10 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
 }) => {
   const [prompt, setPrompt] = useState<string>(initialPrompt);
   const [reasoningEffort, setReasoningEffort] = useState<string | undefined>(undefined);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [commandNotice, setCommandNotice] = useState("");
+  const router = useRouter();
+  const slashMatches = useSlashMatches(prompt);
 
   useEffect(() => {
     if (initialPrompt) {
@@ -121,6 +140,13 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // The field grows with what is typed (up to 40% of the viewport, then it scrolls).
+  useEffect(() => {
+    const field = textareaRef.current;
+    if (!field) return;
+    field.style.height = "auto";
+    field.style.height = `${field.scrollHeight}px`;
+  }, [prompt]);
 
   const {
     flightLog,
@@ -132,7 +158,6 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     setStatusMessage,
     selectedModel,
     availableModels,
-    setAvailableModels,
     activeAgent,
     availableAgents,
     inferenceMode,
@@ -148,7 +173,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     pendingMessages,
     addPendingMessage,
   } = useMissionStore(
-    useShallow((state) => ({ flightLog: state.flightLog, isExecuting: state.isExecuting, appendOwnUserMessage: state.appendOwnUserMessage, session: state.session, clearReasoning: state.clearReasoning, setIsExecuting: state.setIsExecuting, setStatusMessage: state.setStatusMessage, selectedModel: state.selectedModel, availableModels: state.availableModels, setAvailableModels: state.setAvailableModels, activeAgent: state.activeAgent, availableAgents: state.availableAgents, inferenceMode: state.inferenceMode, selectAgent: state.selectAgent, selectDirectModel: state.selectDirectModel, suggestedFollowup: state.suggestedFollowup, setSuggestedFollowup: state.setSuggestedFollowup, pendingAttachments: state.pendingAttachments, attachmentError: state.attachmentError, uploadAttachment: state.uploadAttachment, removeAttachment: state.removeAttachment, clearAttachments: state.clearAttachments, pendingMessages: state.pendingMessages, addPendingMessage: state.addPendingMessage }))
+    useShallow((state) => ({ flightLog: state.flightLog, isExecuting: state.isExecuting, appendOwnUserMessage: state.appendOwnUserMessage, session: state.session, clearReasoning: state.clearReasoning, setIsExecuting: state.setIsExecuting, setStatusMessage: state.setStatusMessage, selectedModel: state.selectedModel, availableModels: state.availableModels, activeAgent: state.activeAgent, availableAgents: state.availableAgents, inferenceMode: state.inferenceMode, selectAgent: state.selectAgent, selectDirectModel: state.selectDirectModel, suggestedFollowup: state.suggestedFollowup, setSuggestedFollowup: state.setSuggestedFollowup, pendingAttachments: state.pendingAttachments, attachmentError: state.attachmentError, uploadAttachment: state.uploadAttachment, removeAttachment: state.removeAttachment, clearAttachments: state.clearAttachments, pendingMessages: state.pendingMessages, addPendingMessage: state.addPendingMessage }))
   );
   const { user } = useAuth();
   const realSessionId = session && !session.is_draft && session.session_id !== "draft" ? session.session_id : null;
@@ -170,24 +195,6 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     });
   };
 
-
-  // Discover models from backend API on mount
-  useEffect(() => {
-    const fetchModels = async () => {
-      try {
-        const res = await fetch("/v1/models");
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data.models) && data.models.length > 0) {
-            setAvailableModels(data.models);
-          }
-        }
-      } catch {
-        // Retain pre-configured store defaults
-      }
-    };
-    fetchModels();
-  }, [setAvailableModels]);
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -221,9 +228,50 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     stageFiles(e.dataTransfer?.files);
   };
 
+  // The reasoning level is the conversation's (saved on the session), not the next message's.
+  useEffect(() => {
+    const saved = session?.metadata?.reasoning_effort;
+    setReasoningEffort(typeof saved === "string" && saved ? saved : undefined);
+  }, [session?.session_id, session?.metadata?.reasoning_effort]);
+  const chooseReasoning = (value: string | undefined) => {
+    setReasoningEffort(value);
+    if (!session || session.is_draft || session.session_id === "draft") return;
+    fetch(`/v1/sessions/${session.session_id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ metadata: { reasoning_effort: value ?? null } }),
+    }).catch(() => undefined);
+  };
+
+  const runCommand = (command: { name: string; argument: string }) => {
+    setPrompt("");
+    saveDraft(draftSessionId, "");
+    void runBuiltin(command, () => {
+      useMissionStore.getState().initDraftSession();
+      router.push("/chat/draft");
+    }).then(setCommandNotice);
+  };
+
+  const pickSlash = (command: SlashCommand) => {
+    setSlashIndex(0);
+    // A command that needs nothing more runs at once; the others wait for their argument.
+    if (command.builtin && command.name !== "model" && command.name !== "agent") {
+      runCommand({ name: command.name, argument: "" });
+      return;
+    }
+    setPrompt(`/${command.name} `);
+    textareaRef.current?.focus();
+  };
+
   const handleIgnite = (delivery: "steer" | "queue" = "steer") => {
     const trimmed = prompt.trim();
     if (!trimmed && pendingAttachments.length === 0) return;
+    const command = builtinCommand(trimmed);
+    if (command) {
+      runCommand(command);
+      return;
+    }
+    setCommandNotice("");
 
     // Never dispatch while a file is still uploading: the turn would start without it.
     if (pendingAttachments.some((a) => a.status === "uploading")) {
@@ -251,15 +299,20 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
 
       clearReasoning();
       setIsExecuting(true);
-      setStatusMessage("Transmitting instructions to agent sandbox...");
+      setStatusMessage("Sending your message…");
     }
 
     const messageId = newMessageId();
     // During a turn the message waits above the composer until a turn takes it; it enters the
     // conversation where the agent read it, not where it was typed.
-    const waitsForATurn = isExecuting && readyAttachments.length === 0;
+    const waitsForATurn = isExecuting;
     if (waitsForATurn) {
-      addPendingMessage({ messageId, content: trimmed, delivery });
+      addPendingMessage({
+        messageId,
+        content: trimmed,
+        delivery,
+        ...(readyAttachments.length ? { attachments: readyAttachments.map((a) => a.name) } : {}),
+      });
     } else {
       appendOwnUserMessage({
         messageId,
@@ -292,6 +345,20 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
       setPrompt(suggestedFollowup);
       setSuggestedFollowup(null);
       return;
+    }
+
+    if (slashMatches.length > 0) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const step = e.key === "ArrowDown" ? 1 : -1;
+        setSlashIndex((i) => (i + step + slashMatches.length) % slashMatches.length);
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        pickSlash(slashMatches[Math.min(slashIndex, slashMatches.length - 1)]);
+        return;
+      }
     }
 
     if (mentionOpen) {
@@ -439,6 +506,11 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                   {message.delivery === "queue" ? "Queued · after this turn" : "Steer · delivered at the next step"}
                 </span>
                 <span className="min-w-0 flex-1 truncate text-muted-foreground">{message.content}</span>
+                {message.attachments && message.attachments.length > 0 && (
+                  <span className="shrink-0 text-muted-foreground" title={message.attachments.join(", ")}>
+                    <Paperclip className="inline h-3 w-3" aria-hidden="true" /> {message.attachments.length}
+                  </span>
+                )}
                 {onCancelPending && (
                   <button
                     type="button"
@@ -459,13 +531,12 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
         {/* Text Input Area & Ghost Autocomplete Overlay */}
         <div className="relative">
           <MentionMenu items={mentionItems} active={mentionIndex} onPick={pickMention} />
-          <SlashCommandMenu
-            input={prompt}
-            onPick={(completion) => {
-              setPrompt(completion);
-              textareaRef.current?.focus();
-            }}
-          />
+          <SlashCommandMenu matches={slashMatches} active={Math.min(slashIndex, slashMatches.length - 1)} onPick={pickSlash} />
+          {commandNotice && (
+            <p role="status" data-testid="command-notice" className="mb-1 text-xs text-neutral-700 dark:text-neutral-300">
+              {commandNotice}
+            </p>
+          )}
           <textarea
             ref={textareaRef}
             data-testid="instruction-input"
@@ -474,12 +545,16 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
             value={prompt}
             onChange={(e) => {
               setPrompt(e.target.value);
+              setSlashIndex(0);
               setCaret(e.target.selectionStart ?? e.target.value.length);
               setMentionIndex(0);
             }}
             onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
+            aria-label="Message the agent"
+            aria-controls={slashMatches.length > 0 ? "slash-menu" : undefined}
+            aria-activedescendant={slashMatches.length > 0 ? `slash-option-${Math.min(slashIndex, slashMatches.length - 1)}` : undefined}
             placeholder={
               loading
                 ? "Opening the conversation…"
@@ -490,7 +565,8 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                 : "What should we work on?"
             }
             rows={2}
-            className="w-full resize-none bg-transparent text-sm font-sans text-foreground placeholder:text-neutral-500 focus:outline-none leading-relaxed p-1 relative z-10"
+            style={{ maxHeight: "40vh" }}
+            className="w-full resize-none overflow-y-auto bg-transparent text-sm font-sans text-foreground placeholder:text-neutral-500 focus:outline-none leading-relaxed p-1 relative z-10"
           />
 
           {/* Ghost text displayed when composer is empty and LLM follow-up exists */}
@@ -686,19 +762,23 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
             {/* Inline Reasoning Effort Selector */}
             <div className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground sm:px-2.5 sm:py-1.5">
               <Brain className="w-3.5 h-3.5 text-brand" />
-              <button
-                type="button"
-                onClick={() => {
-                  const cycle: (string | undefined)[] = [undefined, "low", "medium", "high"];
-                  const idx = cycle.indexOf(reasoningEffort);
-                  setReasoningEffort(cycle[(idx + 1) % cycle.length]);
-                }}
-                className="font-medium text-foreground hover:text-brand transition-colors cursor-pointer"
-                title="Per-turn reasoning effort override (click to cycle: auto -> low -> medium -> high)"
+              <label htmlFor="composer-reasoning" className="sr-only">
+                Reasoning for this conversation
+              </label>
+              <select
+                id="composer-reasoning"
                 data-testid="reasoning-effort-selector"
+                value={reasoningEffort ?? ""}
+                onChange={(e) => chooseReasoning(e.target.value || undefined)}
+                title="How much the model reasons in this conversation (Auto follows the agent and the organization)"
+                className="cursor-pointer bg-transparent font-medium text-foreground focus:outline-none"
               >
-                {reasoningEffort ? reasoningEffort.toUpperCase() : "AUTO"}
-              </button>
+                {REASONING_CHOICES.map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Git Branch Badge (Displayed ONLY when a Git repository/branch is bound to the session) */}
@@ -779,7 +859,7 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
                   }`}
                 />
                 <span>Run</span>
-                <span className="text-[10px] opacity-70 font-mono">⌘⏎</span>
+                <span className="text-[10px] opacity-70 font-mono" aria-hidden="true">⏎</span>
                 {isThrustPulsing && (
                   <span className="absolute -bottom-1 left-2 w-4 h-4 bg-amber rounded-full blur-sm animate-ping" />
                 )}

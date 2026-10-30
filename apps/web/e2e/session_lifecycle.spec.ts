@@ -98,7 +98,7 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     // Leave the session by navigating to the full-page settings suite
     await page.goto("/settings/agents");
     await expect(page).toHaveURL(/\/settings\/agents/);
-    await expect(page.getByText("Custom agent personas")).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
 
     // Resume the session by direct URL deep-link
     await page.goto(sessionUrl);
@@ -152,7 +152,7 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
 
     // User 1 sees their prompt and executing/processing state
     await expect(userMessage(page1, user1Prompt)).toBeVisible({ timeout: 15000 });
-    await expect(page1.getByText(/Running\.\.\.|Executing in Sandbox|Reasoning|Executing|Synthesizing|Ready/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(page1.getByText(/Running\.\.\.|Executing in Sandbox|Reasoning|Executing|Working|Sending|Ready/i).first()).toBeVisible({ timeout: 10000 });
 
     // User 2 receives the *prompt itself* live over the WebSocket, without reloading:
     // the server broadcasts a USER_MESSAGE frame carrying the instruction.
@@ -169,7 +169,7 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     await expect(userMessage(page1, user1Prompt)).toHaveCount(1);
 
     // User 2 also receives the live telemetry state.
-    await expect(page2.getByText(/Executing in Sandbox|Running\.\.\.|Reasoning|PROCESSING|Analyzing instruction|Executing|Synthesizing|Ready/i).first()).toBeVisible({ timeout: 10000 });
+    await expect(page2.getByText(/Executing in Sandbox|Running\.\.\.|Reasoning|PROCESSING|Analyzing instruction|Executing|Working|Sending|Ready/i).first()).toBeVisible({ timeout: 10000 });
 
     await context1.close();
     await context2.close();
@@ -356,8 +356,9 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     await expect(everyone).toHaveAttribute("aria-pressed", "true");
     await expect(sidebar.getByText(theirs)).toBeVisible({ timeout: 10000 });
 
-    page.on("dialog", (dialog) => dialog.accept());
     await page.getByTestId("clear-all-sessions-btn").click();
+    await expect(page.getByRole("alertdialog", { name: "Clear your conversations?" })).toBeVisible();
+    await page.getByTestId("confirm-accept").click();
 
     await expect(page).not.toHaveURL(initialSessionUrl, { timeout: 10000 });
     await expect(page).toHaveURL(/\/chat\/.+/);

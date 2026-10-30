@@ -25,10 +25,11 @@ import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from agent_core.context import current_execution_ctx
+from config_engine.model_defaults import embedding_model_for, providers_from_environment
 from sqlalchemy import delete, select
 
 from api.db.models import MemoryModel, SessionSummaryModel
@@ -78,12 +79,29 @@ EMBEDDING_TIMEOUT_SECONDS = 10.0
 Redactor = Callable[[str], tuple[str, int]]
 
 
-async def _default_embedder(text: str) -> list[float]:
-    try:
-        return await asyncio.wait_for(compute_embedding(text), timeout=EMBEDDING_TIMEOUT_SECONDS)
-    except Exception:
-        logger.warning("Embedding provider unavailable; using deterministic fallback vector")
-        return generate_deterministic_embedding(text)
+def embedder_for(model: str) -> Embedder:
+    """Vectors from ``model``; with no model (no provider offers one) a word-hash vector, which
+    makes recall a keyword match, never presented as semantic (Setup health says so)."""
+
+    async def embed(text: str) -> list[float]:
+        if not model:
+            return generate_deterministic_embedding(text)
+        try:
+            return await asyncio.wait_for(
+                compute_embedding(text, model), timeout=EMBEDDING_TIMEOUT_SECONDS
+            )
+        except Exception:
+            logger.warning("Embedding provider unavailable; using deterministic fallback vector")
+            return generate_deterministic_embedding(text)
+
+    return embed
+
+
+def configured_embedding_model(settings: dict[str, Any] | None) -> str:
+    """``memory.embedding_model``, else the embedding model of a provider the deployment has a
+    key for, else empty (no semantic recall)."""
+    chosen = str((settings or {}).get("embedding_model") or "").strip()
+    return chosen or embedding_model_for(providers_from_environment())
 
 
 class MemorySecretError(Exception):
@@ -104,6 +122,8 @@ class MemoryPolicy:
     top_k: int = DEFAULT_TOP_K
     dedupe_similarity: float = DEDUPE_SIMILARITY
     decay_half_life_days: float = DEFAULT_DECAY_HALF_LIFE_DAYS
+    # Empty: no provider offers embeddings, recall is a keyword match.
+    embedding_model: str = field(default_factory=lambda: configured_embedding_model(None))
 
     @classmethod
     def from_settings(cls, settings: dict[str, Any] | None) -> MemoryPolicy:
@@ -121,6 +141,7 @@ class MemoryPolicy:
             decay_half_life_days=float(
                 settings.get("decay_half_life_days", DEFAULT_DECAY_HALF_LIFE_DAYS)
             ),
+            embedding_model=configured_embedding_model(settings),
         )
 
 
@@ -227,7 +248,7 @@ class MemoryService:
     ) -> None:
         self._db = db_manager
         self._policy = policy or MemoryPolicy()
-        self._embed = embedder or _default_embedder
+        self._embed = embedder or embedder_for(self._policy.embedding_model)
         self._redactor = redactor
         self._memory: dict[str, MemoryRecord] = {}
 

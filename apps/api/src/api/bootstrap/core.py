@@ -11,6 +11,7 @@ from git_engine.engine import GitEngine
 from llm_gateway.gateway import LiteLLMGateway
 from llm_gateway.stub import DeterministicStubGateway
 
+from api.auth.capabilities import Capability, member_has
 from api.bootstrap.code_search import register_code_search
 from api.bootstrap.persistence import open_persistence
 from api.bootstrap.runtime import (
@@ -155,7 +156,13 @@ def _bind_spend_tracking(
     budget_service = BudgetService(db_manager, usage_ledger)
     llm_gateway.usage_sink = usage_ledger
     llm_gateway.budget_guard = budget_service
-    llm_gateway.credential_resolver = CredentialResolver(db_manager, model_credentials)
+    llm_gateway.credential_resolver = CredentialResolver(
+        db_manager,
+        model_credentials,
+        member_may_use_keys=lambda org_id, user_id: member_has(
+            db_manager, org_id, user_id, Capability.BRING_OWN_KEYS
+        ),
+    )
     app.state.usage_ledger = usage_ledger
     app.state.model_credentials = model_credentials
     app.state.budget_service = budget_service

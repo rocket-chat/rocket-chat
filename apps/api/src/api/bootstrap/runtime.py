@@ -4,6 +4,7 @@ import logging
 import os
 
 from config_engine.environment import env_value
+from config_engine.model_defaults import default_model_for, providers_from_environment
 from llm_gateway.gateway import LiteLLMGateway
 from llm_gateway.stub import DeterministicStubGateway, stub_enabled
 from sandbox_driver.docker_driver import DockerSandboxDriver
@@ -13,8 +14,6 @@ from sandbox_driver.k8s_driver import K8sSandboxDriver
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 
 logger = logging.getLogger(__name__)
-
-FALLBACK_MODEL = "openrouter/deepseek/deepseek-v4.1-flash"
 
 
 def cluster_bus_enabled() -> bool:
@@ -44,6 +43,10 @@ def build_llm_gateway() -> LiteLLMGateway | DeterministicStubGateway:
 
 
 def default_model() -> str:
-    model = env_value("ROCKET_DEFAULT_MODEL", "DEFAULT_MODEL") or FALLBACK_MODEL
+    """The operator's ``ROCKET_DEFAULT_MODEL``, else the default for the keys in the
+    environment (Anthropic first; see ``config_engine.model_defaults``)."""
+    model = env_value("ROCKET_DEFAULT_MODEL", "DEFAULT_MODEL") or default_model_for(
+        providers_from_environment()
+    )
     logger.debug("Configured default model: %s", model)
     return model

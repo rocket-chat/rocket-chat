@@ -269,6 +269,18 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         self._destroyed_sessions.add(session_id)
         self._specs.pop(session_id, None)
 
+    async def image_available(self, image: str) -> bool:
+        """Whether ``image`` is already on this host (a session started on it waits for no pull)."""
+
+        def _present() -> bool:
+            try:
+                self._client.images.get(image)
+            except docker.errors.ImageNotFound:
+                return False
+            return True
+
+        return await run_blocking(_present)
+
     async def get_status(self, session_id: str) -> SandboxStatus:
         if session_id in self._destroyed_sessions:
             return SandboxStatus.DESTROYED

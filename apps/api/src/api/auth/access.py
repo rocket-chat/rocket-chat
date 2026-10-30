@@ -8,6 +8,7 @@ from fastapi import (
 )
 
 from api.auth.identity import resolve_identity
+from api.auth.roles import can_write, is_admin
 from specifications.interfaces.session import (
     SessionRecord,
 )
@@ -30,7 +31,7 @@ def _get_request_identity(request: Request) -> tuple[str, str, list[str]]:
 def _require_admin(request: Request) -> tuple[str, str, list[str]]:
     """Identity of a caller holding the ``admin`` or ``owner`` role, else 403."""
     org_id, user_id, roles = _get_request_identity(request)
-    if not any(role in ("admin", "owner") for role in roles):
+    if not is_admin(roles):
         raise HTTPException(status_code=403, detail="Forbidden: Admin or owner role required")
     return org_id, user_id, roles
 
@@ -42,12 +43,12 @@ def _check_session_access(
     require_write: bool = False,
 ) -> None:
     """Enforce role permissions and user-specific isolation with sharing access."""
-    if "admin" in roles:
+    if is_admin(roles):
         return
-    if "readonly" in roles and require_write:
+    if not can_write(roles) and require_write:
         raise HTTPException(
             status_code=403,
-            detail="Forbidden: Read-only role cannot perform write actions on session",
+            detail="Forbidden: viewers cannot perform write actions on session",
         )
     is_owner = record.tenant_user_id == user_id
     is_shared = getattr(record, "is_shared", False) or bool(

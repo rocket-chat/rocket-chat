@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from api.services.model_catalogue import build_catalogue, custom_models, litellm_models
-from api.services.model_credentials import ModelCredentialStore
+from api.services.model_credentials import ModelCredentialStore, NewCredential
 from api.services.settings import reset_memory_settings, save_org_config
 
 ORG, USER = "org_catalogue", "member_a"
@@ -62,8 +62,8 @@ async def test_a_platform_key_adds_that_providers_models(monkeypatch: pytest.Mon
 @pytest.mark.asyncio
 async def test_a_members_or_organizations_key_adds_the_providers_models() -> None:
     store = ModelCredentialStore(None)
-    await store.put(ORG, USER, "gemini", "gemini-key-12345678")
-    await store.put(ORG, None, "deepseek", "deepseek-key-12345678")
+    await store.create(ORG, NewCredential("member", USER, "gemini", "gemini-key-12345678"))
+    await store.create(ORG, NewCredential("org", None, "deepseek", "deepseek-key-12345678"))
 
     ids = await _ids(store)
 

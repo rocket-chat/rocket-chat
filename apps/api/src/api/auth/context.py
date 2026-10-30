@@ -12,7 +12,7 @@ class RequestContext:
     email: str
     team_id: str | None = None
     name: str | None = None
-    roles: list[str] = field(default_factory=lambda: ["developer"])
+    roles: list[str] = field(default_factory=lambda: ["member"])
     groups: list[str] = field(default_factory=list)
     # How the identity was established ("session" cookie/token, "oidc", "header", "dev").
     source: str = "unknown"

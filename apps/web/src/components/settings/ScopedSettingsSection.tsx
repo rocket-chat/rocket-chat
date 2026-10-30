@@ -2,8 +2,8 @@
 
 import React from "react";
 import { Lock } from "lucide-react";
-import { useSession } from "../AuthProvider";
 import { Badge } from "../ui/Badge";
+import { useAccess } from "../../lib/access";
 
 interface ScopedSectionProps {
   title: string;
@@ -66,9 +66,7 @@ export const OrgScopeSection: React.FC<OrgScopeSectionProps> = ({
   children,
   className = "",
 }) => {
-  const { data: session } = useSession();
-  const userRoles = (session?.user as unknown as { roles?: string[] })?.roles || [];
-  const isAdmin = !session || userRoles.includes("admin") || userRoles.includes("owner");
+  const { isAdmin } = useAccess();
 
   return (
     <section className={`space-y-4 ${className}`}>
@@ -88,11 +86,13 @@ export const OrgScopeSection: React.FC<OrgScopeSectionProps> = ({
       {!isAdmin && (
         <p className="flex items-center gap-2 rounded-lg border border-border/70 bg-surface-card/60 p-2.5 text-sm text-neutral-600 dark:text-neutral-400">
           <Lock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-          Organization-wide settings are managed by administrators. Contact your workspace admin to request changes.
+          You can use these; administrators manage them for the whole organization.
         </p>
       )}
 
-      <div className={!isAdmin ? "opacity-75" : undefined}>{children}</div>
+      {/* Members see the organization's servers, skills and collections they can use as they are:
+          read-only, not dimmed. Pages that only administrators change are hidden from the nav. */}
+      <div>{children}</div>
     </section>
   );
 };

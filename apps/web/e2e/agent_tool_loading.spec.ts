@@ -8,9 +8,12 @@ import { test, expect } from "@playwright/test";
 test.describe("Agent tool loading", () => {
   test("core tools need no pin, and kept-active tools and patterns are saved", async ({ page }) => {
     await page.goto("/settings/agents");
-    await page.getByRole("button", { name: /New agent/i }).first().click();
-    await page.locator("input").first().fill("Pinned Investigator");
-    await page.getByText("Allow all tools").click();
+    await page.getByTestId("agent-new").click();
+    await page.getByTestId("agent-name").fill("Pinned Investigator");
+    await page.getByTestId("agent-section-tools").click();
+    // A new agent may use every tool, including ones added later.
+    await expect(page.getByTestId("agent-allow-all")).toBeChecked();
+    await page.getByRole("button", { name: "Advanced: tools kept active" }).click();
 
     await expect(page.getByTestId("tool-state-core").first()).toBeVisible();
     await expect(page.getByTestId("agent-pin-file_read")).toHaveCount(0);
@@ -21,8 +24,8 @@ test.describe("Agent tool loading", () => {
     await expect(kept).toHaveValue("git_status");
     await kept.fill("git_status\nmcp__signoz*__*search*");
 
-    await page.getByRole("button", { name: /save persona/i }).click();
-    await expect(page.getByText("SAVED!")).toBeVisible();
+    await page.getByTestId("agent-save").click();
+    await expect(page.getByTestId("agent-save")).toHaveText(/Saved/);
 
     const agents = await (await page.request.get("/v1/agents")).json();
     const saved = agents.find((a: { name: string }) => a.name === "Pinned Investigator");
@@ -32,9 +35,11 @@ test.describe("Agent tool loading", () => {
 
   test("the page counts what every step carries and warns past the limit", async ({ page }) => {
     await page.goto("/settings/agents");
-    await page.getByRole("button", { name: /New agent/i }).first().click();
-    await page.locator("input").first().fill("Loading Preview Agent");
-    await page.getByText("Allow all tools").click();
+    await page.getByTestId("agent-new").click();
+    await page.getByTestId("agent-name").fill("Loading Preview Agent");
+    await page.getByTestId("agent-section-tools").click();
+    await expect(page.getByTestId("agent-allow-all")).toBeChecked();
+    await page.getByRole("button", { name: "Advanced: tools kept active" }).click();
     const summary = page.getByTestId("tool-load-summary");
 
     await expect(summary).toContainText("Core tools and the ones kept active");

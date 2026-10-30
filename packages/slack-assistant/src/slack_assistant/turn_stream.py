@@ -1,6 +1,5 @@
 """Running a shared turn and rendering its live events into Slack."""
 
-import asyncio
 import logging
 import re
 import time
@@ -25,12 +24,12 @@ from slack_assistant.block_kit import (
     open_in_rocket_context,
 )
 from slack_assistant.policy import SlackOrgPolicy
+from slack_assistant.refusals import access_denied_text, budget_blocked_text
 from slack_assistant.state import SlackAssistantState
 from slack_assistant.stream import ANSWER_CHARS, TurnStream
 from specifications.interfaces.agent import (
     FileDiff,
     InteractiveQuestion,
-    TurnOverlay,
 )
 from specifications.interfaces.events import EventType, SessionEvent
 
@@ -46,6 +45,9 @@ class TurnOutcome:
     chunks: list[str] = field(default_factory=list)
     diffs: list[FileDiff] = field(default_factory=list)
     error: str | None = None
+    # The platform refused the turn (a spend limit, an agent the person may not use): what to
+    # tell them instead of an error.
+    refusal: str | None = None
     # The answer as the runner stored it, read once the turn's final status arrives. The
     # stream can drop events under load, so the stored answer wins when there is one.
     stored_answer: str | None = None
@@ -89,6 +91,38 @@ def readable_tool(name: str) -> str:
     words = name.replace("_", " ").replace("-", " ").strip() or "tool"
     label = words[0].upper() + words[1:]
     return f"{label} ({server})" if server else label
+
+
+SUBAGENT_SUMMARY_CHARS = 120
+
+
+def _role_label(payload: dict[str, Any]) -> str:
+    return (
+        str(payload.get("name") or payload.get("role") or "Subagent").replace("_", " ").capitalize()
+    )
+
+
+def subagent_started_line(payload: dict[str, Any]) -> str:
+    """ "Reviewer: check the diff for missing tests"."""
+    task = " ".join(str(payload.get("task") or "").split())
+    return f"{_role_label(payload)}: {task}" if task else _role_label(payload)
+
+
+def subagent_completed_line(payload: dict[str, Any]) -> str:
+    """ "Reviewer done: 3 findings, one high · $0.04" (the summary's first line, clamped)."""
+    verb = {"completed": "done", "partial": "stopped early", "cancelled": "cancelled"}.get(
+        str(payload.get("status") or "completed"), "failed"
+    )
+    report = payload.get("report")
+    summary = str((report if isinstance(report, dict) else {}).get("summary") or "")
+    summary = summary or str(payload.get("summary") or "")
+    lines = summary.strip().splitlines()
+    first = " ".join(lines[0].split()) if lines else ""
+    if len(first) > SUBAGENT_SUMMARY_CHARS:
+        first = first[: SUBAGENT_SUMMARY_CHARS - 1] + "…"
+    line = f"{_role_label(payload)} {verb}" + (f": {first}" if first else "")
+    cost = payload.get("cost")
+    return f"{line} · ${float(cost):.2f}" if isinstance(cost, int | float) and cost > 0 else line
 
 
 class SlackTurnStreamMixin(SlackAssistantState):
@@ -159,85 +193,6 @@ class SlackTurnStreamMixin(SlackAssistantState):
         except Exception as err:
             logger.warning("Slack setStatus call skipped or unsupported in context: %s", err)
 
-    async def _run_shared_turn(
-        self, view: TurnView, *, prompt: str, overlay: TurnOverlay, author_user_id: str
-    ) -> TurnOutcome:
-        """Start the shared turn and render its live events until it reaches a final state."""
-        if self._run_turn_fn is None or self.event_bus is None:
-            raise RuntimeError("Slack is not wired to the shared turn pipeline")
-        queue, close = self.event_bus.open_queue(view.session_id)
-        run_turn = self._run_turn_fn
-        session_id = view.session_id
-
-        async def _run() -> None:
-            await run_turn(
-                session_id=session_id,
-                prompt=prompt,
-                overlay=overlay,
-                author_user_id=author_user_id,
-                message_id=view.message_id,
-            )
-
-        runner: asyncio.Task[None] = asyncio.create_task(_run())
-        runner.add_done_callback(self._log_runner_failure)
-        self._background.add(runner)
-        runner.add_done_callback(self._background.discard)
-        try:
-            while not await self._drain_one(queue, runner, view):
-                pass
-        finally:
-            close()
-        failure = runner.exception() if runner.done() and not runner.cancelled() else None
-        if failure is not None:
-            raise failure
-        return view.outcome
-
-    @staticmethod
-    def _log_runner_failure(task: asyncio.Task[Any]) -> None:
-        if not task.cancelled() and task.exception() is not None:
-            logger.error("Shared turn task failed: %s", task.exception(), exc_info=task.exception())
-
-    async def _drain_one(
-        self, queue: asyncio.Queue[SessionEvent], runner: asyncio.Task[Any], view: TurnView
-    ) -> bool:
-        """Handle the next event; return True once the turn is over."""
-        getter = asyncio.ensure_future(queue.get())
-        done, _ = await asyncio.wait({getter, runner}, return_when=asyncio.FIRST_COMPLETED)
-        if getter in done:
-            event = getter.result()
-            if not await self._belongs_to_view(event, view):
-                return False
-            await self._render_event(event, view)
-            if not self._is_terminal(event):
-                return False
-            await self._read_stored_answer(view)
-            return True
-        getter.cancel()
-        # The runner returned: its turn is over, whether or not this view saw it begin (a
-        # refusal before the message was recorded, or a dropped event). What is left is all
-        # there is to show, and the stored answer, if any, is this turn's.
-        while not queue.empty():
-            await self._render_event(queue.get_nowait(), view)
-        await self._read_stored_answer(view)
-        return True
-
-    async def _belongs_to_view(self, event: SessionEvent, view: TurnView) -> bool:
-        """Whether ``event`` is part of this view's turn, which begins with its user message.
-
-        A message sent while another turn runs waits for it (one writer per session); the
-        events of that earlier turn reach this queue too, and are its own listener's to show.
-        """
-        if view.own_turn_started:
-            return True
-        if (
-            event.event_type == EventType.USER_MESSAGE
-            and event.payload.get("message_id") == view.message_id
-        ):
-            view.own_turn_started = True
-            await self._own_turn_started(view)
-            return True
-        return False
-
     async def _own_turn_started(self, view: TurnView) -> None:
         """Hook for when this view's turn begins (the assistant records its requester)."""
         return None
@@ -272,6 +227,8 @@ class SlackTurnStreamMixin(SlackAssistantState):
             await handler(self, event.payload, view)
 
     async def _render_tool_started(self, payload: dict[str, Any], view: TurnView) -> None:
+        if payload.get("subagent_id"):
+            return  # a subagent's own step: its line says what it is doing
         view.outcome.chunks.clear()
         name = str(payload.get("name", ""))
         arguments = payload.get("arguments")
@@ -288,6 +245,21 @@ class SlackTurnStreamMixin(SlackAssistantState):
                 if path not in view.screenshots:
                     view.screenshots.append(path)
 
+    async def _render_subagent_started(self, payload: dict[str, Any], view: TurnView) -> None:
+        if view.stream is not None:
+            await view.stream.subagent(
+                str(payload.get("subagent_id") or ""), subagent_started_line(payload), "in_progress"
+            )
+
+    async def _render_subagent_completed(self, payload: dict[str, Any], view: TurnView) -> None:
+        if view.stream is not None:
+            status = str(payload.get("status") or "completed")
+            await view.stream.subagent(
+                str(payload.get("subagent_id") or ""),
+                subagent_completed_line(payload),
+                "complete" if status in ("completed", "partial") else "error",
+            )
+
     async def _render_status(self, payload: dict[str, Any], view: TurnView) -> None:
         message = payload.get("message")
         if payload.get("status") == "error":
@@ -300,6 +272,12 @@ class SlackTurnStreamMixin(SlackAssistantState):
 
     async def _render_error(self, payload: dict[str, Any], view: TurnView) -> None:
         view.outcome.error = str(payload.get("error") or "The turn failed")
+
+    async def _render_budget_blocked(self, payload: dict[str, Any], view: TurnView) -> None:
+        view.outcome.refusal = budget_blocked_text(payload)
+
+    async def _render_access_denied(self, payload: dict[str, Any], view: TurnView) -> None:
+        view.outcome.refusal = access_denied_text(payload)
 
     async def _render_file_diff(self, payload: dict[str, Any], view: TurnView) -> None:
         view.outcome.diffs.append(
@@ -364,11 +342,15 @@ class SlackTurnStreamMixin(SlackAssistantState):
         EventType.STATUS_CHANGED: _render_status,
         EventType.TOKEN: _render_token,
         EventType.ERROR: _render_error,
+        EventType.BUDGET_BLOCKED: _render_budget_blocked,
+        EventType.AGENT_ACCESS_DENIED: _render_access_denied,
         EventType.FILE_DIFF: _render_file_diff,
         EventType.DECISION_REQUIRED: _render_question,
         EventType.APPROVAL_REQUIRED: _render_approval,
         EventType.ARTIFACT_CREATED: _render_artifact_created,
         EventType.ARTIFACT_UPDATED: _render_artifact_updated,
+        EventType.SUBAGENT_STARTED: _render_subagent_started,
+        EventType.SUBAGENT_COMPLETED: _render_subagent_completed,
     }
 
     async def _post_result(self, view: TurnView, org_policy: SlackOrgPolicy) -> None:

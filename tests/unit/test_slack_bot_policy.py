@@ -49,6 +49,20 @@ def test_every_policy_field_is_carried_through_the_merge() -> None:
         assert getattr(merged, item.name) == getattr(org, item.name), item.name
 
 
+def test_a_channel_route_keeps_its_repository_and_branch_through_the_bot_merge() -> None:
+    route = {"agent_persona": "p", "repository": " acme/api ", "branch": "main"}
+    merged = _bot(channel_profiles={"C1": route}).apply_to(SlackOrgPolicy())
+    profile = merged.profile_for("C1")
+    assert profile is not None
+    assert (profile.agent_persona, profile.repository, profile.branch) == ("p", "acme/api", "main")
+
+
+def test_a_channel_profile_without_repository_stores_none() -> None:
+    profile = ChannelProfile.from_mapping({"agent_persona": "p"})
+    assert profile is not None
+    assert (profile.repository, profile.branch) == ("", "")
+
+
 def test_a_bot_override_wins_for_the_key_it_sets_only() -> None:
     org = _full_policy()
     merged = _bot(long_output_chars=1200).apply_to(org)

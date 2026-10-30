@@ -26,7 +26,6 @@ from api.services.project_instructions import load_project_instructions
 from api.services.session_support import active_repository_of
 from api.services.settings import effective_settings
 from api.services.skills_lookup import list_visible_skills
-from api.services.subagents import load_subagent_configs
 from api.services.workspace_release import RELEASED_AT, released_notice
 from api.turns.context import TurnContext
 from specifications.interfaces.agent import CORE_TOOLS, GitPolicy, SystemPrompt, TurnPolicy
@@ -168,7 +167,8 @@ def sandbox_guidance(tools: PromptTools) -> list[str]:
     if tools.can("bash_exec"):
         lines.append(
             "- The default image has git, Python with uv, Node, build tools, ripgrep and fd; "
-            "install anything else with the package manager."
+            "install anything else with the package manager. A Polyglot sandbox type adds Go, "
+            "Rust and Java 21."
         )
     return lines
 
@@ -344,9 +344,9 @@ def showing_work_guidance(tools: PromptTools) -> str:
 logger = logging.getLogger(__name__)
 
 SIGNING_GUIDANCE = {
-    "github_app": "GitHub signs the commits when `git_push` publishes them (Verified, made "
+    "github": "GitHub signs the commits when `git_push` publishes them (Verified, made "
     "by the organization's GitHub App); their hashes change, and the local branch follows.",
-    "gpg_key": "The member's key signs the commits when `git_push` publishes them; their "
+    "member_gpg": "The member's key signs the commits when `git_push` publishes them; their "
     "hashes change, and the local branch follows.",
     "none": "Commits are published as they are, unsigned.",
 }
@@ -358,7 +358,7 @@ def git_guidance(git_bundle: GitCredentialBundle | None, policy: GitPolicy) -> l
         "app": "repositories the organization's GitHub App can read",
         "member": "repositories the member's linked GitHub account can read",
     }.get(git_bundle.mode if git_bundle else "", "public repositories only")
-    signing = SIGNING_GUIDANCE.get(policy.signing_mode, SIGNING_GUIDANCE["none"])
+    signing = SIGNING_GUIDANCE.get(policy.signing, SIGNING_GUIDANCE["none"])
     lines = [
         "\n[Git and GitHub]",
         "- The sandbox holds no GitHub credential and needs none: `git clone` and `git fetch` "
@@ -452,24 +452,18 @@ async def _skills_guidance(ctx: TurnContext) -> list[str]:
 
 
 async def _subagents_guidance(ctx: TurnContext, tools: PromptTools) -> list[str]:
-    """How to delegate, and which specialist roles the organization has."""
+    """How to delegate, when the delegation tools are sent (their descriptions list the
+    roles: the index costs the fixed prompt nothing while delegation is deferred)."""
     if not (tools.sends("delegate_subagent") or tools.sends("delegate_subagents_parallel")):
         return []
-    lines = [
+    return [
         "\n[Delegation]",
-        "- Hand focused investigations, security reviews, test runs or isolated tasks to "
-        "subagents (`delegate_subagent` for one task, `delegate_subagents_parallel` for several "
-        "at once) when it saves you steps. They run in isolated worktrees and report back.",
+        "- Hand focused work to a subagent role when it saves you steps or context: finding "
+        "code, research, a review of the diff, a test run, an independent piece of a change. "
+        "`delegate_subagents_parallel` runs independent tasks at once; `background=true` lets "
+        "you continue and check later. Roles marked worktree work on a branch you merge with "
+        "`merge_subagent_branch`.",
     ]
-    try:
-        configs = await load_subagent_configs(ctx.req.db_mgr, ctx.session.tenant_org_id)
-    except Exception:
-        logger.warning("Could not load the subagent roles for the prompt", exc_info=True)
-        return lines
-    for config in sorted((c for c in configs.values() if c.enabled), key=lambda c: c.id):
-        description = " ".join((config.description or config.role_title).split())[:120]
-        lines.append(f"  - `{config.id}` ({config.role_title}): {description}")
-    return lines
 
 
 async def build_system_prompt(

@@ -25,6 +25,7 @@ from agent_core.context import (
     family_context_limit,
 )
 from config_engine.cascading import model_is_allowed
+from llm_gateway.model_facts import facts_for
 
 from api.services.model_credentials import ModelCredentialStore
 from api.services.provider_catalogue import provider_catalogue
@@ -45,7 +46,8 @@ PLATFORM_KEY_ENV = {
 }
 
 REASONING_OUTPUT_CEILING = 64_000
-DEFAULT_MAX_OUTPUT = 8_192
+# What a model the platform knows nothing about is asked for at most (P6.3: 8K cut long patches).
+DEFAULT_MAX_OUTPUT = 16_384
 
 
 def _lookup_litellm_info(model: str) -> dict[str, Any] | None:
@@ -69,8 +71,13 @@ def resolve_model_spec(model: str) -> ModelSpec:
     model's family; ``context_source`` says which, and is ``default`` only when none knew it.
     """
     clean_id = (model or "").strip()
-    reasoning = is_reasoning_model(clean_id)
     info = _lookup_litellm_info(clean_id)
+    facts = facts_for(clean_id)
+    reasoning = (
+        is_reasoning_model(clean_id)
+        or bool(info and info.get("supports_reasoning"))
+        or bool(facts and facts.reasoning)
+    )
     live = provider_catalogue.get(clean_id)
 
     context_window = FALLBACK_CONTEXT_LIMIT
@@ -86,6 +93,9 @@ def resolve_model_spec(model: str) -> ModelSpec:
         out = info.get("max_output_tokens") or info.get("max_tokens")
         if isinstance(out, (int, float)) and out > 0:
             max_output = int(out)
+    if context_source == LIMIT_DEFAULT and facts is not None:
+        context_window, context_source = facts.context_window, LIMIT_FAMILY
+        max_output = facts.max_output_tokens
     if context_source == LIMIT_DEFAULT and (family := family_context_limit(clean_id)):
         context_window, context_source = family, LIMIT_FAMILY
     if live is not None:
@@ -96,7 +106,7 @@ def resolve_model_spec(model: str) -> ModelSpec:
     if reasoning:
         # Standard reasoning ceiling: up to 64k, bounded if provider catalog explicitly has lower
         max_output_tokens = REASONING_OUTPUT_CEILING
-        if max_output > 8_192 and max_output < REASONING_OUTPUT_CEILING:
+        if DEFAULT_MAX_OUTPUT < max_output < REASONING_OUTPUT_CEILING:
             max_output_tokens = max_output
     else:
         max_output_tokens = min(max_output, 16_384) if max_output > 0 else DEFAULT_MAX_OUTPUT
@@ -140,8 +150,11 @@ def _provider_label(provider: str) -> str:
 async def usable_providers(store: ModelCredentialStore, org_id: str, user_id: str) -> set[str]:
     """Providers the caller could call right now: environment, organization or own key."""
     providers = {p for p, env in PLATFORM_KEY_ENV.items() if os.getenv(env, "").strip()}
-    providers.update(k.provider for k in await store.list(org_id, None))
-    providers.update(k.provider for k in await store.list(org_id, user_id))
+    for credential in await store.list(org_id):
+        if credential.owner_kind == "org" and not credential.restricted_to_agents:
+            providers.add(credential.provider)
+        elif credential.owner_user_id == user_id:
+            providers.add(credential.provider)
     return providers
 
 

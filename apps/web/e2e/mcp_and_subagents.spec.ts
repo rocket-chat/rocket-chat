@@ -20,14 +20,17 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
 
     await page.getByRole("button", { name: /Add server/i }).click();
     await page.getByTestId("mcp-preset").selectOption("linear");
-
-    await expect(page.getByPlaceholder("e.g. Stripe Billing MCP")).toHaveValue("Linear");
-    await expect(page.getByPlaceholder("https://api.internal.service/mcp")).toHaveValue("https://mcp.linear.app/mcp");
     const note = page.getByTestId("mcp-preset-note");
     await expect(note).toContainText("registers itself");
     await expect(note).toContainText("/v1/mcp/oauth/callback");
     await expect(note.getByRole("link", { name: /Setup guide/ })).toHaveAttribute("href", "https://linear.app/docs/mcp");
+
+    await page.getByTestId("mcp-next").click();
+    await expect(page.getByTestId("mcp-step-connection")).toHaveAttribute("aria-current", "step");
+    await expect(page.getByPlaceholder("e.g. Stripe Billing MCP")).toHaveValue("Linear");
+    await expect(page.getByPlaceholder("https://api.internal.service/mcp")).toHaveValue("https://mcp.linear.app/mcp");
     // Nothing to fill in: the endpoints and client are discovered when signing in.
+    await page.getByTestId("mcp-next").click();
     await expect(page.getByTestId("mcp-sign-in-summary")).toContainText("Nothing to set up");
   });
 
@@ -35,6 +38,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await page.goto("/settings/mcp");
     await page.getByRole("button", { name: /Add org server/i }).click();
     await page.getByTestId("mcp-preset").selectOption("brave-search");
+    await page.getByTestId("mcp-step-auth").click();
 
     await expect(page.getByLabel("Variable 1 name")).toHaveValue("BRAVE_API_KEY");
     await expect(page.getByTestId("env-row").first().getByRole("checkbox").nth(1)).toBeChecked();
@@ -62,6 +66,10 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     // The form is a dialog over the page, not a block somewhere in the scrolled content.
     await expect(page.getByTestId("mcp-server-modal")).toBeVisible();
 
+    // The wizard opens on its presets; a custom server starts from the connection.
+    await expect(page.getByTestId("mcp-step-preset")).toHaveAttribute("aria-current", "step");
+    await page.getByTestId("mcp-next").click();
+
     // Fill server details
     await page.getByPlaceholder("e.g. Stripe Billing MCP").fill("E2E Sentry Server");
 
@@ -73,12 +81,8 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     // Fill HTTP endpoint
     await page.getByPlaceholder("https://api.internal.service/mcp").fill("https://sentry.corp.internal/mcp");
 
-    // Guidance is optional, so it sits behind a disclosure
-    await page.getByTestId("mcp-guidance-toggle").click();
-    const guidanceInput = page.getByTestId("guidance-input");
-    await guidanceInput.fill("Use this server to fetch exception tracebacks.");
-
     // Select Custom Headers auth mode
+    await page.getByTestId("mcp-next").click();
     const authSelect = page.getByLabel("Authentication Mode");
     await authSelect.selectOption("custom_headers");
 
@@ -96,6 +100,12 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     // Verify masked preview is shown
     await expect(page.getByText(/X-Security-Token: ••••••••/i)).toBeVisible();
 
+    // Guidance is optional, so it sits behind a disclosure on the last step
+    await page.getByTestId("mcp-next").click();
+    await page.getByTestId("mcp-guidance-toggle").click();
+    const guidanceInput = page.getByTestId("guidance-input");
+    await guidanceInput.fill("Use this server to fetch exception tracebacks.");
+
     // Submit registration
     const submitBtn = page.getByRole("button", { name: /PROBE & CONNECT SERVER/i });
     await expect(submitBtn).toBeVisible();
@@ -110,71 +120,55 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     expect(pageContent).not.toContain("super-secret-custom-token");
   });
 
-  test("configures autonomous specialist subagents and saves behavioral settings", async ({ page }) => {
+  test("subagent roles are edited with the agents, and the old page leads there", async ({ page }) => {
     await page.goto("/settings/subagents");
+    await expect(page).toHaveURL(/\/settings\/agents$/);
 
-    const mainContent = page.getByRole("main");
+    await page.getByTestId("agents-tab-subagent").click();
+    const roles = page.getByRole("list", { name: "Subagent roles" });
+    await expect(roles.getByRole("button", { name: /Security/i })).toBeVisible();
+    await expect(roles.getByRole("button", { name: /QA/i })).toBeVisible();
+    await expect(roles.getByRole("button", { name: /Research/i })).toBeVisible();
 
-    // Header verification
-    await expect(mainContent.getByRole("heading", { name: /Subagents & Task Delegation/i })).toBeVisible();
-    await expect(mainContent.getByText(/Configure autonomous specialists that execute focused/i)).toBeVisible();
+    await page.getByTestId("agent-item-qa_verifier").click();
+    await expect(page.getByTestId("agent-editor-title")).toHaveText(/QA/i);
+    await expect(page.getByTestId("agent-editor")).toContainText("Subagent role");
+    // A role runs inside its parent's session: no sandbox, access or test run of its own.
+    await expect(page.getByTestId("agent-section-sandbox")).toHaveCount(0);
+    await expect(page.getByTestId("agent-section-access")).toHaveCount(0);
+    await expect(page.getByTestId("agent-test-run")).toBeDisabled();
 
-    // Verify specialist list
-    await expect(mainContent.getByRole("button", { name: /Security/i })).toBeVisible();
-    await expect(mainContent.getByRole("button", { name: /QA/i })).toBeVisible();
-    await expect(mainContent.getByRole("button", { name: /Researcher/i })).toBeVisible();
+    await page.getByTestId("agent-section-limits").click();
+    await page.getByTestId("agent-max-turns").fill("6");
+    await page.getByTestId("agent-section-tools").click();
+    await expect(page.getByTestId("agent-tool-bash_exec")).toBeVisible();
 
-    // Verify recursion safeguard notice
-    await expect(mainContent.getByText("Recursion Safeguard")).toBeVisible();
-    await expect(mainContent.getByText(/Subagents inherit the session workspace but are strictly prohibited/i)).toBeVisible();
-
-    // Ensure list is hydrated and select QA Verifier
-    const qaButton = page.getByTestId("subagent-item-qa_verifier");
-    await expect(qaButton).toBeVisible({ timeout: 10000 });
-    await qaButton.click();
-    await expect(page.getByTestId("selected-subagent-title")).toHaveText(/QA/i, { timeout: 10000 });
-
-    // Verify form inputs populated
-    const roleInput = mainContent.locator("input[type='text']").first();
-    await expect(roleInput).toBeVisible();
-
-    // Verify turn limit range slider
-    const turnSlider = mainContent.locator("input[type='range']").first();
-    await expect(turnSlider).toBeVisible();
-    await turnSlider.fill("6");
-    await expect(mainContent.getByText("6 steps", { exact: true })).toBeVisible();
-
-    // Toggle a tool permission
-    const bashToolCheck = mainContent.locator("label").filter({ hasText: "Bash Terminal Exec" });
-    await expect(bashToolCheck).toBeVisible();
-
-    // Click Save Configuration
-    const saveBtn = mainContent.getByRole("button", { name: /Save Configuration/i });
-    await expect(saveBtn).toBeVisible();
-    await saveBtn.click();
-
-    // Verify success confirmation badge
-    await expect(mainContent.getByText(/Saved Settings/i)).toBeVisible();
+    const saved = page.waitForResponse(
+      (res) => res.url().includes("/v1/subagents/qa_verifier") && res.request().method() === "PUT"
+    );
+    await page.getByTestId("agent-save").click();
+    expect((await (await saved).json()).max_turns).toBe(6);
+    await expect(page.getByTestId("agent-save")).toHaveText(/Saved/);
+    await page.request.delete("/v1/subagents/qa_verifier");
   });
 
-  test("loads dynamic model list in user preferences settings", async ({ page }) => {
+  test("the model preference lives under Preferences, and the old page leads there", async ({ page }) => {
     await page.goto("/settings/user/models");
+    await expect(page).toHaveURL(/\/settings\/user\/preferences$/);
 
     const mainContent = page.getByRole("main");
-    await expect(mainContent.getByRole("heading", { name: /Model Defaults/i })).toBeVisible();
+    await expect(mainContent.getByRole("heading", { level: 1, name: "Preferences" })).toBeVisible();
 
     // The searchable picker lists the models the API returns
     const picker = mainContent.getByTestId("preferred-model");
-    await expect(picker).toBeVisible();
+    await expect(picker).toBeEnabled();
     await picker.click();
     await expect(mainContent.getByRole("option").first()).toBeVisible();
     await mainContent.getByRole("option").nth(1).click();
 
-    // Save changes
-    const saveButton = page.getByRole("button", { name: /Save Changes/i });
-    await expect(saveButton).toBeVisible();
-    await saveButton.click();
-
-    await expect(page.getByText(/Model and latency settings saved/i)).toBeVisible();
+    await expect(page.getByTestId("settings-unsaved")).toBeVisible();
+    await page.getByTestId("settings-save-all").click();
+    await expect(page.getByTestId("settings-save-bar")).toContainText("All changes saved.");
+    await page.request.delete("/v1/settings/user_preferences/preferred_model");
   });
 });

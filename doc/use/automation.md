@@ -11,12 +11,15 @@ A template is a reusable way to start a session: a name, an opening prompt, opti
 
 ## Scheduled missions
 
-A **mission** runs a prompt on a schedule as an ordinary session owned by you, with your permissions, budget and permission mode. Create one under **Missions**:
+A **mission** runs a prompt on a schedule as an ordinary session owned by you, with your permissions, keys, spend limits and permission mode. Create one under **Missions**:
 
 * **Schedule**: pick a preset or write a five-field cron (for example `0 9 * * 1-5`) and a time zone. The minimum interval is five minutes.
 * **Supervision**: a mission has nobody watching, so a run that needs an approval waits for you in its session. Use a permission mode that fits unattended work.
 * **Report to Slack**: give a channel id and each run's result is posted there with a link to the session (the channel must be one your organization lets the agent post in).
 * **Run now** starts a run without moving the schedule; each run is a session you can open, review and continue.
+* **Agent access**: a mission runs with an agent you may use; if an administrator withdraws your access to it, the mission is turned off with the status *blocked: agent access revoked*; pick another agent and turn it back on.
+
+**Start from a template** offers a weekly dependency audit, flaky-test triage and a stale-branch report; they are created paused, in read-only mode, so you review the prompt and schedule before switching them on.
 
 Limits: 20 missions per member and 200 per organization.
 

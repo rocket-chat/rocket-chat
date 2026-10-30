@@ -42,7 +42,7 @@ async def test_a_failing_pre_tool_hook_blocks_the_tool_before_it_runs() -> None:
     assert "Blocked by an organization hook" in outcome.text_of_events()
 
 
-@pytest.mark.setting("governance.allow_bypass_permissions")
+@pytest.mark.setting("access.use_bypass_mode")
 async def test_the_bypass_mode_is_honoured_only_where_the_organization_allows_it() -> None:
     async def mode(org: str) -> str:
         plan = await _turn_service.plan_turn(
@@ -57,7 +57,9 @@ async def test_the_bypass_mode_is_honoured_only_where_the_organization_allows_it
 
     assert await mode("wire_bypass_off") != "bypass"
 
-    await _governance("wire_bypass_on", allow_bypass_permissions=True)
+    await save_org_config(
+        None, "wire_bypass_on", "access", {"use_bypass_mode": ["owner", "admin", "member"]}, []
+    )
     assert await mode("wire_bypass_on") == "bypass"
 
 
@@ -101,8 +103,8 @@ async def test_without_a_timeout_a_question_waits_for_its_answer() -> None:
     assert not done, "the turn must still be waiting for an answer"
 
 
-@pytest.mark.setting("governance.zero_retention")
-@pytest.mark.setting("governance.region")
+@pytest.mark.setting("models.zero_retention")
+@pytest.mark.setting("models.region")
 async def test_data_rules_reach_every_model_call_of_the_turn_including_auxiliary_ones() -> None:
     org = "wire_data_rules"
     await _governance(org, zero_retention=True, region="eu")
@@ -114,7 +116,7 @@ async def test_data_rules_reach_every_model_call_of_the_turn_including_auxiliary
     assert all(scope.zero_retention and scope.region == "eu" for scope in outcome.model.scopes)
 
 
-@pytest.mark.setting("governance.provider_allowlist")
+@pytest.mark.setting("models.provider_allowlist")
 async def test_a_model_from_a_provider_outside_the_allowlist_does_not_run() -> None:
     blocked = await run_turn("wire_provider_block", script=[])
     assert blocked.model.requests, "control: with no allowlist the turn reaches the model"

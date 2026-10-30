@@ -5,14 +5,17 @@ import { useShallow } from "zustand/react/shallow";
 import { useMissionStore } from "../lib/store";
 import type { InspectorTab } from "../lib/store/types";
 import { ChangesPanel } from "./ChangesPanel";
+import { GitPanel } from "./GitPanel";
 import { PreviewPanel } from "./PreviewPanel";
 import { ProcessesPanel } from "./ProcessesPanel";
 import { SubagentsPanel } from "./SubagentsPanel";
 import { WorkspaceBrowser } from "./WorkspaceBrowser";
 import { ArtifactsPanel } from "./ArtifactsDrawer";
+import { tabKeyHandler } from "../lib/tab-keys";
 
 const TABS: { id: InspectorTab; label: string }[] = [
   { id: "changes", label: "Changes" },
+  { id: "git", label: "Git" },
   { id: "files", label: "Files" },
   { id: "processes", label: "Processes" },
   { id: "subagents", label: "Subagents" },
@@ -41,6 +44,7 @@ export const InspectorTop: React.FC = () => {
     processes: { value: running, label: "running" },
     artifacts: { value: artifacts, label: "artifacts" },
   };
+  const moveWithKeys = tabKeyHandler(TABS.map((t) => t.id), tab, setTab, (id) => `inspector-tab-${id}`);
   const tabClass = (name: InspectorTab) =>
     `relative flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-2 text-xs font-medium cursor-pointer border-b-2 transition-colors ${
       tab === name
@@ -55,12 +59,16 @@ export const InspectorTop: React.FC = () => {
           return (
             <button
               key={id}
+              id={`inspector-tab-${id}`}
               role="tab"
               aria-selected={tab === id}
+              aria-controls="inspector-tabpanel"
+              tabIndex={tab === id ? 0 : -1}
               data-testid={`tab-${id}`}
               type="button"
               className={tabClass(id)}
               onClick={() => setTab(id)}
+              onKeyDown={moveWithKeys}
             >
               {label}
               {badge && badge.value > 0 && (
@@ -76,8 +84,15 @@ export const InspectorTop: React.FC = () => {
           );
         })}
       </div>
-      <div className="flex-1 min-h-0">
+      <div
+        id="inspector-tabpanel"
+        role="tabpanel"
+        aria-labelledby={`inspector-tab-${tab}`}
+        data-testid="inspector-tabpanel"
+        className="flex-1 min-h-0"
+      >
         {tab === "changes" && <ChangesPanel />}
+        {tab === "git" && <GitPanel />}
         {tab === "files" && <WorkspaceBrowser />}
         {tab === "processes" && <ProcessesPanel onOpenPreview={openPreview} />}
         {tab === "subagents" && <SubagentsPanel />}

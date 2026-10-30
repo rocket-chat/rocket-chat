@@ -41,9 +41,10 @@ test("an administrator configures a channel profile on a Slack bot", async ({ pa
   await page.getByTestId("bot-token-input").fill("xoxb-dummy");
   await page.getByTestId("app-token-input").fill("xapp-dummy");
 
-  await page.getByRole("tab", { name: "Channels" }).click();
-  await page.getByTestId("add-channel-profile").click();
-  await page.getByTestId("channel-profile-id-0").fill("C0123ABCD");
+  await page.getByRole("tab", { name: "Routing" }).click();
+  await page.getByTestId("routing-add-channel").click();
+  await page.getByTestId("routing-match-1").fill("C0123ABCD");
+  await page.getByTestId("routing-details-1").click();
   await page.getByLabel("Response mode").selectOption("private");
   await page.getByLabel("Allowed tools").fill("file_read, grep_search");
   await page.getByLabel("House rules").fill("Answer in French.");
@@ -56,6 +57,6 @@ test("an administrator configures a channel profile on a Slack bot", async ({ pa
     },
   });
 
-  await page.getByRole("button", { name: /Remove profile C0123ABCD/ }).click();
-  await expect(page.getByTestId("channel-profile-0")).toHaveCount(0);
+  await page.getByRole("button", { name: "Remove C0123ABCD" }).click();
+  await expect(page.getByTestId("routing-row-1")).toHaveCount(0);
 });

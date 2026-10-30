@@ -74,12 +74,16 @@ class DatabaseSessionManager:
             self.session_factory = None
 
     @asynccontextmanager
-    async def session(self, tenant_org_id: str | None = None) -> AsyncIterator[AsyncSession]:
+    async def session(
+        self, tenant_org_id: str | None = None, tenant_user_id: str | None = None
+    ) -> AsyncIterator[AsyncSession]:
         """Provide a scoped database session with the tenant RLS context set.
 
         Falls back to the ambient request context (``current_tenant_org_id``) when no
         explicit tenant is given, so every session opened while handling a tenant
         request is correctly scoped — including the call sites that never passed an org.
+        ``tenant_user_id`` also lets the rows a policy grants to that person be read across
+        organizations (their own ``memberships``); nothing else uses it.
         """
         if self.session_factory is None:
             raise RuntimeError("Database session factory is not initialized")
@@ -88,6 +92,8 @@ class DatabaseSessionManager:
             try:
                 if effective_org_id:
                     await set_tenant_context(session, effective_org_id)
+                if tenant_user_id:
+                    await set_member_context(session, tenant_user_id)
                 yield session
                 await session.commit()
             except Exception:
@@ -108,6 +114,17 @@ async def set_tenant_context(session: AsyncSession, org_id: str) -> None:
             {"org_id": org_id},
         )
     session.info["tenant_org_id"] = org_id
+
+
+async def set_member_context(session: AsyncSession, user_id: str) -> None:
+    """Set the transaction-local member, for policies that grant a person their own rows."""
+    bind = session.bind
+    if bind is not None and bind.dialect.name == "postgresql":
+        await session.execute(
+            text("SELECT set_config('app.current_user_id', :user_id, true)"),
+            {"user_id": user_id},
+        )
+    session.info["tenant_user_id"] = user_id
 
 
 # Global instance default for application runtime

@@ -13,7 +13,7 @@ def _spec(kind: str, **overrides: Any) -> SettingSpec:
         "key": "k",
         "kind": kind,
         "default": None,
-        "scope": "org",
+        "policy": "org",
         "consumer": "x",
         "description": "d",
     }

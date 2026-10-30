@@ -110,9 +110,9 @@ pg_restore -h <db-host> -U postgres -d rocket_chat --clean /backups/rocket_chat_
 ```
 
 ### B. Master Encryption Key Custody
-The `ENCRYPTION_MASTER_KEY` encrypts all tenant BYOK credentials at rest.
+The `ENCRYPTION_MASTER_KEY` encrypts every stored model credential (organization and member keys) at rest.
 > [!CAUTION]
-> If `ENCRYPTION_MASTER_KEY` is lost, all encrypted BYOK credentials stored in the database are permanently unrecoverable. Store this secret in an enterprise secret vault (AWS Secrets Manager, HashiCorp Vault, Azure Key Vault).
+> If `ENCRYPTION_MASTER_KEY` is lost, all encrypted model credentials stored in the database are permanently unrecoverable. Store this secret in an enterprise secret vault (AWS Secrets Manager, HashiCorp Vault, Azure Key Vault).
 
 ---
 

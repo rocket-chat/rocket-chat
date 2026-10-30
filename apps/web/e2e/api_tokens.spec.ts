@@ -115,7 +115,7 @@ test("the settings navigation shows the running version as it was built", async 
 test("the API access page is listed in the personal settings", async ({ page }) => {
   await stubTokens(page, []);
   await page.goto("/settings/user/profile");
-  await page.getByRole("navigation", { name: "Personal" }).getByRole("link", { name: /API access/ }).click();
+  await page.getByRole("navigation", { name: "Personal" }).getByRole("link", { name: /API tokens/ }).click();
   await expect(page.getByRole("heading", { name: "API access" })).toBeVisible();
 });
 

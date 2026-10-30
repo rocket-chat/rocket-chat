@@ -64,7 +64,7 @@ async def _summary_call(
     text = ""
     async for chunk in gateway.chat_stream(request):
         if chunk.error:
-            raise ModelExecutionError(chunk.error)
+            raise ModelExecutionError(chunk.error, chunk.refusal)
         if chunk.text_delta:
             text += chunk.text_delta
     return text

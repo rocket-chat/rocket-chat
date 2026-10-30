@@ -8,6 +8,7 @@ rewind, so it does not go through the agent's approval gate.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -150,6 +151,54 @@ async def revert_changed_file(
         raise HTTPException(status_code=409, detail="The sandbox is not running")
     try:
         await changes.revert_file(driver, session_id, body.repository, body.scope, body.path)
+    except changes.ChangesError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
+    return {"status": "reverted", "path": body.path}
+
+
+class HunkView(BaseModel):
+    index: int
+    header: str = Field(..., description="The hunk's @@ line")
+    added: int
+    removed: int
+    preview: str = Field(..., description="Its first lines")
+
+
+class RevertHunkRequest(RevertRequest):
+    index: int = Field(..., ge=0, description="Which hunk of the file, from the hunk listing")
+
+
+@router.get("/sessions/{session_id}/changes/hunks", response_model=list[HunkView])
+async def list_file_hunks(
+    session_id: str,
+    request: Request,
+    repository: str = Query(..., min_length=1, max_length=300),
+    path: str = Query(..., min_length=1, max_length=1000),
+    scope: ScopeParam = "session",
+) -> list[HunkView]:
+    """The changed regions of one file, to undo them one at a time."""
+    driver = await _workspace(session_id, request, require_write=False)
+    if driver is None:
+        raise HTTPException(status_code=409, detail="The sandbox is not running")
+    try:
+        found = await changes.file_hunks(driver, session_id, repository, scope, path)
+    except changes.ChangesError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
+    return [HunkView(**asdict(h)) for h in found]
+
+
+@router.post("/sessions/{session_id}/changes/revert-hunk")
+async def revert_changed_hunk(
+    session_id: str, body: RevertHunkRequest, request: Request
+) -> dict[str, str]:
+    """Undo one changed region of a file; the rest of the file is kept."""
+    driver = await _workspace(session_id, request, require_write=True)
+    if driver is None:
+        raise HTTPException(status_code=409, detail="The sandbox is not running")
+    try:
+        await changes.revert_hunk(
+            driver, session_id, body.repository, body.scope, body.path, body.index
+        )
     except changes.ChangesError as err:
         raise HTTPException(status_code=422, detail=str(err)) from err
     return {"status": "reverted", "path": body.path}

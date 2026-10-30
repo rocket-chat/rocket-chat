@@ -11,7 +11,6 @@ import {
   RefreshCw,
   Code2,
   FileCode,
-  X,
 } from "lucide-react";
 
 export const ArtifactsPanel: React.FC = () => {
@@ -289,41 +288,6 @@ export const ArtifactsPanel: React.FC = () => {
           </div>
         )}
       </div>
-    </div>
-  );
-};
-
-export const ArtifactsDrawer: React.FC = () => {
-  const isOpen = useMissionStore((s) => s.isArtifactsDrawerOpen);
-  const setIsOpen = useMissionStore((s) => s.setIsArtifactsDrawerOpen);
-  const storeArtifacts = useMissionStore((s) => s.artifacts);
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-y-0 right-0 z-40 flex w-full max-w-2xl flex-col border-l border-border bg-surface-base shadow-2xl md:w-2/3 lg:w-1/2">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-border px-4 py-3 bg-surface-card">
-        <div className="flex items-center gap-2">
-          <FileText className="h-5 w-5 text-orange-500" />
-          <h2 className="text-sm font-semibold text-foreground">
-            Session Deliverables & Artifacts
-          </h2>
-          <span className="rounded-full bg-surface-elevated px-2 py-0.5 text-xs font-mono text-muted-foreground">
-            {storeArtifacts.length}
-          </span>
-        </div>
-        <button
-          onClick={() => setIsOpen(false)}
-          className="rounded p-1.5 text-muted-foreground hover:bg-surface-elevated hover:text-foreground"
-          title="Close drawer"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      {/* Body */}
-      <ArtifactsPanel />
     </div>
   );
 };

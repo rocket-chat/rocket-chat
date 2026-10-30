@@ -18,6 +18,7 @@ from api.db.models import McpServerEntityModel
 from api.db.session import DatabaseSessionManager, current_tenant_org_id
 from api.db.store import TurnTraceStore
 from api.services.audit import RetentionPolicy, RetentionSweeper
+from api.services.budgets import BudgetService
 from api.services.cluster import LeaderElection
 from api.services.interrupted_work import clear_stuck_processing, save_interrupted_turns
 from api.services.mcp_engine import probe_and_fetch_tools
@@ -26,6 +27,7 @@ from api.services.missions import MissionStore, claim_due
 from api.services.provider_catalogue import REFRESH_SECONDS, provider_catalogue
 from api.services.queued_messages import stranded_sessions
 from api.services.settings import load_org_config
+from api.services.subagent_runs import supervise_subagent_runs
 from api.services.turn_resume import resume_interrupted_turns
 from api.services.turn_trace import (
     LEASE_HEARTBEAT_SECONDS,
@@ -66,6 +68,7 @@ WAITS_SWEEP_SECONDS = 5.0
 DRAIN_POLL_SECONDS = 2.0
 # Stranded messages wait at least a minute (STRANDED_AFTER_SECONDS) anyway.
 QUEUED_SWEEP_SECONDS = 30.0
+SPEND_SWEEP_SECONDS = 300
 
 
 async def _run_periodically(
@@ -125,9 +128,11 @@ class BackgroundServices:
             self._start_workspace_release(admin_manager)
             self._start_waits_sweeper(admin_manager)
             self._start_queued_messages_sweeper(admin_manager)
+            self._start_spend_reservation_sweeper(admin_manager)
         else:
             self._start_waits_sweeper(None)
             self._start_queued_messages_sweeper(None)
+            self._start_spend_reservation_sweeper(None)
         self._start_sandbox_reaper(admin_manager)
         self._start_provider_catalogue()
 
@@ -268,6 +273,17 @@ class BackgroundServices:
         # start-up) continue now that the orchestrator and stores exist.
         self._spawn(_resume_after_restart())
 
+        # Background subagents: this replica's leases are renewed and runs whose replica
+        # stopped (this process's predecessor included) are settled, cluster or not.
+        async def _supervise_subagents() -> None:
+            await supervise_subagent_runs(admin_manager)
+
+        self._spawn(
+            _run_periodically(
+                "Subagent run supervision", LEASE_HEARTBEAT_SECONDS, _supervise_subagents
+            )
+        )
+
     def _start_missions(self, admin_manager: DatabaseSessionManager) -> None:
         mission_store = MissionStore(self._core.db_manager)
         self._app.state.mission_store = mission_store
@@ -301,6 +317,22 @@ class BackgroundServices:
                 await _poll()
 
         self._spawn(_scheduler())
+
+    def _start_spend_reservation_sweeper(
+        self, admin_manager: DatabaseSessionManager | None
+    ) -> None:
+        """Give back the spend a crashed call reserved and never settled. Every replica may
+        sweep: a reservation is deleted once, by whoever deletes it first."""
+        guard = getattr(self._core.orchestrator.gateway, "budget_guard", None)
+        if not isinstance(guard, BudgetService):
+            return
+
+        async def _sweep() -> None:
+            released = await guard.release_stale(admin_manager)
+            if released:
+                logger.warning("Released %d spend reservations whose call never settled", released)
+
+        self._spawn(_run_periodically("Spend reservation sweeper", SPEND_SWEEP_SECONDS, _sweep))
 
     def _start_workspace_release(self, admin_manager: DatabaseSessionManager) -> None:
         """Delete the workspace volume of sessions idle past their delay (days, so hourly).

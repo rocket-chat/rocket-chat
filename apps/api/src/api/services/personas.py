@@ -18,8 +18,11 @@ from typing import Any
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
 
+from api.auth.capabilities import Capability, member_has
 from api.db.models import AgentPersonaEntityModel
-from api.models import AgentPersonaModel
+from api.models import AgentPersonaModel, CredentialBindingModel
+from api.services.agent_access import AgentAccessDenied, may_use, principal_for
+from api.services.model_credentials import ModelCredentialStore
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.settings import effective_settings, resolve_settings
 from api.services.turn_limits import organization_max_turns
@@ -39,6 +42,12 @@ DEFAULT_AGENT_PROMPT = (
 # Inspection only, as for the read-only subagent roles.
 _READ_ONLY_TOOLS = [
     "file_read", "grep_search", "glob_files", "list_dir", "code_search", "web_search", "web_fetch",
+]  # fmt: skip
+
+# What a reviewer reads a change with, besides the files: git history and the pull request.
+_REVIEW_TOOLS = [
+    "git_diff", "git_log", "git_status", "clone_repository", "set_active_repository",
+    "github_pull_request", "github_read_file", "github_search",
 ]  # fmt: skip
 
 DEFAULT_AGENT_PERSONAS: tuple[AgentPersonaModel, ...] = (
@@ -72,25 +81,67 @@ DEFAULT_AGENT_PERSONAS: tuple[AgentPersonaModel, ...] = (
         model="",
         reasoning_effort="medium",
         max_turns=100,
-        cpu_limit="4",
-        memory_limit="8Gi",
         whitelisted_tools=["*"],
         # The core tools are always sent; these are the few more a backend task keeps using.
         active_tools=["process_start", "process_output", "process_wait", "git_diff"],
         icon="server",
     ),
     AgentPersonaModel(
-        id="persona-security",
-        name="Security & Penetration Auditor",
-        role_title="Application Security Specialist",
-        description="Audits source code for injection attacks, RLS boundary leaks, secret exposure, and permissions.",
+        id="persona-reviewer",
+        name="Reviewer",
+        role_title="Code Reviewer",
+        description="Reviews a change or a pull request: correctness, edge cases, tests and readability, with findings ranked by severity. Changes nothing.",
         system_prompt=(
-            "You are a dedicated Security Auditor persona. Inspect source files and configuration for "
-            "vulnerabilities (OWASP Top 10, SQL injection, RLS bypasses, secret leakage)."
+            "You are a code reviewer. Review the change you are pointed at (the working diff, a "
+            "branch or a pull request), not the whole codebase. Read the diff, then the code "
+            "around each change and its tests. Report each problem with its file and line, why "
+            "it is wrong and what to do instead, ranked: blocking (bugs, data loss, security, "
+            "broken contracts), then should-fix (missing tests, unhandled cases), then nits. Say "
+            "what you checked and found fine. Never change files or push."
+        ),
+        model="",
+        reasoning_effort="medium",
+        whitelisted_tools=[*_READ_ONLY_TOOLS, *_REVIEW_TOOLS],
+        icon="search-check",
+    ),
+    AgentPersonaModel(
+        id="persona-architect",
+        name="Architect",
+        role_title="Software Architect",
+        description="Designs before building: investigates in plan mode, proposes a plan for approval, then carries it out. Runs on the frontier model.",
+        system_prompt=(
+            "You are a software architect. For any change beyond a one-liner, investigate first: "
+            "read the code, its tests and its documentation, and find the constraints. Then "
+            "propose a plan as a checklist, with the trade-offs you weighed and the risks, and "
+            "ask for approval before you change anything. Once approved, carry it out step by "
+            "step, verifying each step."
+        ),
+        # The organization's frontier model, whichever provider it has a key for.
+        model="tier:frontier",
+        reasoning_effort="high",
+        default_permission_mode="plan",
+        whitelisted_tools=["*"],
+        icon="compass",
+    ),
+    AgentPersonaModel(
+        id="persona-security",
+        name="Security Auditor",
+        role_title="Application Security Specialist",
+        description="Audits code for vulnerabilities: entry points, untrusted input, secrets, access control. Reports findings by severity with evidence and fixes; changes nothing.",
+        system_prompt=(
+            "You are a security auditor. Work in this order: (1) a short threat model: what the "
+            "code protects and from whom; (2) the entry points: requests, messages, files, "
+            "commands, anything an outsider controls; (3) the data flow from each entry point to "
+            "where it is used (queries, shell, file paths, templates, network calls, "
+            "authorization checks); (4) what can go wrong on each flow (injection, broken access "
+            "control, secrets in code or logs, unsafe deserialization, requests to "
+            "attacker-chosen hosts). Rank findings: critical (exploitable now), high (with "
+            "little effort), medium (needs unusual conditions), low (hardening). Give each the "
+            "file, line, evidence and a fix. Never change files."
         ),
         # Empty model: the member's or organization's choice, whichever provider it is.
         model="",
-        whitelisted_tools=list(_READ_ONLY_TOOLS),
+        whitelisted_tools=[*_READ_ONLY_TOOLS, "git_diff", "git_log", "git_status"],
         icon="shield",
     ),
 )
@@ -157,13 +208,15 @@ def _from_entity(entity: AgentPersonaEntityModel) -> AgentPersonaModel:
         skill_ids=entity.skill_ids or [],
         knowledge_base_ids=entity.knowledge_base_ids or [],
         icon=entity.icon,
-        sandbox_image=entity.sandbox_image,
         sandbox_id=entity.sandbox_id or "",
-        cpu_limit=entity.cpu_limit,
-        memory_limit=entity.memory_limit,
         temperature=entity.temperature,
-        thinking_budget_tokens=entity.thinking_budget_tokens,
         reasoning_effort=entity.reasoning_effort,
+        credential_bindings=[
+            CredentialBindingModel(**binding)
+            for binding in entity.credential_bindings or []
+            if isinstance(binding, dict)
+        ],
+        strict_binding=bool(entity.strict_binding),
         max_turns=entity.max_turns,
         active_tools=entity.active_tools or [],
         enabled=getattr(entity, "enabled", True)
@@ -185,13 +238,10 @@ _COPIED_FIELDS = (
     "skill_ids",
     "knowledge_base_ids",
     "icon",
-    "sandbox_image",
     "sandbox_id",
-    "cpu_limit",
-    "memory_limit",
     "temperature",
-    "thinking_budget_tokens",
     "reasoning_effort",
+    "strict_binding",
     "max_turns",
     "active_tools",
     "enabled",
@@ -200,12 +250,32 @@ _COPIED_FIELDS = (
 )
 
 
+def _fields(persona: AgentPersonaModel) -> dict[str, Any]:
+    """The stored columns of ``persona``."""
+    fields = {name: getattr(persona, name) for name in _COPIED_FIELDS}
+    fields["credential_bindings"] = [b.model_dump() for b in persona.credential_bindings]
+    return fields
+
+
 def _visible(scope: str, owner: str | None, user_id: str) -> bool:
     return scope == "org" or owner == user_id
 
 
-async def list_personas(db_mgr: Any, org_id: str, user_id: str) -> list[AgentPersonaModel]:
-    """Built-in personas (as the organization edited them) plus the organization's and the member's own."""
+async def list_personas(
+    db_mgr: Any, org_id: str, user_id: str, roles: list[str] | None = None
+) -> list[AgentPersonaModel]:
+    """The agents this member may use: built-in (as the organization edited them),
+    the organization's (per their grants) and the member's own."""
+    principal = await principal_for(db_mgr, org_id, user_id, roles)
+    return [
+        persona
+        for persona in await _listed_personas(db_mgr, org_id, user_id)
+        if await may_use(db_mgr, org_id, principal, persona)
+        or (principal.is_admin and persona.enabled is False)
+    ]
+
+
+async def _listed_personas(db_mgr: Any, org_id: str, user_id: str) -> list[AgentPersonaModel]:
     custom: list[AgentPersonaModel]
     if db_mgr is not None:
         async with db_mgr.session(tenant_org_id=org_id) as session:
@@ -234,9 +304,31 @@ async def list_personas(db_mgr: Any, org_id: str, user_id: str) -> list[AgentPer
 
 
 async def get_persona(
+    db_mgr: Any,
+    org_id: str,
+    user_id: str,
+    persona_id: str | None,
+    *,
+    roles: list[str] | None = None,
+    enforce_access: bool = True,
+) -> AgentPersonaModel | None:
+    """The persona ``persona_id`` for this member: ``None`` when it does not exist (or is
+    another member's), ``AgentAccessDenied`` when it exists but they may not use it.
+
+    ``enforce_access=False`` is for the platform's own use of an agent (a Slack bot's router).
+    """
+    persona = await _find_persona(db_mgr, org_id, user_id, persona_id)
+    if persona is None or not enforce_access:
+        return persona
+    principal = await principal_for(db_mgr, org_id, user_id, roles)
+    if not await may_use(db_mgr, org_id, principal, persona):
+        raise AgentAccessDenied(persona.id, persona.name, disabled=persona.enabled is False)
+    return persona
+
+
+async def _find_persona(
     db_mgr: Any, org_id: str, user_id: str, persona_id: str | None
 ) -> AgentPersonaModel | None:
-    """The persona ``persona_id`` as visible to this member, or ``None``."""
     if not persona_id:
         return None
     for default in DEFAULT_AGENT_PERSONAS:
@@ -313,7 +405,7 @@ async def _save_builtin_override(
             .scalars()
             .first()
         )
-        fields = {name: getattr(edited, name) for name in _COPIED_FIELDS}
+        fields = _fields(edited)
         if entity is None:
             session.add(
                 AgentPersonaEntityModel(
@@ -388,7 +480,9 @@ async def _validate_sandbox_type(db_mgr: Any, org_id: str, persona: AgentPersona
         raise PersonaError(422, "That sandbox type is not in the organization's catalogue.")
 
 
-async def _validate_permission_mode(db_mgr: Any, org_id: str, persona: AgentPersonaModel) -> None:
+async def _validate_permission_mode(
+    db_mgr: Any, org_id: str, user_id: str, persona: AgentPersonaModel
+) -> None:
     mode = persona.default_permission_mode
     if not mode:
         return
@@ -396,19 +490,109 @@ async def _validate_permission_mode(db_mgr: Any, org_id: str, persona: AgentPers
     locked_mode = preferences.effective.get("permission_mode")
     if "permission_mode" in preferences.locked_keys and mode != locked_mode:
         raise PersonaError(422, f"The organization locked the permission mode to '{locked_mode}'.")
-    governance = await effective_settings(db_mgr, org_id, "governance")
-    if mode == "bypass" and not governance.get("allow_bypass_permissions"):
-        raise PersonaError(422, "The organization does not allow the bypass permission mode.")
+    if mode == "bypass" and not await member_has(
+        db_mgr, org_id, user_id, Capability.USE_BYPASS_MODE
+    ):
+        raise PersonaError(422, "Your role does not have the use_bypass_mode capability.")
 
 
-async def _validate(db_mgr: Any, org_id: str, persona: AgentPersonaModel) -> None:
+async def _validate_bindings(
+    db_mgr: Any,
+    org_id: str,
+    user_id: str,
+    is_admin: bool,
+    persona: AgentPersonaModel,
+    credentials: ModelCredentialStore | None,
+) -> None:
+    """Who may bind which credential (``model_credentials`` resolves them at call time):
+
+    * an organization agent: administrators, with organization credentials or member
+      credentials whose owner shared them with this agent;
+    * a personal agent: its owner, with their own credentials only;
+    * never a member credential while ``models.member_keys`` is ``off``.
+    """
+    if not persona.credential_bindings:
+        return
+    org_agent = persona.scope == "org" or persona.id in RESERVED_IDS
+    if org_agent and not is_admin:
+        raise PersonaError(403, "Only administrators bind credentials to organization agents.")
+    store = credentials or ModelCredentialStore(db_mgr)
+    member_keys = str((await effective_settings(db_mgr, org_id, "models")).get("member_keys"))
+    providers: set[str] = set()
+    for binding in persona.credential_bindings:
+        if binding.provider in providers:
+            raise PersonaError(422, f"Bind one credential per provider ({binding.provider}).")
+        providers.add(binding.provider)
+        found = await store.get(org_id, binding.credential_id)
+        if found is None or found.provider != binding.provider:
+            raise PersonaError(422, f"No {binding.provider} credential {binding.credential_id}.")
+        if found.owner_kind == "member":
+            if member_keys == "off":
+                raise PersonaError(422, "Your organization does not use members' own keys.")
+            shared = persona.id in found.shared_with_org_agents
+            if org_agent and not shared:
+                raise PersonaError(
+                    422, f"The owner of {found.label!r} has not shared it with this agent."
+                )
+            if not org_agent and found.owner_user_id != user_id:
+                raise PersonaError(403, "A personal agent can only use its owner's credentials.")
+        elif not org_agent:
+            raise PersonaError(403, "A personal agent cannot use organization credentials.")
+
+
+async def _validate(
+    db_mgr: Any,
+    org_id: str,
+    user_id: str,
+    is_admin: bool,
+    persona: AgentPersonaModel,
+    credentials: ModelCredentialStore | None = None,
+) -> None:
     await _validate_step_limit(db_mgr, org_id, persona)
     await _validate_sandbox_type(db_mgr, org_id, persona)
-    await _validate_permission_mode(db_mgr, org_id, persona)
+    await _validate_permission_mode(db_mgr, org_id, user_id, persona)
+    await _validate_bindings(db_mgr, org_id, user_id, is_admin, persona, credentials)
+
+
+async def stored_bindings(db_mgr: Any, org_id: str, persona_id: str) -> list[tuple[str, str]]:
+    """The (provider, credential id) pairs stored on an agent, for auditing a change."""
+    if db_mgr is None:
+        found = _memory.get(org_id, {}).get(persona_id) or _memory_overrides.get(org_id, {}).get(
+            persona_id
+        )
+        return [(b.provider, b.credential_id) for b in found.credential_bindings] if found else []
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        entity = (
+            (
+                await session.execute(
+                    select(AgentPersonaEntityModel).where(
+                        AgentPersonaEntityModel.org_id == org_id,
+                        or_(
+                            AgentPersonaEntityModel.id == persona_id,
+                            AgentPersonaEntityModel.overrides_builtin == persona_id,
+                        ),
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+    if entity is None:
+        return []
+    return [
+        (str(b.get("provider")), str(b.get("credential_id")))
+        for b in entity.credential_bindings or []
+        if isinstance(b, dict)
+    ]
 
 
 async def save_persona(
-    db_mgr: Any, org_id: str, user_id: str, is_admin: bool, persona: AgentPersonaModel
+    db_mgr: Any,
+    org_id: str,
+    user_id: str,
+    is_admin: bool,
+    persona: AgentPersonaModel,
+    credentials: ModelCredentialStore | None = None,
 ) -> AgentPersonaModel:
     """Create or update a custom persona; the stored id is returned on the result.
 
@@ -417,13 +601,13 @@ async def save_persona(
     with (and thereby probe) another tenant's persona.
     """
     if persona.id in RESERVED_IDS:
-        await _validate(db_mgr, org_id, persona)
+        await _validate(db_mgr, org_id, user_id, is_admin, persona, credentials)
         return await _save_builtin_override(db_mgr, org_id, is_admin, persona)
     if persona.scope == "org" and not is_admin:
         raise PersonaError(
             403, "Only Organization Administrators can configure organization-wide agent personas."
         )
-    await _validate(db_mgr, org_id, persona)
+    await _validate(db_mgr, org_id, user_id, is_admin, persona, credentials)
     persona.user_id = user_id if persona.scope == "user" else None
     persona.built_in = False
     now = int(time.time())
@@ -451,8 +635,8 @@ async def save_persona(
         )
         if entity is not None:
             _check_may_write(entity.scope, entity.user_id, user_id, is_admin)
-            for name in _COPIED_FIELDS:
-                setattr(entity, name, getattr(persona, name))
+            for name, value in _fields(persona).items():
+                setattr(entity, name, value)
             entity.user_id = persona.user_id
             entity.updated_at = now
             await session.commit()
@@ -473,7 +657,7 @@ async def save_persona(
                             user_id=candidate.user_id,
                             created_at=now,
                             updated_at=now,
-                            **{name: getattr(candidate, name) for name in _COPIED_FIELDS},
+                            **_fields(candidate),
                         )
                     )
             except IntegrityError:

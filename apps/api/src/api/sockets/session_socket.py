@@ -20,9 +20,10 @@ from api.auth.identity import (
     resolve_identity,
     resolve_token_identity,
 )
-from api.auth.roles import with_live_roles
+from api.auth.roles import can_write, is_admin, with_live_roles
 from api.db.session import current_tenant_org_id
 from api.db.store import TurnTraceStore
+from api.services.approval_rules import published_approval, remember_answered_approval
 from api.services.decision_answer import decision_answer_prompt
 from api.services.metrics import (
     websocket_connection_closed,
@@ -35,6 +36,7 @@ from api.services.session_support import (
     SYNC_HISTORY_TAIL,
     apply_sharing,
     slice_history_tail,
+    user_turns_in,
 )
 from api.services.session_updates import publish_session_update
 from api.services.turn_trace import session_running_turn
@@ -42,6 +44,7 @@ from api.turns.context import TurnSelection
 from api.turns.gates import _forget_pending_decisions, take_stored_question
 from api.turns.running import running_turn_snapshot
 from api.turns.tasks import _spawn_background_turn
+from specifications.interfaces.agent import APPROVAL_RULE_SCOPES
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 from specifications.interfaces.session import SessionStoreProtocol
@@ -165,8 +168,8 @@ class SessionSocket:
         self._user_id = caller.user_id
         self._org_id = caller.org_id
         roles = list(caller.roles)
-        self._can_write = "readonly" not in roles
-        self._is_admin = "admin" in roles
+        self._can_write = can_write(roles)
+        self._is_admin = is_admin(roles)
 
         session = await self._store.get_session(self._session_id)
         if not session or session.tenant_org_id != caller.org_id:
@@ -264,6 +267,9 @@ class SessionSocket:
             session_dict["conversation_history"] = sliced_history
             session_dict["has_older_history"] = has_older
             session_dict["total_messages"] = len(full_history)
+            session_dict["user_turns_before"] = user_turns_in(
+                full_history[: len(full_history) - len(sliced_history)]
+            )
         frame: dict[str, Any] = {
             "type": "sync",
             "session_id": session_id,
@@ -481,14 +487,27 @@ class SessionSocket:
         action_id = data.get("action_id", "")
         if not action_id:
             return
+        approved = bool(data.get("approved", True))
+        published = published_approval(self._event_bus, self._session_id, action_id)
         try:
             await self._orchestrator.submit_human_approval(
                 session_id=self._session_id,
                 action_id=action_id,
-                approved=bool(data.get("approved", True)),
+                approved=approved,
             )
         except KeyError as err:
             logger.warning("Pending approval %s not found: %s", action_id, err)
+            return
+        if approved and data.get("remember") in APPROVAL_RULE_SCOPES:
+            await remember_answered_approval(
+                db_mgr=self._db,
+                event_bus=self._event_bus,
+                payload=published,
+                scope=str(data["remember"]),
+                org_id=self._org_id,
+                session_id=self._session_id,
+                user_id=self._user_id,
+            )
 
     async def _on_share(self, data: dict[str, Any]) -> None:
         is_shared = bool(data.get("is_shared", False))

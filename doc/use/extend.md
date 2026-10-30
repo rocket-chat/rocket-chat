@@ -13,9 +13,12 @@ A skill is a named instruction you invoke with a slash: type `/review src/` and 
 
 The agent sees the name and summary of every skill it may use and loads one with `execute_skill` when a task matches, so write a clear `description` that says when the skill applies. An instruction skill, once loaded, stays in effect for the whole session: its instructions arrive in the conversation at the moment the agent loads it, and stay there on every later turn. They are never trimmed when a long session prunes older tool results, and a compaction of the history carries them over whole, so they are not lost; loading the skill again does not repeat it. Edit a skill and the next turn tells the agent it changed, so it loads the new text before relying on it. A code skill still returns its output as a result. A persona that lists skills only sees those.
 
+
+Six **starter skills** come with the platform (`/review-diff`, `/write-tests`, `/fix-ci-failure`, `/write-pr-description`, `/investigate-bug`, `/upgrade-dependency`) unless your organization turned them off; a skill of your own with the same name replaces one.
+
 ## MCP servers
 
-Connect tools from other systems through the [Model Context Protocol](https://modelcontextprotocol.io): an issue tracker, a database, an internal API. Add a server (remote over HTTP/SSE, or a command that runs inside the sandbox), give it credentials (stored encrypted, never shown again) and its tools join the agent's. An organization connector can require each member to authorize their own account. Descriptions you add under *guidance* tell the agent when to use a tool.
+Connect tools from other systems through the [Model Context Protocol](https://modelcontextprotocol.io): an issue tracker, a database, an internal API. Add a server in four steps (*Preset*, *Connection*, *Authentication*, *Tools*), remote over HTTP/SSE or a command run on the MCP runner,, give it credentials (stored encrypted, never shown again) and its tools join the agent's. An organization connector can require each member to authorize their own account. Descriptions you add under *guidance* tell the agent when to use a tool.
 
 **Servers that sign you in (OAuth).** Paste the server's URL: when you leave the field, Rocket Chat asks the server how it signs people in, switches the form to OAuth and tells you whether there is anything to set up (usually nothing). For an organization server, choose who signs in: *each member with their own account*, or *one shared account* that you sign in now. **Add & sign in** saves the server and opens the provider's login in a new tab; when you approve, the tab closes and the settings page shows that you are signed in. Behind it, Rocket Chat reads the server's OAuth metadata, registers itself with the provider (or, where the provider supports it, identifies itself by the public URL of its client metadata), and requests a token for that server only. Only a provider that allows neither needs an OAuth app created by hand: the form says so and shows the callback URL to give it, under *Advanced*.
 
@@ -47,25 +50,24 @@ Upload documents (architecture notes, runbooks, API docs) and the agent searches
 
 ## Agents (personas)
 
-An agent is a system prompt, a model and an optional list of allowed tools, skills, knowledge bases, and resource limits. The platform ships with three built-in agents:
+An agent is a system prompt, a model and an optional list of allowed tools, skills and knowledge bases, with the sandbox type its sessions start in and its own limits. One editor (**Settings → Organization → Agents** for the organization's, **Settings → My agents** for yours) has six sections: *Identity & prompt*, *Model & credentials*, *Tools & knowledge* (tools grouped by what they do: read, edit, run commands, publish), *Sandbox*, *Access* (organization agents) and *Limits*; subagent roles are edited in the same place. **Export** and **Import** move an agent as a `.rocket/agents/<id>.md` file. The platform ships with three built-in agents:
 
 * **General Software Engineer (`persona-general`)**: versatile full-stack autonomous engineer with access to all runtime tools.
 * **Backend Developer (`persona-backend`)**: optimized for complex, long-running backend engineering tasks (APIs, microservices, databases, durable waits, and subagent worktrees) keeping background processes and `git_diff` active beside the core tools, `medium` reasoning effort, and a 100-step turn budget.
 * **Security & Penetration Auditor (`persona-security`)**: focused read-only code auditor checking for OWASP vulnerabilities, RLS leaks, and secret exposure.
 
-Administrators can edit the built-in agents for the whole organization (prompt, model, tools, reasoning effort, temperature, step limit, and sandbox sizing) and use **Reset to default** to restore the shipped version; members who want a variation save a copy. Define narrower ones for specific jobs (a reviewer limited to read-only tools, a database migration specialist). A persona can also name a sandbox image and placement profile, subject to your organization's catalogue.
+Administrators can edit the built-in agents for the whole organization (prompt, model, tools, reasoning, temperature, step limit, sandbox type) and use **Reset to default** to restore the shipped version; members who want a variation save a copy. Define narrower ones for specific jobs (a reviewer limited to read-only tools, a database migration specialist). An agent does not set CPU or memory: it picks a sandbox type, which holds the image and the resources. Which agents you see depends on who your administrators gave them to.
 
-### Reasoning effort and temperature
+### Reasoning and temperature
 
-Under **Settings → Agents**, you can configure fine-grained model execution parameters for each persona:
-
-* **Reasoning effort**: for reasoning models (Anthropic Claude 3.7 Sonnet with thinking, OpenAI o1/o3-mini, Gemini 2.5 Pro with thinking, DeepSeek through OpenRouter). Choose `none` to switch reasoning off, `low` for fast, cost-conscious responses, `medium` for balanced engineering, or `high` for deep architectural refactors and complex migrations; `minimal`, `xhigh` and `max` are there for models that offer them. An OpenRouter model takes only the levels it lists (DeepSeek V4 Pro takes `max`, `high`, `low` and `none`), so the platform uses the nearest one it takes, rounding down. The levels do not always differ in cost; `none` is the one that reliably spends no reasoning tokens.
+* **Reasoning** (one level per agent; for Claude the thinking budget follows from it): for reasoning models (Anthropic Claude 3.7 Sonnet with thinking, OpenAI o1/o3-mini, Gemini 2.5 Pro with thinking, DeepSeek through OpenRouter). Choose `none` to switch reasoning off, `low` for fast, cost-conscious responses, `medium` for balanced engineering, or `high` for deep architectural refactors and complex migrations; `minimal`, `xhigh` and `max` are there for models that offer them. An OpenRouter model takes only the levels it lists (DeepSeek V4 Pro takes `max`, `high`, `low` and `none`), so the platform uses the nearest one it takes, rounding down. The levels do not always differ in cost; `none` is the one that reliably spends no reasoning tokens.
 * **Reasoning limit per step**: a step that reasons past the organization's limit (`models.reasoning_step_limit_tokens`, 8,000 tokens by default) without acting is stopped once and asked again with reasoning off and a note to decide. The turn is never ended or shortened by it. Set the limit to 0 to turn it off.
-* **Sampling temperature**: overrides the model's default sampling temperature (`0.0` is deterministic; `1.0+` is creative). Leave empty to inherit the model default. (Note: reasoning models typically enforce temperature `1.0` or ignore this parameter).
+* **Sampling temperature** (under *Advanced*): overrides the organization's temperature (`0.0` is deterministic; `1.0+` is creative). Leave empty to inherit. Reasoning models typically ignore it.
+* **Credentials**: an agent can be bound to its own provider keys (see [Organization settings](/administer/organization#agents)).
 
 ### Max steps per turn
 
-Each agent can set **Max steps per turn**, from 1 up to the organization's ceiling (configured under **Settings → Organization → Turn limits**, up to 500); leave it empty to use the organization's limit. For complex missions requiring hundreds of steps across multiple files and tests, Rocket Chat automatically schedules **Goal Continuations** when a turn hits its step cap while the `.rocket/PLAN.md` checklist has pending items.
+Each agent can set **Max steps per turn**, from 1 up to the organization's ceiling (**Settings → Organization → General**, up to 500; the deployment's `AGENT_MAX_TURNS` is its default); leave it empty to use the organization's limit. For complex missions requiring hundreds of steps across multiple files and tests, Rocket Chat automatically schedules **Goal Continuations** when a turn hits its step cap while the `.rocket/PLAN.md` checklist has pending items.
 
 ### Which tools every step carries
 
@@ -91,3 +93,23 @@ Each agent can set a **Sandbox**: the sandbox type its sessions start in when yo
 ## Memory
 
 The agent can remember durable facts about you and your projects ("we use pnpm", "tests run with `make check`") and recall them later. See and delete them in the **Memory inspector**; administrators can turn memory off or restrict what it may store. Secrets are never stored.
+
+## Subagent roles in a repository
+
+A repository can define subagent roles the agent may delegate to in that repository: one `.rocket/agents/<id>.md` file per role (at most 12), with front matter and the role's instructions:
+
+```markdown
+---
+id: docs_writer
+name: Docs writer
+description: Writes and updates user documentation. Not for code changes.
+tools: [file_read, grep_search, file_write, file_edit]
+tier: fast
+isolation: worktree
+max_steps: 30
+---
+
+You write documentation for this project...
+```
+
+`tier` is `fast`, `default` or `frontier`; `isolation` is `none` or `worktree`. The roles are read when the repository is cloned (and at the start of later turns while the sandbox runs); an organization role with the same id wins, and a repository role never gets a sandbox of its own, a budget above the default or the right to ask you. The agent editor's **Export** writes a file in the same format.

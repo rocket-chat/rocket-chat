@@ -192,7 +192,7 @@ class TestSubagentRunner:
         )
 
         assert result.status == "completed"
-        assert result.turns_taken == 41
+        assert result.turns_taken == 42  # forty steps, its answer, then the report it was asked for
         assert "forty steps" in result.summary
 
     @pytest.mark.asyncio
@@ -482,7 +482,7 @@ class TestSubagentRestEndpoints:
 
             sec_agent = next(s for s in subagents if s["id"] == "security_auditor")
             assert "Security" in sec_agent["name"]
-            assert sec_agent["max_turns"] == 30
+            assert sec_agent["max_turns"] == 40
 
             # 2. PUT /v1/subagents/security_auditor with updated prompt and turn cap
             sec_agent["max_turns"] = 6

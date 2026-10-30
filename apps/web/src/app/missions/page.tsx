@@ -35,6 +35,15 @@ const SCHEDULE_PRESETS: { label: string; cron: string }[] = [
   { label: "Every hour", cron: "0 * * * *" },
 ];
 
+interface MissionTemplate {
+  id: string;
+  name: string;
+  description: string;
+  prompt: string;
+  cron: string;
+  permission_mode: string;
+}
+
 const presetLabel = (cron: string) => SCHEDULE_PRESETS.find((p) => p.cron === cron)?.label ?? cron;
 
 const formatTime = (epoch: number | null) =>
@@ -52,13 +61,36 @@ export default function MissionsPage() {
     repo: "",
     slack_channel: "",
     permission_mode: "auto",
+    // A mission started from a template is created paused: switching it on is a decision.
+    enabled: true,
   });
+  const [templates, setTemplates] = useState<MissionTemplate[]>([]);
 
   const load = useCallback(async () => {
     const res = await fetch("/v1/missions");
     if (res.ok) setMissions(await res.json());
     setLoaded(true);
   }, []);
+
+  useEffect(() => {
+    fetch("/v1/missions/templates")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((list: MissionTemplate[]) => setTemplates(Array.isArray(list) ? list : []))
+      .catch(() => undefined);
+  }, []);
+
+  const applyTemplate = (id: string) => {
+    const template = templates.find((t) => t.id === id);
+    if (!template) return;
+    setForm({
+      ...form,
+      name: template.name,
+      prompt: template.prompt,
+      cron: template.cron,
+      permission_mode: template.permission_mode,
+      enabled: false,
+    });
+  };
 
   useEffect(() => {
     void load();
@@ -75,6 +107,7 @@ export default function MissionsPage() {
         prompt: form.prompt,
         cron: form.cron,
         permission_mode: form.permission_mode,
+        enabled: form.enabled,
         ...(form.repo.trim() ? { git_repo: form.repo.trim() } : {}),
         ...(form.slack_channel.trim() ? { slack_channel: form.slack_channel.trim() } : {}),
       }),
@@ -84,7 +117,7 @@ export default function MissionsPage() {
       setError(typeof body.detail === "string" ? body.detail : "Could not create the mission.");
       return;
     }
-    setForm({ ...form, name: "", prompt: "" });
+    setForm({ ...form, name: "", prompt: "", enabled: true });
     setShowForm(false);
     await load();
   };
@@ -116,6 +149,26 @@ export default function MissionsPage() {
       {showForm && (
         <Card className="mb-6 p-5">
           <form onSubmit={create} data-testid="mission-form" className="space-y-4">
+            {templates.length > 0 && (
+              <Field label="Start from a template" hint="Templates are created paused; switch the mission on when it looks right.">
+                {(control) => (
+                  <Select
+                    {...control}
+                    data-testid="mission-template"
+                    defaultValue=""
+                    onChange={(e) => applyTemplate(e.target.value)}
+                    className="max-w-md"
+                  >
+                    <option value="">None</option>
+                    {templates.map((template) => (
+                      <option key={template.id} value={template.id}>
+                        {template.name}: {template.description}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            )}
             <Field label="Name">
               {(control) => (
                 <Input

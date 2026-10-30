@@ -44,6 +44,7 @@ test.describe("Editing remote MCP servers", () => {
       await page.getByRole("button", { name: `Edit ${name}` }).click();
       const dialog = page.getByTestId("mcp-server-modal");
       await expect(dialog.getByRole("heading", { name: `Edit ${name}` })).toBeVisible();
+      await page.getByTestId("mcp-step-auth").click();
       await expect(page.getByLabel("Header Name")).toHaveValue("X-Api-Key");
       await expect(page.getByLabel("Prefix")).toHaveValue("Token");
       await expect(page.getByLabel("Secret API Key (Write-Only)")).toHaveAttribute("placeholder", /Unchanged/);
@@ -84,6 +85,7 @@ test.describe("Editing remote MCP servers", () => {
     try {
       await page.goto("/settings/mcp");
       await page.getByRole("button", { name: `Edit ${name}` }).click();
+      await page.getByTestId("mcp-step-auth").click();
       await expect(page.getByLabel("Client ID")).toHaveValue("client-1");
       await expect(page.getByLabel("Client Secret (Optional for Public PKCE)")).toHaveAttribute(
         "placeholder",

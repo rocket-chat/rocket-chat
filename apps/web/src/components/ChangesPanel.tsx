@@ -3,12 +3,24 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import "../lib/monaco";
+import { useMonacoTheme } from "../lib/theme";
+import { ChangesReview } from "./ChangesReview";
 import { useShallow } from "zustand/react/shallow";
 import { useMissionStore } from "../lib/store";
 import { FileCode, FilePlus2, FileX2, FileEdit, RefreshCw, Split, Undo2 } from "lucide-react";
 import type { FileDiffItem } from "../types/mission";
 
 // Dynamically import Monaco DiffEditor to avoid SSR issues
+const INLINE_KEY = "changes_diff_layout";
+
+function readInlinePreference(): boolean {
+  try {
+    return typeof window !== "undefined" && localStorage.getItem(INLINE_KEY) === "inline";
+  } catch {
+    return false;
+  }
+}
+
 const DiffEditor = dynamic(() => import("@monaco-editor/react").then((mod) => mod.DiffEditor), {
   ssr: false,
   loading: () => (
@@ -120,7 +132,18 @@ export const ChangesPanel: React.FC = () => {
     })),
   );
   const [scope, setScope] = useState<Scope>("session");
-  const [inline, setInline] = useState(false);
+  const [inline, setInlineState] = useState(readInlinePreference);
+  const setInline = (value: boolean | ((previous: boolean) => boolean)) =>
+    setInlineState((previous) => {
+      const next = typeof value === "function" ? value(previous) : value;
+      try {
+        localStorage.setItem(INLINE_KEY, next ? "inline" : "side-by-side");
+      } catch {
+        // Private windows may refuse storage: the choice then lasts for this page only.
+      }
+      return next;
+    });
+  const monacoTheme = useMonacoTheme();
   const [data, setData] = useState<ChangesResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Selected | null>(null);
@@ -316,10 +339,11 @@ export const ChangesPanel: React.FC = () => {
               original={original}
               modified={modified}
               language={languageOf(selected.path)}
-              theme="vs-dark"
+              theme={monacoTheme}
               options={{
                 readOnly: true,
                 renderSideBySide: !inline,
+                hideUnchangedRegions: { enabled: true },
                 minimap: { enabled: false },
                 fontSize: 12,
                 fontFamily: "JetBrains Mono, monospace",
@@ -332,6 +356,15 @@ export const ChangesPanel: React.FC = () => {
           ) : null}
         </div>
       </div>
+      {selected?.repository && sessionId && isReal && (
+        <ChangesReview
+          sessionId={sessionId}
+          repository={selected.repository}
+          path={selected.path}
+          scope={scope}
+          onChanged={() => void load()}
+        />
+      )}
 
       <div className="min-h-12 border-t border-border bg-surface px-4 py-1.5 flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">

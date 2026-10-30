@@ -33,6 +33,7 @@ from api.auth.context import RequestContext
 from api.auth.roles import roles_for
 from api.db.models import ApiTokenModel, UserModel
 from api.db.session import DatabaseSessionManager
+from api.services.memberships import role_in
 
 TOKEN_PREFIX = "rcpat_"
 MAX_TOKENS_PER_MEMBER = 20
@@ -241,17 +242,19 @@ class ApiTokens:
             ):
                 return None
             user = await session.get(UserModel, row.user_id)
-            if user is None or user.org_id != row.org_id:
+            # A token acts in the organization it was created in, as long as its member
+            # still belongs there, with the role they hold there now.
+            role = await role_in(session, row.user_id, row.org_id) if user is not None else None
+            if user is None or role is None:
                 return None
             if row.last_used_at is None or now - row.last_used_at >= LAST_USED_RESOLUTION_SECONDS:
                 row.last_used_at = now
             guest = isinstance(user.settings, dict) and GUEST_SETTINGS_KEY in user.settings
             return RequestContext(
                 user_id=user.id,
-                org_id=user.org_id,
+                org_id=row.org_id,
                 email=user.email,
-                team_id=user.team_id,
                 name=user.name,
-                roles=[GUEST_ROLE] if guest else roles_for(user.role),
+                roles=[GUEST_ROLE] if guest else roles_for(role),
                 source=GUEST_TOKEN_SOURCE if guest else "api_token",
             )

@@ -9,9 +9,11 @@ from fastapi import (
     HTTPException,
     Request,
 )
+from pydantic import BaseModel
 from sqlalchemy import or_, select
 
 from api.auth.access import _get_request_identity
+from api.auth.roles import is_admin as holds_admin
 from api.db.models import (
     CustomSkillModel,
 )
@@ -22,11 +24,34 @@ from api.models import (
     CustomSkillTestRequest,
     CustomSkillTestResponse,
 )
+from api.services.settings import effective_settings
 from api.services.skill_import import SkillImportError, parse_skill_markdown
 from api.services.skills_lookup import _memory_skills
+from api.services.starter_content import STARTER_SKILLS
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Sessions & Telemetry"])
+
+
+class StarterSkillResponse(BaseModel):
+    name: str
+    description: str
+    enabled: bool
+
+
+@router.get("/skills/starter", response_model=list[StarterSkillResponse])
+async def list_starter_skills(request: Request) -> list[StarterSkillResponse]:
+    """The shipped instruction skills and whether the organization offers each
+    (``general.starter_skills``; administrators switch them on and off)."""
+    org_id, _, _ = _get_request_identity(request)
+    general = await effective_settings(
+        getattr(request.app.state, "db_manager", None), org_id, "general"
+    )
+    enabled = {str(name) for name in general.get("starter_skills") or []}
+    return [
+        StarterSkillResponse(name=s.name, description=s.description, enabled=s.name in enabled)
+        for s in STARTER_SKILLS
+    ]
 
 
 @router.get("/skills", response_model=list[CustomSkillResponse])
@@ -110,7 +135,7 @@ async def create_or_update_custom_skill(
 ) -> CustomSkillResponse:
     """Create or update a custom prompt skill with scoping."""
     org_id, user_id, roles = _get_request_identity(request)
-    is_admin = "admin" in roles or "owner" in roles
+    is_admin = holds_admin(roles)
 
     if req.scope == "org" and not is_admin:
         raise HTTPException(
@@ -213,7 +238,7 @@ async def create_or_update_custom_skill(
 async def delete_custom_skill(skill_id: str, request: Request) -> dict[str, bool]:
     """Delete a custom skill."""
     org_id, user_id, roles = _get_request_identity(request)
-    is_admin = "admin" in roles or "owner" in roles
+    is_admin = holds_admin(roles)
     db_mgr = getattr(request.app.state, "db_manager", None)
 
     if db_mgr:

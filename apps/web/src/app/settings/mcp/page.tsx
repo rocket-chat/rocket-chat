@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "../../../components/ui/Button";
+import { useConfirm } from "../../../components/ui/ConfirmDialog";
 import { PageHeader } from "../../../components/ui/PageHeader";
 
 
@@ -8,7 +9,6 @@ import { PageHeader } from "../../../components/ui/PageHeader";
 import React, { useState, useEffect, useCallback } from "react";
 import { McpRunnerStatus, McpServerConfig } from "../../../types/mission";
 import { Server, Plus, Shield, CheckCircle2, AlertCircle } from "lucide-react";
-import { useSession } from "../../../components/AuthProvider";
 import { McpServerCard } from "../../../components/settings/mcp/McpServerCard";
 import { McpServerForm } from "../../../components/settings/mcp/McpServerForm";
 import { SchemaSettingsForm } from "../../../components/settings/SchemaSettingsForm";
@@ -17,13 +17,13 @@ import {
   ScopeDivider,
   OrgScopeSection,
 } from "../../../components/settings/ScopedSettingsSection";
+import { useAccess } from "../../../lib/access";
 
 const SIGN_IN_MESSAGE = "rocket-mcp-sign-in";
 
 export default function McpSettingsPage() {
-  const { data: session } = useSession();
-  const userRoles = (session?.user as unknown as { roles?: string[] })?.roles || [];
-  const isAdmin = !session || userRoles.includes("admin") || userRoles.includes("owner");
+  const [confirm, confirmDialog] = useConfirm();
+  const { isAdmin } = useAccess();
 
   const [servers, setServers] = useState<McpServerConfig[]>([]);
   const [runner, setRunner] = useState<McpRunnerStatus | null>(null);
@@ -162,7 +162,7 @@ export default function McpSettingsPage() {
   };
 
   const handleDeleteServer = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to remove MCP server '${name}'?`)) return;
+    if (!(await confirm({ title: `Remove the MCP server “${name}”?`, message: "Agents lose its tools from their next turn.", confirmLabel: "Remove", tone: "danger" }))) return;
     try {
       const res = await fetch(`/v1/mcp/servers/${id}`, { method: "DELETE" });
       if (res.ok) {
@@ -202,6 +202,7 @@ export default function McpSettingsPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
+      {confirmDialog}
       <PageHeader
         title="MCP servers"
         icon={<Server className="h-5 w-5" aria-hidden="true" />}

@@ -1,6 +1,7 @@
 "use client";
 
 import { SessionUsageChip } from "./SessionUsageChip";
+import { SpendLimitChip } from "./SpendLimitChip";
 import { useShallow } from "zustand/react/shallow";
 import React, { useState } from "react";
 import Link from "next/link";
@@ -61,13 +62,12 @@ export const FlightTelemetryHeader: React.FC = () => {
     setIsTurnInspectorOpen,
     isMemoryInspectorOpen,
     setIsMemoryInspectorOpen,
-    isArtifactsDrawerOpen,
-    setIsArtifactsDrawerOpen,
+    openInspectorTab,
     isLeftSidebarOpen,
     setIsLeftSidebarOpen,
     goal,
   } = useMissionStore(
-    useShallow((state) => ({ session: state.session, activeAgent: state.activeAgent, selectedModel: state.selectedModel, inferenceMode: state.inferenceMode, tokenRate: state.tokenRate, isExecuting: state.isExecuting, isRightPanelOpen: state.isRightPanelOpen, setIsRightPanelOpen: state.setIsRightPanelOpen, isTurnInspectorOpen: state.isTurnInspectorOpen, setIsTurnInspectorOpen: state.setIsTurnInspectorOpen, isMemoryInspectorOpen: state.isMemoryInspectorOpen, setIsMemoryInspectorOpen: state.setIsMemoryInspectorOpen, isArtifactsDrawerOpen: state.isArtifactsDrawerOpen, setIsArtifactsDrawerOpen: state.setIsArtifactsDrawerOpen, isLeftSidebarOpen: state.isLeftSidebarOpen, setIsLeftSidebarOpen: state.setIsLeftSidebarOpen, goal: state.goal }))
+    useShallow((state) => ({ session: state.session, activeAgent: state.activeAgent, selectedModel: state.selectedModel, inferenceMode: state.inferenceMode, tokenRate: state.tokenRate, isExecuting: state.isExecuting, isRightPanelOpen: state.isRightPanelOpen, setIsRightPanelOpen: state.setIsRightPanelOpen, isTurnInspectorOpen: state.isTurnInspectorOpen, setIsTurnInspectorOpen: state.setIsTurnInspectorOpen, isMemoryInspectorOpen: state.isMemoryInspectorOpen, setIsMemoryInspectorOpen: state.setIsMemoryInspectorOpen, openInspectorTab: state.openInspectorTab, isLeftSidebarOpen: state.isLeftSidebarOpen, setIsLeftSidebarOpen: state.setIsLeftSidebarOpen, goal: state.goal }))
   );
   const params = useParams();
   const routeSessionId = typeof params?.sessionId === "string" ? params.sessionId : null;
@@ -82,8 +82,12 @@ export const FlightTelemetryHeader: React.FC = () => {
 
   const [isShareOpen, setIsShareOpen] = useState(false);
 
-  const activeModelDisplayName =
-    inferenceMode === "agent"
+  const turnBinding = useMissionStore((state) => state.turnBinding);
+  // While a turn runs, the header names what is running it, not what the composer would pick next.
+  const running = isExecuting && turnBinding !== null;
+  const activeModelDisplayName = running
+    ? turnBinding.agentName || turnBinding.model.split("/").pop() || turnBinding.model
+    : inferenceMode === "agent"
       ? activeAgent?.name || "Agent"
       : selectedModel.split("/").pop() || selectedModel;
 
@@ -144,6 +148,11 @@ export const FlightTelemetryHeader: React.FC = () => {
           running={isExecuting}
         />
 
+        <SpendLimitChip
+          sessionId={session && !session.is_draft ? session.session_id : undefined}
+          running={isExecuting}
+        />
+
         {goal && goal.status === "active" && (
           <div
             data-testid="goal-chip"
@@ -180,7 +189,7 @@ export const FlightTelemetryHeader: React.FC = () => {
           artifactCount={artifactCount}
           onMemory={() => setIsMemoryInspectorOpen(!isMemoryInspectorOpen)}
           onTurns={() => setIsTurnInspectorOpen(!isTurnInspectorOpen)}
-          onArtifacts={() => setIsArtifactsDrawerOpen(!isArtifactsDrawerOpen)}
+          onArtifacts={() => openInspectorTab("artifacts")}
         />
 
         <IconButton

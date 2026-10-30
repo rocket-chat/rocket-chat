@@ -2,6 +2,7 @@
 
 import React from "react";
 import { SchemaSettingsForm } from "../../../components/settings/SchemaSettingsForm";
+import { SetupHealthCard } from "../../../components/settings/SetupHealthCard";
 
 export default function Page() {
   return (
@@ -25,6 +26,7 @@ export default function Page() {
       </div>
       <div className="flex-1 p-8">
         <div className="max-w-5xl mx-auto space-y-10">
+          <SetupHealthCard />
           <SchemaSettingsForm
             domain="general"
             mode="org"

@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import "../lib/monaco";
+import { useMonacoTheme } from "../lib/theme";
 import { ChevronDown, ChevronRight, File, Folder, Save } from "lucide-react";
 import { useMissionStore } from "../lib/store";
 
@@ -104,6 +105,7 @@ const TreeLevel: React.FC<{
 
 /** Browse the session's workspace and edit files in place (what the agent sees, live). */
 export const WorkspaceBrowser: React.FC = () => {
+  const monacoTheme = useMonacoTheme();
   const session = useMissionStore((s) => s.session);
   const sessionId = session && !session.is_draft ? session.session_id : null;
   const [selected, setSelected] = useState<string | null>(null);
@@ -215,7 +217,7 @@ export const WorkspaceBrowser: React.FC = () => {
             <Editor
               path={selected}
               language={languageOf(selected)}
-              theme="vs-dark"
+              theme={monacoTheme}
               value={content}
               onChange={(value) => setContent(value ?? "")}
               options={{ minimap: { enabled: false }, fontSize: 12, scrollBeyondLastLine: false }}

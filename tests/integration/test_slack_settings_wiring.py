@@ -30,14 +30,6 @@ def _system_text(model: ScriptedModel) -> str:
     return "\n".join(m.content or "" for m in request.messages if m.role == "system")
 
 
-@pytest.mark.setting("slack.default_agent_persona")
-async def test_the_default_persona_is_the_agent_used_in_threads() -> None:
-    model = ScriptedModel()
-    await Stack(model, _policy(default_agent_persona="persona-security")).send()
-
-    assert "Security Auditor persona" in _system_text(model)
-
-
 @pytest.mark.setting("slack.allowed_tools")
 async def test_only_the_allowed_tools_are_offered_to_the_agent_in_slack() -> None:
     model = ScriptedModel()

@@ -19,30 +19,36 @@ from api.turns.shared import _turn_service
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
 from specifications.interfaces.sandbox import SandboxStatus
+from specifications.interfaces.session import SessionRecord
 
 # --- sandboxes: what a new workspace is made of ------------------------------------------
 
 
-async def _provision(org: str, **binding: Any) -> Any:
-    """Provision a session's sandbox against a recording driver; returns the driver."""
+async def _provision(org: str, image: str | None = None, **binding: Any) -> Any:
+    """Provision a session's sandbox against a recording driver; returns the driver.
+
+    ``image`` is the image the session asked for (``container_image``)."""
     driver = FakeSandboxDriver()
     driver.ensure_workspace = AsyncMock(wraps=driver.ensure_workspace)  # type: ignore[method-assign]
+    store = InMemorySessionStore()
+    if image is not None:
+        await store.create_session(
+            SessionRecord(
+                session_id=f"session_{org}",
+                tenant_org_id=org,
+                tenant_user_id="u1",
+                title="t",
+                container_image=image,
+            )
+        )
     await provision_session_sandbox(
-        store=InMemorySessionStore(),
+        store=store,
         driver=driver,
         event_bus=AsyncMock(),
         db_mgr=None,
         git_engine=None,
         session_id=f"session_{org}",
-        binding=SimpleNamespace(
-            **{
-                "sandbox_image": "",
-                "sandbox_id": "",
-                "cpu_limit": "",
-                "memory_limit": "",
-                **binding,
-            }
-        ),
+        binding=SimpleNamespace(**{"sandbox_id": "", **binding}),
         egress_allowed_cidrs=[],
         block_internal_subnets=False,
         fallback_user="u1",
@@ -57,15 +63,12 @@ def _workspace(driver: Any) -> Any:
 
 @pytest.mark.setting("sandboxes.cpu_limit")
 @pytest.mark.setting("sandboxes.memory_limit")
-async def test_the_organization_limits_size_the_sandbox_unless_the_agent_sets_its_own() -> None:
+async def test_the_organization_limits_size_the_sandbox() -> None:
     org = "wire_limits"
     await save_org_config(None, org, "sandboxes", {"cpu_limit": 3.0, "memory_limit": "6Gi"}, [])
 
     workspace = _workspace(await _provision(org))
     assert (workspace.resources.cpu_cores, workspace.resources.memory_limit) == (3.0, "6Gi")
-
-    own = _workspace(await _provision(org, cpu_limit="1.5", memory_limit="2Gi"))
-    assert (own.resources.cpu_cores, own.resources.memory_limit) == (1.5, "2Gi")
 
 
 @pytest.mark.setting("sandboxes.require_non_root")
@@ -90,12 +93,12 @@ async def test_the_default_image_seeds_the_organizations_default_sandbox() -> No
 async def test_an_image_outside_the_catalogue_and_the_allowed_patterns_is_refused() -> None:
     org = "wire_allowed_images"
     with pytest.raises(ValueError, match="not in the organization's sandbox catalogue"):
-        await _provision(org, sandbox_image="rogue.example/box:1")
+        await _provision(org, image="rogue.example/box:1")
 
     await save_org_config(None, org, "sandboxes", {"allowed_images": ["rogue.example/*"]}, [])
-    assert _workspace(
-        await _provision(org, sandbox_image="rogue.example/box:1")
-    ).container_image == ("rogue.example/box:1")
+    assert _workspace(await _provision(org, image="rogue.example/box:1")).container_image == (
+        "rogue.example/box:1"
+    )
 
 
 # --- sandboxes: what the turn's tools are allowed to do ---------------------------------
@@ -111,14 +114,20 @@ def _turn(org: str, driver: Any = None) -> Any:
             driver=driver or AsyncMock(),
             git_engine=None,
         ),
-        session=SimpleNamespace(tenant_org_id=org, tenant_user_id="u1"),
+        session=SimpleNamespace(
+            tenant_org_id=org,
+            tenant_user_id="u1",
+            metadata={},
+            git_repo=None,
+            sandbox_status=SandboxStatus.NON_EXISTENT,
+        ),
+        effective_model="anthropic/claude-sonnet-5-5",
         binding=SimpleNamespace(
             knowledge_base_ids=(),
             skill_ids=(),
-            cpu_limit="",
-            memory_limit="",
-            sandbox_image="",
             sandbox_id="",
+            model_router=None,
+            policy=SimpleNamespace(attribution=SimpleNamespace(requester_user_id=None)),
         ),
         governance=SimpleNamespace(
             egress=SimpleNamespace(allowed_cidrs=[], block_internal_subnets=False)
@@ -184,17 +193,15 @@ async def _git_policy(org: str, **member: Any) -> Any:
     ).policy.git
 
 
-@pytest.mark.setting("github.commit_authorship_policy")
 @pytest.mark.setting("github.bot_author_name")
 @pytest.mark.setting("github.bot_author_email")
-async def test_the_authorship_policy_and_bot_identity_decide_who_a_commit_is_by() -> None:
+async def test_the_bot_identity_decides_who_a_commit_is_by() -> None:
     org = "wire_authorship"
     await save_org_config(
         None,
         org,
         "github",
         {
-            "commit_authorship_policy": "bot_only",
             "bot_author_name": "Release Bot",
             "bot_author_email": "bot@corp.example",
         },
@@ -207,10 +214,10 @@ async def test_the_authorship_policy_and_bot_identity_decide_who_a_commit_is_by(
     assert spec.co_authors == []
 
 
-@pytest.mark.setting("github.commit_signing_mode")
+@pytest.mark.setting("github.signing")
 async def test_the_signing_mode_reaches_the_commit() -> None:
     org = "wire_signing"
-    await save_org_config(None, org, "github", {"commit_signing_mode": "none"}, [])
+    await save_org_config(None, org, "github", {"signing": "none"}, [])
 
     spec = commit_spec_for_policy("msg", None, None, await _git_policy(org))
 
@@ -236,12 +243,12 @@ class _PullRequests:
         return "https://github.com/o/r/pull/1"
 
 
-@pytest.mark.setting("github.pr_creation_policy")
+@pytest.mark.setting("github.publish_as")
 @pytest.mark.setting("github.default_branch")
 async def test_pull_requests_use_the_policys_credential_and_base_branch() -> None:
     org = "wire_pr"
     await save_org_config(
-        None, org, "github", {"pr_creation_policy": "as_bot", "default_branch": "develop"}, []
+        None, org, "github", {"publish_as": "bot", "default_branch": "develop"}, []
     )
     policy = await _git_policy(org)
     policy = type(policy)(**{**policy.__dict__, "user_token": "member-token"})
@@ -249,7 +256,7 @@ async def test_pull_requests_use_the_policys_credential_and_base_branch() -> Non
 
     await git_open_pr(AsyncMock(), "s", "t", "b", git_engine=engine, policy=policy)  # type: ignore[arg-type]
 
-    assert engine.calls == [("develop", None)]  # as_bot: never the member's token
+    assert engine.calls == [("develop", None)]  # bot: never the member's token
 
 
 @pytest.mark.setting("github.app_token_permissions")

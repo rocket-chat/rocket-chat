@@ -237,7 +237,7 @@ async def test_the_org_persona_and_tool_scope_apply_to_slack_turns() -> None:
 
     request = model.agent_requests()[0]
     system_text = "\n".join(m.content or "" for m in request.messages if m.role == "system")
-    assert "Security Auditor persona" in system_text  # the bound persona's prompt
+    assert "You are a security auditor" in system_text  # the bound persona's prompt
     assert "Slack thread" in system_text  # the Slack overlay on top of it
     # persona whitelist (file_read, web_search, web_fetch) intersected with the org's Slack scope
     assert {t.name for t in request.tools} == {"file_read", "web_search"}
@@ -412,3 +412,37 @@ async def test_an_agent_allowlist_does_not_take_back_a_linked_members_tools() ->
     assert await scope(linked=True) == set(agent_tools)
     assert await scope(linked=True, restrict=True) == {"file_read"}
     assert await scope(linked=False) == {"file_read"}
+
+
+@pytest.mark.asyncio
+async def test_a_message_sent_while_a_turn_runs_is_queued_and_runs_next() -> None:
+    from api.services.queued_messages import hold_for_running_turn
+
+    model = ScriptedModel()
+    model.gate = asyncio.Event()
+    stack = Stack(model)
+
+    async def hold(*, session_id: str, prompt: str, author_user_id: str, message_id: str) -> bool:
+        return await hold_for_running_turn(
+            session_store=stack.store,
+            orchestrator=stack.orchestrator,
+            event_bus=stack.bus,
+            db_mgr=None,
+            org_id=(await stack.store.get_session(session_id)).tenant_org_id,  # type: ignore[union-attr]
+            session_id=session_id,
+            prompt=prompt,
+            delivery="queue",
+            message_id=message_id,
+            author_user_id=author_user_id,
+        )
+
+    stack.assistant._hold_message_fn = hold
+    first = stack.send("<@UBOT> first")
+    await asyncio.wait_for(model.started.wait(), 5)
+    await asyncio.wait_for(stack.send("<@UBOT> second"), 5)  # answered at once: queued
+
+    assert "Queued" in stack.posted()
+    assert len(model.agent_requests()) == 1
+    model.gate.set()
+    await asyncio.wait_for(first, 10)
+    await _wait_for(lambda: len(model.agent_requests()) == 2, 10)

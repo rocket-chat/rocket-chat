@@ -3,6 +3,7 @@ Interface definitions for LLM Gateway & BYOK Subsystem.
 Defines the contract for routing requests through LiteLLM with multi-tenant keys.
 """
 
+import re
 import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
@@ -17,6 +18,14 @@ class BYOKCredentials:
     api_key: str
     api_base: str | None = None
     custom_headers: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class CredentialBinding:
+    """An agent's own credential for one provider (``provider_credentials.id``)."""
+
+    provider: str
+    credential_id: str
 
 
 @dataclass(frozen=True)
@@ -40,6 +49,24 @@ class ModelScope:
     # ``provider`` object: order, allow_fallbacks, ...). Pinning a model to one provider keeps
     # its prompt cache: a request served by another provider starts with nothing cached.
     provider_preferences: tuple[tuple[str, dict[str, object]], ...] = ()
+    # The person whose message started the turn. ``user_id`` stays the session's owner (the
+    # tenant of record); member keys, member spend limits and agent access use the requester.
+    requester_user_id: str | None = None
+    # The agent running the turn, and the credentials it is bound to: a call on a bound
+    # provider uses the bound key; with ``strict_binding`` a call on any other provider is
+    # refused rather than billed elsewhere.
+    agent_id: str | None = None
+    credential_bindings: tuple[CredentialBinding, ...] = ()
+    strict_binding: bool = False
+    # Attribution for the usage ledger and spend limits.
+    turn_id: str | None = None
+    subagent_id: str | None = None
+    call_role: str = ""
+
+    @property
+    def member_id(self) -> str:
+        """The person a member key or a member limit applies to."""
+        return self.requester_user_id or self.user_id
 
 
 current_model_scope: ContextVar[ModelScope | None] = ContextVar("current_model_scope", default=None)
@@ -58,26 +85,109 @@ class UsageEvent:
     session_id: str | None = None
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
-    # Whose provider key paid: "platform", "org" or "user". Spend on a member's own key is
-    # theirs, so it does not count against the organization's budget.
+    # Whose provider key paid: "platform", "org", "user" or "agent" (a key bound to the
+    # agent). Spend on a member's own key is theirs, so it counts against no spend limit.
     key_source: str = "platform"
     created_at: int = field(default_factory=lambda: int(time.time()))
+    agent_id: str | None = None
+    credential_id: str | None = None
+    turn_id: str | None = None
+    subagent_id: str | None = None
+    call_role: str = ""
+    requester_user_id: str | None = None
 
 
 class BudgetExceededError(RuntimeError):
-    """A spending cap is reached; raised before any tokens are bought."""
+    """A spend limit is reached; raised before any tokens are bought."""
 
-    def __init__(self, message: str, *, scope: str, limit_usd: float, spent_usd: float) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        scope: str,
+        limit_usd: float,
+        spent_usd: float,
+        limit_id: str = "",
+        subject: str = "",
+        period: str = "",
+        resets_at: int | None = None,
+    ) -> None:
         super().__init__(message)
         self.scope = scope
         self.limit_usd = limit_usd
         self.spent_usd = spent_usd
+        self.limit_id = limit_id
+        self.subject = subject
+        self.period = period
+        self.resets_at = resets_at
+
+
+class CredentialRefusedError(RuntimeError):
+    """The call may not be made with any credential: the agent's bound credential was
+    withdrawn, or a strict binding has no credential for this provider."""
+
+    def __init__(self, message: str, *, reason: str, provider: str) -> None:
+        super().__init__(message)
+        self.reason = reason  # "withdrawn" | "unbound"
+        self.provider = provider
+
+
+@dataclass(frozen=True)
+class Reservation:
+    """Spend set aside for one call before it is made, settled with the real cost after."""
+
+    id: str
+    org_id: str
+    amount_usd: float
+    # (limit id, subject key, window start) of each counter the estimate was reserved on.
+    counters: tuple[tuple[str, str, int], ...] = ()
+
+
+@dataclass(frozen=True)
+class CallRefusal:
+    """Why the platform refused a model call before making it, for the client to act on.
+
+    ``kind="budget"``: a spend limit (``limit_id``, ``subject``, ``period``, ``spent_usd``,
+    ``amount_usd``, ``resets_at``). ``kind="credential"``: the agent's bound credential was
+    withdrawn or a strict binding has none for ``provider`` (``reason``).
+    """
+
+    kind: str
+    message: str
+    limit_id: str = ""
+    subject: str = ""
+    period: str = ""
+    spent_usd: float = 0.0
+    amount_usd: float = 0.0
+    resets_at: int | None = None
+    reason: str = ""
+    provider: str = ""
+
+    @classmethod
+    def from_error(cls, err: BaseException) -> "CallRefusal | None":
+        if isinstance(err, BudgetExceededError):
+            return cls(
+                kind="budget",
+                message=str(err),
+                limit_id=err.limit_id,
+                subject=err.subject,
+                period=err.period,
+                spent_usd=err.spent_usd,
+                amount_usd=err.limit_usd,
+                resets_at=err.resets_at,
+            )
+        if isinstance(err, CredentialRefusedError):
+            return cls(
+                kind="credential", message=str(err), reason=err.reason, provider=err.provider
+            )
+        return None
 
 
 @dataclass(frozen=True)
 class ResolvedCredentials:
     credentials: BYOKCredentials
-    key_source: str  # "org" or "user"
+    key_source: str  # "org", "user" or "agent"
+    credential_id: str | None = None
 
 
 @runtime_checkable
@@ -87,8 +197,15 @@ class UsageSinkProtocol(Protocol):
 
 @runtime_checkable
 class BudgetGuardProtocol(Protocol):
-    async def check(self, scope: ModelScope) -> None:
-        """Raise ``BudgetExceededError`` if a cap forbids another model call for ``scope``."""
+    async def reserve(
+        self, scope: ModelScope, *, estimate_usd: float, key_source: str
+    ) -> Reservation | None:
+        """Set ``estimate_usd`` aside on every limit that applies, atomically, or raise
+        ``BudgetExceededError`` naming the limit that has no room. ``None``: nothing applies."""
+        ...
+
+    async def settle(self, reservation: Reservation, *, actual_usd: float) -> None:
+        """Replace the reservation with the call's real cost."""
         ...
 
 
@@ -123,17 +240,23 @@ class ModelCatalogueProtocol(Protocol):
     def get_model_spec(self, model: str) -> ModelSpec | None: ...
 
 
+# Families that reason before they answer: Claude from 3.7 (every 4.x and 5.x), OpenAI's o-series
+# and GPT-5 onwards, Gemini from 2.5, and the dedicated reasoners of other vendors.
+_REASONING_PATTERNS = (
+    re.compile(r"^o[1-9](-|$)"),
+    re.compile(r"claude-3[-.]7"),
+    re.compile(r"claude-(opus|sonnet|haiku)-[4-9]"),
+    re.compile(r"claude-[4-9]"),
+    re.compile(r"gpt-([5-9]|[1-9][0-9])"),
+    re.compile(r"gemini-(2[-.]5|[3-9])"),
+    re.compile(r"(thinking|reasoner|deepseek-r1|-r1\b|\br1-|qwq|qvq|magistral|grok-[3-9])"),
+)
+
+
 def is_reasoning_model(model: str) -> bool:
     """True if the model is known to perform internal reasoning/thinking steps."""
-    name = (model or "").lower().split("/")[-1]
-    if name.startswith(("o1", "o3", "o4")):
-        return True
-    if "claude-3-7" in name or "claude-3.7" in name:
-        return True
-    return any(
-        token in name
-        for token in ("thinking", "reasoner", "deepseek-r1", "-r1", "r1-", "qwq", "qvq")
-    )
+    name = (model or "").lower().split("/")[-1].split(":", 1)[0]
+    return any(pattern.search(name) for pattern in _REASONING_PATTERNS)
 
 
 @dataclass
@@ -196,7 +319,8 @@ class ModelRequest:
     model: str  # e.g. "openrouter/anthropic/claude-3.7-sonnet"
     messages: list[ChatMessage]
     tools: list[ToolDefinition] | None = None
-    temperature: float = 0.2
+    # None: the provider's own (what a reasoning model gets unless someone chose a value).
+    temperature: float | None = 0.2
     max_tokens: int | None = None
     thinking_budget_tokens: int | None = None  # e.g., 4096 for Claude 3.7
     reasoning_effort: str | None = None  # none, minimal, low, medium, high, xhigh or max
@@ -264,10 +388,17 @@ class StreamChunk:
     # Set (with `finish_reason="error"`) when the provider call failed; consumers must treat
     # it as a failure rather than as model output.
     error: str | None = None
+    # Set with ``error`` when the platform refused the call itself (a spend limit, a withdrawn
+    # credential): what a client needs to explain it and offer the way out.
+    refusal: CallRefusal | None = None
 
 
 class ModelExecutionError(RuntimeError):
     """The model provider call failed (reported by a `StreamChunk` carrying `error`)."""
+
+    def __init__(self, message: str, refusal: CallRefusal | None = None) -> None:
+        super().__init__(message)
+        self.refusal = refusal
 
 
 # `StreamChunk.finish_reason` of a call refused because the request exceeds the model's window.

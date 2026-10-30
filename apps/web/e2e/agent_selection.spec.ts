@@ -27,7 +27,8 @@ async function serveCatalogue(page: Page) {
 test("the agent editor searches the full model catalogue", async ({ page }) => {
   await serveCatalogue(page);
   await page.goto("/settings/agents");
-  await page.getByRole("button", { name: /New agent/i }).first().click();
+  await page.getByTestId("agent-new").click();
+  await page.getByTestId("agent-section-model").click();
 
   const picker = page.getByTestId("agent-model");
   await expect(picker).toContainText("Organization default");

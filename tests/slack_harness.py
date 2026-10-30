@@ -130,6 +130,18 @@ class OrchestratorPipeline:
                 },
             )
         )
+        await self.bus.publish(
+            SessionEvent(
+                session_id,
+                EventType.STATUS_CHANGED,
+                {
+                    "status": "running",
+                    "message": "Analyzing instruction...",
+                    "turn_start": True,
+                    **({"message_id": message_id} if message_id else {}),
+                },
+            )
+        )
         answer: list[str] = []
         binding = self.binding
         persona = binding.system_prompt if binding and binding.system_prompt else ""
@@ -163,7 +175,7 @@ class OrchestratorPipeline:
                 SessionEvent(
                     session_id,
                     EventType.STATUS_CHANGED,
-                    {"status": "error", "message": f"Mission failed: {err}", "final": True},
+                    {"status": "error", "message": f"The turn failed: {err}", "final": True},
                 )
             )
             return

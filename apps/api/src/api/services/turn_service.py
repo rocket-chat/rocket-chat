@@ -10,20 +10,33 @@ render the event stream.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from dataclasses import replace
 from fnmatch import fnmatch
 from types import EllipsisType
 from typing import Any
 
+from config_engine import Preset
 from config_engine.cascading import RoutingPolicy, model_is_allowed
+from config_engine.model_defaults import fallback_models_for
 
+from api.auth.capabilities import Capability, member_has
+from api.services.agent_access import AgentAccessDenied
 from api.services.github_installations import installations_for_org
 from api.services.model_catalogue import default_catalogue
+from api.services.model_defaults import organization_providers
 from api.services.openrouter_efforts import ReasoningSupport, map_effort, openrouter_efforts
-from api.services.settings import effective_settings, resolve_settings
+from api.services.settings import (
+    DeclaredSettings,
+    effective_settings,
+    resolve_setting,
+    resolve_settings,
+)
 from api.services.tool_loading import tool_loading_for
 from specifications.interfaces.agent import (
     DEFAULT_PERMISSION_MODE,
+    GIT_PUBLISH_AS,
+    GIT_SIGNING,
     HOOK_EVENTS,
     PERMISSION_MODES,
     AgentBinding,
@@ -32,15 +45,16 @@ from specifications.interfaces.agent import (
     GenerationParams,
     GitPolicy,
     HookSpec,
+    ModelAttribution,
     ReasoningPolicy,
     SystemPrompt,
     TurnCallbacks,
     TurnPolicy,
 )
+from specifications.interfaces.llm import CredentialBinding
 
 ResolveAgent = Callable[[Any, str, str, str | None], Awaitable[Any]]
 ResolveRouting = Callable[..., Awaitable[tuple[Any, str, str]]]
-ResolveMaxTurns = Callable[..., Awaitable[int]]
 
 
 def parse_hooks(raw: Any) -> tuple[HookSpec, ...]:
@@ -79,11 +93,11 @@ def resolve_permission_mode(
 ) -> str:
     """The supervision level for a turn: the session's choice, else the agent's, else the preference.
 
-    The preference already cascades organization default -> member override. When the
-    organization locked it, neither a member, an agent nor a session may choose another mode:
-    a personal agent is written by the member, so its default is no more trusted than theirs.
-    Bypass removes every gate, so it only applies where the organization allows it; otherwise
-    a request for it is honoured as ``ask`` (more supervision, never less).
+    The same rule as the policy resolver applies to ``user_preferences.permission_mode`` with
+    the session and the agent as presets (see :func:`permission_mode_for`); kept for callers
+    that already hold the values. Bypass removes every gate, so it only applies where the
+    member's role holds ``use_bypass_mode``; otherwise a request for it runs as ``ask`` (more
+    supervision, never less).
     """
     chosen = preferred_mode
     if not locked:
@@ -91,11 +105,68 @@ def resolve_permission_mode(
             (str(mode) for mode in (session_mode, agent_mode) if mode in PERMISSION_MODES),
             preferred_mode,
         )
-    if chosen not in PERMISSION_MODES:
+    return _supervised(chosen, allow_bypass)
+
+
+def _supervised(mode: str, allow_bypass: bool) -> str:
+    if mode not in PERMISSION_MODES:
         return DEFAULT_PERMISSION_MODE
-    if chosen == "bypass" and not allow_bypass:
+    if mode == "bypass" and not allow_bypass:
         return "ask"
-    return chosen
+    return mode
+
+
+def _agent_source(agent: Any) -> str:
+    return f"agent:{agent.id}" if agent is not None else "agent"
+
+
+def _presets(
+    agent: Any, session: dict[str, Any], agent_values: dict[str, Any]
+) -> tuple[Preset, ...]:
+    """The session's own choice first, then the agent's (both checked by policy and lock)."""
+    return (
+        Preset("session", {k: v for k, v in session.items() if v not in (None, "")}),
+        Preset(
+            _agent_source(agent), {k: v for k, v in agent_values.items() if v not in (None, "")}
+        ),
+    )
+
+
+async def permission_mode_for(
+    db_mgr: Any,
+    org_id: str,
+    requester_id: str,
+    agent: Any,
+    session_mode: str | None,
+) -> str:
+    """The turn's permission mode through the policy resolver, then the bypass capability."""
+    resolved = await resolve_setting(
+        db_mgr,
+        org_id,
+        "user_preferences",
+        "permission_mode",
+        user_id=requester_id,
+        presets=_presets(
+            agent,
+            {"permission_mode": session_mode if session_mode in PERMISSION_MODES else None},
+            {"permission_mode": getattr(agent, "default_permission_mode", None)},
+        ),
+    )
+    allow_bypass = await member_has(db_mgr, org_id, requester_id, Capability.USE_BYPASS_MODE)
+    return _supervised(str(resolved.value or ""), allow_bypass)
+
+
+async def step_limit_for(db_mgr: Any, org_id: str, agent: Any) -> int:
+    """The agent's step limit, never above the organization's (a ceiling)."""
+    own = getattr(agent, "max_turns", None)
+    resolved = await resolve_setting(
+        db_mgr,
+        org_id,
+        "general",
+        "max_turns",
+        presets=(Preset(_agent_source(agent), {"max_turns": own} if own is not None else {}),),
+    )
+    return int(resolved.value)
 
 
 def _context_windows(raw: object) -> tuple[tuple[str, int], ...]:
@@ -156,39 +227,84 @@ def _match_output_tokens(model: str, mapping: Any) -> int | None:
     return None
 
 
+# ``models.temperature``'s registry default: a value other than it was chosen by someone.
+PLATFORM_TEMPERATURE = 0.2
+
+
+async def _fallbacks(
+    db_mgr: Any, org_id: str, model: str | None, models: Mapping[str, Any], policy: RoutingPolicy
+) -> tuple[str, ...]:
+    """Fail-over models: the organization's list, else (``automatic_fallbacks``) the same tier
+    through the other providers it holds a key for. Either obeys the same allowlist as the
+    primary: a disallowed model must not become reachable through a provider error."""
+    configured = [str(m) for m in models.get("fallback_models") or []]
+    if not configured and model and models.get("automatic_fallbacks", True):
+        configured = list(fallback_models_for(model, await organization_providers(db_mgr, org_id)))
+    return tuple(
+        m
+        for m in configured
+        if model_is_allowed(
+            m, allowed_models=policy.allowed_models, forbidden_models=policy.forbidden_models
+        )
+    )
+
+
+def _context_ratios(models: Mapping[str, Any]) -> dict[str, float]:
+    """``context_prune_percent`` / ``context_compact_percent`` as ratios, compaction kept above
+    pruning (pruning first is what keeps most turns from needing a summary at all)."""
+    prune = int(models.get("context_prune_percent") or 70) / 100
+    compact = int(models.get("context_compact_percent") or 85) / 100
+    return {
+        "context_prune_ratio": prune,
+        "context_compact_ratio": max(compact, min(0.98, prune + 0.05)),
+    }
+
+
+def _temperature(models: dict[str, Any], agent: Any, *, reasoning: bool) -> float | None:
+    """The sampling temperature, or None for the provider's own: a reasoning model gets the
+    provider's unless the agent or the organization chose another than the platform default
+    (several reasoning APIs reject a temperature)."""
+    value = float(models["temperature"])
+    chosen = getattr(agent, "temperature", None) is not None or value != PLATFORM_TEMPERATURE
+    return value if chosen or not reasoning else None
+
+
+def _output_budget(model: str | None, agent: Any, models: dict[str, Any], spec: Any) -> int | None:
+    """Completion tokens per call: the agent's own limit, else the model's ``output_tokens``
+    entry, else the smaller of ``max_tokens`` and the model's own maximum output."""
+    agent_tokens = getattr(agent, "max_tokens", None)
+    if agent_tokens is not None:
+        return int(agent_tokens)
+    if (
+        model
+        and (configured := _match_output_tokens(model, models.get("output_tokens"))) is not None
+    ):
+        return configured
+    cap = int(models["max_tokens"]) if models.get("max_tokens") else None
+    own = int(spec.max_output_tokens) if spec is not None else None
+    if cap is None or own is None:
+        return cap or own
+    return min(cap, own)
+
+
 def _resolve_model_generation(
     model: str | None,
     agent: Any,
     models: dict[str, Any],
     fallbacks: tuple[str, ...],
     efforts: ReasoningSupport | None = None,
-    reasoning_effort: str | None = None,
 ) -> GenerationParams:
     """Resolve generation params with output budget ceiling and reasoning policy."""
-    agent_temp = getattr(agent, "temperature", None)
-    temperature = float(agent_temp) if agent_temp is not None else float(models["temperature"])
-    agent_tokens = getattr(agent, "max_tokens", None)
-
+    # ``models`` is already resolved with the agent as a preset (``temperature``,
+    # ``default_reasoning_effort``), so a locked organization value wins over the agent's.
     spec = default_catalogue.get_model_spec(model) if model else None
-    configured_tokens = _match_output_tokens(model, models.get("output_tokens")) if model else None
+    temperature = _temperature(models, agent, reasoning=bool(spec and spec.supports_reasoning))
+    max_tokens = _output_budget(model, agent, models, spec)
 
-    max_tokens: int | None = None
-    if agent_tokens is not None:
-        max_tokens = int(agent_tokens)
-    elif configured_tokens is not None:
-        max_tokens = configured_tokens
-    elif spec and spec.supports_reasoning:
-        max_tokens = spec.max_output_tokens
-    else:
-        max_tokens = int(models["max_tokens"]) if models.get("max_tokens") else None
-
-    thinking_budget = getattr(agent, "thinking_budget_tokens", None)
+    # One reasoning control: the effort. The thinking budget follows from it below.
+    thinking_budget: int | None = None
     step_limit = int(models.get("reasoning_step_limit_tokens") or 0)
-    effort = (
-        reasoning_effort
-        or getattr(agent, "reasoning_effort", None)
-        or (str(models.get("default_reasoning_effort") or "") or None)
-    )
+    effort = str(models.get("default_reasoning_effort") or "") or None
     reasoning_off = effort == "none"
     if reasoning_off:
         # Only OpenRouter takes "none" as an effort; for any other provider, off is no effort
@@ -223,6 +339,7 @@ def _resolve_model_generation(
         context_windows=_context_windows(models.get("context_windows")),
         context_target_tokens=_context_target(models.get("context_target_tokens")),
         provider_preferences=_provider_preferences(models.get("provider_preferences")),
+        **_context_ratios(models),
     )
 
 
@@ -239,12 +356,10 @@ class TurnService:
         *,
         resolve_agent: ResolveAgent,
         resolve_routing: ResolveRouting,
-        resolve_max_turns: ResolveMaxTurns,
         default_model: str = "",
     ) -> None:
         self._resolve_agent = resolve_agent
         self._resolve_routing = resolve_routing
-        self._resolve_max_turns = resolve_max_turns
         self._default_model = default_model
 
     async def plan_turn(
@@ -259,9 +374,19 @@ class TurnService:
         enabled_toolsets: frozenset[str] | None = None,
         global_default_model: str | None = None,
         session_permission_mode: str | None = None,
+        requester_user_id: str | None = None,
+        turn_id: str | None = None,
     ) -> AgentBinding:
-        """Resolve how the turn should run: persona, model, turn limit, tool scope."""
-        agent = await self._resolve_agent(db_mgr, org_id, user_id, agent_id)
+        """Resolve how the turn should run: persona, model, turn limit, tool scope.
+
+        ``user_id`` is the session's owner (the tenant of record); ``requester_user_id`` the
+        person who sent the message. Agent access, member keys, member limits and the bypass
+        capability are the requester's.
+        """
+        requester = requester_user_id or user_id
+        agent = await self._resolve_agent(db_mgr, org_id, requester, agent_id)
+        if agent_id and agent is None:
+            raise AgentAccessDenied(agent_id, "")
         if agent is not None and getattr(agent, "enabled", True) is False:
             raise ValueError(
                 f"Agent persona '{agent.name}' ({agent.id}) has been disabled for this organization."
@@ -269,20 +394,32 @@ class TurnService:
         router, model, reason = await self._resolve_routing(
             db_mgr=db_mgr,
             org_id=org_id,
-            user_id=user_id,
+            user_id=requester,
             agent_model=agent.model if agent else None,
             request_model=request_model,
             global_default_model=global_default_model or self._default_model,
         )
-        max_turns = await self._resolve_max_turns(agent=agent, org_id=org_id, db_mgr=db_mgr)
         policy = await self._resolve_policy(
             db_mgr,
             org_id,
-            user_id,
+            requester,
             agent,
             session_permission_mode,
             model=model,
             reasoning_effort=reasoning_effort,
+        )
+        policy = replace(
+            policy,
+            attribution=ModelAttribution(
+                requester_user_id=requester,
+                agent_id=agent.id if agent else None,
+                credential_bindings=tuple(
+                    CredentialBinding(b.provider, b.credential_id)
+                    for b in getattr(agent, "credential_bindings", None) or ()
+                ),
+                strict_binding=bool(getattr(agent, "strict_binding", False)),
+                turn_id=turn_id,
+            ),
         )
         return AgentBinding(
             id=agent.id if agent else "persona-general",
@@ -292,17 +429,43 @@ class TurnService:
                 list(agent.whitelisted_tools) if agent and agent.whitelisted_tools else None
             ),
             model=model,
-            max_turns=max_turns,
+            max_turns=await step_limit_for(db_mgr, org_id, agent),
             enabled_toolsets=enabled_toolsets or frozenset(),
             model_router=router,
             routing_reason=reason,
             policy=policy,
-            sandbox_image=getattr(agent, "sandbox_image", "") or "",
             sandbox_id=getattr(agent, "sandbox_id", "") or "",
-            cpu_limit=str(getattr(agent, "cpu_limit", "") or ""),
-            memory_limit=str(getattr(agent, "memory_limit", "") or ""),
             knowledge_base_ids=tuple(getattr(agent, "knowledge_base_ids", None) or ()),
             skill_ids=tuple(getattr(agent, "skill_ids", None) or ()),
+        )
+
+    @staticmethod
+    async def _git_policy(db_mgr: Any, org_id: str, user_id: str, agent: Any) -> GitPolicy:
+        """Publishing identity and signing: ``publish_as`` (an organization default a member
+        may change, ``bot`` only with ``publish_as_bot``) and the organization's ``signing``."""
+        github = await effective_settings(db_mgr, org_id, "github", user_id)
+        prefs = await effective_settings(db_mgr, org_id, "user_preferences", user_id)
+        publish_as = str(github["publish_as"])
+        if publish_as == "bot" and not await member_has(
+            db_mgr, org_id, user_id, Capability.PUBLISH_AS_BOT
+        ):
+            resolved = await resolve_setting(db_mgr, org_id, "github", "publish_as")
+            publish_as = str(resolved.value)
+        signing = str(github["signing"])
+        return GitPolicy(
+            publish_as=publish_as if publish_as in GIT_PUBLISH_AS else "member",
+            signing=signing if signing in GIT_SIGNING else "none",
+            default_branch=str(github["default_branch"]),
+            bot_name=str(github["bot_author_name"]),
+            bot_email=str(github["bot_author_email"]),
+            # The member's own override only; the linked GitHub account or profile fills the rest
+            # when the turn's git credentials are resolved (see ``commit_identity``).
+            user_name=str(prefs.get("git_author_name") or ""),
+            user_email=str(prefs.get("git_author_email") or ""),
+            app_installations=tuple(
+                (i.installation_id, i.account_login)
+                for i in await installations_for_org(db_mgr, org_id)
+            ),
         )
 
     @staticmethod
@@ -316,14 +479,21 @@ class TurnService:
         reasoning_effort: str | None = None,
     ) -> TurnPolicy:
         """Generation parameters and git rules from the registry-backed org/member settings."""
-        models = await effective_settings(db_mgr, org_id, "models")
-        # Authorship, pull request identity and signing are the organization's default, which a
-        # member may override unless the organization locks them.
-        github = await effective_settings(db_mgr, org_id, "github", user_id)
+        models_resolved = await resolve_settings(
+            db_mgr,
+            org_id,
+            "models",
+            presets=_presets(
+                agent,
+                {"default_reasoning_effort": reasoning_effort},
+                {
+                    "default_reasoning_effort": getattr(agent, "reasoning_effort", None),
+                    "temperature": getattr(agent, "temperature", None),
+                },
+            ),
+        )
+        models = DeclaredSettings("models", models_resolved.effective)
         governance = await effective_settings(db_mgr, org_id, "governance")
-        resolved_prefs = await resolve_settings(db_mgr, org_id, "user_preferences", user_id)
-        prefs = resolved_prefs.effective
-
         policy = RoutingPolicy.from_settings(
             {
                 "allowed_models": models.get("allowed_models"),
@@ -332,54 +502,25 @@ class TurnService:
         )
         # Fail-over models obey the same allowlist as the primary: a disallowed model must
         # not become reachable through a provider error.
-        fallbacks = tuple(
-            m
-            for m in models.get("fallback_models") or []
-            if model_is_allowed(
-                m,
-                allowed_models=policy.allowed_models,
-                forbidden_models=policy.forbidden_models,
-            )
-        )
+        fallbacks = await _fallbacks(db_mgr, org_id, model, models, policy)
         support = await openrouter_efforts.support_for(model) if model else None
-        generation = _resolve_model_generation(
-            model, agent, models, fallbacks, support, reasoning_effort=reasoning_effort
-        )
-        git = GitPolicy(
-            authorship=str(github["commit_authorship_policy"]),
-            pr_creation=str(github["pr_creation_policy"]),
-            signing_mode=str(github["commit_signing_mode"]),
-            default_branch=str(github["default_branch"]),
-            bot_name=str(github["bot_author_name"]),
-            bot_email=str(github["bot_author_email"]),
-            # The member's own override only; the linked GitHub account or profile fills the rest
-            # when the turn's git credentials are resolved (see ``commit_identity``).
-            user_name=str(prefs.get("git_author_name") or ""),
-            user_email=str(prefs.get("git_author_email") or ""),
-            app_installations=tuple(
-                (i.installation_id, i.account_login)
-                for i in await installations_for_org(db_mgr, org_id)
-            ),
-        )
+        generation = _resolve_model_generation(model, agent, models, fallbacks, support)
         general = await effective_settings(db_mgr, org_id, "general")
         budgets = await effective_settings(db_mgr, org_id, "budgets")
         max_cost = float(budgets["max_turn_cost_usd"]) if budgets.get("max_turn_cost_usd") else None
         sandbox_profile = str(getattr(agent, "sandbox_profile", "") or "standard")
         return TurnPolicy(
             generation=generation,
-            git=git,
+            git=await TurnService._git_policy(db_mgr, org_id, user_id, agent),
             hooks=parse_hooks(governance.get("hooks")),
-            permission_mode=resolve_permission_mode(
-                session_permission_mode,
-                str(prefs.get("permission_mode") or ""),
-                locked="permission_mode" in resolved_prefs.locked_keys,
-                allow_bypass=bool(governance.get("allow_bypass_permissions")),
-                agent_mode=getattr(agent, "default_permission_mode", None),
+            permission_mode=await permission_mode_for(
+                db_mgr, org_id, user_id, agent, session_permission_mode
             ),
             tool_loading=tool_loading_for(agent),
             output_offload_threshold=int(general.get("output_offload_threshold", 6000)),
             max_turn_cost_usd=max_cost,
             sandbox_profile=sandbox_profile,
+            plan_critic=bool(general["plan_critic"]),
         )
 
     async def stream_turn(

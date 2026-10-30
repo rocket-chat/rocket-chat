@@ -12,6 +12,7 @@ from fastapi import (
 from git_engine.engine import GitEngine
 
 from api.auth.access import _get_request_identity
+from api.auth.roles import can_write
 from api.models import (
     GitHubCredentialStatus,
     GitHubLinkRequest,
@@ -90,10 +91,8 @@ async def link_user_github_account(
 ) -> GitHubCredentialStatus:
     """Link a GitHub account by storing its access token encrypted."""
     org_id, user_id, roles = _get_request_identity(request)
-    if "readonly" in roles:
-        raise HTTPException(
-            status_code=403, detail="Forbidden: Read-only role cannot link credentials"
-        )
+    if not can_write(roles):
+        raise HTTPException(status_code=403, detail="Forbidden: viewers cannot link credentials")
 
     token = req.access_token.strip()
     if not token:
@@ -178,10 +177,8 @@ async def link_user_github_account(
 async def unlink_user_github_account(request: Request) -> dict[str, str]:
     """Unlink and delete stored GitHub credentials for the current user."""
     org_id, user_id, roles = _get_request_identity(request)
-    if "readonly" in roles:
-        raise HTTPException(
-            status_code=403, detail="Forbidden: Read-only role cannot delete credentials"
-        )
+    if not can_write(roles):
+        raise HTTPException(status_code=403, detail="Forbidden: viewers cannot delete credentials")
 
     db_mgr = getattr(request.app.state, "db_manager", None)
     await delete_user_credential(db_mgr, user_id, "github", org_id=org_id)

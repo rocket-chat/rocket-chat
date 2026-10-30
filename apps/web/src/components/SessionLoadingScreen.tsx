@@ -8,7 +8,7 @@ interface SessionLoadingScreenProps {
 }
 
 export const SessionLoadingScreen: React.FC<SessionLoadingScreenProps> = ({
-  statusMessage = "Synchronizing flight telemetry...",
+  statusMessage = "Loading the conversation…",
 }) => {
   return (
     <div
@@ -40,12 +40,12 @@ export const SessionLoadingScreen: React.FC<SessionLoadingScreenProps> = ({
         {/* Pill Badge */}
         <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 font-mono text-[11px] font-semibold text-primary uppercase tracking-wider shadow-sm">
           <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping" />
-          <span>Telemetry Uplink</span>
+          <span>Connecting</span>
         </div>
 
         {/* Title */}
         <h3 className="font-sans text-base font-medium tracking-tight text-foreground sm:text-lg">
-          Connecting to Mission Telemetry
+          Opening the conversation
         </h3>
 
         {/* Status text */}

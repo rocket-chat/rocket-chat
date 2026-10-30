@@ -17,7 +17,11 @@ from sqlalchemy import func, select
 from api.db.models import UsageEventModel
 from specifications.interfaces.llm import UsageEvent
 
-PLATFORM_FUNDED = ("platform", "org")
+# Calls paid with the organization's money (a key bound to an agent is the organization's or
+# a member's shared key: it counts against that agent's limits, like an organization key).
+PLATFORM_FUNDED = ("platform", "org", "agent")
+GROUPINGS = ("agent", "credential", "member")
+UNATTRIBUTED = "unattributed"
 
 
 def month_start(now: float | None = None) -> int:
@@ -54,6 +58,12 @@ class UsageLedger:
                     cost_usd=event.cost_usd,
                     key_source=event.key_source,
                     created_at=event.created_at,
+                    agent_id=event.agent_id,
+                    credential_id=event.credential_id,
+                    turn_id=event.turn_id,
+                    subagent_id=event.subagent_id,
+                    call_role=event.call_role or None,
+                    requester_user_id=event.requester_user_id,
                 )
             )
 
@@ -128,6 +138,62 @@ class UsageLedger:
             "calls": len(rows),
             "models": by_model,
         }
+
+    async def grouped(
+        self, org_id: str, *, since: int, by: str, user_id: str | None = None
+    ) -> list[dict[str, Any]]:
+        """Cost, tokens and calls since ``since`` per agent, credential or member.
+
+        Calls from before attribution existed have no agent or credential and are reported
+        as ``unattributed``; a member is the requester, else the session's owner.
+        """
+        if by not in GROUPINGS:
+            raise ValueError(f"group by one of {GROUPINGS}")
+        totals: dict[str, dict[str, Any]] = {}
+        for row in await self._attributed(org_id, since, user_id):
+            key = {
+                "agent": row["agent_id"],
+                "credential": row["credential_id"],
+                "member": row["requester_user_id"] or row["user_id"],
+            }[by] or UNATTRIBUTED
+            entry = totals.setdefault(
+                key,
+                {
+                    "key": key,
+                    "cost_usd": 0.0,
+                    "calls": 0,
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                },
+            )
+            entry["cost_usd"] = round(entry["cost_usd"] + row["cost_usd"], 6)
+            entry["calls"] += 1
+            entry["prompt_tokens"] += row["prompt_tokens"]
+            entry["completion_tokens"] += row["completion_tokens"]
+        return sorted(totals.values(), key=lambda e: -e["cost_usd"])
+
+    async def _attributed(
+        self, org_id: str, since: int, user_id: str | None
+    ) -> list[dict[str, Any]]:
+        fields = ("agent_id", "credential_id", "requester_user_id", "user_id")
+        if self._db is None:
+            return [
+                {**_event_row(e), **{f: getattr(e, f, None) for f in fields}}
+                for e in self._memory
+                if e.org_id == org_id
+                and e.created_at >= since
+                and (user_id is None or (e.requester_user_id or e.user_id) == user_id)
+            ]
+        statement = select(UsageEventModel).where(
+            UsageEventModel.org_id == org_id, UsageEventModel.created_at >= since
+        )
+        async with self._db.session(tenant_org_id=org_id) as session:
+            rows = (await session.execute(statement)).scalars().all()
+        return [
+            {**_event_row(r), **{f: getattr(r, f, None) for f in fields}}
+            for r in rows
+            if user_id is None or (r.requester_user_id or r.user_id) == user_id
+        ]
 
     async def session_events(self, org_id: str, session_id: str) -> list[dict[str, Any]]:
         """Every call of one session, oldest first, as plain rows."""

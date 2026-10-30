@@ -48,6 +48,18 @@ class SessionRecord:
     is_processing: bool = False
 
 
+# The reasoning efforts a person may choose for a session (metadata key ``reasoning_effort``) or
+# for one turn; "none" switches reasoning off. A turn's own choice wins over the session's.
+SESSION_REASONING_EFFORTS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high")
+SESSION_REASONING_EFFORT_KEY = "reasoning_effort"
+
+
+def session_reasoning_effort(metadata: dict[str, Any] | None) -> str | None:
+    """The reasoning effort saved on a session, or None when it follows the agent and organization."""
+    value = (metadata or {}).get(SESSION_REASONING_EFFORT_KEY)
+    return value if isinstance(value, str) and value in SESSION_REASONING_EFFORTS else None
+
+
 @dataclass(frozen=True)
 class SessionCursor:
     """The keyset position of a session in ``(updated_at, session_id)`` order.

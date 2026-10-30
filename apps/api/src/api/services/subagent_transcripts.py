@@ -67,6 +67,8 @@ class PostgresSubagentTranscriptStore(SubagentTranscriptStoreProtocol):
                 artefacts=record.artefacts,
                 messages=record.messages,
                 created_at=record.created_at,
+                report=record.report,
+                model=record.model,
             )
             session.add(model)
             await session.commit()
@@ -116,6 +118,8 @@ def _model_to_record(m: SubagentTranscriptModel) -> SubagentTranscriptRecord:
         artefacts=list(m.artefacts or []),
         messages=list(m.messages or []),
         created_at=m.created_at,
+        report=dict(m.report) if m.report else None,
+        model=m.model or "",
     )
 
 

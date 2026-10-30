@@ -32,7 +32,7 @@ ISSUE_WRITE_ACTIONS = frozenset({"create", "comment", "edit", "close", "reopen"}
 DIFF_FILES_PER_PAGE = 10
 REVIEW_EVENTS = {"comment": "COMMENT", "request_changes": "REQUEST_CHANGES", "approve": "APPROVE"}
 
-_THREADS = """
+REVIEW_THREADS_QUERY = """
 query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
@@ -141,7 +141,9 @@ async def checks(access: GithubAccess, slug: str, number: int) -> str:
 
 async def review_threads(access: GithubAccess, slug: str, number: int) -> str:
     owner, name = slug.split("/", 1)
-    data = await graphql(access, _THREADS, {"owner": owner, "name": name, "number": number})
+    data = await graphql(
+        access, REVIEW_THREADS_QUERY, {"owner": owner, "name": name, "number": number}
+    )
     threads = data["repository"]["pullRequest"]["reviewThreads"]["nodes"]
     if not threads:
         return f"No review threads on #{number}."

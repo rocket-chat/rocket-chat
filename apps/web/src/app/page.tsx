@@ -41,7 +41,7 @@ export default function MissionControlPage() {
 
   return (
     <div className="h-full w-full flex items-center justify-center bg-void text-foreground">
-      <SessionLoadingScreen statusMessage="Connecting to Mission Telemetry Deck..." />
+      <SessionLoadingScreen statusMessage="Opening a new conversation…" />
     </div>
   );
 }

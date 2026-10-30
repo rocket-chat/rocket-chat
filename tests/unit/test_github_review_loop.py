@@ -13,7 +13,7 @@ from api.services.github_watches import next_step_hint, pending_events_notice
 from api.services.settings import save_org_config
 from api.turns import callbacks as turn_callbacks
 
-from specifications.interfaces.agent import GithubAccess
+from specifications.interfaces.agent import GithubAccess, GitPolicy
 from specifications.interfaces.git import PublishResult, PublishSpec
 from tests.turn_harness import run_turn
 from tests.unit.test_github_work_tools import FakeGitHub
@@ -71,8 +71,8 @@ def _bundle(user_token: str | None) -> GitCredentialBundle:
     )
 
 
-def _ctx(pr_creation: str, engine: Any, org: str = "o") -> Any:
-    git = SimpleNamespace(pr_creation=pr_creation)
+def _ctx(publish_as: str, engine: Any, org: str = "o") -> Any:
+    git = GitPolicy(publish_as=publish_as)
     return SimpleNamespace(
         req=SimpleNamespace(git_engine=engine, db_mgr=None),
         binding=SimpleNamespace(policy=SimpleNamespace(git=git)),
@@ -81,23 +81,23 @@ def _ctx(pr_creation: str, engine: Any, org: str = "o") -> Any:
 
 
 @pytest.mark.parametrize(
-    "pr_creation, member, engine, expected",
+    "publish_as, member, engine, expected",
     [
-        ("as_user", "gho_member", _Engine(), GithubAccess("gho_member", actor="@octocat")),
+        ("member", "gho_member", _Engine(), GithubAccess("gho_member", actor="@octocat")),
         (
-            "as_bot",
+            "bot",
             "gho_member",
             _Engine(),
             GithubAccess("ghs_app_write", actor="the organization's GitHub App"),
         ),
-        ("as_bot", "gho_member", None, GithubAccess("gho_member", actor="@octocat")),
-        ("as_bot", None, None, GithubAccess(None)),
+        ("bot", "gho_member", None, GithubAccess("gho_member", actor="@octocat")),
+        ("bot", None, None, GithubAccess(None)),
     ],
 )
 async def test_who_acts_follows_the_organizations_policy(
-    pr_creation: str, member: str | None, engine: Any, expected: GithubAccess
+    publish_as: str, member: str | None, engine: Any, expected: GithubAccess
 ) -> None:
-    access = turn_callbacks._github_write_access(_ctx(pr_creation, engine), _bundle(member))
+    access = turn_callbacks._github_write_access(_ctx(publish_as, engine), _bundle(member))
 
     got = await access("acme/app")
 
@@ -114,9 +114,7 @@ async def test_the_app_acts_only_on_the_repositories_the_organization_allows(
     org = "org_app_scope"
     await save_org_config(None, org, "github", {"app_token_target_repositories": "app, web"}, [])
 
-    access = turn_callbacks._github_write_access(
-        _ctx("as_bot", _Engine(), org), _bundle("gho_member")
-    )
+    access = turn_callbacks._github_write_access(_ctx("bot", _Engine(), org), _bundle("gho_member"))
 
     assert (await access(repository)).token == expected
 

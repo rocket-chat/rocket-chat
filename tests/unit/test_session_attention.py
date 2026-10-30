@@ -76,8 +76,7 @@ def test_the_settings_schema_says_what_is_advanced_and_what_a_number_counts(
     by_key = {f["key"]: f for f in schema["budgets"]}
 
     assert (
-        by_key["monthly_budget_usd"]["unit"] == "USD"
-        and not by_key["monthly_budget_usd"]["advanced"]
+        by_key["max_turn_cost_usd"]["unit"] == "USD" and not by_key["max_turn_cost_usd"]["advanced"]
     )
     assert by_key["goal_max_total_tokens"]["advanced"] is True
     assert {f["key"]: f for f in schema["models"]}["temperature"]["advanced"] is True

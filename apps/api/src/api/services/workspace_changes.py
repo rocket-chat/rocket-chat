@@ -266,3 +266,88 @@ async def revert_file(
     )
     if code != 0:
         raise ChangesError(f"Could not revert '{path}'")
+
+
+# --- one hunk at a time -------------------------------------------------------------------------
+
+MAX_HUNKS = 200
+HUNK_PREVIEW_LINES = 12
+
+
+@dataclass(frozen=True)
+class Hunk:
+    index: int
+    header: str
+    added: int
+    removed: int
+    preview: str
+
+
+async def _file_diff(
+    driver: SandboxDriverProtocol, session_id: str, repository: str, scope: str, path: str
+) -> tuple[list[str], list[list[str]]]:
+    """The file's diff from the base to the working tree: its header lines and its hunks."""
+    await _checked_repository(driver, session_id, repository)
+    path = _checked_path(path)
+    base, _ = await _base(driver, session_id, repository, scope)
+    code, output = await _git(
+        driver,
+        session_id,
+        repository,
+        f"git diff --no-color --no-ext-diff -U3 {shlex.quote(base)} -- {shlex.quote(path)}",
+    )
+    if code != 0:
+        raise ChangesError(f"Could not read the changes of '{path}'")
+    header: list[str] = []
+    hunks: list[list[str]] = []
+    for line in output.splitlines():
+        if line.startswith("@@"):
+            hunks.append([line])
+        elif hunks:
+            hunks[-1].append(line)
+        else:
+            header.append(line)
+    return header, hunks[:MAX_HUNKS]
+
+
+async def file_hunks(
+    driver: SandboxDriverProtocol, session_id: str, repository: str, scope: str, path: str
+) -> list[Hunk]:
+    """The file's changed regions, each with a short preview, for undoing one of them."""
+    _, hunks = await _file_diff(driver, session_id, repository, scope, path)
+    return [
+        Hunk(
+            index=index,
+            header=lines[0],
+            added=sum(1 for line in lines[1:] if line.startswith("+")),
+            removed=sum(1 for line in lines[1:] if line.startswith("-")),
+            preview="\n".join(lines[1 : 1 + HUNK_PREVIEW_LINES]),
+        )
+        for index, lines in enumerate(hunks)
+    ]
+
+
+async def revert_hunk(
+    driver: SandboxDriverProtocol,
+    session_id: str,
+    repository: str,
+    scope: str,
+    path: str,
+    index: int,
+) -> None:
+    """Undo one changed region of a file in the working tree (the rest of the file is kept)."""
+    header, hunks = await _file_diff(driver, session_id, repository, scope, path)
+    if not 0 <= index < len(hunks) or not header:
+        raise ChangesError("That change is no longer in the file; reload the changes.")
+    patch = "\n".join([*header, *hunks[index]]) + "\n"
+    target = f"/tmp/rocket-hunk-{session_id[-12:]}-{index}.patch"
+    await driver.write_file(session_id, target, patch)
+    code, _ = await _git(
+        driver,
+        session_id,
+        repository,
+        f"git apply -R --whitespace=nowarn {shlex.quote(target)}; status=$?; "
+        f"rm -f {shlex.quote(target)}; exit $status",
+    )
+    if code != 0:
+        raise ChangesError("The change could not be undone on its own; revert the whole file.")

@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from api.auth.access import _check_session_access, _get_request_identity
+from api.auth.roles import is_admin
 from api.models import SessionResponse
 from api.services.session_support import _to_response
 from api.services.session_updates import publish_session_update
@@ -109,7 +110,7 @@ async def list_sessions(
     """
     store: SessionStoreProtocol = request.app.state.session_store
     req_org, req_user, roles = _get_request_identity(request)
-    if scope == "organization" and not any(role in ("admin", "owner") for role in roles):
+    if scope == "organization" and not is_admin(roles):
         raise HTTPException(status_code=403, detail="Only administrators list every session")
 
     parsed_cursor: SessionCursor | None = None

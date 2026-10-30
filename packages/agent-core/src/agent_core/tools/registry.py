@@ -23,7 +23,10 @@ from agent_core.guidance import awaiting_read, put_in_effect
 from agent_core.permissions import (
     ACTION_CLASSIFIED_TOOLS,
     SLACK_READ_TOOLS,
+    ApprovalNeed,
+    approval_details,
     approval_needed,
+    covering_rule,
     is_read_call,
     touches_workspace,
 )
@@ -31,10 +34,12 @@ from agent_core.standing import put_skill_in_effect
 from agent_core.tool_loading import ESSENTIAL_TOOLS, MCP_PREFIX, server_of
 from agent_core.tools import git_tools, memory_tools
 from agent_core.tools.builtin import register_all
+from agent_core.tools.gate_repository import repository_of_folder
 from agent_core.tools.schema import definition_from_tool
 from specifications.interfaces.agent import (
     APPROVAL_GRANTED_PREFIX,
     DEFAULT_PERMISSION_MODE,
+    ApprovalCallback,
     ExternalToolProvider,
     FileDiff,
     FolderSetupOutcome,
@@ -43,7 +48,7 @@ from specifications.interfaces.agent import (
     ServerGuidance,
 )
 from specifications.interfaces.llm import ToolDefinition
-from specifications.interfaces.sandbox import SandboxDriverProtocol
+from specifications.interfaces.sandbox import SandboxDriverProtocol, SandboxStatus
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +153,7 @@ class ToolRegistry:
         scoped = getattr(ctx.callbacks, name, None) if ctx is not None else None
         return scoped or getattr(self, f"_on_{name}_callback", None)
 
-    def set_approval_callback(self, cb: Callable[[str, str, str], Awaitable[str]]) -> None:
+    def set_approval_callback(self, cb: ApprovalCallback) -> None:
         """Register an async callback invoked to request human approval."""
         self._on_approval_callback = cb
 
@@ -494,14 +499,69 @@ class ToolRegistry:
         need = approval_needed(mode, name, arguments)
         if need is None:
             return None
+        repository = await self._gate_repository(name, arguments)
+        if await self._answered_by_rule(need, arguments, repository):
+            return None
         approve = self._turn_callback("approval")
         if approve is None:
             return (
                 f"Blocked: '{name}' needs human approval in '{mode}' mode, but this session "
                 "has no approval channel."
             )
-        verdict = str(await approve(need.action_type, need.description, need.risk_level))
+        details = approval_details(name, arguments, repository)
+        verdict = str(await approve(need.action_type, need.description, need.risk_level, details))
         return None if verdict.startswith(APPROVAL_GRANTED_PREFIX) else verdict
+
+    async def _answered_by_rule(
+        self, need: ApprovalNeed, arguments: dict[str, Any], repository: str
+    ) -> bool:
+        """Whether an approval the person remembered answers this gate (and was recorded).
+
+        Read at every gate, never cached for the turn: a rule revoked a second ago must not
+        apply. A failure to read the rules raises the gate, never skips it.
+        """
+        ctx = current_execution_ctx.get()
+        rules_of = self._turn_callback("approval_rules")
+        if ctx is None or rules_of is None:
+            return False
+        try:
+            remembered = await rules_of(ctx.session_id)
+        except Exception as err:
+            logger.warning("Remembered approvals unavailable for %s: %s", ctx.session_id, err)
+            return False
+        rule = covering_rule(remembered, need, arguments, repository)
+        if rule is None:
+            return False
+        used = self._turn_callback("approval_rule_used")
+        if used is not None:
+            await used(rule, need.action_type, need.risk_level)
+        return True
+
+    async def _gate_repository(self, name: str, arguments: dict[str, Any]) -> str:
+        """``owner/name`` of the repository a gated call acts in, ``""`` when there is none.
+
+        Starts the sandbox only for a call that would start it anyway; remembered per folder
+        for the turn, since a folder's ``origin`` does not change under a running turn.
+        """
+        ctx = current_execution_ctx.get()
+        target = self._sandbox_target(name)
+        if ctx is None or target is None or not ctx.active_repository:
+            return ""
+        folder = (
+            self._command_folder(name, arguments, ctx.active_repository)
+            if name in FOLDER_COMMAND_TOOLS
+            else self._command_folder(name, {}, ctx.active_repository)
+        )
+        if folder in ctx.repository_slugs:
+            return ctx.repository_slugs[folder]
+        driver, session_id = target
+        if self._touches_sandbox(name, arguments):
+            await self._ensure_sandbox(session_id)
+        elif await driver.get_status(session_id) != SandboxStatus.RUNNING:
+            return ""
+        slug = await repository_of_folder(driver, session_id, folder)
+        ctx.repository_slugs[folder] = slug
+        return slug
 
     # Tools that only work on a sandbox image that declares the capability.
     CAPABILITY_TOOLS: ClassVar[dict[str, str]] = {"browser_inspect": "browser"}

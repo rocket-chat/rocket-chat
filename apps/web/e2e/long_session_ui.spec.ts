@@ -139,3 +139,42 @@ test.describe("Long Session UI & Virtualization", () => {
     await expect(subagentsPanel).toContainText("src/security/tls.py");
   });
 });
+
+test.describe("Streaming into a long conversation", () => {
+  test("2,000 streamed tokens keep the page responsive", async ({ page, request }) => {
+    const { routeSessionSocket } = await import("./support/session-socket");
+    const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Streaming benchmark" } });
+    const sessionId: string = (await created.json()).session_id;
+    const messages: Array<{ role: string; content: string }> = [{ role: "user", content: "Start" }];
+    for (let i = 0; i < 400; i++) {
+      messages.push({ role: "assistant", content: `Answer ${i}: **done** with \`code\` and a [link](https://example.com).` });
+      messages.push({ role: "user", content: `Next ${i}` });
+    }
+    await request.post(`http://localhost:8000/v1/dev/sessions/${sessionId}/transcript`, { data: { messages } });
+    const socket = await routeSessionSocket(page, sessionId);
+    await page.goto(`/chat/${sessionId}`);
+    await socket.ready;
+    await expect(page.getByTestId("flight-log-stream")).toContainText("Next 399");
+
+    // Record the gap between frames while the tokens arrive.
+    await page.evaluate(() => {
+      const gaps: number[] = [];
+      (window as unknown as { frameGaps: number[] }).frameGaps = gaps;
+      let last = performance.now();
+      const tick = (now: number) => {
+        gaps.push(now - last);
+        last = now;
+        if (gaps.length < 100000) requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    socket.emit("status_changed", { status: "running", message: "Writing" });
+    for (let i = 0; i < 2000; i++) socket.emit("token", { delta: `w${i} ` });
+    await expect(page.getByTestId("flight-log-stream")).toContainText("w1999", { timeout: 20000 });
+
+    const gaps = await page.evaluate(() => (window as unknown as { frameGaps: number[] }).frameGaps);
+    const longest = Math.max(...gaps);
+    // One frame per batch of tokens: no frame should block for anywhere near a second.
+    expect(longest).toBeLessThan(400);
+  });
+});

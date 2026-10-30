@@ -96,6 +96,15 @@ jobs:
       tags: ${{ needs.verify.outputs.tags }}
       build-args: BASE_IMAGE=ghcr.io/${{ github.repository_owner }}/sandbox:${{ needs.verify.outputs.primary }}
 
+  sandbox-polyglot:
+    needs: [verify, sandbox]
+    uses: ./.github/workflows/image.yml
+    with:
+      image: sandbox-polyglot
+      file: deploy/docker/Dockerfile.sandbox-polyglot
+      tags: ${{ needs.verify.outputs.tags }}
+      build-args: BASE_IMAGE=ghcr.io/${{ github.repository_owner }}/sandbox:${{ needs.verify.outputs.primary }}
+
   helm:
     name: Package & push the OCI Helm chart
     needs: verify
@@ -129,7 +138,7 @@ jobs:
 
   sbom:
     name: Software bill of materials
-    needs: [verify, backend, frontend, mcp-runner, sandbox, sandbox-browser]
+    needs: [verify, backend, frontend, mcp-runner, sandbox, sandbox-browser, sandbox-polyglot]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -151,7 +160,7 @@ jobs:
         run: |
           curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "$RUNNER_TEMP/bin"
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          for image in backend frontend mcp-runner sandbox sandbox-browser; do
+          for image in backend frontend mcp-runner sandbox sandbox-browser sandbox-polyglot; do
             "$RUNNER_TEMP/bin/syft" "ghcr.io/$OWNER/$image:$TAG" -o spdx-json="sbom/$image-image.spdx.json" &
           done
           wait

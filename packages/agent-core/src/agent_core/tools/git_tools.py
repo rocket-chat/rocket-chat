@@ -31,6 +31,12 @@ CHECKPOINT_TAG_PREFIX = "rocket-checkpoint-"
 # from it, so a session that checks out a long-lived branch shows what *it* changed, not the
 # branch's whole history against the default branch.
 SESSION_BASE_REF = "refs/rocket/session-base"
+# ``GitPolicy.signing`` as the publishing engine's modes.
+ENGINE_SIGNING: dict[str, SigningMode] = {
+    "github": SigningMode.GITHUB_APP,
+    "member_gpg": SigningMode.GPG_KEY,
+    "none": SigningMode.NONE,
+}
 
 
 def mark_session_base_command(revision: str = "HEAD") -> str:
@@ -95,30 +101,21 @@ def commit_spec_for_policy(
 ) -> CommitSpec:
     """Build the commit from the organization's git policy.
 
-    ``co_authored``: the bot commits and the member is credited with a ``Co-authored-by``
-    trailer; ``user_only``: the member commits, no trailers; ``bot_only``: the bot commits.
+    The member commits under their own name when they sign with their key (``member_gpg``);
+    otherwise the bot commits and the member is credited with a ``Co-authored-by`` trailer.
     """
-    use_user_identity = policy.authorship == "user_only" and bool(policy.user_name)
-    user_author_bot_committer = policy.authorship == "authored_by_user_committed_by_bot" and bool(
-        policy.user_name
-    )
+    as_member = policy.commits_as_member
     co_authors = [CoAuthor(name=a, email="") for a in (extra_co_authors or [])]
-    if policy.authorship == "co_authored" and policy.user_name and policy.user_email:
-        co_authors.append(CoAuthor(name=policy.user_name, email=policy.user_email))
-    try:
-        signing = SigningMode(policy.signing_mode)
-    except ValueError:
-        signing = SigningMode.GITHUB_APP
+    if not as_member:
+        co_authors.extend(_credited(policy))
     return CommitSpec(
         message=message,
         branch=branch or "",
         co_authors=co_authors,
-        signing_mode=signing,
+        signing_mode=ENGINE_SIGNING.get(policy.signing, SigningMode.GITHUB_APP),
         gpg_key_id=policy.signing_key_id or None,
-        committer_name=policy.user_name if use_user_identity else policy.bot_name,
-        committer_email=policy.user_email if use_user_identity else policy.bot_email,
-        author_name=policy.user_name if user_author_bot_committer else None,
-        author_email=policy.user_email if user_author_bot_committer else None,
+        committer_name=policy.user_name if as_member else policy.bot_name,
+        committer_email=policy.user_email if as_member else policy.bot_email,
     )
 
 
@@ -130,43 +127,28 @@ def publish_spec_for_policy(
 ) -> PublishSpec:
     """How the branch leaves the sandbox under the member's effective policy.
 
-    GitHub-signed commits are the App's unless the member commits as themselves, in which case
-    their own token makes GitHub sign them as the member. Locally made commits are pushed with
-    the member's token, else the App's.
+    GitHub-signed commits (``github``) are re-created by the App, crediting the member. Locally
+    made commits (``member_gpg``, ``none``) are pushed with the member's token, else the App's.
     """
-    try:
-        signing = SigningMode(policy.signing_mode)
-    except ValueError:
-        signing = SigningMode.NONE
-    if (
-        policy.authorship == "authored_by_user_committed_by_bot"
-        and signing == SigningMode.GITHUB_APP
-    ):
-        raise ValueError(
-            "GitHub App signing cannot set a custom author on commits. To use 'Authored by user, "
-            "committed by bot', select GPG signing mode or None under Settings > GitHub."
-        )
-    as_member = (
-        policy.authorship in ("user_only", "authored_by_user_committed_by_bot")
-        or signing != SigningMode.GITHUB_APP
-    )
+    signing = ENGINE_SIGNING.get(policy.signing, SigningMode.NONE)
+    signed_by_github = signing == SigningMode.GITHUB_APP
     return PublishSpec(
         branch=branch or "",
         signing_mode=signing,
-        token=policy.user_token if as_member else None,
+        token=None if signed_by_github else policy.user_token,
         fallback_token=policy.user_token,
         path=path or "",
         installations=policy.app_installations,
         default_branch=policy.default_branch,
         force_with_lease=force_with_lease,
         signing_key=policy.signing_key if signing == SigningMode.GPG_KEY else None,
-        co_authors=_credited(policy) if signing == SigningMode.GITHUB_APP and not as_member else (),
+        co_authors=_credited(policy) if signed_by_github else (),
     )
 
 
 def _credited(policy: GitPolicy) -> tuple[CoAuthor, ...]:
-    """The member, credited on commits the App authors under the ``co_authored`` policy."""
-    if policy.authorship == "co_authored" and policy.user_name and policy.user_email:
+    """The member, credited on the commits the bot makes."""
+    if policy.user_name and policy.user_email:
         return (CoAuthor(name=policy.user_name, email=policy.user_email),)
     return ()
 
@@ -397,7 +379,7 @@ async def git_open_pr(
     if git_engine is None:
         return "Error: GitHub App credentials are not configured; cannot open a pull request."
     effective = policy or GitPolicy()
-    token = effective.user_token if effective.pr_creation == "as_user" else None
+    token = effective.user_token if effective.publishes_as_member else None
     try:
         url = await git_engine.push_and_open_pr(
             session_id,

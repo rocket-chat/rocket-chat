@@ -13,10 +13,11 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Sequence
 from typing import Any
 
-from config_engine import CascadingSettingsResolver, ResolvedSettings
-from config_engine.registry import specs_for, writable_keys
+from config_engine import CascadingSettingsResolver, Preset, Resolved, ResolvedSettings
+from config_engine.registry import legacy_keys_for, specs_for, writable_keys
 from sqlalchemy import select
 
 from api.db.models import OrgSettingModel, UserSettingModel
@@ -162,22 +163,84 @@ async def delete_user_config(db_mgr: Any, org_id: str, user_id: str, domain: str
             await session.delete(record)
 
 
+_reported_legacy: set[tuple[str, str, str]] = set()
+
+
+async def _with_legacy_keys(
+    db_mgr: Any, org_id: str, domain: str, config: dict[str, Any]
+) -> dict[str, Any]:
+    """``config`` plus the values of keys a release merged into ``domain``, from rows not migrated.
+
+    The migration moves them; this read covers a row it could not reach (and the in-memory
+    store) for one release. The new key wins when both are set. Every use is logged once.
+    """
+    merged = dict(config)
+    for legacy in legacy_keys_for(domain):
+        if legacy.new_key in merged:
+            continue
+        stored = (
+            config
+            if legacy.domain == domain
+            else (await load_org_config(db_mgr, org_id, legacy.domain))[0]
+        )
+        if legacy.key not in stored:
+            continue
+        merged[legacy.new_key] = legacy.translate(stored[legacy.key])
+        marker = (org_id, legacy.domain, legacy.key)
+        if marker not in _reported_legacy:
+            _reported_legacy.add(marker)
+            logger.warning(
+                "Organization %s still stores %s.%s; read as %s.%s until it is saved again",
+                org_id,
+                legacy.domain,
+                legacy.key,
+                legacy.new_domain,
+                legacy.new_key,
+            )
+    return merged
+
+
 async def resolve_settings(
-    db_mgr: Any, org_id: str, domain: str, user_id: str | None = None
+    db_mgr: Any,
+    org_id: str,
+    domain: str,
+    user_id: str | None = None,
+    presets: Sequence[Preset] = (),
 ) -> ResolvedSettings:
-    """System defaults -> organization -> member override, honouring locked keys."""
+    """Each key by its policy: platform -> instance -> organization -> member -> presets."""
     org_config, locked = await load_org_config(db_mgr, org_id, domain)
+    org_config = await _with_legacy_keys(db_mgr, org_id, domain, org_config)
     overrides = await load_user_config(db_mgr, org_id, user_id, domain) if user_id else {}
     # Keys retired from the registry may linger in old rows; they must not resurface.
-    # Nor does a value stored under a scope the key no longer has (a member-only key set as an
+    # Nor does a value stored under a policy the key no longer has (a member-only key set as an
     # organization default before it became member-only).
-    org_keys, member_keys = writable_keys(domain, "org"), writable_keys(domain, "user")
+    org_keys, member_keys = writable_keys(domain, "org"), writable_keys(domain, "member")
     org_config = {k: v for k, v in org_config.items() if k in org_keys}
     overrides = {k: v for k, v in overrides.items() if k in member_keys}
-    locked = [k for k in locked if k in member_keys]
+    locked = [k for k in locked if k in org_keys and k in member_keys]
     return _resolver.resolve(
-        domain=domain, org_config=org_config, locked_keys=locked, user_overrides=overrides
+        domain=domain,
+        org_config=org_config,
+        locked_keys=locked,
+        user_overrides=overrides,
+        presets=presets,
     )
+
+
+async def resolve_setting(
+    db_mgr: Any,
+    org_id: str,
+    domain: str,
+    key: str,
+    *,
+    user_id: str | None = None,
+    presets: Sequence[Preset] = (),
+) -> Resolved:
+    """One key's value and provenance, with the session's presets (agent, bot, session choice)."""
+    resolved = await resolve_settings(db_mgr, org_id, domain, user_id, presets)
+    if key not in resolved.provenance:
+        raise UndeclaredSettingError(f"{domain}.{key} is not declared in the settings registry")
+    return resolved.provenance[key]
 
 
 class UndeclaredSettingError(KeyError):

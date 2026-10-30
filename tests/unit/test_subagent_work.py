@@ -31,7 +31,7 @@ def test_the_built_in_roles_can_search_and_test() -> None:
     assert {"run_tests", "grep_search", "list_dir"} <= set(
         DEFAULT_SUBAGENT_CONFIGS["qa_verifier"].whitelisted_tools
     )
-    assert all(config.max_turns == 30 for config in DEFAULT_SUBAGENT_CONFIGS.values())
+    assert all(config.max_turns == 40 for config in DEFAULT_SUBAGENT_CONFIGS.values())
 
 
 async def test_a_delegate_searches_the_active_repository_and_reports() -> None:
@@ -106,7 +106,7 @@ async def test_a_delegate_that_runs_out_of_steps_still_reports() -> None:
     result = await runner.run(SubagentTaskRequest(role="worker", task="t"), session_id="s")
 
     assert result.summary == "Report: checked a and b; c is unverified."
-    assert gateway.requests[-1].messages[-1].content == FINAL_REPORT_NOTE
+    assert gateway.requests[-1].messages[-1].content == FINAL_REPORT_NOTE.format(reason="2 steps")
     tool_results = [m.content for m in gateway.requests[-1].messages if m.role == "tool"]
     assert tool_results == ["Tool execution timed out after 1s"] * 2, "the main turn's budget"
 
@@ -137,8 +137,9 @@ def test_delegates_share_the_main_turns_dispatcher() -> None:
     assert orchestrator.subagent_runner.dispatcher is orchestrator.dispatcher
 
 
-async def test_qa_verifier_runs_in_parent_repository_without_worktree_isolation() -> None:
+async def test_qa_verifier_runs_in_a_worktree_holding_the_parents_uncommitted_edits() -> None:
     driver = FakeSandboxDriver()
+    driver.script_command("stash create", ExecResult(0, "stash_abc123\n", "", 1))
     driver.script_command("pytest", ExecResult(0, "1 passed in 0.1s\n", "", 1))
 
     await run_turn(
@@ -151,10 +152,9 @@ async def test_qa_verifier_runs_in_parent_repository_without_worktree_isolation(
         driver=driver,
     )
 
-    # qa_verifier should NOT create an isolated git worktree: it verifies parent repository in place
     worktree_calls = [c for _, c in driver.exec_calls if "worktree add" in c]
-    assert not worktree_calls, (
-        "qa_verifier must run in the parent repository to see uncommitted edits"
+    assert worktree_calls and "stash create" in worktree_calls[0], (
+        "the verifier's tree starts from the parent's uncommitted edits"
     )
 
 
@@ -164,6 +164,8 @@ async def test_isolated_subagent_uses_stash_commit_and_surfaces_branch_in_report
     driver.script_command("worktree add", ExecResult(0, "", "", 1))
     driver.script_command("commit", ExecResult(0, "", "", 1))
     driver.script_command("worktree remove", ExecResult(0, "", "", 1))
+    driver.script_command("diff --name-only", ExecResult(0, "src/feature.py\n", "", 1))
+    driver.script_command("diff --stat", ExecResult(0, " src/feature.py | 3 +++\n", "", 1))
 
     custom_coder = SubagentConfig(
         id="isolated_coder",
@@ -172,7 +174,7 @@ async def test_isolated_subagent_uses_stash_commit_and_surfaces_branch_in_report
         description="Writes isolated code",
         system_prompt="You code.",
         whitelisted_tools=["file_write", "bash_exec"],
-        isolate_worktree=True,
+        isolation="worktree",
     )
 
     registry = ToolRegistry(driver=driver)
@@ -201,3 +203,4 @@ async def test_isolated_subagent_uses_stash_commit_and_surfaces_branch_in_report
     assert worktree_adds, "an isolated writer must set up a worktree"
     assert "stash create" in worktree_adds[0], "stash create must capture uncommitted parent edits"
     assert res.branch and res.branch.startswith("subagent/sub_")
+    assert res.changed_files == ["src/feature.py"], "changes come from git, not tool arguments"

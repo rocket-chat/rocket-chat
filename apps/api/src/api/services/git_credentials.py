@@ -371,8 +371,10 @@ async def resolve_session_git_credentials(
         return GitCredentialBundle(
             token=token,
             mode="app",
-            author_name=git_engine.settings.bot_author_name if commits_as_bot else identity.name,
-            author_email=git_engine.settings.bot_author_email if commits_as_bot else identity.email,
+            # The bot identity is the organization's setting (the deployment's GIT_BOT_NAME /
+            # GIT_BOT_EMAIL are its instance default), the same one the turn's git policy uses.
+            author_name=str(org_github["bot_author_name"]) if commits_as_bot else identity.name,
+            author_email=str(org_github["bot_author_email"]) if commits_as_bot else identity.email,
             source_details={"auth_type": "github_app", "permissions": permissions},
             identity=None if commits_as_bot else identity,
             user_token=member_token,

@@ -1,9 +1,20 @@
 """Pydantic request and response models for FastAPI endpoints."""
 
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from agent_core.guidance import MAX_GUIDANCE_CHARS
 from pydantic import BaseModel, Field, model_validator
+
+from specifications.interfaces.agent import DEFAULT_SUBAGENT_COST_USD, DEFAULT_SUBAGENT_INHERIT
+
+SubagentInherit = Literal["agents_md", "memory", "checklist", "skills"]
+
+
+class CredentialBindingModel(BaseModel):
+    """An agent's own credential for one provider."""
+
+    provider: str = Field(..., min_length=1, max_length=50)
+    credential_id: str = Field(..., min_length=1, max_length=64)
 
 
 class AgentPersonaModel(BaseModel):
@@ -37,9 +48,6 @@ class AgentPersonaModel(BaseModel):
         description="Whether this agent persona is enabled and selectable in the cockpit/sessions",
     )
     icon: str = Field(default="bot", description="Avatar/icon key")
-    sandbox_image: str = Field(
-        default="", description="Sandbox image; empty inherits the organization default"
-    )
     sandbox_id: str = Field(
         default="",
         description=(
@@ -47,15 +55,8 @@ class AgentPersonaModel(BaseModel):
             "empty uses the organization's default"
         ),
     )
-    cpu_limit: str = Field(default="", description="CPU cores; empty inherits the org setting")
-    memory_limit: str = Field(
-        default="", description="Memory limit; empty inherits the org setting"
-    )
     temperature: float | None = Field(
         default=None, ge=0.0, le=2.0, description="Sampling temperature override"
-    )
-    thinking_budget_tokens: int | None = Field(
-        default=None, description="Extended thinking budget tokens override"
     )
     reasoning_effort: str | None = Field(
         default=None,
@@ -84,6 +85,17 @@ class AgentPersonaModel(BaseModel):
     default_permission_mode: str | None = Field(
         default=None,
         description="Default permission mode ('plan', 'ask', 'auto_edit', 'auto', 'bypass'); empty inherits",
+    )
+    credential_bindings: list[CredentialBindingModel] = Field(
+        default_factory=list,
+        description=(
+            "The agent's own provider credentials: a call on a bound provider uses the bound "
+            "credential; administrators bind organization agents, owners their personal ones"
+        ),
+    )
+    strict_binding: bool = Field(
+        default=False,
+        description="Refuse calls on any provider the agent has no binding for",
     )
 
 
@@ -190,6 +202,13 @@ class SessionResponse(BaseModel):
     total_messages: int | None = Field(
         default=None, description="Total number of messages in the session"
     )
+    user_turns_before: int = Field(
+        default=0,
+        description=(
+            "Messages the person sent before the first one returned, so a client numbers the "
+            "turns it shows from the start of the conversation"
+        ),
+    )
 
 
 class UserTurnRequest(BaseModel):
@@ -235,6 +254,14 @@ class ApprovalRequestModel(BaseModel):
     """Payload approving or denying a decision gate."""
 
     approved: bool = Field(..., description="True if approved, False if denied")
+    remember: Literal["session", "repository"] | None = Field(
+        default=None,
+        description=(
+            "With approved: also allow later calls without asking: 'session' (this tool in this "
+            "session) or 'repository' (this command in this repository, in all your sessions). "
+            "Only a scope the approval offered (remember_options) is saved."
+        ),
+    )
 
 
 class UpdateUserSettingsRequest(BaseModel):
@@ -446,8 +473,35 @@ class SubagentConfigModel(BaseModel):
         description="Steps the subagent may take before it must report (0: until it finishes).",
     )
     whitelisted_tools: list[str] = Field(default_factory=lambda: ["*"])
+    disallowed_tools: list[str] = Field(
+        default_factory=list, description="Tools the role never gets, even under `*`."
+    )
     temperature: float = 0.2
     enabled: bool = True
+    tier: Literal["fast", "default", "frontier"] = Field(
+        "default", description="Model tier when `model` is empty: fast, default or frontier."
+    )
+    reasoning_effort: str | None = Field(None, description="Reasoning level for the role.")
+    max_cost_usd: float = Field(
+        DEFAULT_SUBAGENT_COST_USD, ge=0, le=1000, description="Spend cap per run (0: none)."
+    )
+    max_wall_seconds: int = Field(
+        0, ge=0, le=86_400, description="Wall-clock cap per run in seconds (0: none)."
+    )
+    isolation: Literal["none", "worktree", "sandbox"] = Field(
+        "none", description="Where its changes land: the shared tree, a worktree, a sandbox."
+    )
+    can_ask_user: bool = Field(
+        False, description="Whether its approvals and questions reach the person."
+    )
+    inherit: list[SubagentInherit] = Field(
+        default_factory=lambda: cast(list[SubagentInherit], list(DEFAULT_SUBAGENT_INHERIT)),
+        description="What it starts with besides its prompt.",
+    )
+    output_schema: dict[str, Any] | None = Field(
+        None, description="JSON Schema of the `data` its report must carry."
+    )
+    source: Literal["builtin", "org", "repository"] = "org"
     built_in: bool = Field(default=False, description="Shipped with the platform default fleet")
     customized: bool = Field(
         default=False, description="A built-in role customized by the organization"
@@ -525,9 +579,6 @@ class GitSigningStatus(BaseModel):
     has_passphrase: bool = False
     public_key: str | None = Field(
         default=None, description="Upload this to GitHub (Settings > SSH and GPG keys)"
-    )
-    commit_as_me: bool = Field(
-        default=False, description="The member chose to commit as themselves"
     )
 
 

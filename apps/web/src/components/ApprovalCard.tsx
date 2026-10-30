@@ -3,14 +3,21 @@
 import React, { useState } from "react";
 import { ShieldAlert, ShieldCheck } from "lucide-react";
 
-import { ApprovalRequestInfo } from "../types/mission";
+import type { ApprovalRememberScope, ApprovalRequestInfo } from "../types/mission";
+import { InlineDiff } from "./InlineDiff";
+import { PLAN_APPROVAL_ACTION, PlanCard } from "./PlanCard";
 import { Field, Input } from "./ui/Field";
 
 interface ApprovalCardProps {
   approval: ApprovalRequestInfo;
-  onApprove: (actionId: string) => void;
+  onApprove: (actionId: string, remember?: ApprovalRememberScope) => void;
   onReject: (actionId: string) => void;
 }
+
+const REMEMBER_LABEL: Record<ApprovalRememberScope, string> = {
+  session: "Allow for this session",
+  repository: "Always for this command in this repository",
+};
 
 const RISK_STYLES: Record<string, string> = {
   critical: "border-rose-500/60 bg-rose-500/10",
@@ -28,7 +35,10 @@ const RISK_LABEL: Record<string, string> = {
 
 const CONFIRM_WORD = "approve";
 
-export const ApprovalCard: React.FC<ApprovalCardProps> = ({ approval, onApprove, onReject }) => {
+export const ApprovalCard: React.FC<ApprovalCardProps> = (props) =>
+  props.approval.action_type === PLAN_APPROVAL_ACTION ? <PlanCard approval={props.approval} /> : <GateCard {...props} />;
+
+const GateCard: React.FC<ApprovalCardProps> = ({ approval, onApprove, onReject }) => {
   const riskClass = RISK_STYLES[approval.risk_level] || RISK_STYLES.medium;
   const critical = approval.risk_level === "critical";
   const [confirmation, setConfirmation] = useState("");
@@ -62,7 +72,10 @@ export const ApprovalCard: React.FC<ApprovalCardProps> = ({ approval, onApprove,
     >
       <div className="flex flex-wrap items-center gap-2">
         <ShieldAlert className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
-        <span className="text-sm font-semibold text-foreground">Approve {approval.action_type}?</span>
+        <span className="text-sm font-semibold text-foreground">
+          {approval.subagent_role ? `The ${approval.subagent_role.replace(/_/g, " ")} subagent asks: ` : ""}
+          Approve {approval.action_type}?
+        </span>
         <span className="ml-auto rounded-full border border-current px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
           {RISK_LABEL[approval.risk_level] ?? approval.risk_level}
         </span>
@@ -72,6 +85,24 @@ export const ApprovalCard: React.FC<ApprovalCardProps> = ({ approval, onApprove,
         <p className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-base/70 p-2 font-mono text-xs text-foreground">
           {approval.description}
         </p>
+      )}
+
+      {approval.diff ? (
+        <div className="mt-2" data-testid="approval-diff">
+          <InlineDiff diff={approval.diff} />
+        </div>
+      ) : (
+        approval.arguments &&
+        Object.keys(approval.arguments).length > 0 && (
+          <details className="mt-2 text-xs" data-testid="approval-arguments">
+            <summary className="cursor-pointer text-neutral-700 dark:text-neutral-300">
+              Arguments{approval.tool ? ` of ${approval.tool}` : ""}
+            </summary>
+            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-surface-base/70 p-2 font-mono text-foreground">
+              {JSON.stringify(approval.arguments, null, 2)}
+            </pre>
+          </details>
+        )
       )}
 
       {critical && (
@@ -102,6 +133,19 @@ export const ApprovalCard: React.FC<ApprovalCardProps> = ({ approval, onApprove,
           <span>Approve</span>
           {!critical && <kbd className="rounded bg-white/20 px-1 text-[10px] font-mono">Enter</kbd>}
         </button>
+        {!critical &&
+          (approval.remember_options ?? []).map((scope) => (
+            <button
+              key={scope}
+              type="button"
+              data-testid={`approval-remember-${scope}`}
+              onClick={() => onApprove(approval.action_id, scope)}
+              title={scope === "repository" && approval.repository ? `In ${approval.repository}` : undefined}
+              className="cursor-pointer rounded-lg border border-emerald-600/60 px-3 py-1.5 text-xs font-semibold text-emerald-800 transition-colors hover:bg-emerald-500/10 dark:text-emerald-300"
+            >
+              {REMEMBER_LABEL[scope]}
+            </button>
+          ))}
         <button
           type="button"
           data-testid="approval-reject"

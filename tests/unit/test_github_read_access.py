@@ -55,7 +55,7 @@ async def test_dynamic_app_token_minted_for_target_repository(
     # Mock installations_for_org
     inst = SimpleNamespace(installation_id=4242, account_login="acme")
     monkeypatch.setattr(
-        "api.turns.callbacks.installations_for_org",
+        "api.services.github_read_access.installations_for_org",
         AsyncMock(return_value=[inst]),
     )
 
@@ -85,7 +85,7 @@ async def test_falls_back_to_bundle_token_when_repo_not_resolved(
     )
     # No installations match
     monkeypatch.setattr(
-        "api.turns.callbacks.installations_for_org",
+        "api.services.github_read_access.installations_for_org",
         AsyncMock(return_value=[]),
     )
 
