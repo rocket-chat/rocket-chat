@@ -79,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api`: A failed turn's stored answer starts with "The turn failed:" (it said "Mission Error").
 
 ### Fixed
+- `sandbox`: A command killed at its deadline is reported as timed out in sandbox images whose `timeout` exits with 124 (newer coreutils) as well as 137.
 - `api`: Sessions created shared on the record (Slack threads, trigger sessions) were stored private on PostgreSQL, so only their owner and administrators could open them; sharing is now always written with the session, and migration `060` gives existing public Slack threads link access.
 - `api`: Session titles: the first-message placeholder is the request's first sentence without the speaker, mentions, links or code, and the AI title names the task like a ticket, reads the latest request too and keeps the person's language.
 - `web`: The Slack link in a sidebar row was a link inside the row's link; it now opens the thread in a new tab without opening the session.

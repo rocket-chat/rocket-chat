@@ -148,6 +148,9 @@ def build_write_file_commands(target_path: str, content: bytes) -> list[str]:
 
 # Exit status of a process killed by SIGKILL (128 + 9), which is what the deadline wrapper sends.
 KILLED_EXIT_CODE = 137
+# timeout(1) reports the kill itself as 128 + 9 on older coreutils and as its own "timed out"
+# status, 124, on newer ones; a sandbox image may ship either.
+DEADLINE_EXIT_CODES = frozenset({KILLED_EXIT_CODE, 124})
 # The client-side wait only backstops the in-sandbox deadline, so it must outlast it.
 CLIENT_DEADLINE_MARGIN_SECONDS = 10
 MAX_CAPTURED_CHARS = 1_000_000
@@ -174,7 +177,7 @@ def wrap_with_deadline(command: str, timeout_seconds: int) -> str:
 
 def hit_deadline(exit_code: int, elapsed_seconds: float, timeout_seconds: int) -> bool:
     """True when a command was killed by ``wrap_with_deadline`` rather than failing itself."""
-    return exit_code == KILLED_EXIT_CODE and elapsed_seconds >= timeout_seconds - 1
+    return exit_code in DEADLINE_EXIT_CODES and elapsed_seconds >= timeout_seconds - 1
 
 
 class BoundedOutput:
