@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="https://rocket-chat.mintlify.site/"><img src="https://img.shields.io/badge/Read_the_docs-ff5722?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Read the docs"></a>
-  <a href="doc/quickstart.md"><img src="https://img.shields.io/badge/Quickstart-2_minutes-1f2937?style=for-the-badge&logo=docker&logoColor=white" alt="Quickstart in two minutes"></a>
+  <a href="doc/quickstart.md"><img src="https://img.shields.io/badge/Quickstart-5_minutes-1f2937?style=for-the-badge&logo=docker&logoColor=white" alt="Quickstart in five minutes"></a>
   <a href="doc/install/kubernetes.md"><img src="https://img.shields.io/badge/Kubernetes-Helm_chart-326ce5?style=for-the-badge&logo=helm&logoColor=white" alt="Kubernetes with the Helm chart"></a>
   <a href="doc/compare.md"><img src="https://img.shields.io/badge/How_it_compares-6b7280?style=for-the-badge" alt="How it compares"></a>
 </p>
@@ -113,7 +113,7 @@ An organization GitHub App does the platform's own work; each member's linked ac
 
 | You want to | Start here |
 | :--- | :--- |
-| **Try it** on your laptop | [Quickstart](doc/quickstart.md) (Docker, two minutes) |
+| **Try it** on your laptop | [Quickstart](doc/quickstart.md) (Docker, about five minutes) |
 | **Run it for a team** on one server | [Docker Compose for production](doc/install/docker-compose.md) |
 | **Run it for many people**, with autoscaling | [Kubernetes with Helm](doc/install/kubernetes.md) and the [Helm chart reference](doc/operate/helm-chart.md) |
 | **Try the Kubernetes setup** locally | [Local Kubernetes with Kind](doc/install/local-kubernetes.md) |
