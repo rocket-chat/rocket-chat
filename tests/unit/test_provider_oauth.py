@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -11,6 +13,24 @@ from api.services import provider_oauth
 from fastapi.testclient import TestClient
 
 MEMBER = {"X-Tenant-Org-Id": "oauth_org", "X-Tenant-User-Id": "ada", "X-User-Role": "admin"}
+
+
+@pytest.fixture(autouse=True)
+async def _identity() -> AsyncIterator[None]:
+    """The credential rows reference the person; the in-memory ``client`` provisions nobody."""
+    if not (os.getenv("DATABASE_URL") or os.getenv("TEST_DATABASE_URL")):
+        yield
+        return
+    from api.db.session import DatabaseSessionManager
+    from api.db.store import ensure_tenant_identity
+
+    manager = DatabaseSessionManager(os.environ["ADMIN_DATABASE_URL"])
+    try:
+        async with manager.session(tenant_org_id="oauth_org") as session:
+            await ensure_tenant_identity(session, "oauth_org", "ada")
+        yield
+    finally:
+        await manager.close()
 
 
 def _start(client: TestClient, owner: str = "member") -> tuple[str, str]:
@@ -44,8 +64,8 @@ def test_a_sign_in_stores_the_issued_key_as_an_oauth_credential(
     assert done.status_code == 307 and "signin=connected" in done.headers["location"]
     assert seen["code"] == "c-1" and seen["verifier"]
     mine = client.get("/v1/user/credentials", headers=MEMBER).json()
-    stored = next(c for c in mine if c["provider"] == "openrouter")
-    assert stored["kind"] == "oauth" and stored["fingerprint"].endswith("9876")
+    stored = [c for c in mine if c["provider"] == "openrouter" and c["kind"] == "oauth"]
+    assert stored and stored[-1]["fingerprint"].endswith("9876")
     assert "ISSUED-KEY" not in str(mine)
 
 

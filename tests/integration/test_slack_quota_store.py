@@ -47,10 +47,8 @@ async def test_postgres_quota_store_consumes_denies_and_expires(
                 SlackWorkspaceQuotaModel(
                     team_id=team_id,
                     org_id=org_id,
-                    monthly_usd_cap=0.0,
                     turns_per_hour=1,
                     max_concurrent_sessions=0,
-                    current_month_spend_usd=0.0,
                     turns_this_hour=0,
                     hour_window_start=None,
                     created_at=int(now),

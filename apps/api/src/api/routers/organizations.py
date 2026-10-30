@@ -14,7 +14,14 @@ from pydantic import BaseModel, Field
 from api.auth.access import _get_request_identity, _require_admin
 from api.auth.capabilities import capabilities
 from api.auth.identity import resolve_identity
-from api.auth.roles import ROLES, canonical_role, invalidate_role, primary_role, roles_for
+from api.auth.roles import (
+    ROLES,
+    assignable_role,
+    canonical_role,
+    invalidate_role,
+    primary_role,
+    roles_for,
+)
 from api.auth.session_manager import create_session_token, set_session_cookie
 from api.db.models import OrganizationModel
 from api.services.audit import AuditService
@@ -208,7 +215,7 @@ async def get_invites(request: Request) -> InviteList:
 async def post_invite(body: CreateInviteRequest, request: Request) -> CreatedInvite:
     """Invite a person by e-mail; the link expires and works once (admin/owner only)."""
     org_id, admin_id, roles = _require_admin(request)
-    role = body.role.strip().lower()
+    role = assignable_role(body.role) or ""
     if role not in ROLES:
         raise HTTPException(status_code=422, detail=f"Invalid role. Allowed: {', '.join(ROLES)}.")
     if role == "owner" and "owner" not in roles:

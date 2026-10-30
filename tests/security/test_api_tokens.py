@@ -20,7 +20,7 @@ from api.auth.api_tokens import (
 from api.auth.identity import resolve_token_identity
 from api.auth.roles import clear_role_cache
 from api.auth.session_manager import SESSION_COOKIE_NAME, create_session_token
-from api.db.models import ApiTokenModel, OrganizationModel, UserModel
+from api.db.models import ApiTokenModel, MembershipModel, OrganizationModel, UserModel
 from api.db.session import DatabaseSessionManager
 from api.main import app
 from fastapi.testclient import TestClient
@@ -138,7 +138,20 @@ async def _write(statement: object, org: str | None = None) -> None:
 
 
 def _set_role(user: str, role: str) -> None:
-    asyncio.run(_write(update(UserModel).where(UserModel.id == user).values(role=role)))
+    """The member's role in their organization, which lives in ``memberships`` (decision D1)."""
+
+    async def write() -> None:
+        # The schema owner: a membership's row policy is per organization, unknown here.
+        db = DatabaseSessionManager(os.getenv("ADMIN_DATABASE_URL") or TEST_DATABASE_URL)
+        try:
+            async with db.session() as session:
+                await session.execute(
+                    update(MembershipModel).where(MembershipModel.user_id == user).values(role=role)
+                )
+        finally:
+            await db.close()
+
+    asyncio.run(write())
     clear_role_cache()
 
 

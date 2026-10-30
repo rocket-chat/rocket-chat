@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from api.auth.access import _require_admin as require_admin
 from api.auth.local import LocalAccounts, generate_temporary_password
-from api.auth.roles import ADMIN, OWNER, ROLES, invalidate_role
+from api.auth.roles import ADMIN, OWNER, ROLES, assignable_role, invalidate_role
 from api.db.models import UserModel
 from api.services.audit import AuditService
 from api.services.memberships import Member, admin_count, members, membership_row
@@ -90,7 +90,7 @@ async def update_user_role(
 ) -> UpdateUserRoleResponse:
     """Change a member's role (admin/owner only). Applies to their open sessions within 15 seconds."""
     org_id, admin_id, roles = _require_admin(request)
-    new_role = body.role.strip().lower()
+    new_role = assignable_role(body.role) or ""
     if new_role not in ALLOWED_USER_ROLES:
         raise HTTPException(
             status_code=422,
@@ -166,7 +166,7 @@ async def create_local_user(body: CreateLocalUserRequest, request: Request) -> T
     """Create a password-login member with a one-time temporary password (admin/owner only)."""
     org_id, admin_id, _ = _require_admin(request)
     accounts = _local_accounts(request)
-    role = body.role.strip().lower()
+    role = assignable_role(body.role) or ""
     if role not in ALLOWED_USER_ROLES:
         raise HTTPException(
             status_code=422, detail=f"Invalid role. Allowed: {', '.join(ALLOWED_USER_ROLES)}."

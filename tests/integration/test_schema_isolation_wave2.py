@@ -266,10 +266,8 @@ async def test_new_wave2_tables_deny_cross_tenant_reads(
             SlackWorkspaceQuotaModel(
                 team_id=f"team_{suffix}",
                 org_id=org_a,
-                monthly_usd_cap=100.0,
                 turns_per_hour=60,
                 max_concurrent_sessions=5,
-                current_month_spend_usd=0.0,
                 turns_this_hour=0,
                 created_at=now,
                 updated_at=now,
