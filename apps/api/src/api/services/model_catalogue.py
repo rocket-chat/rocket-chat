@@ -147,11 +147,17 @@ def _provider_label(provider: str) -> str:
     )
 
 
-async def usable_providers(store: ModelCredentialStore, org_id: str, user_id: str) -> set[str]:
-    """Providers the caller could call right now: environment, organization or own key."""
+async def usable_providers(
+    store: ModelCredentialStore, org_id: str, user_id: str, *, bindable: bool = False
+) -> set[str]:
+    """Providers the caller could call right now: environment, organization or own key.
+
+    ``bindable`` adds the organization's keys restricted to agents: the default chain skips
+    them, but an agent bound to one calls its provider, so an agent's model may be one of its.
+    """
     providers = {p for p, env in PLATFORM_KEY_ENV.items() if os.getenv(env, "").strip()}
     for credential in await store.list(org_id):
-        if credential.owner_kind == "org" and not credential.restricted_to_agents:
+        if credential.owner_kind == "org" and (bindable or not credential.restricted_to_agents):
             providers.add(credential.provider)
         elif credential.owner_user_id == user_id:
             providers.add(credential.provider)
@@ -207,10 +213,12 @@ async def build_catalogue(
     org_id: str,
     user_id: str,
     openrouter: Sequence[dict[str, Any]],
+    bindable: bool = False,
 ) -> list[dict[str, Any]]:
-    """The deduplicated, policy-filtered list of models this caller may pick."""
+    """The deduplicated, policy-filtered list of models this caller may pick (``bindable``: for
+    an agent, which may also call the providers of keys restricted to agents)."""
     config = await effective_settings(db_mgr, org_id, "models")
-    providers = await usable_providers(store, org_id, user_id)
+    providers = await usable_providers(store, org_id, user_id, bindable=bindable)
     merged: dict[str, dict[str, Any]] = {}
     for model in [
         *custom_models(config.get("custom_models") or []),

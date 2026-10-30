@@ -21,7 +21,9 @@ logger = logging.getLogger(__name__)
 # is executing (its Slack client, policy and conversations), never on whichever registered
 # first: bots restart when edited, and an organization can run several.
 _LIVE_BOTS: dict[str, "SlackToolsetMixin"] = {}
-NOT_CONNECTED = "Slack is not connected for this session (its bot is not running)."
+NOT_CONNECTED = (
+    "Slack is not connected for this session: no Slack bot of this organization is running."
+)
 
 
 class SlackToolsetMixin(SlackDirectoryMixin):
@@ -37,13 +39,27 @@ class SlackToolsetMixin(SlackDirectoryMixin):
 
     def _session_owner(self) -> "SlackToolsetMixin | None":
         """The assistant whose bot owns the executing session; an assistant without a bot (a
-        single embedded one, or tests) owns every session."""
+        single embedded one, or tests) owns every session.
+
+        A session no bot started (the web cockpit, a trigger) whose agent lists Slack tools
+        uses its organization's bot, the first by id when it runs several, so the choice is the
+        same on every call and every replica.
+        """
         ctx = current_execution_ctx.get()
         session_id = ctx.session_id if ctx is not None else ""
         for key, assistant in _LIVE_BOTS.items():
             if session_id.startswith(f"slack_{key}_"):
                 return assistant
-        return self if self.bot is None else None
+        if self.bot is None:
+            return self
+        if ctx is None or session_id.startswith("slack_"):
+            return None
+        organization = [
+            assistant
+            for assistant in _LIVE_BOTS.values()
+            if assistant.bot is not None and assistant.bot.org_id == ctx.tenant_org_id
+        ]
+        return min(organization, key=lambda a: a.bot.id if a.bot else "", default=None)
 
     def _dispatching(self, handler: Callable[..., Awaitable[str]]) -> Callable[..., Awaitable[str]]:
         """``handler`` run on the session's own assistant (same signature, for the schema)."""

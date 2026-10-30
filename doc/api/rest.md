@@ -1680,6 +1680,19 @@ The caller's active organization, by name.
 
 **Responses:** `200`
 
+### `PATCH /v1/organization`
+
+Rename the active organization (admin/owner only). Its id, and so every link and
+setting, stays the same.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | yes |  |
+
+**Responses:** `200`
+
 ## Other
 
 ### `GET /health`
@@ -2145,6 +2158,12 @@ Execute cosine similarity search against pgvector chunks.
 ### `GET /v1/models`
 
 Return available LLM models and sandbox execution driver status.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| scope | query | no | `session` / `agents` |
 
 **Responses:** `200`
 

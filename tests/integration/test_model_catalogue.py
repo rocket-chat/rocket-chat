@@ -76,6 +76,25 @@ async def test_a_members_or_organizations_key_adds_the_providers_models() -> Non
     )
 
 
+@pytest.mark.asyncio
+async def test_a_key_restricted_to_agents_adds_its_models_only_for_agents() -> None:
+    store = ModelCredentialStore(None)
+    await store.create(
+        ORG,
+        NewCredential(
+            "org", None, "anthropic", "sk-ant-restricted-1234", restricted_to_agents=True
+        ),
+    )
+
+    session = await _ids(store)
+    agents = await build_catalogue(
+        db_mgr=None, store=store, org_id=ORG, user_id=USER, openrouter=OPENROUTER, bindable=True
+    )
+
+    assert not any(i.startswith("anthropic/") for i in session), "the default chain skips it"
+    assert any(m["id"].startswith("anthropic/claude") for m in agents)
+
+
 @pytest.mark.setting("models.custom_models")
 @pytest.mark.asyncio
 async def test_custom_models_for_a_private_endpoint_appear_first() -> None:

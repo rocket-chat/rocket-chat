@@ -34,6 +34,12 @@ export const ModelSection: React.FC<SectionProps> = (props) => {
   );
   const providers = Array.from(new Set(registries.credentials.map((c) => c.provider))).sort();
   const labelOf = (id: string) => registries.credentials.find((c) => c.id === id)?.label ?? id;
+  // A binding applies to calls on its provider only: `openrouter/anthropic/…` is an OpenRouter
+  // call, so an Anthropic key bound to the agent would sit unused.
+  const modelProvider = draft.model.includes("/") ? draft.model.split("/")[0] : "";
+  const unusedBindings = modelProvider
+    ? draft.credential_bindings.filter((b) => b.provider !== modelProvider && draft.model.includes(`/${b.provider}/`))
+    : [];
 
   const bind = () => {
     const chosen = registries.credentials.find((c) => c.id === credentialId);
@@ -50,6 +56,7 @@ export const ModelSection: React.FC<SectionProps> = (props) => {
           <ModelPicker
             {...control}
             data-testid="agent-model"
+            scope="agents"
             disabled={!canEdit || (draft.kind === "agent" && draft.scope === "org" && !isAdmin)}
             value={draft.model}
             onChange={(model) => patch({ model })}
@@ -57,6 +64,12 @@ export const ModelSection: React.FC<SectionProps> = (props) => {
           />
         )}
       </Field>
+      {unusedBindings.map((binding) => (
+        <p key={binding.provider} role="status" data-testid="agent-binding-unused" className="text-xs text-amber-600 dark:text-amber-400">
+          This model is called through {modelProvider}, so the {binding.provider} key bound below is not used. Pick a{" "}
+          <code>{binding.provider}/…</code> model to use it.
+        </p>
+      ))}
       {draft.kind === "subagent" && <SubagentTierField {...props} />}
       <Field
         label="Reasoning"

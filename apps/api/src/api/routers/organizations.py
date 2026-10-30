@@ -137,6 +137,36 @@ async def current_organization(request: Request) -> CurrentOrganization:
     return CurrentOrganization(id=org_id, name=org.name if org else org_id)
 
 
+class RenameOrganizationRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+
+
+@router.patch("/organization", response_model=CurrentOrganization)
+async def rename_organization(
+    body: RenameOrganizationRequest, request: Request
+) -> CurrentOrganization:
+    """Rename the active organization (admin/owner only). Its id, and so every link and
+    setting, stays the same."""
+    org_id, admin_id, _ = _require_admin(request)
+    name = " ".join(body.name.split())
+    if not name:
+        raise HTTPException(status_code=422, detail="Enter a name.")
+    db_mgr = _database(request)
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        org = await session.get(OrganizationModel, org_id)
+        if org is None:
+            raise HTTPException(status_code=404, detail="Organization not found")
+        previous, org.name = org.name, name
+    await AuditService(db_mgr).record(
+        "settings_change",
+        org_id=org_id,
+        actor_user_id=admin_id,
+        result_summary=f"renamed the organization from {previous!r} to {name!r}",
+        metadata={"previous_name": previous, "name": name},
+    )
+    return CurrentOrganization(id=org_id, name=name)
+
+
 @router.get("/me/access", response_model=MyAccess)
 async def my_access(request: Request) -> MyAccess:
     """The caller's role and capabilities in the active organization (for the cockpit: what

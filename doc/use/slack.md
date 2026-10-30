@@ -48,6 +48,8 @@ Besides your workspace tools, the agent has Slack's own:
 
 Reading never needs approval, even in *Plan* mode. A private channel or another person's direct messages are only readable from inside that conversation.
 
+An agent whose tool list includes Slack tools has them in every session, not only in the ones a Slack bot started: from the web cockpit or a trigger it reads, finds people and posts through your organization's Slack bot (the first by id if you run several), under the same policy. Outside a Slack thread there is no current thread, so it names the channel or thread it means. If no bot of your organization is running, the tools say Slack is not connected.
+
 ## Ways to start
 
 Your organization may connect multiple bots (e.g. `@RocketDev`, `@RocketOps`, `@RocketTriage`), each mapped to its own agent or to a router that picks one. Mentioning a bot routes your request directly to it.

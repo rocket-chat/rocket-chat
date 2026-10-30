@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { useMissionStore } from "../../lib/store";
+import type { ModelOption } from "../../types/mission";
 import { cn } from "./cn";
 
 const MAX_SHOWN = 200;
@@ -17,6 +18,32 @@ interface ModelPickerProps {
   inheritLabel?: string;
   "aria-describedby"?: string;
   "data-testid"?: string;
+  /**
+   * `agents`: the models an agent may be given, which adds the providers of the organization's
+   * keys restricted to agents (for an administrator). Loaded for this picker only.
+   */
+  scope?: "session" | "agents";
+}
+
+/** The catalogue for agents, loaded once per page: it differs from the composer's list. */
+function useAgentModels(enabled: boolean): { models: ModelOption[]; loaded: boolean } {
+  const [state, setState] = useState<{ models: ModelOption[]; loaded: boolean }>({ models: [], loaded: false });
+  useEffect(() => {
+    if (!enabled) return;
+    let cancelled = false;
+    fetch("/v1/models?scope=agents", { signal: AbortSignal.timeout(5000) })
+      .then((res) => (res.ok ? res.json() : { models: [] }))
+      .then((body: { models?: ModelOption[] }) => {
+        if (!cancelled) setState({ models: body.models ?? [], loaded: true });
+      })
+      .catch(() => {
+        if (!cancelled) setState({ models: [], loaded: true });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled]);
+  return state;
 }
 
 /**
@@ -32,10 +59,16 @@ export function ModelPicker({
   inheritLabel,
   "aria-describedby": describedBy,
   "data-testid": testId,
+  scope = "session",
 }: ModelPickerProps) {
-  const models = useMissionStore((s) => s.availableModels);
-  const loaded = useMissionStore((s) => s.modelsLoaded);
+  const sessionModels = useMissionStore((s) => s.availableModels);
+  const sessionLoaded = useMissionStore((s) => s.modelsLoaded);
   const fetchModels = useMissionStore((s) => s.fetchModels);
+  const forAgents = useAgentModels(scope === "agents");
+  // The agents' list replaces the composer's once it arrives, and falls back to it if empty.
+  const useAgents = scope === "agents" && forAgents.loaded && forAgents.models.length > 0;
+  const models = useAgents ? forAgents.models : sessionModels;
+  const loaded = scope === "agents" ? forAgents.loaded && (useAgents || sessionLoaded) : sessionLoaded;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
@@ -43,8 +76,8 @@ export function ModelPicker({
   const listId = `${id || testId || "model"}-options`;
 
   useEffect(() => {
-    if (!loaded) fetchModels();
-  }, [loaded, fetchModels]);
+    if (!sessionLoaded) fetchModels();
+  }, [sessionLoaded, fetchModels]);
 
   useEffect(() => {
     if (!open) return;

@@ -3,7 +3,7 @@
 import logging
 import os
 import time
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from config_engine.model_defaults import (
@@ -13,11 +13,13 @@ from config_engine.model_defaults import (
 )
 from fastapi import (
     APIRouter,
+    Query,
     Request,
 )
 from llm_gateway.model_facts import facts_for
 
 from api.auth.access import _get_request_identity
+from api.auth.roles import is_admin
 from api.routers.credentials import credential_store
 from api.services.model_catalogue import build_catalogue
 from api.services.provider_catalogue import parse_openrouter, provider_catalogue
@@ -68,7 +70,16 @@ def _popularity(default_model: str) -> dict[str, int]:
 
 
 @router.get("/models")
-async def list_available_models(request: Request) -> dict[str, Any]:
+async def list_available_models(
+    request: Request,
+    scope: Literal["session", "agents"] = Query(
+        "session",
+        description=(
+            "agents: the models an agent may be given, adding the providers of the "
+            "organization's keys restricted to agents (administrators, who bind them)."
+        ),
+    ),
+) -> dict[str, Any]:
     """Return available LLM models and sandbox execution driver status."""
 
     default_model = deployment_default_model()
@@ -130,7 +141,7 @@ async def list_available_models(request: Request) -> dict[str, Any]:
     if not models:
         models = _fallback_models(default_model)
 
-    org_id, user_id, _ = _get_request_identity(request)
+    org_id, user_id, roles = _get_request_identity(request)
     try:
         catalogue = await build_catalogue(
             db_mgr=getattr(request.app.state, "db_manager", None),
@@ -138,6 +149,7 @@ async def list_available_models(request: Request) -> dict[str, Any]:
             org_id=org_id,
             user_id=user_id,
             openrouter=models,
+            bindable=scope == "agents" and is_admin(roles),
         )
     except Exception:
         # The picker is a convenience: the allow/deny policy is enforced again when a turn

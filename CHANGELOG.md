@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `api`, `web`: Administrators rename the organization from **Settings → Organization → General** (`PATCH /v1/organization`, audited); its id stays the same.
+- `api`, `web`: The agent editor lists the models of keys restricted to agents (`GET /v1/models?scope=agents`, for administrators), and warns when a bound key cannot apply to the agent's model (an Anthropic key with an `openrouter/anthropic/…` model).
+- `api`, `slack`: An agent whose tool list includes Slack tools uses them in any session (web, triggers), through its organization's running Slack bot and under the same Slack policy; before, they only worked in sessions a Slack bot started.
 - `agent`: `git_commit` takes `amend` to fold changes into the branch's last commit (push it with `force_with_lease`), so an agent can follow a skill or request that keeps a pull request's commits few.
 - `web`, `api`, `slack`: Sessions bound to a Slack, Teams or Mattermost thread (or a GitHub issue) show the platform's icon in the sidebar (a click opens the thread) and a banner above the conversation with its link. A public thread's session is readable by every member of the organization from its link (`link_access`, read-only) and joins the list of the linked members who write in the thread (they become collaborators). In a conversation with several people, each message shows its author's name (a linked member's account name, else the name the chat platform gave) and other people's messages sit on the left. Sessions can be renamed from their title or the sidebar menu (`GET /v1/sessions/{id}/participants` names the authors).
 - `chat-bridges`, `api`: Microsoft Teams and Mattermost through one generic bridge (`packages/chat-bridges`, `specifications/interfaces/chat.py`): a message addressed to the bot runs as its thread's session through the shared turn pipeline, with progress edited into one message, questions and approvals answered in the thread, the answer and a link to the session. Teams activities are accepted only with a valid Bot Framework token and replies go only to Bot Framework hosts (`POST /v1/chat/teams/messages`); Mattermost runs on one leader-elected WebSocket. Users run as guest members with publishing denied and a per-person rate limit. Slack keeps its own integration, unchanged.
@@ -80,6 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api`: A failed turn's stored answer starts with "The turn failed:" (it said "Mission Error").
 
 ### Fixed
+- `web`: The agent editor no longer overflows its card when a model id is long, and a narrowed select keeps its arrow beside it.
+- `web`: In a conversation with several authors, your own messages read "You" (the cockpit never recognised the signed-in person, so they showed your name on the left), and messages stored without an author are attributed to the session's owner instead of "Someone".
 - `agent`: An answer that ends by asking the person to choose between listed options is sent back once to ask it with `ask_question` (a decision card that keeps the turn waiting), instead of ending the turn with the options in prose.
 - `agent`: After a verification step, an answer the agent wrote again in full replaces the first one instead of being appended to it under "Verification", so the report is no longer shown twice.
 - `agent`: `github_read_file` on a path missing from a repository the credential can read says so ("readable, but it has no `README.md`") instead of "not found, or not visible to the credential", which sent agents away from repositories they could clone.

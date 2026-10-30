@@ -149,7 +149,7 @@ export const AgentEditor: React.FC<AgentEditorProps> = ({ canEdit, isAdmin, stor
           <AlertCircle className="h-4 w-4" aria-hidden="true" /> {error}
         </p>
       )}
-      <div className="grid gap-4 md:grid-cols-[11rem_1fr]">
+      <div className="grid gap-4 md:grid-cols-[11rem_minmax(0,1fr)]">
         <div role="tablist" aria-label="Agent settings" aria-orientation="vertical" className="flex gap-1 overflow-x-auto md:flex-col">
           {sections.map((s) => (
             <button
@@ -169,7 +169,7 @@ export const AgentEditor: React.FC<AgentEditorProps> = ({ canEdit, isAdmin, stor
             </button>
           ))}
         </div>
-        <div role="tabpanel" id={`agent-panel-${current.key}`} aria-labelledby={`agent-tab-${current.key}`}>
+        <div role="tabpanel" id={`agent-panel-${current.key}`} aria-labelledby={`agent-tab-${current.key}`} className="min-w-0">
           <Component draft={draft} patch={patch} canEdit={canEdit} isAdmin={isAdmin} registries={registries} />
         </div>
       </div>
