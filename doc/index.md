@@ -9,17 +9,54 @@ Rocket Chat is a platform of **software-engineering agents** your team talks to 
 
 ![Rocket Chat working on a request](assets/demo.gif)
 
-## Start here
+## Your first task in three steps
 
-| I want to... | Go to |
+<Steps>
+  <Step title="Start it">
+    With Docker and one model key: `docker compose up -d` (the [Quickstart](/quickstart) has the two lines before it).
+  </Step>
+  <Step title="Sign in">
+    Open `http://localhost:3000` and use the developer login. You are the administrator of a fresh organization.
+  </Step>
+  <Step title="Ask for something">
+    *Clone acme/billing-api, find why `test_refund_rounding` fails and fix it.* Watch it work, answer its questions, review the diff.
+  </Step>
+</Steps>
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Try it" icon="rocket" href="/quickstart">
+    Your first finished task in about five minutes, on your own machine.
+  </Card>
+  <Card title="Use it" icon="message" href="/use/index">
+    Ask for work, review changes, steer a long task, work from Slack.
+  </Card>
+  <Card title="Set it up for a team" icon="users" href="/administer/index">
+    Sign-in, members and roles, models and keys, GitHub, Slack, sandboxes, spend.
+  </Card>
+  <Card title="Install it for real" icon="server" href="/install/index">
+    One server with Docker Compose, or Kubernetes with the Helm chart.
+  </Card>
+  <Card title="Keep it running" icon="gauge" href="/operate/index">
+    Upgrades, backups, monitoring and troubleshooting.
+  </Card>
+  <Card title="Build on it" icon="code" href="/api/index">
+    The REST API and the live WebSocket protocol.
+  </Card>
+</CardGroup>
+
+Not sure it fits? Read [why it exists](/why-rocket-chat) and [how it compares](/compare) with Claude Code, Codex, Cursor, Devin and others.
+
+## Key ideas in one minute
+
+| Idea | What it means for you |
 | :--- | :--- |
-| **Try it** in five minutes | [Quickstart](/quickstart) |
-| **Know why it exists**, and when to pick something else | [Why Rocket Chat](/why-rocket-chat) and [How it compares](/compare) |
-| **Install it** on a laptop, a server or Kubernetes | [Install](/install/index) |
-| **Use it**: ask for work, review changes, work from Slack | [Use Rocket Chat](/use/index) |
-| **Set it up for my team**: sign-in, models, GitHub, Slack, sandboxes, policies | [Administer](/administer/index) |
-| **Keep it running**: upgrades, backups, monitoring, incidents | [Operate](/operate/index) |
-| **Build on it**: REST API and the live WebSocket protocol | [API](/api/index) |
+| **Session** | One conversation with an agent, in the browser or a Slack thread. It keeps its history, its files and its sandbox, and you can share it. [Your first session](/use/index) |
+| **Sandbox** | The disposable machine a session works in, built from an image your organization controls. It sleeps when idle and never holds your GitHub credentials. [Sandboxes](/administer/sandboxes) |
+| **Agent** | Instructions, a model, tools, skills and limits. Use the built-in ones or shape your own. [Agents and extensions](/use/extend) |
+| **Permission mode** | How closely you supervise: read-only *Plan*, *Ask* before every edit and command, or *Auto*. [Supervision](/use/sessions#supervision) |
+| **Questions and approvals** | When the agent needs you, it shows a card with options instead of guessing, in the browser or in Slack. |
 
 ## What you get
 
