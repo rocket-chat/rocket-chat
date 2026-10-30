@@ -33,7 +33,7 @@ test.afterEach(async ({ request }) => {
 const FIX = {
   role: "assistant",
   content:
-    "Fixed. `refund_amount` rounded each line item separately, so a refund of three items at €3.335 lost a cent.\n\nI now round the total once, in `billing/refunds.py`, and added a regression test. All 48 tests pass.",
+    "Fixed. `refund_amount` rounded each line item separately, so a refund of three items at €3.335 lost a cent.\n\nI now round the total once, in `billing/refunds.py`, and added a regression test. All 48 tests pass.\n\nOpened acme/billing-api#412: *fix: round refunds once, on the total*.",
   reasoning: "Rounding per line item accumulates error, so the fix is to round once at the end.",
   tool_calls: [
     { id: "c1", name: "clone_repository", arguments: { repository: "acme/billing-api" }, result: "Cloned acme/billing-api into /workspace/billing-api", status: "success" },
