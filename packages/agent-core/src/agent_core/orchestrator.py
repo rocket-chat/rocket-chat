@@ -33,6 +33,7 @@ from agent_core.context import (
     threshold,
 )
 from agent_core.context_policy import assemble_request_messages, format_attachment_manifest
+from agent_core.decisions import unasked_decision_notice
 from agent_core.dispatcher import ToolDispatcher
 from agent_core.guidance import (
     in_effect_at_turn_start,
@@ -263,6 +264,7 @@ class _TurnRun:
     pending_attachments: list[AttachmentRef]
     checklist_reminded: bool = False
     verification_reminded: bool = False
+    decision_reminded: bool = False
     draft_answer: str | None = None
     active_checklist: list[dict[str, Any]] | None = None
     cumulative_cost_usd: float = 0.0
@@ -1984,6 +1986,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 reasoning_blocks=reply.reasoning_blocks or None,
             )
         )
+        if self._reopen_for_unasked_decision(run, step, assistant_text):
+            await self._flush_transcript(run.session_id, run.org_id, run.conversation)
+            return False
         # Check verification gate, but never reject on the final step so the substantive answer
         # is never lost to budget exhaustion. Note: unfinished checklist items do not block turn
         # completion across turns (checklists are scratchpads, not blockers).
@@ -2001,6 +2006,26 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         self._session_states[run.session_id] = OrchestratorState.COMPLETED.value
         await self._emit(run, "answer", {"content": assistant_text})
         await self._emit_status(run, OrchestratorState.COMPLETED, "completed", "Turn complete.")
+        return True
+
+    def _reopen_for_unasked_decision(self, run: _TurnRun, step: int, answer: str) -> bool:
+        """Send an answer that ends on an open choice back once, to ask it with ``ask_question``.
+
+        Only when someone can answer this turn's questions and the agent may ask them; never on
+        the last step, where the answer must stand.
+        """
+        if run.decision_reminded or run.on_last_step(step):
+            return False
+        if self._registry._turn_callback("question") is None:
+            return False
+        if not any(t.name == "ask_question" for t in self._allowed_tools(run.whitelisted_tools)):
+            return False
+        reminder = unasked_decision_notice(answer)
+        if reminder is None:
+            return False
+        run.decision_reminded = True
+        run.next_notes.append(reminder)
+        self._record_toolless_continuation(run)
         return True
 
     @staticmethod

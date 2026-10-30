@@ -108,7 +108,10 @@ class GitEngine(GitEngineProtocol):
             f"GIT_AUTHOR_NAME={shlex.quote(author_name)} "
             f"GIT_AUTHOR_EMAIL={shlex.quote(author_email)} "
         )
-        res = await run(f"{env_prefix}git commit --no-gpg-sign -m {shlex.quote(formatted_message)}")
+        amend = " --amend" if spec.amend else ""
+        res = await run(
+            f"{env_prefix}git commit{amend} --no-gpg-sign -m {shlex.quote(formatted_message)}"
+        )
         if res.exit_code != 0 and "nothing to commit" not in res.stdout + res.stderr:
             raise RuntimeError(f"git commit failed (exit {res.exit_code}): {res.stderr}")
         return (await run("git rev-parse HEAD")).stdout.strip()

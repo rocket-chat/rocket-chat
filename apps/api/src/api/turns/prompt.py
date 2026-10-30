@@ -368,8 +368,9 @@ def git_guidance(git_bundle: GitCredentialBundle | None, policy: GitPolicy) -> l
         "never decode tokens, rewrite remotes (`insteadOf`) or fake one.",
         f"- Never commit to `{policy.default_branch}` or the repository's own default branch: "
         "create a branch (`git_branch`), commit "
-        "(`git_commit`), then publish with `git_push`, or `git_open_pr` to also open the pull "
-        f"request. {signing}",
+        "(`git_commit`, with `amend` to fold a fix into a pull request's last commit), then "
+        "publish with `git_push`, or `git_open_pr` to also open the pull request. "
+        f"{signing}",
         "- Everything else on GitHub goes through the platform's tools: `github_pull_request` "
         "(diff, checks, review threads, replies, reviews, merge), `github_actions` (runs, a "
         "failed job's log, re-runs), `github_issues`, `github_releases`, `github_search`, and "

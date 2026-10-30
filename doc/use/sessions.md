@@ -81,6 +81,8 @@ In **Read-only** the agent ends its investigation by proposing a plan. The plan 
 
 Your organization can also set a policy that approves or denies by risk level, and can lock the mode. Reading files, searching, cloning and looking at an image never need approval.
 
+When the agent needs you to choose (a blocked build, a design fork), it asks with a question card that lists the options and its recommendation, and the turn waits for your answer. An answer that ends by listing options for you instead is sent back once so the agent asks them on a card.
+
 ## The conversation list
 
 The sidebar groups conversations by **Needs you** (a turn waits for your approval or an answer, with a pulsing dot), **Pinned**, **Today**, **Yesterday**, **This week** and **Earlier**. A spinner means it is working, a blue dot that it waits for CI or a review, a red dot that its last turn failed. These follow every conversation live, not only the open one, without a reload. Search by title or repository, and filter with the icons beside **All**: **Shared**, **Slack** and **Archived** (hover one for what it shows; administrators also get **Everyone**). Archived conversations are hidden everywhere else and leave the list the moment you archive them; the **Archived** filter shows only them. Right-click a conversation for pin, archive, rename, copy link and delete. A conversation that lives in a Slack, Teams or Mattermost thread (or came from a GitHub issue) shows that platform's icon; click the icon to open the thread there.

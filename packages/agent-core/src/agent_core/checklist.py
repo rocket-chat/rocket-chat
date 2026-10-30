@@ -199,9 +199,16 @@ def verification_gate_notice(conversation: Sequence[ChatMessage]) -> str | None:
                     "them since (tests, a build, a linter or CI). Only if the project has a test "
                     "or build command that already works in this sandbox, run it once. Do not "
                     "install toolchains or set up a build to verify: if no such command works, "
-                    "give your final answer now and say in one line what was not verified."
+                    "say in one line what was not verified. Your answer above is kept: afterwards "
+                    "reply with only what the check showed, not the whole answer again."
                 )
     return None
+
+
+# A reply after the verification step at least this long relative to the draft replaces it.
+RESTATED_ANSWER_RATIO = 0.5
+# Below this a reply is a confirmation, whatever the draft's length.
+RESTATED_ANSWER_MIN_CHARS = 300
 
 
 def merge_verified_answers(draft_answer: str, verification_text: str) -> str:
@@ -220,4 +227,8 @@ def merge_verified_answers(draft_answer: str, verification_text: str) -> str:
         return verif
     if verif in draft:
         return draft
+    # A long reply after the check is the whole answer written again (often reworded), not a
+    # confirmation: appending it would show the person the same report twice.
+    if len(verif) >= RESTATED_ANSWER_MIN_CHARS and len(verif) >= len(draft) * RESTATED_ANSWER_RATIO:
+        return verif
     return f"{draft}\n\n**Verification:**\n{verif}"
