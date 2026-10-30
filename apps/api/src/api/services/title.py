@@ -86,11 +86,42 @@ def sanitize_title(raw: str) -> str | None:
 _SPEAKER_PREFIX = re.compile(r"^\s*\[Speaker:[^\]]*\]\s*")
 
 
+_MENTION = re.compile(r"<[@#!][^>]*>")
+_URL = re.compile(r"https?://\S+")
+_FENCE = re.compile(r"```.*?(```|$)", re.DOTALL)
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s")
+PLACEHOLDER_WORDS = 7
+PLACEHOLDER_CHARS = 50
+
+
+def placeholder_title(prompt: str) -> str | None:
+    """A readable title from a first message until the AI one arrives: its first sentence,
+    without the speaker, mentions, links, code or slash commands, a few words long."""
+    text = _SPEAKER_PREFIX.sub("", prompt)
+    text = _FENCE.sub(" ", text)
+    text = _URL.sub(" ", _MENTION.sub(" ", text))
+    first = _SENTENCE_END.split(" ".join(text.split()), maxsplit=1)[0]
+    words = [w for w in first.split() if not w.startswith("/") and w.strip("`*_#>-")]
+    if not words:
+        return None
+    title = " ".join(w.strip("`*_#>") for w in words[:PLACEHOLDER_WORDS]).rstrip(".,;:!?")
+    if len(title) > PLACEHOLDER_CHARS:
+        title = title[: PLACEHOLDER_CHARS - 1].rstrip() + "…"
+    return title[0].upper() + title[1:] if title else None
+
+
 def _first_user_message(conversation: Sequence[ChatMessage]) -> str | None:
     for message in conversation:
         if message.role == "user" and message.content:
             return _SPEAKER_PREFIX.sub("", message.content) or None
     return None
+
+
+def _latest_user_message(conversation: Sequence[ChatMessage]) -> str:
+    for message in reversed(conversation):
+        if message.role == "user" and message.content:
+            return _SPEAKER_PREFIX.sub("", message.content)
+    return ""
 
 
 def _last_assistant_message(conversation: Sequence[ChatMessage]) -> str:
@@ -116,16 +147,25 @@ async def generate_session_title(
             ChatMessage(
                 role="system",
                 content=(
-                    "You title developer conversations. Reply with a concise, specific title "
-                    "of 3 to 6 words describing the task. No quotes, no trailing punctuation, "
-                    "and never generic words like 'Session', 'Chat' or 'Help'."
+                    "You title developer conversations for a sidebar. Reply with a specific "
+                    "title of 3 to 7 words naming the task or the problem, the way an engineer "
+                    "would name a ticket (for example 'Fix flaky login test in CI' or 'Add "
+                    "rate limits to the export API'): a verb and its object, the component or "
+                    "repository when it is named. Use the language the person writes in. No "
+                    "quotes, no trailing punctuation, no names of people, never generic words "
+                    "like 'Session', 'Chat', 'Help' or 'Question'."
                 ),
             ),
             ChatMessage(
                 role="user",
                 content=(
-                    f"First user message:\n{first_user[:2000]}\n\n"
-                    f"Assistant reply:\n{_last_assistant_message(conversation)[:1500]}"
+                    f"First request:\n{first_user[:2000]}\n\n"
+                    + (
+                        f"Latest request:\n{latest[:1000]}\n\n"
+                        if (latest := _latest_user_message(conversation)) and latest != first_user
+                        else ""
+                    )
+                    + f"Assistant reply:\n{_last_assistant_message(conversation)[:1500]}"
                 ),
             ),
         ],

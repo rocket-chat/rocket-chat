@@ -1962,6 +1962,19 @@ Branch a session into a new one with its own history and workspace.
 
 **Responses:** `200`
 
+### `GET /v1/sessions/{session_id}/participants`
+
+The authors of the session's messages with their names (a guest's name is its platform's
+placeholder: the web app shows the name the platform gave with each message instead).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
 ### `POST /v1/sessions/{session_id}/rewind`
 
 Time-travel rewind: roll conversation history, transcript, and sandbox back to turn N.

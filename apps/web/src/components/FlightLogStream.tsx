@@ -1,5 +1,8 @@
 "use client";
 
+import { threadBindingOf } from "../lib/channels";
+import { splitSpeaker, useParticipants } from "../lib/participants";
+import { ChannelIcon } from "./ChannelIcon";
 import { useShallow } from "zustand/react/shallow";
 import React, { useCallback, useRef, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -241,10 +244,17 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   const { data: authSession } = useSession();
   const currentUserId =
     (authSession?.user as unknown as { user_id?: string } | undefined)?.user_id ?? null;
-  // Name the author of each message only when more than one person wrote in this session.
-  const showAuthors =
-    new Set(flightLog.filter((e) => e.role === "USER" && e.authorUserId).map((e) => e.authorUserId))
-      .size > 1;
+  // Name the author of each message only when more than one person wrote in this session. A chat
+  // thread's guests share no account, so the name the platform gave each message tells them apart.
+  const userEntries = flightLog.filter((e) => e.role === "USER");
+  const authorKey = (entry: { authorUserId?: string | null; content: string }) =>
+    `${entry.authorUserId ?? ""}|${splitSpeaker(entry.content).speaker ?? ""}`;
+  const showAuthors = new Set(userEntries.map(authorKey)).size > 1;
+  const participants = useParticipants(
+    showAuthors && session && !session.is_draft ? session.session_id : null,
+    userEntries.map((e) => e.authorUserId ?? "").filter(Boolean)
+  );
+  const threadPlatform = threadBindingOf(session)?.platform ?? null;
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
   const [copiedEntryId, setCopiedEntryId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -370,24 +380,27 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     }
     // USER REQUEST: Simple bubble on the right
     if (item.type === "user") {
+      const { speaker, text } = splitSpeaker(item.entry.content);
+      const mine = item.entry.authorUserId === currentUserId && !speaker;
+      const participant = item.entry.authorUserId ? participants.get(item.entry.authorUserId) : undefined;
+      // A guest is named by the platform (its account is a placeholder); a member by their name.
+      const name = mine ? "You" : participant && !participant.guest_of ? participant.name : speaker ?? participant?.name ?? "Someone";
+      const via = speaker ? participant?.guest_of ?? threadPlatform : null;
+      const left = showAuthors && !mine;
       return (
-        <div key={item.entry.id} className="flex justify-end my-3">
+        <div key={item.entry.id} className={`flex my-3 ${left ? "justify-start" : "justify-end"}`}>
           <div
             data-testid="user-message"
-            className="min-w-0 max-w-[85%] bg-surface-card border border-surface-border rounded-2xl rounded-tr-sm px-4 py-3 text-foreground shadow-sm [overflow-wrap:anywhere]"
+            className={`min-w-0 max-w-[85%] bg-surface-card border border-surface-border rounded-2xl ${left ? "rounded-tl-sm" : "rounded-tr-sm"} px-4 py-3 text-foreground shadow-sm [overflow-wrap:anywhere]`}
           >
-            {showAuthors && item.entry.authorUserId && (
-              <div
-                data-testid="user-message-author"
-                className="mb-1 text-[10px] font-mono uppercase tracking-wide text-neutral-500"
-              >
-                {item.entry.authorUserId === currentUserId
-                  ? "You"
-                  : item.entry.authorUserId}
+            {showAuthors && (
+              <div data-testid="user-message-author" className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-foreground">
+                {via && via !== "github" && <ChannelIcon platform={via} className="h-3 w-3" />}
+                <span>{name}</span>
               </div>
             )}
             <div className="text-[14.5px] leading-relaxed">
-              <MarkdownRenderer content={item.entry.content} />
+              <MarkdownRenderer content={text} />
             </div>
             {item.entry.attachments && item.entry.attachments.length > 0 && (
               <div data-testid="user-attachments" className="mt-2 flex flex-wrap gap-1.5">

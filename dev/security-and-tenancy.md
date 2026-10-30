@@ -28,6 +28,8 @@ Sign-in methods all end in the same signed session: local accounts (`auth/local.
 * **Sandbox-adjacent features** (terminal, preview links, processes, workspace browsing, the Changes view's file revert) are gated like a write to the session, and the terminal can be disabled per organization (`sandboxes.allow_terminal`).
 * Public routes are only `/health`, `/v1/health`, `/metrics`, `/v1/ready`, `/v1/drain`, the OpenAPI pages, preview links (capability token), the git gateway (`/v1/git/`, gateway capability) and webhooks (signature checked). Everything else requires an identity.
 
+* **Link access** (`metadata.link_access`, `has_link_access`): a public chat thread's session is readable by any member of its organization (never across organizations, never for writing) without being listed for them; writing needs ownership, sharing or being a collaborator (a linked member who wrote in the thread). Direct messages and private requests never carry it.
+
 ## 3. Tenant isolation (PostgreSQL row-level security)
 
 Application-level `WHERE org_id = …` is not trusted. Isolation is enforced by the database:

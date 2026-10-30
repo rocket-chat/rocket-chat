@@ -45,3 +45,7 @@ class ChatPlatformProtocol(Protocol):
     async def edit(self, conversation_id: str, message_id: str, text: str) -> None:
         """Replace the text of a message the bot posted."""
         ...
+
+    def permalink(self, message: IncomingChatMessage) -> str | None:
+        """A link that opens the message's thread in the platform, when it has one."""
+        ...

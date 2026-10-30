@@ -1,5 +1,7 @@
 "use client";
 
+import { renameSession, threadBindingOf } from "../../lib/channels";
+import { ChannelIcon } from "../ChannelIcon";
 import { useShallow } from "zustand/react/shallow";
 import React, { useCallback, useState, useEffect } from "react";
 import Link from "next/link";
@@ -16,7 +18,7 @@ import {
   Settings,
   PanelLeftClose,
   Edit,
-  MessageSquare,
+  Pencil,
   Pin,
   PinOff,
   Archive,
@@ -69,6 +71,15 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "shared" | "slack">("all");
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const updateSessionTitle = useMissionStore((state) => state.updateSessionTitle);
+  const finishRename = async (sessionId: string, previous: string, next: string | null) => {
+    setRenamingId(null);
+    const title = next?.trim().slice(0, 120);
+    if (!title || title === previous) return;
+    updateSessionTitle(sessionId, title);
+    if (!(await renameSession(sessionId, title))) updateSessionTitle(sessionId, previous);
+  };
   const [clearError, setClearError] = useState<string | null>(null);
   const [confirm, confirmDialog] = useConfirm();
   const serverMatches = useSessionSearch(query, { archived: showArchived, scope: sessionsScope });
@@ -161,8 +172,11 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
     }
   };
 
-  const isSlackSession = (s: SessionData) =>
-    s.source === "slack" || s.session_id.startsWith("slack_") || Boolean(s.metadata?.slack_channel_id);
+  // Sessions bound to a chat thread (Slack, Teams, Mattermost): the "Chat" filter.
+  const isSlackSession = (s: SessionData) => {
+    const platform = threadBindingOf(s)?.platform;
+    return platform === "slack" || platform === "teams" || platform === "mattermost";
+  };
 
   // The loaded page answers at once; the server's matches add the conversations not loaded yet.
   const loaded = new Set(sessions.map((s) => s.session_id));
@@ -369,7 +383,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                       session={s}
                       selected={session?.session_id === s.session_id}
                       showOwner={showingOrganization}
-                      isSlack={isSlackSession(s)}
                       onOpen={() => {
                         if (typeof window !== "undefined" && window.innerWidth < 768) setIsLeftSidebarOpen(false);
                         if (onSelectSession) onSelectSession(s);
@@ -377,6 +390,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                       onFlag={handleToggleFlag}
                       onDelete={handleDeleteSession}
                       onMenu={(x, y) => setMenu({ id: s.session_id, x, y })}
+                      renaming={renamingId === s.session_id}
+                      onRenamed={(title) => void finishRename(s.session_id, s.title, title)}
                     />
                   ))}
                 </nav>
@@ -468,6 +483,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
           onClose={() => setMenu(null)}
           onFlag={handleToggleFlag}
           onDelete={handleDeleteSession}
+          onRename={() => setRenamingId(menu.id)}
         />
       )}
     </>
@@ -498,20 +514,18 @@ interface SessionRowProps {
   session: SessionData;
   selected: boolean;
   showOwner: boolean;
-  isSlack: boolean;
   onOpen: () => void;
   onFlag: (e: React.MouseEvent, sessionId: string, flags: { is_pinned?: boolean; is_archived?: boolean }) => void;
   onDelete: (e: React.MouseEvent, sessionId: string) => void;
   onMenu: (x: number, y: number) => void;
+  renaming: boolean;
+  /** The new title, or null when renaming was cancelled. */
+  onRenamed: (title: string | null) => void;
 }
 
-const SessionRow: React.FC<SessionRowProps> = ({ session: s, selected, showOwner, isSlack, onOpen, onFlag, onDelete, onMenu }) => {
+const SessionRow: React.FC<SessionRowProps> = ({ session: s, selected, showOwner, onOpen, onFlag, onDelete, onMenu, renaming, onRenamed }) => {
   const fallbackTitle = s.session_id.startsWith("session_") ? `Chat ${s.session_id.slice(8, 16)}` : `Chat ${s.session_id.slice(0, 8)}`;
-  const slackChannel = s.metadata?.slack_channel_id as string | undefined;
-  const slackThreadTs = s.metadata?.slack_thread_ts as string | undefined;
-  const slackDeepLink = slackChannel
-    ? `https://slack.com/app_redirect?channel=${slackChannel}${slackThreadTs ? `&message_ts=${slackThreadTs}` : ""}`
-    : null;
+  const binding = threadBindingOf(s);
   const forkedFrom = s.forked_from ?? (s.metadata?.forked_from as { session_id?: string } | undefined);
   const repo = (s.git_repo ?? "").split("/").pop();
   const detail = [repo, ago(s)].filter(Boolean).join(" · ");
@@ -546,25 +560,50 @@ const SessionRow: React.FC<SessionRowProps> = ({ session: s, selected, showOwner
                 <Pin className="h-3 w-3" />
               </span>
             )}
-            {isSlack && (
-              <span className="mr-1.5 flex shrink-0 items-center gap-1" title="Slack Thread">
-                {slackDeepLink ? (
-                  <a
-                    href={slackDeepLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="Open in Slack"
-                    onClick={(e) => e.stopPropagation()}
-                    className="p-0.5 text-amber-500 transition-colors hover:text-rose-500"
+            {binding && (
+              <span className="mr-1.5 flex shrink-0 items-center" data-testid="session-platform" data-platform={binding.platform}>
+                {binding.url ? (
+                  // A button, not a link: a link inside the row's link is invalid HTML and the
+                  // browser opened the session instead of the thread.
+                  <button
+                    type="button"
+                    title={`Open in ${binding.label}`}
+                    aria-label={`Open in ${binding.label}`}
+                    data-testid="open-thread-from-row"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      window.open(binding.url ?? "", "_blank", "noopener,noreferrer");
+                    }}
+                    className="rounded p-0.5 transition-opacity hover:bg-surface-elevated"
                   >
-                    <MessageSquare className="h-3.5 w-3.5" />
-                  </a>
+                    <ChannelIcon platform={binding.platform} />
+                  </button>
                 ) : (
-                  <MessageSquare className="h-3.5 w-3.5 text-amber-500" />
+                  <span title={binding.label}>
+                    <ChannelIcon platform={binding.platform} />
+                  </span>
                 )}
               </span>
             )}
-            <span className="flex-1 truncate">{title}</span>
+            {renaming ? (
+              <input
+                autoFocus
+                aria-label="Session title"
+                data-testid="session-rename-input"
+                defaultValue={title}
+                maxLength={120}
+                onClick={(e) => e.preventDefault()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") onRenamed(e.currentTarget.value);
+                  if (e.key === "Escape") onRenamed(null);
+                }}
+                onBlur={(e) => onRenamed(e.currentTarget.value)}
+                className="min-w-0 flex-1 rounded border border-brand/50 bg-surface-card px-1 text-xs text-foreground outline-none"
+              />
+            ) : (
+              <span className="flex-1 truncate">{title}</span>
+            )}
             {forkedFrom?.session_id && (
               <span data-testid="session-fork-indicator" title={`Forked from ${forkedFrom.session_id}`} className="ml-1 shrink-0 text-neutral-500">
                 <GitFork className="h-3 w-3" />
@@ -623,7 +662,8 @@ const SessionContextMenu: React.FC<{
   onClose: () => void;
   onFlag: SessionRowProps["onFlag"];
   onDelete: SessionRowProps["onDelete"];
-}> = ({ x, y, session, onClose, onFlag, onDelete }) => {
+  onRename: () => void;
+}> = ({ x, y, session, onClose, onFlag, onDelete, onRename }) => {
   useEffect(() => {
     const close = () => onClose();
     const escape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
@@ -653,6 +693,11 @@ const SessionContextMenu: React.FC<{
       <li role="none">
         <button role="menuitem" type="button" className={item} onClick={(e) => onFlag(e, session.session_id, { is_archived: !session.is_archived })}>
           <Archive className="h-3.5 w-3.5" /> {session.is_archived ? "Unarchive" : "Archive"}
+        </button>
+      </li>
+      <li role="none">
+        <button role="menuitem" type="button" className={item} onClick={onRename} data-testid="rename-session">
+          <Pencil className="h-3.5 w-3.5" /> Rename
         </button>
       </li>
       <li role="none">

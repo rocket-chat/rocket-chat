@@ -175,7 +175,8 @@ async def test_a_slack_thread_is_a_persisted_cockpit_visible_session() -> None:
     # A shared channel thread belongs to the workspace, never to the member who spoke first,
     # so no member's credentials are used in it.
     assert record.tenant_user_id == "slack_global"
-    assert record.is_shared
+    # Readable by the organization from its link, listed only for those who take part.
+    assert record.metadata["link_access"] is True and not record.is_shared
     roles = [m.role for m in record.conversation_history]
     assert roles == ["user", "assistant"]
     assert "[Speaker: Alice (<@U1>)]" in (record.conversation_history[0].content or "")

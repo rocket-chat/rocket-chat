@@ -17,9 +17,10 @@ import {
   PanelRightOpen,
   PanelLeftOpen,
   Share2,
-  MessageSquare,
 } from "lucide-react";
-import { slackThreadLink } from "../lib/slack";
+import { threadBindingOf } from "../lib/channels";
+import { ChannelIcon } from "./ChannelIcon";
+import { SessionTitle } from "./SessionTitle";
 import { statusOf, STATUS_LABEL, type SessionStatus } from "../lib/session-groups";
 
 /** The one status vocabulary, shared with the sidebar: working, needs you, waiting, failed, ready. */
@@ -77,7 +78,7 @@ export const FlightTelemetryHeader: React.FC = () => {
     (routeSessionId ? sessions.find((s) => s.session_id === routeSessionId)?.title : null) ||
     session?.title ||
     "New Session";
-  const slackLink = slackThreadLink(session?.metadata);
+  const binding = threadBindingOf(session);
   const artifactCount = useMissionStore((state) => state.artifacts.length);
 
   const [isShareOpen, setIsShareOpen] = useState(false);
@@ -108,20 +109,21 @@ export const FlightTelemetryHeader: React.FC = () => {
           </div>
         )}
 
-        {/* Thread Title */}
-        <h1 className="text-sm font-semibold text-foreground flex items-center gap-2 min-w-0 truncate max-w-[34vw] sm:max-w-md">
-          <span className="truncate">{displayTitle}</span>
-        </h1>
-        {slackLink && (
+        {/* Thread Title (click to rename) */}
+        <SessionTitle
+          title={displayTitle}
+          sessionId={session && !session.is_draft && session.session_id === (routeSessionId ?? session.session_id) ? session.session_id : null}
+        />
+        {binding?.url && (
           <a
-            href={slackLink}
+            href={binding.url}
             target="_blank"
             rel="noopener noreferrer"
-            data-testid="open-in-slack"
+            data-testid={binding.platform === "slack" ? "open-in-slack" : "open-thread-header"}
             className="hidden sm:inline-flex items-center gap-1 shrink-0 text-xs text-neutral-500 hover:text-brand dark:text-neutral-400"
           >
-            <MessageSquare className="w-3.5 h-3.5" aria-hidden="true" />
-            Open in Slack
+            <ChannelIcon platform={binding.platform} />
+            Open in {binding.label}
           </a>
         )}
 
