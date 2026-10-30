@@ -268,19 +268,28 @@ def sync_lockfiles() -> None:
             print(f"  Warning: pnpm install failed: {e.stderr}", file=sys.stderr)
 
 
-def regenerate_api_reference() -> None:
-    """The API version is part of the generated OpenAPI document, so a bump makes it stale."""
-    print(" Regenerating the API reference...")
-    try:
-        subprocess.run(
-            ["uv", "run", "python", "scripts/generate_api_reference.py"],
-            cwd=ROOT_DIR,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        print(f"  Warning: API reference not regenerated: {e}", file=sys.stderr)
+# Generated pages that carry the version: the API version is in the OpenAPI document, and the
+# default sandbox image tag (the release's) is in the settings reference.
+GENERATED_REFERENCES = (
+    ("API reference", "scripts/generate_api_reference.py"),
+    ("settings reference", "scripts/generate_settings_reference.py"),
+)
+
+
+def regenerate_references() -> None:
+    """A version bump makes the generated references stale; write them again."""
+    for label, script in GENERATED_REFERENCES:
+        print(f" Regenerating the {label}...")
+        try:
+            subprocess.run(
+                ["uv", "run", "python", script],
+                cwd=ROOT_DIR,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            print(f"  Warning: {label} not regenerated: {e}", file=sys.stderr)
 
 
 def run_command_with_status(cmd: list[str], label: str) -> None:
@@ -410,7 +419,7 @@ def cmd_prepare(
     CHANGELOG_PATH.write_text(updated_changelog, encoding="utf-8")
     update_file_versions(version)
     sync_lockfiles()
-    regenerate_api_reference()
+    regenerate_references()
 
     print(f" Successfully prepared Rocket Chat version v{version}!")
     print(f" Updated {CHANGELOG_PATH.name} (moved [Unreleased] -> [{version}] - {today})")
