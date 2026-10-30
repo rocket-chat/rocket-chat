@@ -23,9 +23,10 @@ test("a shared session names who wrote each message, including after a reload", 
   await page.goto(`/chat/${sessionId}`);
   const authors = page.getByTestId("user-message-author");
   await expect(authors).toHaveCount(2, { timeout: 20000 });
-  // Signed in the author is "You"; the unauthenticated e2e identity shows its id.
-  await expect(authors.nth(0)).toHaveText(/^(You|dev_user)$/);
-  await expect(authors.nth(1)).toHaveText("teammate_ana");
+  // Signed in the author is "You"; otherwise a member shows their account name, which an
+  // in-memory store does not keep (the id) and a database provisions from the id.
+  await expect(authors.nth(0)).toHaveText(/^(You|dev_user|Developer|Dev User)$/);
+  await expect(authors.nth(1)).toHaveText(/^(teammate_ana|Teammate Ana)$/);
 
   await page.reload();
   await expect(page.getByTestId("user-message-author")).toHaveCount(2, { timeout: 20000 });

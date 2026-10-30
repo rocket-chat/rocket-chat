@@ -92,7 +92,12 @@ def test_list_files_on_a_single_file_and_a_missing_path(tmp_path: Path) -> None:
 def test_deadline_wrapper_kills_a_hung_command_inside_the_shell() -> None:
     import time
 
-    from sandbox_driver.utils import KILLED_EXIT_CODE, hit_deadline, wrap_with_deadline
+    from sandbox_driver.utils import (
+        DEADLINE_EXIT_CODES,
+        KILLED_EXIT_CODE,
+        hit_deadline,
+        wrap_with_deadline,
+    )
 
     if subprocess.run(["sh", "-c", "command -v timeout"], capture_output=True).returncode != 0:
         pytest.skip("host has no timeout(1)")
@@ -102,10 +107,12 @@ def test_deadline_wrapper_kills_a_hung_command_inside_the_shell() -> None:
     # A container runtime reports a SIGKILLed process as 128+9; Python's subprocess reports the
     # signal as -9 because the wrapper `exec`s into timeout(1).
     code = KILLED_EXIT_CODE if result.returncode == -9 else result.returncode
-    assert code == KILLED_EXIT_CODE and "late" not in result.stdout
+    assert code in DEADLINE_EXIT_CODES and "late" not in result.stdout
     assert elapsed < 10
     assert hit_deadline(code, elapsed, 1)
     assert not hit_deadline(KILLED_EXIT_CODE, 0.1, 60), "an early 137 is the command's own failure"
+    assert hit_deadline(124, 1.2, 1), "newer coreutils report the timeout as 124"
+    assert not hit_deadline(124, 0.1, 60)
 
 
 def test_deadline_wrapper_preserves_quoting_and_exit_status() -> None:
