@@ -41,6 +41,10 @@ class _GithubError(Exception):
     """A failure already phrased for the agent."""
 
 
+class _GithubNotFound(_GithubError):
+    """A 404: GitHub answers the same for a missing path and for a repository it hides."""
+
+
 async def _get(access: GithubAccess, path: str, params: dict[str, Any] | None = None) -> Any:
     url = f"{access.api_url.rstrip('/')}{path}"
     try:
@@ -49,7 +53,7 @@ async def _get(access: GithubAccess, path: str, params: dict[str, Any] | None = 
     except httpx.HTTPError as err:
         raise _GithubError(f"Could not reach GitHub ({type(err).__name__}).") from err
     if response.status_code == 404:
-        raise _GithubError(
+        raise _GithubNotFound(
             "Not found, or not visible to the credential this session has"
             + ("" if access.token else " (no GitHub credential is available: only public data)")
             + ". Check the name; if it is private the user must link GitHub or an administrator "
@@ -131,6 +135,8 @@ async def read_file(
         data = await _get(
             access, f"/repos/{repo.slug}/contents/{clean}", {"ref": ref} if ref else None
         )
+    except _GithubNotFound as err:
+        return await _explain_missing_path(access, repo.slug, clean, ref, err)
     except _GithubError as err:
         return f"Error: {err}"
     if isinstance(data, list):
@@ -151,6 +157,27 @@ async def read_file(
     except (binascii.Error, UnicodeDecodeError):
         return f"{repo.slug}:{clean} is not a text file."
     return f"{repo.slug}:{clean}\n" + clamp_output(text, 12000)
+
+
+async def _explain_missing_path(
+    access: GithubAccess, slug: str, path: str, ref: str | None, not_found: _GithubNotFound
+) -> str:
+    """Tell a missing file in a readable repository apart from a repository out of reach.
+
+    Read as "no access", a missing ``README.md`` sent agents away from a repository they could
+    clone and read.
+    """
+    if not path:
+        return f"Error: {not_found}"
+    try:
+        await _get(access, f"/repos/{slug}")
+    except _GithubError:
+        return f"Error: {not_found}"
+    return (
+        f"Error: {slug} is readable, but it has no `{path}`"
+        + (f" at `{ref}`" if ref else " on its default branch")
+        + ". List a directory (path '' for the root) or clone the repository to find the file."
+    )
 
 
 def _issue_line(issue: dict[str, Any]) -> str:

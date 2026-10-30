@@ -227,6 +227,14 @@ def test_merge_verified_answers() -> None:
     assert merge_verified_answers("", verif) == verif
 
 
+def test_an_answer_written_again_after_the_check_replaces_the_draft() -> None:
+    draft = "I stopped partway. The protocol is done; the services are blocked. " * 12
+    restated = "I've stopped before finishing: protocol committed, services blocked. " * 10
+    assert merge_verified_answers(draft, restated) == restated.strip()
+    short = "gofmt is clean on the three files."
+    assert merge_verified_answers(draft, short).endswith(f"**Verification:**\n{short}")
+
+
 async def test_the_stored_answer_is_the_one_the_turn_declares_across_a_verification_step() -> None:
     draft = "I fixed the race in auth.py by taking the lock before reading the token."
     confirmation = "Tests pass."

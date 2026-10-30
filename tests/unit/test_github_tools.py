@@ -156,6 +156,19 @@ async def test_a_missing_repository_explains_visibility_not_just_404(
     assert "no GitHub credential is available" in anonymous
 
 
+async def test_a_missing_file_in_a_readable_repository_is_not_called_invisible(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _github(monkeypatch, {"/repos/acme/kube-apps": {"full_name": "acme/kube-apps"}})
+
+    missing = await github_tools.read_file(ACCESS, "acme/kube-apps", "README.md")
+    at_ref = await github_tools.read_file(ACCESS, "acme/kube-apps", "docs/arc.md", ref="v2")
+
+    assert "acme/kube-apps is readable, but it has no `README.md`" in missing
+    assert "not visible" not in missing
+    assert "at `v2`" in at_ref
+
+
 async def test_refusals_say_whether_it_is_the_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
     seen = _github(monkeypatch, {"/repos/a/b/contents/x": {}}, {"/repos/a/b/contents/x": 403})
     assert "credential is missing, expired or not allowed" in await github_tools.read_file(

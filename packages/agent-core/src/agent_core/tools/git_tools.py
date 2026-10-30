@@ -163,27 +163,36 @@ async def git_commit(
     git_engine: CommitCapable | None = None,
     policy: GitPolicy | None = None,
     workdir: str = "/workspace",
+    amend: bool = False,
 ) -> str:
-    """Create a commit that follows the organization's authorship and signing policy."""
+    """Create (or amend) a commit that follows the organization's authorship and signing policy."""
     spec = commit_spec_for_policy(message, branch, co_authors, policy or GitPolicy())
     spec.path = workdir
+    spec.amend = amend
+    publish_hint = " Publish it with `git_push` and `force_with_lease: true`." if amend else ""
     if git_engine is not None:
         try:
             sha = await git_engine.create_commit(session_id, spec)
-            return f"Committed via GitEngine ({spec.signing_mode.value} signing). SHA: {sha}"
+            verb = "Amended" if amend else "Committed"
+            return (
+                f"{verb} via GitEngine ({spec.signing_mode.value} signing). SHA: {sha}."
+                + publish_hint
+            )
         except Exception as err:
             return f"Error: git commit failed via GitEngine: {err}"
 
     if branch:
         await _exec(driver, session_id, f"git checkout -B {_sh_quote(branch)}", workdir)
     await _exec(driver, session_id, "git add -A", workdir)
-    result = await _exec(driver, session_id, f"git commit -m {_sh_quote(message)}", workdir)
+    flag = " --amend" if amend else ""
+    result = await _exec(driver, session_id, f"git commit{flag} -m {_sh_quote(message)}", workdir)
     combined = f"{result.stdout or ''}{result.stderr or ''}"
     if result.exit_code != 0 and "nothing to commit" in combined:
         rev = await _exec(driver, session_id, "git rev-parse HEAD", workdir)
         return f"Nothing to commit. HEAD: {(rev.stdout or '').strip()}"
     rev = await _exec(driver, session_id, "git rev-parse HEAD", workdir)
-    return _format_result(result, f"Committed. SHA: {(rev.stdout or '').strip()}")
+    verb = "Amended" if amend else "Committed"
+    return _format_result(result, f"{verb}. SHA: {(rev.stdout or '').strip()}.{publish_hint}")
 
 
 async def git_branch(

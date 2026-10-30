@@ -152,6 +152,35 @@ async def test_create_commit_uses_the_policy_resolved_committer() -> None:
 
 
 @pytest.mark.asyncio
+async def test_an_amend_rewrites_the_last_commit() -> None:
+    driver = AsyncMock()
+    driver.exec_command.return_value = ExecResult(
+        exit_code=0, stdout="abc123\n", stderr="", duration_ms=1
+    )
+    spec = CommitSpec(message="fix: pass the request to afterCreate", amend=True)
+
+    await GitEngine(driver=driver).create_commit("s", spec)
+    commits = [
+        call.args[1] for call in driver.exec_command.call_args_list if "git commit" in call.args[1]
+    ]
+    assert len(commits) == 1 and "git commit --amend --no-gpg-sign -m" in commits[0]
+
+
+async def test_an_amend_without_the_engine_says_how_to_publish_it() -> None:
+    from agent_core.tools import git_tools
+
+    driver = AsyncMock()
+    driver.exec_command.return_value = ExecResult(
+        exit_code=0, stdout="def456\n", stderr="", duration_ms=1
+    )
+
+    result = await git_tools.git_commit(driver, "s", "fix: x", amend=True)
+
+    commands = [call.kwargs["command"] for call in driver.exec_command.call_args_list]
+    assert any(c.startswith("git commit --amend -m") for c in commands)
+    assert result.startswith("Amended") and "force_with_lease" in result
+
+
 async def test_webhook_hmac_verification() -> None:
     secret = "super_secret_webhook_key_123"
     settings = GitEngineSettings(github_webhook_secret=secret)

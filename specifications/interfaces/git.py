@@ -52,6 +52,9 @@ class CommitSpec:
     # The repository folder, absolute or relative to /workspace. Empty: the session's active
     # repository, /workspace itself, or the one repository found under it.
     path: str = ""
+    # Rewrite the branch's last commit (its message becomes ``message``) instead of adding one,
+    # for a pull request kept to a few commits. Publishing it then needs ``force_with_lease``.
+    amend: bool = False
 
 
 @dataclass

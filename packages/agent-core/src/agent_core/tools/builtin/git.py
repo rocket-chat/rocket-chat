@@ -122,6 +122,10 @@ def _register_git_change_tools(registry: "ToolRegistry") -> None:
             list[str] | None, Field(description="Optional co-author names to credit.")
         ] = None,
         path: RepositoryPath = None,
+        amend: Annotated[
+            bool,
+            Field(description="Fold into the last commit (push with force_with_lease)."),
+        ] = False,
     ) -> str:
         resolved = await _repository(registry, "git_commit", path)
         if isinstance(resolved, str):
@@ -137,6 +141,7 @@ def _register_git_change_tools(registry: "ToolRegistry") -> None:
             registry._git_engine,
             policy=registry._git_policy(),
             workdir=folder,
+            amend=amend,
         )
 
     @registry._tool(description="Create and switch to a new git branch.")

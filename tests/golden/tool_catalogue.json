@@ -1802,6 +1802,10 @@
     "name": "git_commit",
     "parameters": {
       "properties": {
+        "amend": {
+          "description": "Fold into the last commit (push with force_with_lease).",
+          "type": "boolean"
+        },
         "branch": {
           "description": "Optional branch to create/checkout before committing.",
           "type": "string"
