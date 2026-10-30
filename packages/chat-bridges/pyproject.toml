@@ -1,6 +1,6 @@
 [project]
 name = "chat-bridges"
-version = "0.7.2"
+version = "0.8.0"
 description = "Microsoft Teams and Mattermost for Rocket Chat, through one chat bridge"
 readme = "README.md"
 requires-python = ">=3.12"

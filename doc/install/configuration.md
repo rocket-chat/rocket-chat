@@ -168,9 +168,9 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 | :--- | :--- | :--- | :--- |
 | `GITHUB_APP_ID` | string | `None` | GitHub App ID used for authenticating API calls and generating installation tokens. |
 | `GITHUB_APP_SLUG` | string | `None` | The App's URL slug; enables the "Install on a GitHub account" link in Settings > Organization > Git & GitHub. |
-| `ROCKET_DEFAULT_SANDBOX_IMAGE` | string | `ghcr.io/rocket-chat/sandbox:0.7.2` | Default image for new sandboxes (`sandboxes.default_image`): the devbox with git, Python, Node, uv and ripgrep (its `gh` only points the agent to the `github_*` tools, since the sandbox holds no GitHub credential). Pinned to the platform's release. Set it to a mirror in your own registry for private or air-gapped installs. |
-| `ROCKET_POLYGLOT_SANDBOX_IMAGE` | string | `ghcr.io/rocket-chat/sandbox-polyglot:0.7.2` | The *Polyglot* sandbox type every organization starts with: the devbox plus Go, Rust and Java 21. |
-| `ROCKET_BROWSER_SANDBOX_IMAGE` | string | `ghcr.io/rocket-chat/sandbox-browser:0.7.2` | The *Browser* sandbox type every organization starts with: the devbox plus a headless Chromium (`browser` capability). |
+| `ROCKET_DEFAULT_SANDBOX_IMAGE` | string | `ghcr.io/rocket-chat/sandbox:0.8.0` | Default image for new sandboxes (`sandboxes.default_image`): the devbox with git, Python, Node, uv and ripgrep (its `gh` only points the agent to the `github_*` tools, since the sandbox holds no GitHub credential). Pinned to the platform's release. Set it to a mirror in your own registry for private or air-gapped installs. |
+| `ROCKET_POLYGLOT_SANDBOX_IMAGE` | string | `ghcr.io/rocket-chat/sandbox-polyglot:0.8.0` | The *Polyglot* sandbox type every organization starts with: the devbox plus Go, Rust and Java 21. |
+| `ROCKET_BROWSER_SANDBOX_IMAGE` | string | `ghcr.io/rocket-chat/sandbox-browser:0.8.0` | The *Browser* sandbox type every organization starts with: the devbox plus a headless Chromium (`browser` capability). |
 | `GITHUB_APP_ALLOW_UNMAPPED_INSTALLATIONS` | bool | `false` | Legacy single-organization mode: mint App tokens for an installation no organization has mapped. Leave off when organizations share the platform. |
 | `GITHUB_APP_PRIVATE_KEY` | string | `None` | RSA private key PEM for the GitHub App. |
 | `GITHUB_WEBHOOK_SECRET` | string | `None` | HMAC SHA-256 secret configured in GitHub App settings to verify webhook payloads. |

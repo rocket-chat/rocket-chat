@@ -10,6 +10,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `orchestrator`:
+- `sandboxes`:
+- `api`:
+- `web`:
+- `settings`:
+- `git`:
+- `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.8.0] - 2026-10-30
+
+### Added
 - `api`, `web`: Administrators rename the organization from **Settings → Organization → General** (`PATCH /v1/organization`, audited); its id stays the same.
 - `api`, `web`: The agent editor lists the models of keys restricted to agents (`GET /v1/models?scope=agents`, for administrators), and warns when a bound key cannot apply to the agent's model (an Anthropic key with an `openrouter/anthropic/…` model).
 - `api`, `slack`: An agent whose tool list includes Slack tools uses them in any session (web, triggers), through its organization's running Slack bot and under the same Slack policy; before, they only worked in sessions a Slack bot started.
