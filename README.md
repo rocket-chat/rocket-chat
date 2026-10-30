@@ -8,31 +8,57 @@
   <a href="https://artifacthub.io/packages/helm/rocket-chat/rocket-chat"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fartifacthub.io%2Fbadge%2Frepository%2Frocket-chat&style=flat-square" alt="Artifact Hub"></a>
 </p>
 
+<h3 align="center">Software-engineering agents for your team, each with its own sandbox, on your infrastructure.</h3>
+
+<p align="center">
+  <a href="https://rocket-chat.mintlify.site/"><img src="https://img.shields.io/badge/Read_the_docs-ff5722?style=for-the-badge&logo=readthedocs&logoColor=white" alt="Read the docs"></a>
+  <a href="doc/quickstart.md"><img src="https://img.shields.io/badge/Quickstart-2_minutes-1f2937?style=for-the-badge&logo=docker&logoColor=white" alt="Quickstart in two minutes"></a>
+  <a href="doc/install/kubernetes.md"><img src="https://img.shields.io/badge/Kubernetes-Helm_chart-326ce5?style=for-the-badge&logo=helm&logoColor=white" alt="Kubernetes with the Helm chart"></a>
+  <a href="doc/compare.md"><img src="https://img.shields.io/badge/How_it_compares-6b7280?style=for-the-badge" alt="How it compares"></a>
+</p>
+
 <p align="center">
   <img src="doc/assets/demo.gif" alt="A request typed in the cockpit, the agent working in its sandbox, the result and its diff" width="860">
 </p>
 
----
+> Not to be confused with Rocket.Chat, the team messaging app: Rocket Chat is a platform of coding agents your team talks to from the browser or Slack.
 
-Rocket Chat is a platform of **software-engineering agents** for your team. Every conversation gets its own **sandbox**: a disposable machine that already has the tools the work needs, where an agent reads the code, runs the commands and the tests, edits files, starts the apps it builds and publishes signed commits, while you watch, steer and approve. Your team talks to its agents from the **browser** or from **Slack**; you run it on **your** Docker host or Kubernetes cluster, with **your** models.
+Ask for work the way you would ask a colleague with a terminal: *fix this failing test and open a pull request*. Rocket Chat gives the conversation its own **sandbox**, a disposable machine with your toolchains, where an agent reads the code, runs the tests, edits files and publishes **signed commits** while you watch, steer and approve. From the **browser** or **Slack**, on **your** Docker host or Kubernetes cluster, with **your** models.
 
-## Try it in two minutes
+## Get started
 
-You need Docker and a model key (any of OpenRouter, Anthropic, OpenAI, Gemini, DeepSeek).
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <h3>1. Start it</h3>
+      Docker and one model key (OpenRouter, Anthropic, OpenAI, Gemini or DeepSeek).
+<pre lang="bash">curl -sSLO https://raw.githubusercontent.com/rocket-chat/rocket-chat/main/deploy/docker-compose.yml
+export OPENROUTER_API_KEY=sk-or-...
+docker compose up -d</pre>
+    </td>
+    <td width="33%" valign="top">
+      <h3>2. Sign in</h3>
+      Open <b>http://localhost:3000</b> and use the developer login. You are the administrator of a fresh organization.
+    </td>
+    <td width="33%" valign="top">
+      <h3>3. Ask for something</h3>
+      <i>Clone acme/billing-api, find why <code>test_refund_rounding</code> fails and fix it. Run the tests when you are done.</i><br><br>
+      Watch it work, answer its questions, review the diff.
+    </td>
+  </tr>
+</table>
 
-```bash
-curl -sSL https://raw.githubusercontent.com/rocket-chat/rocket-chat/main/deploy/docker-compose.yml -o docker-compose.yml
-export OPENROUTER_API_KEY=sk-or-...        # or ANTHROPIC_API_KEY, OPENAI_API_KEY, ...
-docker compose up -d
-```
-
-Open **http://localhost:3000**, sign in with the developer login, and ask for something:
-
-> *Clone acme/billing-api, find why `test_refund_rounding` fails and fix it. Run the tests when you are done.*
-
-That stack uses throwaway secrets: it is for trying Rocket Chat on your own machine. Step by step, with what to expect: **[Quickstart](doc/quickstart.md)**.
+This stack uses throwaway secrets, for trying Rocket Chat on your own machine. Step by step, with what to expect: **[Quickstart](doc/quickstart.md)**. For a team: **[Install your way](#install-your-way)**.
 
 ## Why Rocket Chat
+
+- **One sandbox per conversation.** Isolated, disposable, built from an image you control, ready with your tools when the agent arrives. Scales with your cluster.
+- **Made for a team.** Single sign-on, organizations and roles, shared sessions, spend limits, an audit trail. All in the one open-source edition.
+- **Where your team already works.** The browser cockpit and Slack bots, with questions and approvals as buttons; every Slack thread is also a session in the browser.
+- **GitHub end to end.** Pull requests, review threads, CI logs, and commits GitHub marks as Verified.
+- **Yours.** Your servers, your models (or a self-hosted one, even air-gapped), GPL-3.0.
+
+## In more detail
 
 | | |
 | :--- | :--- |
