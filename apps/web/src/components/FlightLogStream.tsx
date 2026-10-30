@@ -7,7 +7,7 @@ import { useShallow } from "zustand/react/shallow";
 import React, { useCallback, useRef, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useMissionStore } from "../lib/store";
-import { useSession } from "./AuthProvider";
+import { useAuth } from "./AuthProvider";
 import { DecisionCard } from "./DecisionCard";
 import { ApprovalCard } from "./ApprovalCard";
 import { TranscriptSearchResults } from "./TranscriptSearchResults";
@@ -241,18 +241,21 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
   const showQuip = turnStartedAt === null || now - turnStartedAt < QUICK_TURN_MS;
 
   const router = useRouter();
-  const { data: authSession } = useSession();
-  const currentUserId =
-    (authSession?.user as unknown as { user_id?: string } | undefined)?.user_id ?? null;
+  const currentUserId = useAuth().user?.user_id ?? null;
   // Name the author of each message only when more than one person wrote in this session. A chat
   // thread's guests share no account, so the name the platform gave each message tells them apart.
   const userEntries = flightLog.filter((e) => e.role === "USER");
+  // A message stored without its author (older history, the prompt that created the session)
+  // is the owner's, unless a chat platform named its speaker.
+  const ownerId = session && !session.is_draft ? session.tenant_user_id : null;
+  const authorOf = (entry: { authorUserId?: string | null; content: string }) =>
+    entry.authorUserId ?? (splitSpeaker(entry.content).speaker ? null : ownerId);
   const authorKey = (entry: { authorUserId?: string | null; content: string }) =>
-    `${entry.authorUserId ?? ""}|${splitSpeaker(entry.content).speaker ?? ""}`;
+    `${authorOf(entry) ?? ""}|${splitSpeaker(entry.content).speaker ?? ""}`;
   const showAuthors = new Set(userEntries.map(authorKey)).size > 1;
   const participants = useParticipants(
     showAuthors && session && !session.is_draft ? session.session_id : null,
-    userEntries.map((e) => e.authorUserId ?? "").filter(Boolean)
+    userEntries.map((e) => authorOf(e) ?? "").filter(Boolean)
   );
   const threadPlatform = threadBindingOf(session)?.platform ?? null;
   const [forkingEntryId, setForkingEntryId] = useState<string | null>(null);
@@ -381,8 +384,9 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
     // USER REQUEST: Simple bubble on the right
     if (item.type === "user") {
       const { speaker, text } = splitSpeaker(item.entry.content);
-      const mine = item.entry.authorUserId === currentUserId && !speaker;
-      const participant = item.entry.authorUserId ? participants.get(item.entry.authorUserId) : undefined;
+      const author = authorOf(item.entry);
+      const mine = author !== null && author === currentUserId && !speaker;
+      const participant = author ? participants.get(author) : undefined;
       // A guest is named by the platform (its account is a placeholder); a member by their name.
       const name = mine ? "You" : participant && !participant.guest_of ? participant.name : speaker ?? participant?.name ?? "Someone";
       const via = speaker ? participant?.guest_of ?? threadPlatform : null;

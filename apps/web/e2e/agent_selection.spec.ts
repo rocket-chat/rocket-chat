@@ -21,7 +21,8 @@ const CATALOGUE = {
 };
 
 async function serveCatalogue(page: Page) {
-  await page.route("**/v1/models", (route) => route.fulfill({ json: CATALOGUE }));
+  // The composer's list and the agent editor's (`?scope=agents`).
+  await page.route(/\/v1\/models(\?.*)?$/, (route) => route.fulfill({ json: CATALOGUE }));
 }
 
 test("the agent editor searches the full model catalogue", async ({ page }) => {

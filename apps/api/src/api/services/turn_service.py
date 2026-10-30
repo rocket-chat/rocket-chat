@@ -10,7 +10,7 @@ render the event stream.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from dataclasses import replace
 from fnmatch import fnmatch
 from types import EllipsisType
@@ -250,6 +250,20 @@ async def _fallbacks(
     )
 
 
+# Toolsets whose tools are hidden unless the session enables them, by the prefix of their tools.
+_TOOLSET_PREFIXES = {"slack": "slack_"}
+
+
+def toolsets_listed(tools: Sequence[str] | None) -> frozenset[str]:
+    """The toolsets an agent's tool list asks for: an agent given Slack tools uses them in
+    every session, not only in the sessions a Slack bot started."""
+    return frozenset(
+        toolset
+        for toolset, prefix in _TOOLSET_PREFIXES.items()
+        if any(str(tool).startswith(prefix) for tool in tools or ())
+    )
+
+
 def _context_ratios(models: Mapping[str, Any]) -> dict[str, float]:
     """``context_prune_percent`` / ``context_compact_percent`` as ratios, compaction kept above
     pruning (pruning first is what keeps most turns from needing a summary at all)."""
@@ -433,7 +447,8 @@ class TurnService:
             ),
             model=model,
             max_turns=await step_limit_for(db_mgr, org_id, agent),
-            enabled_toolsets=enabled_toolsets or frozenset(),
+            enabled_toolsets=(enabled_toolsets or frozenset())
+            | toolsets_listed(agent.whitelisted_tools if agent else None),
             model_router=router,
             routing_reason=reason,
             policy=policy,

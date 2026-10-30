@@ -126,3 +126,22 @@ def test_the_effort_chosen_for_the_turn_reaches_the_generation_params() -> None:
         model="openai/o3-mini", agent=None, models=models_config, fallbacks=()
     )
     assert params.reasoning_effort == "high"
+
+
+@pytest.mark.asyncio
+async def test_an_agent_given_slack_tools_gets_the_slack_toolset_in_any_session() -> None:
+    from api.services.turn_service import toolsets_listed
+
+    class _SlackAgent(_Agent):
+        whitelisted_tools: ClassVar[list[str]] = ["file_read", "slack_send_message"]
+
+    async def resolve(db: Any, org: str, user: str, agent_id: str | None) -> _Agent:
+        return _SlackAgent()
+
+    service = TurnService(resolve_agent=resolve, resolve_routing=_resolve_routing)
+    web = await service.plan_turn(db_mgr=None, org_id="org", user_id="user", agent_id="x")
+    plain = await _service().plan_turn(db_mgr=None, org_id="org", user_id="user", agent_id="x")
+
+    assert web.enabled_toolsets == frozenset({"slack"})
+    assert plain.enabled_toolsets == frozenset()
+    assert toolsets_listed(None) == frozenset()

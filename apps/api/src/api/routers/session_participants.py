@@ -11,12 +11,15 @@ from sqlalchemy import select
 
 from api.auth.session_lookup import session_for_request
 from api.db.models import UserModel
+from specifications.interfaces.llm import ChatMessage
 
 router = APIRouter(prefix="/v1", tags=["Sessions"])
 
 # Guest members a chat platform creates for people who are not linked to an account.
 _GUEST_PLATFORMS = ("slack", "teams", "mattermost")
 MAX_PARTICIPANTS = 100
+# How chat platforms name each message's speaker for the agent: "[Speaker: Ada (<@U1>)] text".
+SPEAKER_PREFIX = "[Speaker:"
 
 
 class Participant(BaseModel):
@@ -33,6 +36,14 @@ class ParticipantList(BaseModel):
 def guest_platform(user_id: str) -> str | None:
     prefix = user_id.split(":", 1)[0]
     return prefix if ":" in user_id and prefix in _GUEST_PLATFORMS else None
+
+
+def _author_of(message: ChatMessage, owner: str) -> str | None:
+    """Who wrote ``message``: stored without an author (older history, the session's first
+    prompt), it is the owner's, unless a chat platform named its speaker."""
+    if message.author_user_id:
+        return message.author_user_id
+    return None if (message.content or "").lstrip().startswith(SPEAKER_PREFIX) else owner or None
 
 
 async def _names(db_mgr: Any, org_id: str, user_ids: list[str]) -> dict[str, str]:
@@ -52,9 +63,9 @@ async def session_participants(session_id: str, request: Request) -> Participant
     caller = await session_for_request(request, session_id, require_write=False)
     authors = list(
         dict.fromkeys(
-            m.author_user_id
+            author
             for m in caller.record.conversation_history
-            if m.role == "user" and m.author_user_id
+            if m.role == "user" and (author := _author_of(m, caller.record.tenant_user_id))
         )
     )[:MAX_PARTICIPANTS]
     names = await _names(getattr(request.app.state, "db_manager", None), caller.org_id, authors)

@@ -95,7 +95,7 @@ export const AgentsManager: React.FC<{ scope: "org" | "mine" }> = ({ scope }) =>
   const create = () => open(blankDraft(kind, scope === "mine" ? "user" : "org"));
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[18rem_1fr]">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[18rem_minmax(0,1fr)]">
       <div className="space-y-3">
         {scope === "org" && (
           <div role="tablist" aria-label="What to list" className="flex gap-1">

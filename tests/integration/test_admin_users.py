@@ -134,3 +134,34 @@ async def test_non_admin_cannot_list_or_change(client: tuple[AsyncClient, str]) 
     assert (
         await http.patch("/v1/admin/users/u_dev", json={"role": "readonly"}, headers=headers)
     ).status_code == 403
+
+
+async def test_an_administrator_renames_the_organization(client: tuple[AsyncClient, str]) -> None:
+    http, org = client
+    response = await http.patch(
+        "/v1/organization",
+        json={"name": "  Fifteen   Platform "},
+        headers=_headers(org, "u_admin", "admin"),
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"id": org, "name": "Fifteen Platform"}
+
+    current = await http.get("/v1/organization", headers=_headers(org, "u_dev", "member"))
+    assert current.json()["name"] == "Fifteen Platform"
+    audit = await http.get("/v1/admin/audit", headers=_headers(org, "u_admin", "admin"))
+    assert "renamed the organization" in audit.text
+
+
+async def test_a_member_cannot_rename_the_organization(client: tuple[AsyncClient, str]) -> None:
+    http, org = client
+    refused = await http.patch(
+        "/v1/organization", json={"name": "Mine now"}, headers=_headers(org, "u_dev", "member")
+    )
+    blank = await http.patch(
+        "/v1/organization", json={"name": "   "}, headers=_headers(org, "u_admin", "admin")
+    )
+
+    assert refused.status_code == 403
+    assert blank.status_code == 422
+    current = await http.get("/v1/organization", headers=_headers(org, "u_admin", "admin"))
+    assert current.json()["name"] == "Admin Test"

@@ -293,6 +293,50 @@ async def test_slack_tools_run_on_the_bot_that_owns_the_session() -> None:
     await first.stop_socket_mode()
 
 
+async def test_a_web_session_uses_its_organizations_bot_for_slack_tools() -> None:
+    import asyncio
+
+    from agent_core.context import ExecutionContext, current_execution_ctx
+
+    tools: dict[str, Any] = {}
+    registry = MagicMock()
+    registry._dynamic_tools = tools
+    registry.register_dynamic_tool = MagicMock(
+        side_effect=lambda definition, handler, **_: tools.setdefault(definition.name, handler)
+    )
+    ours = make_slack(
+        _Answering(), tool_registry=registry, bot=_bot(id="cccccccc3333", org_id="org_web_slack")
+    )
+    theirs = make_slack(
+        _Answering(), tool_registry=registry, bot=_bot(id="aaaaaaaa0000", org_id="org_other")
+    )
+    for assistant in (ours, theirs):
+        assistant._slack_api_ready = True
+        assistant.app = MagicMock()
+        assistant.app.client.conversations_list = AsyncMock(
+            return_value={"channels": [{"id": "C1", "name": assistant.bot.org_id}]}  # type: ignore[union-attr]
+        )
+
+    async def list_from(session: str, org: str) -> str:
+        ctx = ExecutionContext(
+            session_id=session, event_queue=asyncio.Queue(), parent_model="m", tenant_org_id=org
+        )
+        token = current_execution_ctx.set(ctx)
+        try:
+            return str(await tools["slack_list_conversations"]())
+        finally:
+            current_execution_ctx.reset(token)
+
+    assert "#org_web_slack" in await list_from("session_web1", "org_web_slack")
+    theirs.app.client.conversations_list.assert_not_awaited()
+    assert await list_from("session_web2", "org_without_bot") == NOT_CONNECTED
+    assert await list_from("slack_gone0000_C1_1", "org_web_slack") == NOT_CONNECTED, (
+        "a session of a stopped bot is not taken over by another"
+    )
+    await ours.stop_socket_mode()
+    await theirs.stop_socket_mode()
+
+
 def test_each_bot_has_its_own_slash_command() -> None:
     assert command_for("Triage Bot") == "/triage-bot"
     assert command_for("dify") == "/dify"

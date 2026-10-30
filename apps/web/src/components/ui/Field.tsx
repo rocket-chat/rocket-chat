@@ -55,8 +55,9 @@ export const Textarea = React.forwardRef<
 export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(
   function Select({ className, children, ...rest }, ref) {
     return (
-      <div className="relative">
-        <select ref={ref} className={cn(CONTROL, "h-9 appearance-none pl-3 pr-9", className)} {...rest}>
+      // The width a caller gives sizes the wrapper, so the chevron stays at the select's edge.
+      <div className={cn("relative", className)}>
+        <select ref={ref} className={cn(CONTROL, "h-9 appearance-none pl-3 pr-9")} {...rest}>
           {children}
         </select>
         <ChevronDown

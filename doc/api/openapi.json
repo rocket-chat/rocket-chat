@@ -5210,6 +5210,21 @@
         "title": "PullRequestRequest",
         "type": "object"
       },
+      "RenameOrganizationRequest": {
+        "properties": {
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "RenameOrganizationRequest",
+        "type": "object"
+      },
       "RepositoryChangesResponse": {
         "properties": {
           "base_label": {
@@ -14612,6 +14627,24 @@
       "get": {
         "description": "Return available LLM models and sandbox execution driver status.",
         "operationId": "list_available_models_v1_models_get",
+        "parameters": [
+          {
+            "description": "agents: the models an agent may be given, adding the providers of the organization's keys restricted to agents (administrators, who bind them).",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "session",
+              "description": "agents: the models an agent may be given, adding the providers of the organization's keys restricted to agents (administrators, who bind them).",
+              "enum": [
+                "session",
+                "agents"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -14624,6 +14657,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Available Models",
@@ -14649,6 +14692,46 @@
           }
         },
         "summary": "Current Organization",
+        "tags": [
+          "Organizations"
+        ]
+      },
+      "patch": {
+        "description": "Rename the active organization (admin/owner only). Its id, and so every link and\nsetting, stays the same.",
+        "operationId": "rename_organization_v1_organization_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameOrganizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentOrganization"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Organization",
         "tags": [
           "Organizations"
         ]

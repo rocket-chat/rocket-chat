@@ -98,6 +98,7 @@ def test_participants_name_members_and_mark_guests(client: TestClient) -> None:
     body = client.get(f"/v1/sessions/{record.session_id}/participants", headers=MEMBER).json()
     by_id = {p["user_id"]: p for p in body["participants"]}
     assert by_id["slack:T1:U1"]["guest_of"] == "slack" and by_id["grace"]["guest_of"] is None
+    assert record.tenant_user_id not in by_id
     assert guest_platform("teams:t:u") == "teams" and guest_platform("ada") is None
 
 
@@ -138,3 +139,19 @@ async def test_the_ai_title_reads_the_latest_request_too(monkeypatch: pytest.Mon
     sent = captured["request"].messages[1].content
     assert title == "Add rate limits to export API"
     assert "Latest request:\nadd rate limits to the export API" in sent and "[Speaker" not in sent
+
+
+def test_a_message_stored_without_its_author_is_the_owners(client: TestClient) -> None:
+    record = _record(link_access=True)
+    record.session_id = f"web_{uuid4().hex[:8]}"
+    record.conversation_history = [
+        ChatMessage(role="user", content="an instruction from before attribution"),
+        ChatMessage(role="user", content="[Speaker: Ada] from a thread"),
+        ChatMessage(role="user", content="a follow-up", author_user_id="grace"),
+    ]
+    store = client.app.state.session_store  # type: ignore[attr-defined]
+    client.portal.call(store.create_session, record)
+
+    body = client.get(f"/v1/sessions/{record.session_id}/participants", headers=MEMBER).json()
+
+    assert [p["user_id"] for p in body["participants"]] == [record.tenant_user_id, "grace"]

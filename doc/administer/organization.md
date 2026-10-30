@@ -28,6 +28,8 @@ The top of *General* lists what the organization is missing, each with where to 
 
 ## General
 
+The **Organization** card at the top renames the organization (administrators and owners; `PATCH /v1/organization`). The new name shows in the organization menu and to every member; the organization's id, and so every link, setting and integration, stays the same. Renaming is recorded in the audit log.
+
 Organization name, how visible new sessions are by default (private to the creator, or shared with the organization), sign-in domains, steps per turn, and the defaults of members' personal settings (each one lockable).
 
 ## Members & roles
@@ -77,7 +79,7 @@ Below the limits, **this month's spend** groups the organization's spend by agen
 
 **Settings → Organization → Agents** lists the organization's agents and the **subagent roles** they delegate to, in one editor: identity and prompt, model and credentials, tools and knowledge, sandbox type, access (organization agents) and limits. **Export** saves an agent as `.rocket/agents/<id>.md` (front matter and the prompt, never credentials); **Import** reads one back.
 
-* **Model & credentials**: the model, one **Reasoning** level (the thinking budget follows from it), and the agent's own **credentials**: a call on a bound provider uses the bound key. With **strict**, a call on any other provider is refused instead of billed elsewhere. Administrators bind organization agents (organization keys, or members' keys their owners shared with that agent); a personal agent binds its owner's keys only. If a bound key is deleted or no longer shared, the agent's next call fails with "credential withdrawn".
+* **Model & credentials**: the model, one **Reasoning** level (the thinking budget follows from it), and the agent's own **credentials**: a call on a bound provider uses the bound key. With **strict**, a call on any other provider is refused instead of billed elsewhere. Administrators bind organization agents (organization keys, or members' keys their owners shared with that agent); a personal agent binds its owner's keys only. If a bound key is deleted or no longer shared, the agent's next call fails with "credential withdrawn". For an administrator, the agent's model list includes the models of keys restricted to agents. A binding applies to calls on its own provider: `openrouter/anthropic/…` is an OpenRouter call, so an Anthropic key bound to the agent stays unused (the editor says so) until the agent's model is an `anthropic/…` one.
 * **Sandbox**: the sandbox type its sessions start in; the type holds the image, CPU and memory (see [Sandboxes](/administer/sandboxes)).
 * **Access**: everyone (the default), or only some people and roles, and whether guests (Slack users who have not paired, guest API tokens) may use it. Administrators can always use every agent. Someone who loses access finishes the turn already running; their next one fails with a prompt to pick another agent, and their scheduled missions with that agent are paused. A Slack bot's agent must allow guests.
 * **Limits**: steps per turn (at most the organization's), the default permission mode (shown *Locked by admin* when the organization locked it), and the agent's spend limits.
