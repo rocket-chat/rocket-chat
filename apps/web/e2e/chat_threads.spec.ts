@@ -73,7 +73,10 @@ test("a session is renamed from its title, and the name stays", async ({ page, r
   await page.getByTestId("session-title").click();
   const input = page.getByTestId("session-title-input");
   await input.fill("Fix the login redirect");
+  // The title changes at once; wait for the save before reading it back.
+  const saved = page.waitForResponse((res) => res.url().endsWith(`/v1/sessions/${sessionId}`) && res.request().method() === "PATCH");
   await input.press("Enter");
+  expect((await saved).ok()).toBeTruthy();
   await expect(page.getByTestId("session-title")).toHaveText("Fix the login redirect");
   const stored = await (await request.get(`${API}/v1/sessions/${sessionId}`)).json();
   expect(stored.title).toBe("Fix the login redirect");
@@ -88,7 +91,9 @@ test("a session is renamed from the sidebar menu", async ({ page, request }) => 
   await page.getByTestId("rename-session").click();
   const input = row.getByTestId("session-rename-input");
   await input.fill("Renamed from the list");
+  const saved = page.waitForResponse((res) => res.url().endsWith(`/v1/sessions/${sessionId}`) && res.request().method() === "PATCH");
   await input.press("Enter");
+  expect((await saved).ok()).toBeTruthy();
   await expect(row).toContainText("Renamed from the list");
   const stored = await (await request.get(`${API}/v1/sessions/${sessionId}`)).json();
   expect(stored.title).toBe("Renamed from the list");
