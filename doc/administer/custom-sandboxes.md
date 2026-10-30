@@ -87,7 +87,7 @@ When it fails, the agent sees why instead of running into the symptom later. Det
 
 ## Step 4: size and place it
 
-On each sandbox entry (or per agent) you set CPU, memory and workspace disk. In a shared Kubernetes cluster, your platform operator can define **placement profiles** (Helm `sandbox.profiles`): a node pool with its tolerations, runtime class, priority class and storage class. You pick a profile per sandbox type, so heavy work lands on the right nodes and a toleration cannot be used to reach nodes reserved for something else.
+On each sandbox entry you set CPU, memory and workspace disk; an agent picks which entry its sessions start in. In a shared Kubernetes cluster, your platform operator can define **placement profiles** (Helm `sandbox.profiles`): a node pool with its tolerations, runtime class, priority class and storage class. You pick a profile per sandbox type, so heavy work lands on the right nodes and a toleration cannot be used to reach nodes reserved for something else.
 
 A runtime class such as `gvisor` or `kata-qemu` that you have installed in the cluster (`sandbox.runtimeClassName`) puts every sandbox behind a stronger isolation boundary.
 
