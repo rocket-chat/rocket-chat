@@ -101,6 +101,12 @@ def test_deadline_wrapper_kills_a_hung_command_inside_the_shell() -> None:
 
     if subprocess.run(["sh", "-c", "command -v timeout"], capture_output=True).returncode != 0:
         pytest.skip("host has no timeout(1)")
+    # The sandbox images ship GNU coreutils, whose timeout kills the command's whole process group.
+    # The uutils timeout (Ubuntu 25.10+ hosts) kills only the shell and leaves its children running,
+    # so on such a host this would test a timeout the sandboxes do not use.
+    version = subprocess.run(["timeout", "--version"], capture_output=True, text=True).stdout
+    if "GNU coreutils" not in version:
+        pytest.skip("host timeout(1) is not GNU coreutils, which the sandbox images ship")
     started = time.monotonic()
     result = _sh(wrap_with_deadline("sleep 30; echo late", 1))
     elapsed = time.monotonic() - started
