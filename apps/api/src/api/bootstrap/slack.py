@@ -27,6 +27,8 @@ from api.services.audit import AuditService
 from api.services.budgets import BudgetService
 from api.services.cluster import LeaderElection
 from api.services.decision_answer import decision_answer_prompt
+from api.services.memberships import member_display_name
+from api.services.personas import list_personas
 from api.services.queued_messages import hold_for_running_turn
 from api.services.quota import SlackWorkspaceQuotaService
 from api.services.settings import resolve_settings
@@ -44,6 +46,7 @@ from api.services.slack_link import (
     workspace_org,
 )
 from api.services.slack_routing import classify_slack_message
+from api.turns.context import TurnSelection
 from api.turns.gates import _forget_pending_decisions, take_stored_question
 from api.turns.tasks import run_guarded_turn
 from specifications.interfaces.agent import TurnOverlay
@@ -123,6 +126,15 @@ class SlackBotManager:
     def start(self) -> None:
         _warn_about_deprecated_env()
         self._resync = asyncio.create_task(self._resync_forever())
+
+    async def on_github_event(self, org_id: str, session_id: str, event: dict[str, Any]) -> None:
+        """Bring the pull request cards of a session's Slack thread up to date (CI, merge)."""
+        for assistant in self.for_org(org_id):
+            try:
+                if await assistant.update_pull_request_cards(session_id, org_id, event):
+                    return
+            except Exception as err:
+                logger.warning("Pull request card update failed for %s: %s", session_id, err)
 
     async def sync(self) -> None:
         """Start new bots, restart changed ones and stop removed or disabled ones."""
@@ -208,6 +220,10 @@ def start_slack(
     manager = SlackBotManager(app, core, bot_store, owner_db, settings)
     app.state.slack_bot_store = bot_store
     app.state.slack_bot_manager = manager
+    app.state.github_event_listeners = [
+        *getattr(app.state, "github_event_listeners", []),
+        manager.on_github_event,
+    ]
     manager.start()
     return manager
 
@@ -235,6 +251,8 @@ def _build_assistant(
         resolve_workspace_org_fn=callbacks.workspace_org,
         resolve_user_fn=callbacks.resolve_user,
         guest_user_fn=callbacks.guest_user,
+        member_name_fn=callbacks.member_name,
+        resolve_agent_fn=callbacks.resolve_agent,
         begin_pairing_fn=callbacks.begin_pairing,
         # Unauthenticated Slack is bounded before any turn starts and ingests files
         # through the same attachment pipeline as the web cockpit.
@@ -305,6 +323,14 @@ class _SlackCallbacks:
             logger.warning("Error resolving slack user %s: %s", slack_user_id, err)
             return None
 
+    async def member_name(self, org_id: str, member_id: str) -> str:
+        """The name App Home shows for a linked member, instead of their id."""
+        try:
+            return await member_display_name(self._core.db_manager, org_id, member_id)
+        except Exception as err:
+            logger.info("No name for member %s: %s", member_id, err)
+            return ""
+
     async def guest_user(self, org_id: str, team_id: str, slack_user_id: str | None) -> str:
         """The guest member that owns what an unlinked Slack user (or a shared thread) starts."""
         return await ensure_slack_guest(self._core.db_manager, org_id, team_id, slack_user_id)
@@ -357,6 +383,23 @@ class _SlackCallbacks:
             author_user_id=author_user_id,
         )
 
+    async def resolve_agent(self, org_id: str, user_id: str, name: str) -> str | None:
+        """The id of the agent named ``name`` (or with that id) that the member may use."""
+        wanted = name.strip().lower()
+        try:
+            personas = await list_personas(self._core.db_manager, org_id, user_id)
+        except Exception as err:
+            logger.warning("Could not list the agents of %s: %s", user_id, err)
+            return None
+        return next(
+            (
+                p.id
+                for p in personas
+                if p.enabled is not False and wanted in (p.id.lower(), p.name.lower())
+            ),
+            None,
+        )
+
     async def run_turn(
         self,
         *,
@@ -365,8 +408,11 @@ class _SlackCallbacks:
         overlay: TurnOverlay,
         author_user_id: str,
         message_id: str | None = None,
+        reasoning_effort: str | None = None,
+        agent_id: str | None = None,
     ) -> None:
-        """Run a Slack message through the same guarded turn the web cockpit uses."""
+        """Run a Slack message through the same guarded turn the web cockpit uses. A shortcut's
+        effort and agent are the turn's choices, resolved and checked like the web app's."""
         core = self._core
         await run_guarded_turn(
             session_id=session_id,
@@ -384,6 +430,8 @@ class _SlackCallbacks:
             concurrency_gate=core.concurrency_gate,
             session_locks=core.session_locks,
             overlay=overlay,
+            reasoning_effort=reasoning_effort,
+            selection=TurnSelection(agent_id=agent_id) if agent_id else None,
         )
 
     async def answer_stored_question(

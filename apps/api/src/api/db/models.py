@@ -1626,3 +1626,125 @@ Index(
     UsageEventModel.agent_id,
     UsageEventModel.created_at,
 )
+
+
+class TriggerModel(Base):
+    """An organization's trigger: which events start a session, with which agent and how.
+
+    ``filter`` holds ``TriggerFilter`` (repositories, labels, branches, channels). Protected by
+    PostgreSQL Row-Level Security (RLS).
+    """
+
+    __tablename__ = "triggers"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
+    filter: Mapped[dict[str, Any]] = mapped_column(default=dict, nullable=False)
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    permission_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    model_tier: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    sandbox_type: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="work")
+    auto_fix: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    instructions: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    schedule: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+    updated_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+
+
+class WebhookDeliveryModel(Base):
+    """A webhook delivery already handled: the unique key makes every replica start its
+    session once. Rows older than a day are deleted by the retention job. RLS-protected."""
+
+    __tablename__ = "webhook_deliveries"
+    __table_args__ = (
+        UniqueConstraint("org_id", "source", "delivery_id", name="uq_webhook_deliveries"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    delivery_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False, index=True
+    )
+
+
+class OutboundWebhookModel(Base):
+    """An organization's URL that receives signed outcome reports. ``secret_encrypted`` is
+    sealed with ``CredentialCipher``; only its fingerprint leaves the platform. RLS-protected."""
+
+    __tablename__ = "outbound_webhooks"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    events: Mapped[list[str]] = mapped_column(default=list, nullable=False)
+    secret_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    secret_fingerprint: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    description: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+
+
+class OutboundDeliveryModel(Base):
+    """One report to send to an outbound webhook, kept until it is delivered or given up, so a
+    restart loses none; replicas claim due rows. RLS-protected."""
+
+    __tablename__ = "outbound_deliveries"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    webhook_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("outbound_webhooks.id", ondelete="CASCADE"), nullable=False
+    )
+    event: Mapped[str] = mapped_column(String(40), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(default=dict, nullable=False)
+    # pending, delivered, failed (gave up after the last attempt).
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    last_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+
+
+class CodeEmbeddingModel(Base):
+    """The embedding of one code chunk, by its content hash and the embedding model: code search
+    reuses it for an unchanged chunk in any session of the organization. RLS-protected."""
+
+    __tablename__ = "code_embeddings"
+    __table_args__ = (
+        UniqueConstraint("org_id", "model", "content_hash", name="uq_code_embeddings"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    model: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    embedding: Mapped[Any] = mapped_column(Vector(1536), nullable=False)
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False, index=True
+    )

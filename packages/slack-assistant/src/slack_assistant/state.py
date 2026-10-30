@@ -8,6 +8,7 @@ here so the type checker can follow them; ``SlackAssistant.__init__`` assigns th
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -60,6 +61,8 @@ class SlackAssistantState:
     # (session, prompt, author, message id) -> whether a running turn's queue kept the message.
     _hold_message_fn: HoldMessageFn | None
     _bind_tenant_fn: Callable[[str], None] | None
+    _member_name_fn: Callable[[str, str], Awaitable[str]] | None
+    _resolve_agent_fn: Callable[[str, str, str], Awaitable[str | None]] | None
     _resolve_workspace_org_fn: Callable[[str], Awaitable[str | None]] | None
     _begin_pairing_fn: Callable[[str, str], Awaitable[str | None]] | None
     _resolve_slack_policy_fn: Callable[[str], Awaitable[SlackOrgPolicy]] | None
@@ -78,6 +81,10 @@ class SlackAssistantState:
     _active_turns: set[str]
     # Turns their requester stopped from Slack, and who stopped them.
     _stopped_by: dict[str, str]
+    # Turns stopped for another reason (their request was edited or deleted): what to say.
+    _stop_notices: dict[str, str]
+    # Assistant threads ("channel:thread") -> the channel the person is viewing.
+    _viewing_channels: OrderedDict[str, str]
     _rate_counters: dict[str, int]
     _user_rate_limiter: BoundedRateLimiter | None
     _channel_rate_limiter: BoundedRateLimiter | None
@@ -106,6 +113,9 @@ class SlackAssistantState:
     def _session_link(self, org_policy: SlackOrgPolicy, session_id: str) -> str | None:
         raise NotImplementedError
 
+    def _web_base(self, org_policy: SlackOrgPolicy) -> str:
+        raise NotImplementedError
+
     # Implemented by the toolset mixin; declared so the directory tools can call them.
     def _current_slack_context(self) -> tuple[str, str] | None:
         raise NotImplementedError
@@ -129,6 +139,7 @@ class SlackAssistantState:
         files: list[dict[str, Any]] | None = None,
         ephemeral_fn: Callable[..., Any] | None = None,
         message_ts: str | None = None,
+        session_thread_ts: str | None = None,
     ) -> None:
         raise NotImplementedError
 

@@ -1,13 +1,22 @@
 """Interactive approvals and questions answered from Slack buttons."""
 
 import asyncio
+import json
 import logging
 from typing import Any
 
+from slack_bolt.context.respond.async_respond import AsyncRespond
 from slack_bolt.context.say.async_say import AsyncSay
 
-from slack_assistant.block_kit import SESSION_BLOCK_PREFIX
+from slack_assistant.block_kit import (
+    QUESTION_CHECKBOXES_ACTION_ID,
+    SESSION_BLOCK_PREFIX,
+    build_decision_blocks,
+    build_other_answer_modal,
+    session_of_block,
+)
 from slack_assistant.state import SlackAssistantState
+from specifications.interfaces.events import EventType, SessionEvent
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +42,7 @@ class SlackGatesMixin(SlackAssistantState):
         session_id = (
             known[0]
             if known is not None
-            else block_id.removeprefix(SESSION_BLOCK_PREFIX)
+            else session_of_block(block_id)
             if block_id.startswith(SESSION_BLOCK_PREFIX)
             else self.get_session_id(channel_id, thread_ts, private_for=private_for)
             if thread_ts
@@ -78,89 +87,179 @@ class SlackGatesMixin(SlackAssistantState):
         self._bind_tenant(await self._workspace_org(team or self.team_id or ""))
 
     async def _resolve_approval(
-        self, body: dict[str, Any], say: AsyncSay, *, approved: bool
+        self, body: dict[str, Any], respond: AsyncRespond, *, approved: bool
     ) -> None:
         await self._bind_click_tenant(body)
-        session_id, action_id, thread_ts, clicker = self._gate_context(body)
+        session_id, action_id, _, clicker = self._gate_context(body)
         if not (
             session_id and action_id and await self._may_answer(action_id, session_id, clicker)
         ):
-            await say(
-                text=f"<@{clicker}> only the person who asked can answer this approval.",
-                thread_ts=thread_ts,
-            )
+            await _tell(respond, "Only the person who asked can answer this approval.")
             return
         try:
             await self.orchestrator.submit_human_approval(
                 session_id=session_id, action_id=action_id, approved=approved
             )
         except KeyError:
-            await say(
-                text="This approval has already been answered or expired.", thread_ts=thread_ts
-            )
+            await _decided(respond, "This approval has already been answered or expired.")
             return
         self._gate_owners.pop(action_id, None)
         verdict = "✅ *Approved*" if approved else "❌ *Rejected*"
-        await say(text=f"{verdict} by <@{clicker}> (action `{action_id}`)", thread_ts=thread_ts)
+        await _decided(respond, f"{verdict} by <@{clicker}>: {_gate_title(body)}")
 
-    async def _resolve_question(self, body: dict[str, Any], say: AsyncSay) -> None:
-        await self._bind_click_tenant(body)
-        session_id, value, thread_ts, clicker = self._gate_context(body)
+    async def _resolve_question(
+        self, body: dict[str, Any], respond: AsyncRespond, say: AsyncSay
+    ) -> None:
+        session_id, value, _, _ = self._gate_context(body)
         question_id, _, option = value.partition(":")
-        if not (session_id and option and await self._may_answer(question_id, session_id, clicker)):
-            await say(
-                text=f"<@{clicker}> only the person who asked can answer this question.",
-                thread_ts=thread_ts,
-            )
+        await self._answer_from_click(
+            body, respond, say, session_id, question_id, [option] if option else []
+        )
+
+    async def _submit_checked_options(
+        self, body: dict[str, Any], respond: AsyncRespond, say: AsyncSay
+    ) -> None:
+        session_id, question_id, _, _ = self._gate_context(body)
+        await self._answer_from_click(
+            body, respond, say, session_id, question_id, _checked_options(body)
+        )
+
+    async def _answer_from_click(
+        self,
+        body: dict[str, Any],
+        respond: AsyncRespond,
+        say: AsyncSay,
+        session_id: str,
+        question_id: str,
+        options: list[str],
+    ) -> None:
+        await self._bind_click_tenant(body)
+        clicker = str((body.get("user") or {}).get("id", ""))
+        if not options:
+            await _tell(respond, "Pick at least one option, or answer with *Other…*.")
             return
+        if not (session_id and await self._may_answer(question_id, session_id, clicker)):
+            await _tell(respond, "Only the person who asked can answer this question.")
+            return
+        chosen = ", ".join(f"*{option}*" for option in options)
+        if await self._answer_question(session_id, question_id, options, None, body):
+            await _decided(respond, f"Selected {chosen} (<@{clicker}>)")
+        elif await self._continue_after_restart(body, session_id, question_id, options, say):
+            await _decided(respond, f"Selected {chosen} — picking the work back up.")
+        else:
+            await _decided(respond, "This question has already been answered or expired.")
+
+    async def _answer_question(
+        self,
+        session_id: str,
+        question_id: str,
+        options: list[str],
+        custom_text: str | None,
+        body: dict[str, Any],
+    ) -> bool:
+        """Give the running turn its answer; False when no turn waits on the question."""
         try:
             await self.orchestrator.submit_question_answer(
-                session_id=session_id, question_id=question_id, selected_options=[option]
+                session_id=session_id,
+                question_id=question_id,
+                selected_options=options,
+                custom_text=custom_text,
             )
-            if self.event_bus is not None:
-                from specifications.interfaces.events import EventType, SessionEvent
-
-                await self.event_bus.publish(
-                    SessionEvent(
-                        session_id=session_id,
-                        event_type=EventType.DECISION_SUBMITTED,
-                        payload={
-                            "question_id": question_id,
-                            "selected_options": [option],
-                            "custom_text": None,
-                        },
-                    )
-                )
-            if self._clear_stored_question_fn is not None:
-                org_id = await self._workspace_org(str(body.get("team_id") or self.team_id or ""))
-                await self._clear_stored_question_fn(session_id, org_id or "default_org")
         except KeyError:
-            if await self._continue_after_restart(body, session_id, question_id, option, say):
-                self._gate_owners.pop(question_id, None)
-                await say(
-                    text=f"Selected: *{option}* - picking the work back up.", thread_ts=thread_ts
-                )
-                return
-            await say(
-                text="This question has already been answered or expired.", thread_ts=thread_ts
-            )
-            return
+            return False
         self._gate_owners.pop(question_id, None)
-        await say(text=f"Selected: *{option}*", thread_ts=thread_ts)
+        if self.event_bus is not None:
+            await self.event_bus.publish(
+                SessionEvent(
+                    session_id=session_id,
+                    event_type=EventType.DECISION_SUBMITTED,
+                    payload={
+                        "question_id": question_id,
+                        "selected_options": options,
+                        "custom_text": custom_text,
+                    },
+                )
+            )
+        if self._clear_stored_question_fn is not None:
+            org_id = await self._workspace_org(_team_of(body) or self.team_id or "")
+            await self._clear_stored_question_fn(session_id, org_id or "default_org")
+        return True
+
+    async def _open_other_answer(self, body: dict[str, Any]) -> None:
+        """**Other…**: a form for a free answer, which the requester alone may send."""
+        session_id, question_id, thread_ts, _ = self._gate_context(body)
+        message = body.get("message") or {}
+        question_text = next(
+            (
+                str((block.get("text") or {}).get("text") or "").strip("❓ *")
+                for block in message.get("blocks") or []
+                if block.get("type") == "section"
+            ),
+            "Your answer",
+        )
+        metadata = json.dumps(
+            {
+                "session_id": session_id,
+                "question_id": question_id,
+                "channel_id": str((body.get("channel") or {}).get("id", "")),
+                "thread_ts": thread_ts,
+                "message_ts": str(message.get("ts") or ""),
+                "team_id": _team_of(body),
+            }
+        )
+        try:
+            await self.app.client.views_open(
+                trigger_id=str(body.get("trigger_id", "")),
+                view=build_other_answer_modal(question_text, metadata),
+            )
+        except Exception as err:
+            logger.warning("Could not open the answer form: %s", err)
+
+    async def _submit_other_answer(self, body: dict[str, Any], view: dict[str, Any]) -> None:
+        try:
+            meta = json.loads(str(view.get("private_metadata") or "{}"))
+        except ValueError:
+            return
+        answer = str(
+            (((view.get("state") or {}).get("values") or {}).get("answer") or {})
+            .get("text", {})
+            .get("value")
+            or ""
+        ).strip()
+        clicker = str((body.get("user") or {}).get("id", ""))
+        session_id, question_id = str(meta.get("session_id", "")), str(meta.get("question_id", ""))
+        self._bind_tenant(await self._workspace_org(str(meta.get("team_id") or self.team_id or "")))
+        if not (answer and session_id and await self._may_answer(question_id, session_id, clicker)):
+            return
+        if not await self._answer_question(
+            session_id, question_id, [], answer, {"team": {"id": meta.get("team_id")}}
+        ):
+            return
+        channel, message_ts = str(meta.get("channel_id", "")), str(meta.get("message_ts", ""))
+        if channel and message_ts:
+            try:
+                await self.app.client.chat_update(
+                    channel=channel,
+                    ts=message_ts,
+                    text="Answered",
+                    blocks=build_decision_blocks(f"Answered by <@{clicker}>: {answer[:500]}"),
+                )
+            except Exception as err:
+                logger.debug("Question message %s not updated: %s", message_ts, err)
 
     async def _continue_after_restart(
         self,
         body: dict[str, Any],
         session_id: str,
         question_id: str,
-        option: str,
+        options: list[str],
         say: AsyncSay,
     ) -> bool:
         """Answer a question whose turn died with the server by continuing the work with it."""
         if self._answer_stored_question_fn is None:
             return False
         try:
-            prompt = await self._answer_stored_question_fn(session_id, question_id, [option], None)
+            prompt = await self._answer_stored_question_fn(session_id, question_id, options, None)
         except Exception as err:
             logger.warning("Continuing from stored question %s failed: %s", question_id, err)
             return False
@@ -218,3 +317,41 @@ class SlackGatesMixin(SlackAssistantState):
             )
         except Exception as err:
             logger.debug("Agent session status not set (%s): %s", status, err)
+
+
+async def _tell(respond: AsyncRespond, text: str) -> None:
+    """A note to the clicker alone; the gate stays as it is."""
+    await respond(text=text, response_type="ephemeral", replace_original=False)
+
+
+async def _decided(respond: AsyncRespond, text: str) -> None:
+    """The gate message becomes its decision, without buttons (no second click can land)."""
+    await respond(text=text, blocks=build_decision_blocks(text), replace_original=True)
+
+
+def _gate_title(body: dict[str, Any]) -> str:
+    """The gate's first line ("Approval Required — git_push (high risk)"), for its decision."""
+    for block in (body.get("message") or {}).get("blocks") or []:
+        if block.get("type") == "section":
+            text = str((block.get("text") or {}).get("text") or "")
+            return text.split("\n", 1)[0].strip("⚠️ *")[:200]
+    return "the requested action"
+
+
+def _checked_options(body: dict[str, Any]) -> list[str]:
+    """The options ticked in the message's checkboxes when **Submit** was clicked."""
+    values = ((body.get("state") or {}).get("values") or {}).values()
+    for block in values:
+        for action_id, element in (block or {}).items():
+            if action_id == QUESTION_CHECKBOXES_ACTION_ID:
+                return [str(o.get("value")) for o in element.get("selected_options") or []]
+    return []
+
+
+def _team_of(body: dict[str, Any]) -> str:
+    return str(
+        (body.get("team") or {}).get("id")
+        or (body.get("user") or {}).get("team_id")
+        or body.get("team_id")
+        or ""
+    )

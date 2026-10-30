@@ -78,6 +78,15 @@ data:
   ROCKET_PLATFORM_POD_LABELS: {{ printf "app.kubernetes.io/name=%s-backend,app.kubernetes.io/instance=%s" (include "rocket-chat.name" .) .Release.Name | quote }}
   ROCKET_PLATFORM_POD_PORT: "8000"
   K8S_STORAGE_CLASS: {{ .Values.sandbox.storageClass | default "" | quote }}
+  {{- with .Values.integrations }}
+  GITLAB_URL: {{ .gitlab.url | default "https://gitlab.com" | quote }}
+  JIRA_BASE_URL: {{ .jira.baseUrl | default "" | quote }}
+  JIRA_EMAIL: {{ .jira.email | default "" | quote }}
+  TEAMS_APP_ID: {{ .teams.appId | default "" | quote }}
+  MATTERMOST_URL: {{ .mattermost.url | default "" | quote }}
+  CHAT_BRIDGE_ORG_ID: {{ .chatOrgId | default "" | quote }}
+  {{- end }}
+  K8S_VOLUME_SNAPSHOT_CLASS: {{ .Values.sandbox.snapshots.volumeSnapshotClass | default "" | quote }}
   {{- if and .Values.sandbox .Values.sandbox.inactivity }}
   SANDBOX_INACTIVITY_PAUSE_SECONDS: {{ .Values.sandbox.inactivity.pauseSeconds | default 1800 | quote }}
   SANDBOX_INACTIVITY_CLEANUP_SECONDS: {{ .Values.sandbox.inactivity.cleanupSeconds | default 0 | quote }}

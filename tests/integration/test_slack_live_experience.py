@@ -63,7 +63,10 @@ async def test_a_turn_streams_its_current_step_then_the_answer_in_the_same_reply
     footer = json.dumps(stop["blocks"])
     assert f"https://rocket.example/chat/{SESSION_ID}" in footer and "Done in" in footer
     assert "stop_turn" not in footer, "no Stop button: the slash command stops a turn"
-    stack.say.assert_not_awaited()
+    # The answer is in the streamed reply; the only message the thread may get after it is the
+    # suggested next step, as a button.
+    for call in stack.say.await_args_list:
+        assert "run_followup" in json.dumps(call.kwargs.get("blocks")), call.kwargs
     client.chat_postMessage.assert_not_awaited()
     assert "Turn complete" not in json.dumps([c.kwargs for c in client.mock_calls]), "no notice"
     client.agents_sessions_setStatus.assert_awaited_with(
@@ -202,7 +205,7 @@ async def test_a_gate_can_be_answered_after_the_process_forgot_it() -> None:
     await stack.assistant._resolve_approval(
         _gate_body(action_id, "U_STRANGER"), reply, approved=True
     )
-    assert "only the person who asked" in reply.call_args.kwargs["text"]
+    assert "only the person who asked" in reply.call_args.kwargs["text"].lower()
     assert not task.done()
 
     await stack.assistant._resolve_approval(_gate_body(action_id, "U1"), reply, approved=True)
@@ -229,7 +232,7 @@ async def test_a_question_whose_turn_died_continues_the_work_in_the_thread() -> 
 
     stack.assistant.process_incoming_request = fake_process  # type: ignore[method-assign]
     reply = AsyncMock()
-    await stack.assistant._resolve_question(_gate_body("q_old:Postgres", "U1"), reply)
+    await stack.assistant._resolve_question(_gate_body("q_old:Postgres", "U1"), reply, reply)
     await asyncio.wait_for(continued.wait(), 5)
 
     assert asked == [(SESSION_ID, "q_old", ["Postgres"], None)]
@@ -302,7 +305,7 @@ async def test_browser_tools_follow_the_sandbox_the_session_uses(
 
 
 @pytest.mark.asyncio
-async def test_a_failed_turn_says_why_in_the_thread() -> None:
+async def test_a_failed_turn_says_so_in_the_thread_without_the_raw_error() -> None:
     stack = Stack(ScriptedModel(final_text="never"))
     _live(stack)
 
@@ -312,4 +315,7 @@ async def test_a_failed_turn_says_why_in_the_thread() -> None:
     stack.assistant._run_shared_turn = broken  # type: ignore[method-assign]
     await stack.send()
 
-    assert "model refused" in stack.say.call_args.kwargs["text"]
+    # A shared thread is told the turn failed, never the raw error (hosts, paths, providers).
+    text = stack.say.call_args.kwargs["text"]
+    assert "Something went wrong" in text and "model refused" not in text
+    assert "retry_request" in json.dumps(stack.say.call_args.kwargs["blocks"])

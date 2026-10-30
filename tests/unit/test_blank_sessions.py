@@ -255,7 +255,7 @@ def test_an_installation_github_does_not_know_is_refused(
 def test_webhook_events_are_attributed_to_the_installations_organization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from api.routers.webhooks import _webhook_identity
+    from api.services.trigger_intake import webhook_identity
 
     class _Req:
         class app:
@@ -265,9 +265,9 @@ def test_webhook_events_are_attributed_to_the_installations_organization(
     monkeypatch.setattr(installations, "_memory", {})
     asyncio.run(installations.bind_installation(None, 31, "org_mapped", "acme", "a"))
     monkeypatch.setenv("ROCKET_WEBHOOK_ORG_ID", "fallback_org")
-    assert asyncio.run(_webhook_identity(_Req(), "bob", 31))[0] == "org_mapped"  # type: ignore[arg-type]
-    assert asyncio.run(_webhook_identity(_Req(), "bob", 999))[0] == "fallback_org"  # type: ignore[arg-type]
-    assert asyncio.run(_webhook_identity(_Req(), "bob", None))[0] == "fallback_org"  # type: ignore[arg-type]
+    assert asyncio.run(webhook_identity(_Req.app, "bob", 31))[0] == "org_mapped"  # type: ignore[arg-type]
+    assert asyncio.run(webhook_identity(_Req.app, "bob", 999))[0] == "fallback_org"  # type: ignore[arg-type]
+    assert asyncio.run(webhook_identity(_Req.app, "bob", None)) == ("fallback_org", "gh_bob")  # type: ignore[arg-type]
 
 
 def test_an_app_that_authorizes_users_during_install_is_mapped_through_the_oauth_callback(

@@ -81,7 +81,7 @@ async def test_build_honours_the_byte_budget(monkeypatch: pytest.MonkeyPatch) ->
     """A build stops once its byte budget is reached."""
     driver = FakeSandboxDriver(seed_files={f"src/f{number}.py": "y" * 500 for number in range(40)})
 
-    async def fake_embedding(text: str) -> list[float]:
+    async def fake_embedding(text: str, model: str = "") -> list[float]:
         return _vector(seed=0.5)
 
     monkeypatch.setattr(code_index_module, "compute_embedding", fake_embedding)
@@ -98,7 +98,7 @@ async def test_build_honours_the_chunk_budget(monkeypatch: pytest.MonkeyPatch) -
     """The chunk budget still caps the number of indexed chunks."""
     driver = FakeSandboxDriver(seed_files={f"src/f{number}.py": "y" * 100 for number in range(20)})
 
-    async def fake_embedding(text: str) -> list[float]:
+    async def fake_embedding(text: str, model: str = "") -> list[float]:
         return _vector(seed=0.25)
 
     monkeypatch.setattr(code_index_module, "compute_embedding", fake_embedding)

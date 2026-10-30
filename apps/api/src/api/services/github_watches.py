@@ -245,15 +245,27 @@ def pending_events_notice(events: list[dict[str, Any]]) -> str:
     )
 
 
+# Session metadata of a session a trigger started: whether it wakes on its pull request's CI and
+# review events to fix them (absent for every other session, which always may).
+AUTO_FIX_KEY = "trigger_auto_fix"
+
+
 def watch_callbacks(
-    store: GithubWatchStore, org_id: str, session_id: str, user_id: str
+    store: GithubWatchStore,
+    org_id: str,
+    session_id: str,
+    user_id: str,
+    *,
+    may_wake: bool = True,
 ) -> tuple[
     Callable[[str, int | None, str | None, bool], Awaitable[str]],
     Callable[[str, int | None, str | None], Awaitable[str]],
 ]:
-    """The follow / stop-following callbacks a turn's tools use, bound to one session."""
+    """The follow / stop-following callbacks a turn's tools use, bound to one session.
+    ``may_wake`` False keeps every watch of the session quiet (shown at the next turn)."""
 
     async def follow(repo: str, pr_number: int | None, branch: str | None, wake: bool) -> str:
+        wake = wake and may_wake
         watch = await store.watch(
             org_id, session_id, repo, pr_number=pr_number, branch=branch, wake=wake, user_id=user_id
         )

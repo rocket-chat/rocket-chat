@@ -9,7 +9,8 @@ sandbox, rotating a token takes effect on the next command, and a stopped sandbo
 
 from __future__ import annotations
 
-from collections.abc import Callable
+import logging
+from collections.abc import Awaitable, Callable
 
 from specifications.interfaces.sandbox import SESSION_ENV_LAYERS
 
@@ -24,8 +25,25 @@ DEFAULT_SANDBOX_CACHE_ENV: dict[str, str] = {
 }
 
 
+logger = logging.getLogger(__name__)
+
+
 class SessionEnvMixin:
-    """Mixin for drivers: remember an env per session and merge it into every exec."""
+    """Mixin for drivers: remember an env per session and merge it into every exec; and the
+    platform's hook before the idle reaper pauses a sandbox."""
+
+    # Set by the platform: runs before the idle reaper pauses a session's sandbox (a snapshot of
+    # its workspace, when the organization asks for one). It never stops the pause.
+    before_idle_pause: Callable[[str], Awaitable[None]] | None = None
+
+    async def _before_idle_pause(self, session_id: str) -> None:
+        hook = self.before_idle_pause
+        if hook is None:
+            return
+        try:
+            await hook(session_id)
+        except Exception as err:
+            logger.warning("The pre-pause hook failed for %s: %s", session_id, err)
 
     _session_env: dict[str, dict[str, str]]
     _session_env_layers: dict[str, dict[str, dict[str, str]]]

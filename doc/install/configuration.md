@@ -110,6 +110,7 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | `ROCKET_PLATFORM_NAMESPACE` | string | `None` | Namespace of the API pods. With the two below, every restricted sandbox's NetworkPolicy allows the API's git gateway (and nothing else of the platform). Set by the Helm chart. |
 | `ROCKET_PLATFORM_POD_LABELS` | string | `None` | `key=value,key=value` labels selecting the API pods. |
 | `ROCKET_PLATFORM_POD_PORT` | int | `8000` | The API container's port. |
+| `K8S_VOLUME_SNAPSHOT_CLASS` | string | `None` | The `VolumeSnapshotClass` workspace snapshots use (Helm `sandbox.snapshots.volumeSnapshotClass`); empty uses the cluster default. Snapshots need a CSI driver with snapshot support. |
 
 ### Docker Sandbox Driver (`DockerSandboxDriver`)
 
@@ -117,6 +118,8 @@ All environment variables can be provided via shell environment, `.env` file, Do
 | :--- | :--- | :--- | :--- |
 | `SANDBOX_INACTIVITY_PAUSE_SECONDS` | int | `300` | Inactivity duration before stopping the Docker container while preserving its named volume. |
 | `SANDBOX_INACTIVITY_CLEANUP_SECONDS` | int | `0` (off) | Idle time after which the container and volume of a session that no longer exists are pruned. |
+| `DOCKER_SNAPSHOT_VOLUME` | string | `rocket_workspace_snapshots` | Docker volume where workspace snapshots are kept as archives. Back it up with your other volumes. |
+| `DOCKER_SNAPSHOT_HELPER_IMAGE` | string | `alpine:3.20` | Small image (with `tar` and `sh`) that writes and reads the snapshot archives; mirror it for air-gapped installs. |
 
 ### MCP runner (command MCP servers)
 
@@ -171,7 +174,26 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 | `GITHUB_APP_ALLOW_UNMAPPED_INSTALLATIONS` | bool | `false` | Legacy single-organization mode: mint App tokens for an installation no organization has mapped. Leave off when organizations share the platform. |
 | `GITHUB_APP_PRIVATE_KEY` | string | `None` | RSA private key PEM for the GitHub App. |
 | `GITHUB_WEBHOOK_SECRET` | string | `None` | HMAC SHA-256 secret configured in GitHub App settings to verify webhook payloads. |
-| `GITHUB_TRIGGER_LABEL` | string | `ai-fix` | Issue label that automatically triggers the autonomous bug-fixing agent workflow. |
+| `GITHUB_TRIGGER_LABEL` | string | `ai-fix` | The issue label of the default triggers of an organization that has configured none (Settings > Organization > Automation). |
+| `GITLAB_URL` | string | `https://gitlab.com` | The GitLab the platform works with (gitlab.com or self-hosted): repositories on it are cloned through the git gateway, published and given merge requests. |
+| `GITLAB_WEBHOOK_SECRET` | string | `None` | The secret token of GitLab webhooks (`POST /v1/webhooks/gitlab?org=<organization id>`). Without it every GitLab webhook is refused. |
+| `GITLAB_TOKEN` | string | `None` | A deployment token used for GitLab repositories when the member added none of their own (Settings > Git & version control). |
+| `JIRA_WEBHOOK_SECRET` | string | `None` | Secret of Jira webhooks (`POST /v1/webhooks/jira?org=<organization id>`, `X-Hub-Signature: sha256=…`). Without it Jira webhooks are refused. |
+| `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` | string | `None` | Where and as whom a session started from a Jira issue comments its outcome on the issue. |
+| `LINEAR_WEBHOOK_SECRET` | string | `None` | Signing secret of Linear webhooks (`POST /v1/webhooks/linear?org=<organization id>`). Without it Linear webhooks are refused. |
+| `LINEAR_API_KEY` | string | `None` | Key a session started from a Linear issue comments its outcome with. |
+
+### Microsoft Teams and Mattermost
+
+Helm: `integrations.*` (secrets in the chart's Secret or `integrations.existingSecret`). Each platform is on when its variables are set.
+
+| Environment Variable | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `TEAMS_APP_ID` | string | `None` | The Azure Bot's Microsoft App ID. Its messaging endpoint is `https://<your address>/v1/chat/teams/messages`. |
+| `TEAMS_APP_PASSWORD` | string | `None` | The Azure Bot's client secret (for replies through the Bot Connector). |
+| `MATTERMOST_URL` | string | `None` | The Mattermost server (`https://chat.example.com`). |
+| `MATTERMOST_BOT_TOKEN` | string | `None` | A Mattermost bot account's access token. |
+| `CHAT_BRIDGE_ORG_ID` | string | `ROCKET_WEBHOOK_ORG_ID` | The organization Teams and Mattermost users work in. |
 | `GIT_BOT_NAME` | string | `RocketChat Bot` | Author name injected into Git commits. |
 | `GIT_BOT_EMAIL` | string | `bot@rocketchat.internal` | Author email injected into Git commits. |
 | `GIT_DEFAULT_BRANCH` | string | `main` | Default target branch for repository checkouts. |

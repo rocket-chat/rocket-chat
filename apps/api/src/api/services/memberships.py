@@ -142,6 +142,15 @@ async def admin_count(session: AsyncSession, org_id: str) -> int:
     )
 
 
+async def member_display_name(db_mgr: Any, org_id: str, user_id: str) -> str:
+    """A member's name as people know it (their e-mail when they have none), or ""."""
+    if db_mgr is None:
+        return ""
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        user = await session.get(UserModel, user_id)
+    return (user.name or user.email) if user is not None else ""
+
+
 async def memberships_of(db_mgr: Any, user_id: str) -> list[Membership]:
     """Every organization the person belongs to (their own rows, across organizations)."""
     if not _has_database(db_mgr):

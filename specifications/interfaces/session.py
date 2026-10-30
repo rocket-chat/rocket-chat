@@ -21,6 +21,8 @@ class SessionSource(str, Enum):
     GITHUB_WEBHOOK = "github_webhook"
     CLI = "cli"
     SCHEDULED = "scheduled"
+    # Microsoft Teams or Mattermost (``metadata.chat_platform``).
+    CHAT = "chat"
 
 
 @dataclass

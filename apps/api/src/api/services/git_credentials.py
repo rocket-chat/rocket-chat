@@ -7,11 +7,12 @@ import os
 import shlex
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import httpx
 from git_engine.engine import GitEngine, pick_installation
+from git_engine.gitlab import GitLabSettings
 
 from api.auth import git_gateway_token
 from api.db.session import DatabaseSessionManager
@@ -57,6 +58,9 @@ class GitCredentialBundle:
     signing: MemberSigning | None = None
     # Something the member should know about their git access, e.g. an expired link.
     warning: str | None = None
+    # The member's GitLab token (``gitlab`` user credential), for repositories on GitLab: used
+    # by the git gateway and publishing only, like ``user_token``.
+    gitlab_token: str | None = field(default=None, repr=False)
 
 
 TOKEN_CHECK_TTL_SECONDS = 300
@@ -343,6 +347,20 @@ async def resolve_session_git_credentials(
     user_overrides: dict[str, Any] | None = None,
     repo: str | None = None,
 ) -> GitCredentialBundle:
+    """The member's git credentials: GitHub (below), and their GitLab token if they added one."""
+    bundle = await _github_credentials(user_id, org_id, git_engine, db_mgr, user_overrides, repo)
+    gitlab = await get_user_credential(db_mgr, user_id, "gitlab", org_id=org_id)
+    return replace(bundle, gitlab_token=gitlab.secret if gitlab else None)
+
+
+async def _github_credentials(
+    user_id: str,
+    org_id: str,
+    git_engine: GitEngine | None,
+    db_mgr: DatabaseSessionManager | None = None,
+    user_overrides: dict[str, Any] | None = None,
+    repo: str | None = None,
+) -> GitCredentialBundle:
     """How the platform reads GitHub for this member, and the member's commit identity.
 
     Every credential here is used on the platform's side only (the git gateway, the GitHub read
@@ -446,7 +464,7 @@ def _gateway_environment(
     session_id: str, org_id: str, user_id: str, api_url: str
 ) -> dict[str, str]:
     capability = git_gateway_token.mint(session_id, org_id, user_id)
-    return sandbox_git_environment(capability, api_url)
+    return sandbox_git_environment(capability, api_url, GitLabSettings.from_env().url)
 
 
 def _capability_refresher(

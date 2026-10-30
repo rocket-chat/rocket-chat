@@ -11,6 +11,7 @@ resolution-markers = [
 members = [
     "agent-core",
     "api",
+    "chat-bridges",
     "config-engine",
     "git-engine",
     "llm-gateway",
@@ -278,6 +279,7 @@ dependencies = [
     { name = "argon2-cffi" },
     { name = "asyncpg" },
     { name = "authlib" },
+    { name = "chat-bridges" },
     { name = "config-engine" },
     { name = "croniter" },
     { name = "cryptography" },
@@ -294,6 +296,7 @@ dependencies = [
     { name = "pgvector" },
     { name = "pydantic" },
     { name = "pyjwt", extra = ["crypto"] },
+    { name = "pypdf" },
     { name = "python-multipart" },
     { name = "pyyaml" },
     { name = "sandbox-driver" },
@@ -315,6 +318,7 @@ requires-dist = [
     { name = "argon2-cffi", specifier = ">=23.1" },
     { name = "asyncpg", specifier = ">=0.29.0" },
     { name = "authlib", specifier = ">=1.8.0" },
+    { name = "chat-bridges", editable = "packages/chat-bridges" },
     { name = "config-engine", editable = "packages/config-engine" },
     { name = "croniter", specifier = ">=6.2.4" },
     { name = "cryptography", specifier = ">=43.0.0" },
@@ -331,6 +335,7 @@ requires-dist = [
     { name = "pgvector", specifier = ">=0.3.0" },
     { name = "pydantic", specifier = ">=2.7.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.9.0" },
+    { name = "pypdf", specifier = ">=5.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "sandbox-driver", editable = "packages/sandbox-driver" },
@@ -870,6 +875,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/8a/b618149cc5207943a0242068d7a27897f56a62947b5a039085f2a22029f8/charset_normalizer-3.5.2-cp37-abi3-win_amd64.whl", hash = "sha256:9f56f72050826f63dcee7a7f55b0a77168cb3bfc553fd405e7f8f9ece75a4036", size = 200092, upload-time = "2026-09-30T04:38:49.707Z" },
     { url = "https://files.pythonhosted.org/packages/03/cf/4c66866fa9e2b1c78e3c911516d1de497a677b7ac60f1eceda74ce777ca3/charset_normalizer-3.5.2-cp37-abi3-win_arm64.whl", hash = "sha256:40ab6bffa02ae10a0581e6c198be7d2d8ca5c2a0c64e4ed3465d766df457573e", size = 294363, upload-time = "2026-09-30T04:38:51.312Z" },
     { url = "https://files.pythonhosted.org/packages/fc/ad/d07d7862a62ffa6d79d68074d14823243dd235a77c45262acbf6adeb28bf/charset_normalizer-3.5.2-py3-none-any.whl", hash = "sha256:b6b751274acb69d77b3323d6b7dbaa3c7fdfc1eb829b7eb61d262f32e1af9685", size = 68872, upload-time = "2026-09-30T04:39:21.828Z" },
+]
+
+[[package]]
+name = "chat-bridges"
+version = "0.7.2"
+source = { editable = "packages/chat-bridges" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "websockets" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.8.0" },
+    { name = "websockets", specifier = ">=12.0" },
 ]
 
 [[package]]
@@ -2025,12 +2047,14 @@ version = "0.7.2"
 source = { editable = "packages/llm-gateway" }
 dependencies = [
     { name = "litellm" },
+    { name = "opentelemetry-api" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "litellm", specifier = ">=1.40.0" },
+    { name = "opentelemetry-api", specifier = ">=1.45.0" },
     { name = "pydantic", specifier = ">=2.7.0" },
 ]
 
@@ -2962,6 +2986,15 @@ crypto = [
 ]
 
 [[package]]
+name = "pypdf"
+version = "6.21.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/1e/e1/ec8f4d155c997c45917153a5521e60d6ee6389d68abdcbc8e44e564caffc/pypdf-6.21.4.tar.gz", hash = "sha256:c8817e3f888d47a087872ded69812c1ef30cacb871d6e053e0c00bbaf0bc2163", size = 7109255, upload-time = "2026-10-28T17:00:54.81Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3f/4b/77e8ad4ac42c9d93600f40541a50e9feb3a61d2bbee2d76f659346072051/pypdf-6.21.4-py3-none-any.whl", hash = "sha256:33e4fb41ca352810eb4e9838aa0d82d6888a5f8bf682f43e99cce5faa666255c", size = 410430, upload-time = "2026-10-28T17:00:53.146Z" },
+]
+
+[[package]]
 name = "pyperclip"
 version = "1.11.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3269,6 +3302,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "agent-core" },
     { name = "api" },
+    { name = "chat-bridges" },
     { name = "config-engine" },
     { name = "git-engine" },
     { name = "llm-gateway" },
@@ -3300,6 +3334,7 @@ dev = [
 requires-dist = [
     { name = "agent-core", editable = "packages/agent-core" },
     { name = "api", editable = "apps/api" },
+    { name = "chat-bridges", editable = "packages/chat-bridges" },
     { name = "config-engine", editable = "packages/config-engine" },
     { name = "git-engine", editable = "packages/git-engine" },
     { name = "llm-gateway", editable = "packages/llm-gateway" },

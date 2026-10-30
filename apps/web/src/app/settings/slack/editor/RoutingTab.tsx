@@ -121,7 +121,7 @@ export const RoutingTab: React.FC<{ editor: BotEditorState; agentOptions: AgentO
     <div className="space-y-5">
       <p className="text-xs text-muted-foreground">
         Who answers a message: its channel&apos;s row first, then the intent the classifier recognises, then the default row.
-        Repository and branch are stored with the row for the sessions it starts.
+        The sessions a row starts are told its repository and branch and clone them first.
       </p>
       <div className="overflow-x-auto rounded-lg border border-border">
         <table className="w-full text-left text-xs" data-testid="routing-table">

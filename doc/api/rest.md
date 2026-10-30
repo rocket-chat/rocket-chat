@@ -561,6 +561,132 @@ Initiate OAuth 2.0 / OIDC authorization code flow.
 
 **Responses:** `200`
 
+## Automation
+
+### `GET /v1/admin/triggers`
+
+The organization's triggers (an organization without any uses the deployment's label).
+
+**Responses:** `200`
+
+### `POST /v1/admin/triggers`
+
+Add a trigger.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | yes |  |
+| source | string | yes |  |
+| filter | TriggerFilterBody | no |  |
+| agent_id | string | no |  |
+| permission_mode | string | no |  |
+| model_tier | string | no |  |
+| sandbox_type | string | no |  |
+| mode | string | no |  |
+| auto_fix | boolean | no |  |
+| instructions | string | no |  |
+| schedule | string | no |  |
+| enabled | boolean | no |  |
+
+**Responses:** `201`
+
+### `PUT /v1/admin/triggers/{trigger_id}`
+
+Replace a trigger.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| trigger_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | yes |  |
+| source | string | yes |  |
+| filter | TriggerFilterBody | no |  |
+| agent_id | string | no |  |
+| permission_mode | string | no |  |
+| model_tier | string | no |  |
+| sandbox_type | string | no |  |
+| mode | string | no |  |
+| auto_fix | boolean | no |  |
+| instructions | string | no |  |
+| schedule | string | no |  |
+| enabled | boolean | no |  |
+
+**Responses:** `200`
+
+### `DELETE /v1/admin/triggers/{trigger_id}`
+
+Delete a trigger.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| trigger_id | path | yes | string |
+
+**Responses:** `204`
+
+### `GET /v1/admin/webhooks`
+
+The organization's outbound webhooks.
+
+**Responses:** `200`
+
+### `POST /v1/admin/webhooks`
+
+Add an outbound webhook; its signing secret is returned once.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| url | string | yes |  |
+| events | list of string | yes |  |
+| description | string | no |  |
+
+**Responses:** `201`
+
+### `DELETE /v1/admin/webhooks/{webhook_id}`
+
+Delete an outbound webhook (its queued reports go with it).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| webhook_id | path | yes | string |
+
+**Responses:** `204`
+
+### `POST /v1/triggers/{trigger_id}/run`
+
+Start a session from an ``api`` trigger, as the caller (an API token or a member). The
+trigger's agent, mode, tier and sandbox type apply; ``idempotency_key`` starts it once.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| trigger_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| prompt | string | yes |  |
+| repository | string | no |  |
+| branch | string | no |  |
+| idempotency_key | string | no |  |
+
+**Responses:** `200`
+
 ## Changes
 
 ### `GET /v1/sessions/{session_id}/changes`
@@ -650,6 +776,15 @@ Undo one changed region of a file; the rest of the file is kept.
 
 **Responses:** `200`
 
+## Chat platforms
+
+### `POST /v1/chat/teams/messages`
+
+A Bot Framework activity: its token is checked, then it is answered in the background
+(Teams expects a reply within seconds; the answer arrives as messages in the thread).
+
+**Responses:** `202`
+
 ## Checkpoints
 
 ### `GET /v1/sessions/{session_id}/checkpoints`
@@ -698,6 +833,43 @@ Restore the workspace to a checkpoint the platform created.
 | :--- | :--- | :--- | :--- |
 | reference | string | yes |  |
 | mode | string | no | 'files' restores tracked files; 'hard' also resets the worktree and index |
+
+**Responses:** `200`
+
+## Credentials
+
+### `GET /v1/credentials/oauth/providers`
+
+The providers that offer signing in instead of pasting a key.
+
+**Responses:** `200`
+
+### `GET /v1/credentials/oauth/{provider}/callback`
+
+The provider sends the browser back here: the code becomes a stored credential of the
+person who started the sign-in (checked against who is signed in now).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| provider | path | yes | string |
+| state | query | yes | string |
+| code | query | no | string |
+
+**Responses:** `200`
+
+### `POST /v1/credentials/oauth/{provider}/start`
+
+Begin signing in: the provider's approval page, and an HttpOnly cookie for the return.
+An organization credential needs an administrator; one's own needs ``bring_own_keys``.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| provider | path | yes | string |
+| owner | query | no | `member` / `org` |
 
 **Responses:** `200`
 
@@ -792,8 +964,9 @@ GitHub's post-install redirect: map the installation to the organization in ``st
 
 ### `POST /api/v1/webhooks/github`
 
-Ingests signed GitHub webhooks (issues.labeled, issue_comment.created).
-Automatically wakes or initializes Docker/K8s sandbox workspaces and resumes ReAct agent loops.
+Signed GitHub webhooks: reports for the sessions that follow a pull request, and events
+for the organization's triggers (issues, comments, pull requests, review comments, failed
+workflow runs). Each delivery starts at most one session, whatever the number of replicas.
 
 **Parameters**
 
@@ -802,13 +975,35 @@ Automatically wakes or initializes Docker/K8s sandbox workspaces and resumes ReA
 | X-Hub-Signature-256 | header | no | string |
 | X-GitHub-Event | header | no | string |
 | X-GitHub-Delivery | header | no | string |
+
+**Responses:** `200`
+
+### `POST /api/v1/webhooks/gitlab`
+
+GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,
+pipelines and notes for the sessions that follow a merge request, and issues, merge
+requests, notes and failed pipelines for the organization's ``gitlab_*`` triggers. The
+organization is ``?org=`` (as the operator connected the project), else the default.
+
+**Responses:** `200`
+
+### `POST /api/v1/webhooks/jira`
+
+Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for ``jira_issue`` triggers.
+
+**Responses:** `200`
+
+### `POST /api/v1/webhooks/linear`
+
+Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for ``linear_issue`` triggers.
 
 **Responses:** `200`
 
 ### `POST /v1/webhooks/github`
 
-Ingests signed GitHub webhooks (issues.labeled, issue_comment.created).
-Automatically wakes or initializes Docker/K8s sandbox workspaces and resumes ReAct agent loops.
+Signed GitHub webhooks: reports for the sessions that follow a pull request, and events
+for the organization's triggers (issues, comments, pull requests, review comments, failed
+workflow runs). Each delivery starts at most one session, whatever the number of replicas.
 
 **Parameters**
 
@@ -819,6 +1014,53 @@ Automatically wakes or initializes Docker/K8s sandbox workspaces and resumes ReA
 | X-GitHub-Delivery | header | no | string |
 
 **Responses:** `200`
+
+### `POST /v1/webhooks/gitlab`
+
+GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,
+pipelines and notes for the sessions that follow a merge request, and issues, merge
+requests, notes and failed pipelines for the organization's ``gitlab_*`` triggers. The
+organization is ``?org=`` (as the operator connected the project), else the default.
+
+**Responses:** `200`
+
+### `POST /v1/webhooks/jira`
+
+Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for ``jira_issue`` triggers.
+
+**Responses:** `200`
+
+### `POST /v1/webhooks/linear`
+
+Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for ``linear_issue`` triggers.
+
+**Responses:** `200`
+
+## GitLab
+
+### `GET /v1/user/credentials/gitlab`
+
+Whether the caller added a GitLab token, and as whom.
+
+**Responses:** `200`
+
+### `PUT /v1/user/credentials/gitlab`
+
+Check a personal (or project) access token with GitLab, then keep it sealed.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| token | string | yes |  |
+
+**Responses:** `200`
+
+### `DELETE /v1/user/credentials/gitlab`
+
+Forget the caller's GitLab token.
+
+**Responses:** `204`
 
 ## Goals & Waits
 
@@ -1841,6 +2083,30 @@ Ingest, chunk, and embed a document into the Knowledge Base.
 | content | string | yes | Raw text or markdown content |
 | source_type | string | no | Document source type (text, file, url) |
 | metadata | object | no | Metadata dictionary |
+
+**Responses:** `200`
+
+### `POST /v1/knowledge/bases/{kb_id}/import`
+
+Import documents from a web page, a documentation site, a PDF or a repository's docs.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| kb_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| kind | `url` / `site` / `pdf` / `repository` | yes |  |
+| url | string | no |  |
+| repository | string | no |  |
+| path | string | no |  |
+| title | string | no |  |
+| content_base64 | string | no |  |
+| max_pages | integer | no |  |
 
 **Responses:** `200`
 
@@ -2924,5 +3190,64 @@ List Directory
 | :--- | :--- | :--- | :--- |
 | session_id | path | yes | string |
 | path | query | no | string |
+
+**Responses:** `200`
+
+## Workspace snapshots
+
+### `GET /v1/sessions/{session_id}/snapshots`
+
+The session's workspace snapshots, oldest first.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/sessions/{session_id}/snapshots`
+
+Save the whole workspace now (the oldest snapshot past the organization's limit goes).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| label | string | no |  |
+
+**Responses:** `201`
+
+### `DELETE /v1/sessions/{session_id}/snapshots/{snapshot_id}`
+
+Delete a snapshot and its storage.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| snapshot_id | path | yes | string |
+
+**Responses:** `204`
+
+### `POST /v1/sessions/{session_id}/snapshots/{snapshot_id}/restore`
+
+Replace the workspace with a snapshot; the sandbox restarts on it at the next command.
+Refused while a turn runs.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| snapshot_id | path | yes | string |
 
 **Responses:** `200`

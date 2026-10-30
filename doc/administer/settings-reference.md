@@ -10,6 +10,7 @@ Every setting declares who decides it (**Policy**), its type, its default and th
 | :-- | :-- | :-- | :-- | :-- |
 | `company_name` | Organization | str | empty | Organization name given to the agent as context. |
 | `starter_skills` | Organization | list | `['review-diff', 'write-tests', 'fix-ci-failure', 'write-pr-description', 'investigate-bug', 'upgrade-dependency']` | The shipped instruction skills members can use (review-diff, write-tests, fix-ci-failure, write-pr-description, investigate-bug, upgrade-dependency). Remove one to turn it off; a skill of the organization's with the same name replaces it. |
+| `repository_skills` | Organization | bool | `True` | Offer the skills a cloned repository brings (`.rocket/skills/<name>/SKILL.md`, and `.claude/skills/`) to the agent: their names and descriptions are listed when it clones the repository, and `execute_skill` reads them. |
 | `session_privacy_default` | Organization | `private` / `shared_org` | `private` | Whether new sessions are private to their owner or shared with the organization. |
 | `public_session_links` | Organization | bool | `False` | Let members create read-only public links to a session's conversation (anyone with the link can read it; turning this off disables links already issued). |
 | `max_turns` | Organization (ceiling: may only be lowered); operator default `AGENT_MAX_TURNS` | min 0, max 500 | `100` | Maximum reasoning steps per turn (0: no limit, the turn runs until the agent answers, is cancelled or reaches a cost cap). It is the default for agents, and the ceiling for an agent that sets its own limit. |
@@ -61,6 +62,9 @@ Every setting declares who decides it (**Policy**), its type, its default and th
 
 | Setting | Policy | Type / values | Default | Description |
 | :-- | :-- | :-- | :-- | :-- |
+| `snapshot_before_hibernate` | Organization | bool | `False` | Save each sandbox's whole workspace (Docker: an archive of its volume; Kubernetes: a VolumeSnapshot) before the idle reaper pauses it, so it can be restored if its volume is lost. |
+| `use_devcontainer_image` | Organization | bool | `True` | When a cloned repository's .devcontainer/devcontainer.json names an image that the sandbox catalogue offers, run the session on it (the workspace is kept). Images the catalogue does not offer are never used. |
+| `workspace_snapshots_kept` | Organization | min 1, max 20 | `3` | How many workspace snapshots a session keeps; the oldest is deleted past it. |
 | `workspace_release_days` | Organization | min 0, max 365 | `7` | Days an idle session keeps its workspace volume (the repositories it cloned) after its sandbox stopped; then the volume is deleted and the next turn starts blank. 0 keeps it as long as the session exists. A sandbox type can set its own. |
 | `default_image` *(deprecated)* | Organization | str | `ghcr.io/rocket-chat/sandbox:0.7.2` | Seeds the sandbox catalogue the first time the organization uses it (the default entry); afterwards manage images under Settings > Organization > Sandboxes. The default is the devbox image with git, Python, Node and common dev tools. |
 | `allowed_images` *(deprecated)* | Organization | list | empty | Legacy fnmatch patterns of extra images sessions may use. Literal images seed the sandbox catalogue; prefer adding entries to the catalogue, which also declares what each image can do. |
@@ -107,8 +111,9 @@ Every setting declares who decides it (**Policy**), its type, its default and th
 | `live_progress` | Org default, Slack bot override | bool | `True` | Stream each tool call into the reply as a step while a turn runs, then write the answer into the same message; off, the answer is posted when the turn ends. |
 | `long_output_to_file` | Org default, Slack bot override | bool | `True` | Attach long answers and large diffs as Slack files instead of splitting them into many messages. |
 | `long_output_chars` | Org default, Slack bot override | min 500, max 20000 | `3500` | Answers longer than this many characters are summarised in the thread and attached in full as a file. |
-| `channel_profiles` | Org default, Slack bot override | dict | `{}` | Per-channel behaviour, keyed by channel id: \{agent_persona, instructions, allowed_tools, sandbox_image, response_mode, repository, branch\}. A channel with a profile uses its persona and house rules; allowed_tools narrows the organization's tool scope for that channel; response_mode ('thread' or 'private') overrides the bot's; repository and branch are stored for the channel's sessions. |
+| `channel_profiles` | Org default, Slack bot override | dict | `{}` | Per-channel behaviour, keyed by channel id: \{agent_persona, instructions, allowed_tools, sandbox_image, response_mode, repository, branch\}. A channel with a profile uses its persona and house rules; allowed_tools narrows the organization's tool scope for that channel; response_mode ('thread' or 'private') overrides the bot's; repository and branch are named in every turn of the channel's sessions, which clone them first. |
 | `allowed_tools` | Org default, Slack bot override | list | `['*']` | Tools the Slack path may use ('*' = every tool except SLACK_BLOCKED_TOOLS). |
+| `dm_continue_minutes` | Org default, Slack bot override | min 0, max 10080 | `60` | A top-level direct message to the bot continues the person's last DM session when it was active within this many minutes, instead of starting a blank one (0: always start a new session). |
 
 ## Governance & data controls (`governance`)
 

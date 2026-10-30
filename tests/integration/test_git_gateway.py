@@ -182,7 +182,7 @@ async def rig(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> AsyncI
         client=httpx.AsyncClient(transport=httpx.MockTransport(github.handler)),
     )
 
-    async def credential(grant: object, repository: str) -> str | None:
+    async def credential(grant: object, repository: str, forge: str = "github") -> str | None:
         return TOKEN
 
     monkeypatch.setattr(gateway, "credential", credential)

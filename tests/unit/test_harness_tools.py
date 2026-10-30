@@ -362,7 +362,7 @@ def test_format_results_renders_path_and_score() -> None:
 async def test_build_code_index_uses_workspace_files(monkeypatch: pytest.MonkeyPatch) -> None:
     driver = FakeDriver([ExecResult(0, "/workspace/src/a.py\n", "", 1)])
 
-    async def fake_embed(text: str) -> list[float]:
+    async def fake_embed(text: str, model: str = "") -> list[float]:
         return [1.0, 0.0]
 
     async def fake_read_file(session_id: str, path: str, **_: Any) -> str:

@@ -27,6 +27,7 @@ from agent_core.permissions import (
     approval_details,
     approval_needed,
     covering_rule,
+    gated_call,
     is_read_call,
     touches_workspace,
 )
@@ -496,11 +497,16 @@ class ToolRegistry:
         """
         ctx = current_execution_ctx.get()
         mode = ctx.policy.permission_mode if ctx is not None else DEFAULT_PERMISSION_MODE
-        need = approval_needed(mode, name, arguments)
+        always_gated = ctx is not None and name in ctx.policy.gated_tools
+        need = approval_needed(mode, name, arguments) or (
+            gated_call(name, arguments) if always_gated else None
+        )
         if need is None:
             return None
         repository = await self._gate_repository(name, arguments)
-        if await self._answered_by_rule(need, arguments, repository):
+        # A tool the transport gates on every call is asked each time: a rule remembered for
+        # the session (perhaps by someone else) never answers it.
+        if not always_gated and await self._answered_by_rule(need, arguments, repository):
             return None
         approve = self._turn_callback("approval")
         if approve is None:
@@ -564,7 +570,10 @@ class ToolRegistry:
         return slug
 
     # Tools that only work on a sandbox image that declares the capability.
-    CAPABILITY_TOOLS: ClassVar[dict[str, str]] = {"browser_inspect": "browser"}
+    CAPABILITY_TOOLS: ClassVar[dict[str, str]] = {
+        "browser_inspect": "browser",
+        "browser_session": "browser",
+    }
 
     def enabled_for_this_turn(self, name: str) -> bool:
         """A tool the session or transport switched on for this turn: a toolset's (Slack's own

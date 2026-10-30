@@ -1766,6 +1766,52 @@
         "title": "CreatedInvite",
         "type": "object"
       },
+      "CreatedWebhookView": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          },
+          "secret_fingerprint": {
+            "title": "Secret Fingerprint",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "events",
+          "description",
+          "enabled",
+          "secret_fingerprint",
+          "secret"
+        ],
+        "title": "CreatedWebhookView",
+        "type": "object"
+      },
       "CredentialBindingModel": {
         "description": "An agent's own credential for one provider.",
         "properties": {
@@ -2583,6 +2629,44 @@
         "title": "GitHubTestPATRequest",
         "type": "object"
       },
+      "GitLabCredentialStatus": {
+        "properties": {
+          "linked": {
+            "title": "Linked",
+            "type": "boolean"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "username": {
+            "default": "",
+            "title": "Username",
+            "type": "string"
+          }
+        },
+        "required": [
+          "linked",
+          "url"
+        ],
+        "title": "GitLabCredentialStatus",
+        "type": "object"
+      },
+      "GitLabTokenRequest": {
+        "properties": {
+          "token": {
+            "maxLength": 500,
+            "minLength": 8,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "GitLabTokenRequest",
+        "type": "object"
+      },
       "GitSigningImportRequest": {
         "properties": {
           "commit_email": {
@@ -3237,6 +3321,79 @@
           "created_at"
         ],
         "title": "KnowledgeDocumentResponse",
+        "type": "object"
+      },
+      "KnowledgeImportRequest": {
+        "description": "Where the documents come from: ``url`` (a page or a PDF), ``site`` (a page and the pages\nunder it), ``pdf`` (``content_base64``) or ``repository`` (its docs folder on GitHub).",
+        "properties": {
+          "content_base64": {
+            "default": "",
+            "maxLength": 45000000,
+            "title": "Content Base64",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "url",
+              "site",
+              "pdf",
+              "repository"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "max_pages": {
+            "default": 25,
+            "maximum": 25.0,
+            "minimum": 1.0,
+            "title": "Max Pages",
+            "type": "integer"
+          },
+          "path": {
+            "default": "docs",
+            "maxLength": 300,
+            "title": "Path",
+            "type": "string"
+          },
+          "repository": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Repository",
+            "type": "string"
+          },
+          "title": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "default": "",
+            "maxLength": 2000,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "KnowledgeImportRequest",
+        "type": "object"
+      },
+      "KnowledgeImportResponse": {
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeDocumentResponse"
+            },
+            "title": "Documents",
+            "type": "array"
+          }
+        },
+        "required": [
+          "documents"
+        ],
+        "title": "KnowledgeImportResponse",
         "type": "object"
       },
       "KnowledgeQueryRequest": {
@@ -6560,6 +6717,37 @@
         "title": "SharingView",
         "type": "object"
       },
+      "SignInProvider": {
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "label"
+        ],
+        "title": "SignInProvider",
+        "type": "object"
+      },
+      "SignInUrl": {
+        "properties": {
+          "authorization_url": {
+            "title": "Authorization Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorization_url"
+        ],
+        "title": "SignInUrl",
+        "type": "object"
+      },
       "SlackBotCreateRequest": {
         "description": "Payload to register a new Slack bot.",
         "properties": {
@@ -7025,6 +7213,73 @@
           }
         },
         "title": "SlackBotUpdateRequest",
+        "type": "object"
+      },
+      "SnapshotList": {
+        "properties": {
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotView"
+            },
+            "title": "Snapshots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "snapshots"
+        ],
+        "title": "SnapshotList",
+        "type": "object"
+      },
+      "SnapshotRequest": {
+        "properties": {
+          "label": {
+            "default": "Saved from the web app",
+            "maxLength": 120,
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "title": "SnapshotRequest",
+        "type": "object"
+      },
+      "SnapshotView": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "integer"
+          },
+          "driver": {
+            "title": "Driver",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "created_at",
+          "driver"
+        ],
+        "title": "SnapshotView",
         "type": "object"
       },
       "SpendLimitRequest": {
@@ -8303,6 +8558,255 @@
         "title": "TreeResponse",
         "type": "object"
       },
+      "TriggerBody": {
+        "properties": {
+          "agent_id": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "auto_fix": {
+            "default": false,
+            "title": "Auto Fix",
+            "type": "boolean"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "filter": {
+            "$ref": "#/components/schemas/TriggerFilterBody"
+          },
+          "instructions": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Instructions",
+            "type": "string"
+          },
+          "mode": {
+            "default": "work",
+            "title": "Mode",
+            "type": "string"
+          },
+          "model_tier": {
+            "default": "",
+            "title": "Model Tier",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "permission_mode": {
+            "default": "",
+            "maxLength": 16,
+            "title": "Permission Mode",
+            "type": "string"
+          },
+          "sandbox_type": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Sandbox Type",
+            "type": "string"
+          },
+          "schedule": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Schedule",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source"
+        ],
+        "title": "TriggerBody",
+        "type": "object"
+      },
+      "TriggerFilterBody": {
+        "properties": {
+          "branches": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Branches",
+            "type": "array"
+          },
+          "labels": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Labels",
+            "type": "array"
+          },
+          "repositories": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Repositories",
+            "type": "array"
+          }
+        },
+        "title": "TriggerFilterBody",
+        "type": "object"
+      },
+      "TriggerList": {
+        "properties": {
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerView"
+            },
+            "title": "Triggers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "triggers"
+        ],
+        "title": "TriggerList",
+        "type": "object"
+      },
+      "TriggerRunBody": {
+        "description": "What an ``api`` trigger works on: the task, and optionally where.",
+        "properties": {
+          "branch": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Branch",
+            "type": "string"
+          },
+          "idempotency_key": {
+            "default": "",
+            "maxLength": 128,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "prompt": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Prompt",
+            "type": "string"
+          },
+          "repository": {
+            "default": "",
+            "maxLength": 200,
+            "title": "Repository",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "title": "TriggerRunBody",
+        "type": "object"
+      },
+      "TriggerRunResult": {
+        "properties": {
+          "session_id": {
+            "default": "",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "TriggerRunResult",
+        "type": "object"
+      },
+      "TriggerView": {
+        "properties": {
+          "agent_id": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "auto_fix": {
+            "default": false,
+            "title": "Auto Fix",
+            "type": "boolean"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "filter": {
+            "$ref": "#/components/schemas/TriggerFilterBody"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "instructions": {
+            "default": "",
+            "maxLength": 4000,
+            "title": "Instructions",
+            "type": "string"
+          },
+          "mode": {
+            "default": "work",
+            "title": "Mode",
+            "type": "string"
+          },
+          "model_tier": {
+            "default": "",
+            "title": "Model Tier",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "permission_mode": {
+            "default": "",
+            "maxLength": 16,
+            "title": "Permission Mode",
+            "type": "string"
+          },
+          "sandbox_type": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Sandbox Type",
+            "type": "string"
+          },
+          "schedule": {
+            "default": "",
+            "maxLength": 120,
+            "title": "Schedule",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source",
+          "id"
+        ],
+        "title": "TriggerView",
+        "type": "object"
+      },
       "TurnMetricsModel": {
         "properties": {
           "compactions": {
@@ -9422,6 +9926,93 @@
         "title": "WaitResponse",
         "type": "object"
       },
+      "WebhookBody": {
+        "properties": {
+          "description": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Description",
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Events",
+            "type": "array"
+          },
+          "url": {
+            "maxLength": 2000,
+            "minLength": 9,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ],
+        "title": "WebhookBody",
+        "type": "object"
+      },
+      "WebhookList": {
+        "properties": {
+          "webhooks": {
+            "items": {
+              "$ref": "#/components/schemas/WebhookView"
+            },
+            "title": "Webhooks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "webhooks"
+        ],
+        "title": "WebhookList",
+        "type": "object"
+      },
+      "WebhookView": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "secret_fingerprint": {
+            "title": "Secret Fingerprint",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "events",
+          "description",
+          "enabled",
+          "secret_fingerprint"
+        ],
+        "title": "WebhookView",
+        "type": "object"
+      },
       "WorkspaceBinding": {
         "properties": {
           "bound_org_id": {
@@ -9888,7 +10479,7 @@
     },
     "/api/v1/webhooks/github": {
       "post": {
-        "description": "Ingests signed GitHub webhooks (issues.labeled, issue_comment.created).\nAutomatically wakes or initializes Docker/K8s sandbox workspaces and resumes ReAct agent loops.",
+        "description": "Signed GitHub webhooks: reports for the sessions that follow a pull request, and events\nfor the organization's triggers (issues, comments, pull requests, review comments, failed\nworkflow runs). Each delivery starts at most one session, whatever the number of replicas.",
         "operationId": "github_webhook_endpoint_api_v1_webhooks_github_post",
         "parameters": [
           {
@@ -9965,6 +10556,78 @@
           }
         },
         "summary": "Github Webhook Endpoint",
+        "tags": [
+          "GitHub Webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/gitlab": {
+      "post": {
+        "description": "GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,\npipelines and notes for the sessions that follow a merge request, and issues, merge\nrequests, notes and failed pipelines for the organization's ``gitlab_*`` triggers. The\norganization is ``?org=`` (as the operator connected the project), else the default.",
+        "operationId": "gitlab_webhook_endpoint_api_v1_webhooks_gitlab_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Gitlab Webhook Endpoint Api V1 Webhooks Gitlab Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Gitlab Webhook Endpoint",
+        "tags": [
+          "GitHub Webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/jira": {
+      "post": {
+        "description": "Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for ``jira_issue`` triggers.",
+        "operationId": "jira_webhook_endpoint_api_v1_webhooks_jira_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Jira Webhook Endpoint Api V1 Webhooks Jira Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Jira Webhook Endpoint",
+        "tags": [
+          "GitHub Webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/linear": {
+      "post": {
+        "description": "Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for ``linear_issue`` triggers.",
+        "operationId": "linear_webhook_endpoint_api_v1_webhooks_linear_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Linear Webhook Endpoint Api V1 Webhooks Linear Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Linear Webhook Endpoint",
         "tags": [
           "GitHub Webhooks"
         ]
@@ -11580,6 +12243,155 @@
         ]
       }
     },
+    "/v1/admin/triggers": {
+      "get": {
+        "description": "The organization's triggers (an organization without any uses the deployment's label).",
+        "operationId": "get_triggers_v1_admin_triggers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Triggers",
+        "tags": [
+          "Automation"
+        ]
+      },
+      "post": {
+        "description": "Add a trigger.",
+        "operationId": "create_trigger_v1_admin_triggers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Trigger",
+        "tags": [
+          "Automation"
+        ]
+      }
+    },
+    "/v1/admin/triggers/{trigger_id}": {
+      "delete": {
+        "description": "Delete a trigger.",
+        "operationId": "remove_trigger_v1_admin_triggers__trigger_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trigger_id",
+            "required": true,
+            "schema": {
+              "title": "Trigger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Trigger",
+        "tags": [
+          "Automation"
+        ]
+      },
+      "put": {
+        "description": "Replace a trigger.",
+        "operationId": "update_trigger_v1_admin_triggers__trigger_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trigger_id",
+            "required": true,
+            "schema": {
+              "title": "Trigger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Trigger",
+        "tags": [
+          "Automation"
+        ]
+      }
+    },
     "/v1/admin/users": {
       "get": {
         "description": "List the organization's members (admin/owner only).",
@@ -11795,6 +12607,104 @@
         "summary": "Reset Local Password",
         "tags": [
           "Admin \u00b7 Users"
+        ]
+      }
+    },
+    "/v1/admin/webhooks": {
+      "get": {
+        "description": "The organization's outbound webhooks.",
+        "operationId": "get_webhooks_v1_admin_webhooks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Webhooks",
+        "tags": [
+          "Automation"
+        ]
+      },
+      "post": {
+        "description": "Add an outbound webhook; its signing secret is returned once.",
+        "operationId": "create_webhook_v1_admin_webhooks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedWebhookView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Webhook",
+        "tags": [
+          "Automation"
+        ]
+      }
+    },
+    "/v1/admin/webhooks/{webhook_id}": {
+      "delete": {
+        "description": "Delete an outbound webhook (its queued reports go with it).",
+        "operationId": "remove_webhook_v1_admin_webhooks__webhook_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "webhook_id",
+            "required": true,
+            "schema": {
+              "title": "Webhook Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Webhook",
+        "tags": [
+          "Automation"
         ]
       }
     },
@@ -12186,6 +13096,173 @@
         ]
       }
     },
+    "/v1/chat/teams/messages": {
+      "post": {
+        "description": "A Bot Framework activity: its token is checked, then it is answered in the background\n(Teams expects a reply within seconds; the answer arrives as messages in the thread).",
+        "operationId": "teams_messages_v1_chat_teams_messages_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Teams Messages V1 Chat Teams Messages Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Teams Messages",
+        "tags": [
+          "Chat platforms"
+        ]
+      }
+    },
+    "/v1/credentials/oauth/providers": {
+      "get": {
+        "description": "The providers that offer signing in instead of pasting a key.",
+        "operationId": "sign_in_providers_v1_credentials_oauth_providers_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SignInProvider"
+                  },
+                  "title": "Response Sign In Providers V1 Credentials Oauth Providers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sign In Providers",
+        "tags": [
+          "Credentials"
+        ]
+      }
+    },
+    "/v1/credentials/oauth/{provider}/callback": {
+      "get": {
+        "description": "The provider sends the browser back here: the code becomes a stored credential of the\nperson who started the sign-in (checked against who is signed in now).",
+        "operationId": "finish_provider_sign_in_v1_credentials_oauth__provider__callback_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finish Provider Sign In",
+        "tags": [
+          "Credentials"
+        ]
+      }
+    },
+    "/v1/credentials/oauth/{provider}/start": {
+      "post": {
+        "description": "Begin signing in: the provider's approval page, and an HttpOnly cookie for the return.\nAn organization credential needs an administrator; one's own needs ``bring_own_keys``.",
+        "operationId": "start_provider_sign_in_v1_credentials_oauth__provider__start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "default": "member",
+              "enum": [
+                "member",
+                "org"
+              ],
+              "title": "Owner",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInUrl"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Provider Sign In",
+        "tags": [
+          "Credentials"
+        ]
+      }
+    },
     "/v1/drain": {
       "post": {
         "description": "Marks this replica as draining: new work is refused with 503 while running turns finish. Called by the pod's preStop hook; administrators only.",
@@ -12493,6 +13570,59 @@
           }
         },
         "summary": "Ingest Knowledge Document",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/knowledge/bases/{kb_id}/import": {
+      "post": {
+        "description": "Import documents from a web page, a documentation site, a PDF or a repository's docs.",
+        "operationId": "import_knowledge_v1_knowledge_bases__kb_id__import_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kb_id",
+            "required": true,
+            "schema": {
+              "title": "Kb Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Knowledge",
         "tags": [
           "Sessions & Telemetry"
         ]
@@ -16452,6 +17582,197 @@
         ]
       }
     },
+    "/v1/sessions/{session_id}/snapshots": {
+      "get": {
+        "description": "The session's workspace snapshots, oldest first.",
+        "operationId": "list_snapshots_v1_sessions__session_id__snapshots_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Snapshots",
+        "tags": [
+          "Workspace snapshots"
+        ]
+      },
+      "post": {
+        "description": "Save the whole workspace now (the oldest snapshot past the organization's limit goes).",
+        "operationId": "create_snapshot_v1_sessions__session_id__snapshots_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SnapshotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Snapshot",
+        "tags": [
+          "Workspace snapshots"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/snapshots/{snapshot_id}": {
+      "delete": {
+        "description": "Delete a snapshot and its storage.",
+        "operationId": "remove_snapshot_v1_sessions__session_id__snapshots__snapshot_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "required": true,
+            "schema": {
+              "title": "Snapshot Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Snapshot",
+        "tags": [
+          "Workspace snapshots"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/snapshots/{snapshot_id}/restore": {
+      "post": {
+        "description": "Replace the workspace with a snapshot; the sandbox restarts on it at the next command.\nRefused while a turn runs.",
+        "operationId": "restore_v1_sessions__session_id__snapshots__snapshot_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "snapshot_id",
+            "required": true,
+            "schema": {
+              "title": "Snapshot Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore",
+        "tags": [
+          "Workspace snapshots"
+        ]
+      }
+    },
     "/v1/sessions/{session_id}/spend": {
       "get": {
         "description": "What the caller has left under the limits of this session (the header chip).",
@@ -18121,6 +19442,59 @@
         ]
       }
     },
+    "/v1/triggers/{trigger_id}/run": {
+      "post": {
+        "description": "Start a session from an ``api`` trigger, as the caller (an API token or a member). The\ntrigger's agent, mode, tier and sandbox type apply; ``idempotency_key`` starts it once.",
+        "operationId": "run_trigger_v1_triggers__trigger_id__run_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trigger_id",
+            "required": true,
+            "schema": {
+              "title": "Trigger Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerRunBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerRunResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Trigger",
+        "tags": [
+          "Automation"
+        ]
+      }
+    },
     "/v1/user/api-tokens": {
       "get": {
         "description": "The signed-in member's API tokens (never their secrets).",
@@ -18470,6 +19844,81 @@
         ]
       }
     },
+    "/v1/user/credentials/gitlab": {
+      "delete": {
+        "description": "Forget the caller's GitLab token.",
+        "operationId": "remove_gitlab_token_v1_user_credentials_gitlab_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Remove Gitlab Token",
+        "tags": [
+          "GitLab"
+        ]
+      },
+      "get": {
+        "description": "Whether the caller added a GitLab token, and as whom.",
+        "operationId": "gitlab_status_v1_user_credentials_gitlab_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitLabCredentialStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Gitlab Status",
+        "tags": [
+          "GitLab"
+        ]
+      },
+      "put": {
+        "description": "Check a personal (or project) access token with GitLab, then keep it sealed.",
+        "operationId": "save_gitlab_token_v1_user_credentials_gitlab_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitLabTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitLabCredentialStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Gitlab Token",
+        "tags": [
+          "GitLab"
+        ]
+      }
+    },
     "/v1/user/credentials/{credential_id}": {
       "delete": {
         "operationId": "delete_my_credential_v1_user_credentials__credential_id__delete",
@@ -18725,7 +20174,7 @@
     },
     "/v1/webhooks/github": {
       "post": {
-        "description": "Ingests signed GitHub webhooks (issues.labeled, issue_comment.created).\nAutomatically wakes or initializes Docker/K8s sandbox workspaces and resumes ReAct agent loops.",
+        "description": "Signed GitHub webhooks: reports for the sessions that follow a pull request, and events\nfor the organization's triggers (issues, comments, pull requests, review comments, failed\nworkflow runs). Each delivery starts at most one session, whatever the number of replicas.",
         "operationId": "github_webhook_endpoint_v1_webhooks_github_post",
         "parameters": [
           {
@@ -18802,6 +20251,78 @@
           }
         },
         "summary": "Github Webhook Endpoint",
+        "tags": [
+          "GitHub Webhooks"
+        ]
+      }
+    },
+    "/v1/webhooks/gitlab": {
+      "post": {
+        "description": "GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,\npipelines and notes for the sessions that follow a merge request, and issues, merge\nrequests, notes and failed pipelines for the organization's ``gitlab_*`` triggers. The\norganization is ``?org=`` (as the operator connected the project), else the default.",
+        "operationId": "gitlab_webhook_endpoint_v1_webhooks_gitlab_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Gitlab Webhook Endpoint V1 Webhooks Gitlab Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Gitlab Webhook Endpoint",
+        "tags": [
+          "GitHub Webhooks"
+        ]
+      }
+    },
+    "/v1/webhooks/jira": {
+      "post": {
+        "description": "Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for ``jira_issue`` triggers.",
+        "operationId": "jira_webhook_endpoint_v1_webhooks_jira_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Jira Webhook Endpoint V1 Webhooks Jira Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Jira Webhook Endpoint",
+        "tags": [
+          "GitHub Webhooks"
+        ]
+      }
+    },
+    "/v1/webhooks/linear": {
+      "post": {
+        "description": "Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for ``linear_issue`` triggers.",
+        "operationId": "linear_webhook_endpoint_v1_webhooks_linear_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Linear Webhook Endpoint V1 Webhooks Linear Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Linear Webhook Endpoint",
         "tags": [
           "GitHub Webhooks"
         ]

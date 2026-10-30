@@ -16,6 +16,7 @@ from fnmatch import fnmatch
 from types import EllipsisType
 from typing import Any
 
+from agent_core.tool_loading import current_tool_names
 from config_engine import Preset
 from config_engine.cascading import RoutingPolicy, model_is_allowed
 from config_engine.model_defaults import fallback_models_for
@@ -426,7 +427,9 @@ class TurnService:
             name=agent.name if agent else "",
             system_prompt=agent.system_prompt if agent else None,
             whitelisted_tools=(
-                list(agent.whitelisted_tools) if agent and agent.whitelisted_tools else None
+                current_tool_names(list(agent.whitelisted_tools))
+                if agent and agent.whitelisted_tools
+                else None
             ),
             model=model,
             max_turns=await step_limit_for(db_mgr, org_id, agent),

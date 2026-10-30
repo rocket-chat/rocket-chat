@@ -1,25 +1,214 @@
 {
-  "tasks": [
-    {
-      "id": "go-uuid-must-parse-bytes",
-      "language": "go",
-      "prompt": "Clone google/uuid. Add a function `MustParseBytes(b []byte) UUID` next to `MustParse`: it behaves like `ParseBytes` and panics when the input is invalid, with the same panic message style as `MustParse`. Add a test for it, run the package's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
-      "workdir": "/workspace/uuid",
-      "verify": "cat > zz_bench_test.go <<'EOF'\npackage uuid\n\nimport \"testing\"\n\nfunc TestBenchMustParseBytes(t *testing.T) {\n\tif MustParseBytes([]byte(\"f47ac10b-58cc-0372-8567-0e02b2c3d479\")).String() != \"f47ac10b-58cc-0372-8567-0e02b2c3d479\" {\n\t\tt.Fatal(\"wrong value\")\n\t}\n\tdefer func() {\n\t\tif recover() == nil {\n\t\t\tt.Fatal(\"no panic on invalid input\")\n\t\t}\n\t}()\n\tMustParseBytes([]byte(\"nope\"))\n}\nEOF\ngo test ./... && rm zz_bench_test.go"
-    },
-    {
-      "id": "py-markupsafe-escape-all",
-      "language": "python",
-      "prompt": "Clone pallets/markupsafe. Add a public function `escape_all(values)` to the package: it takes an iterable and returns a list with `escape` applied to each item, in order. Export it from the package like `escape`, add a test, run the existing test suite in the sandbox, and stop when it passes. Do not push or open a pull request.",
-      "workdir": "/workspace/markupsafe",
-      "verify": "python -m pip install -q -e . && python -c \"from markupsafe import escape_all, Markup; r = escape_all(['<a>', 1]); assert r == [Markup('&lt;a&gt;'), Markup('1')], r\""
-    },
-    {
-      "id": "js-clsx-dedupe",
-      "language": "javascript",
-      "prompt": "Clone lukeed/clsx. Export a new named function `clsxDedupe(...inputs)` from the main entry: it accepts the same inputs as `clsx` and returns the same string without repeated class names, keeping the first occurrence. Add a test, run the existing tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
-      "workdir": "/workspace/clsx",
-      "verify": "node --input-type=module -e \"import { clsxDedupe } from './src/index.js'; const r = clsxDedupe('a b', {b: true, c: true}, ['a', 'd']); if (r !== 'a b c d') { throw new Error(r); }\""
-    }
-  ]
+ "tasks": [
+  {
+   "id": "go-uuid-must-parse-bytes",
+   "language": "go",
+   "prompt": "Clone google/uuid. Add a function `MustParseBytes(b []byte) UUID` next to `MustParse`: it behaves like `ParseBytes` and panics when the input is invalid, with the same panic message style as `MustParse`. Add a test for it, run the package's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/uuid",
+   "verify": "cat > zz_bench_test.go <<'EOF'\npackage uuid\n\nimport \"testing\"\n\nfunc TestBenchMustParseBytes(t *testing.T) {\n\tif MustParseBytes([]byte(\"f47ac10b-58cc-0372-8567-0e02b2c3d479\")).String() != \"f47ac10b-58cc-0372-8567-0e02b2c3d479\" {\n\t\tt.Fatal(\"wrong value\")\n\t}\n\tdefer func() {\n\t\tif recover() == nil {\n\t\t\tt.Fatal(\"no panic on invalid input\")\n\t\t}\n\t}()\n\tMustParseBytes([]byte(\"nope\"))\n}\nEOF\ngo test ./... && rm zz_bench_test.go"
+  },
+  {
+   "id": "py-markupsafe-escape-all",
+   "language": "python",
+   "prompt": "Clone pallets/markupsafe. Add a public function `escape_all(values)` to the package: it takes an iterable and returns a list with `escape` applied to each item, in order. Export it from the package like `escape`, add a test, run the existing test suite in the sandbox, and stop when it passes. Do not push or open a pull request.",
+   "workdir": "/workspace/markupsafe",
+   "verify": "python -m pip install -q -e . && python -c \"from markupsafe import escape_all, Markup; r = escape_all(['<a>', 1]); assert r == [Markup('&lt;a&gt;'), Markup('1')], r\""
+  },
+  {
+   "id": "js-clsx-dedupe",
+   "language": "javascript",
+   "prompt": "Clone lukeed/clsx. Export a new named function `clsxDedupe(...inputs)` from the main entry: it accepts the same inputs as `clsx` and returns the same string without repeated class names, keeping the first occurrence. Add a test, run the existing tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/clsx",
+   "verify": "node --input-type=module -e \"import { clsxDedupe } from './src/index.js'; const r = clsxDedupe('a b', {b: true, c: true}, ['a', 'd']); if (r !== 'a b c d') { throw new Error(r); }\""
+  },
+  {
+   "id": "go-uuid-is-nil",
+   "language": "go",
+   "prompt": "Clone google/uuid. Add a method `func (u UUID) IsNil() bool` that reports whether the UUID is the nil UUID (all zero bytes). Add a test for it, run the package's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/uuid",
+   "verify": "cat > zz_bench_test.go <<'EOF'\npackage uuid\n\nimport \"testing\"\n\nfunc TestBenchIsNil(t *testing.T) {\n\tif !Nil.IsNil() || New().IsNil() {\n\t\tt.Fatal(\"IsNil is wrong\")\n\t}\n}\nEOF\ngo test ./... && rm zz_bench_test.go"
+  },
+  {
+   "id": "go-semver-is-stable",
+   "language": "go",
+   "prompt": "Clone Masterminds/semver. Add a method `func (v *Version) IsStable() bool` to the v3 package: true when the version has no prerelease part and its major version is at least 1. Add a test for it, run the package's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/semver",
+   "verify": "cat > zz_bench_test.go <<'EOF'\npackage semver\n\nimport \"testing\"\n\nfunc TestBenchIsStable(t *testing.T) {\n\tfor in, want := range map[string]bool{\"1.2.3\": true, \"0.9.0\": false, \"2.0.0-beta.1\": false} {\n\t\tif MustParse(in).IsStable() != want {\n\t\t\tt.Fatalf(\"%s: want %v\", in, want)\n\t\t}\n\t}\n}\nEOF\ngo test ./... && rm zz_bench_test.go"
+  },
+  {
+   "id": "go-humanize-comma-int",
+   "language": "go",
+   "prompt": "Clone dustin/go-humanize. Add `func CommaInt(v int) string` next to `Comma`: it formats an int exactly as `Comma` formats the same value as an int64. Add a test for it, run the package's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/go-humanize",
+   "verify": "cat > zz_bench_test.go <<'EOF'\npackage humanize\n\nimport \"testing\"\n\nfunc TestBenchCommaInt(t *testing.T) {\n\tif CommaInt(1234567) != \"1,234,567\" || CommaInt(-1000) != \"-1,000\" {\n\t\tt.Fatal(\"CommaInt is wrong\")\n\t}\n}\nEOF\ngo test ./... && rm zz_bench_test.go"
+  },
+  {
+   "id": "go-color-strip-ansi",
+   "language": "go",
+   "prompt": "Clone fatih/color. Add `func StripANSI(s string) string` to the package: it removes SGR escape sequences (ESC `[` digits and semicolons `m`) and keeps the rest of the text. Add a test for it, run the package's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/color",
+   "verify": "cat > zz_bench_test.go <<'EOF'\npackage color\n\nimport \"testing\"\n\nfunc TestBenchStripANSI(t *testing.T) {\n\tif StripANSI(\"\\x1b[31;1mred\\x1b[0m plain\") != \"red plain\" {\n\t\tt.Fatal(\"StripANSI is wrong\")\n\t}\n}\nEOF\ngo test ./... && rm zz_bench_test.go"
+  },
+  {
+   "id": "go-multierror-len",
+   "language": "go",
+   "prompt": "Clone hashicorp/go-multierror. Add a method `func (e *Error) Len() int` returning how many errors it holds; a nil `*Error` has 0. Add a test for it, run the package's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/go-multierror",
+   "verify": "cat > zz_bench_test.go <<'EOF'\npackage multierror\n\nimport \"testing\"\n\nfunc TestBenchLen(t *testing.T) {\n\tvar none *Error\n\tif none.Len() != 0 {\n\t\tt.Fatal(\"nil\")\n\t}\n\tvar err error\n\terr = Append(err, errTest(\"a\"), errTest(\"b\"))\n\tif err.(*Error).Len() != 2 {\n\t\tt.Fatal(\"count\")\n\t}\n}\n\ntype errTest string\n\nfunc (e errTest) Error() string { return string(e) }\nEOF\ngo test ./... && rm zz_bench_test.go"
+  },
+  {
+   "id": "rust-semver-is-prerelease",
+   "language": "rust",
+   "prompt": "Clone dtolnay/semver. Add a public method `pub fn is_prerelease(&self) -> bool` to `Version`: true when its pre-release part is not empty. Add a test for it, run the crate's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/semver",
+   "verify": "mkdir -p tests && cat > tests/zz_bench.rs <<'EOF'\nuse semver;\n\n#[test]\nfn bench_is_prerelease() {\n    assert!(semver::Version::parse(\"1.0.0-alpha.1\").unwrap().is_prerelease());\n    assert!(!semver::Version::parse(\"1.0.0\").unwrap().is_prerelease());\n}\nEOF\ncargo test --quiet --test zz_bench && rm tests/zz_bench.rs"
+  },
+  {
+   "id": "rust-glob-is-glob",
+   "language": "rust",
+   "prompt": "Clone rust-lang/glob. Add a public function `pub fn is_glob(s: &str) -> bool` at the crate root: true when the string contains an unescaped `*`, `?` or `[`. Add a test for it, run the crate's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/glob",
+   "verify": "mkdir -p tests && cat > tests/zz_bench.rs <<'EOF'\nuse glob;\n\n#[test]\nfn bench_is_glob() {\n    assert!(glob::is_glob(\"src/*.rs\"));\n    assert!(glob::is_glob(\"a?b\"));\n    assert!(!glob::is_glob(\"plain/path.rs\"));\n}\nEOF\ncargo test --quiet --test zz_bench && rm tests/zz_bench.rs"
+  },
+  {
+   "id": "rust-unindent-lines",
+   "language": "rust",
+   "prompt": "Clone dtolnay/unindent. Add a public function `pub fn unindent_lines(s: &str) -> Vec<String>` at the crate root: it unindents like `unindent` and returns the result split into lines. Add a test for it, run the crate's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/unindent",
+   "verify": "mkdir -p tests && cat > tests/zz_bench.rs <<'EOF'\nuse unindent;\n\n#[test]\nfn bench_unindent_lines() {\n    assert_eq!(unindent::unindent_lines(\"\\n    a\\n      b\\n\"), vec![\"a\".to_string(), \"  b\".to_string()]);\n}\nEOF\ncargo test --quiet --test zz_bench && rm tests/zz_bench.rs"
+  },
+  {
+   "id": "rust-itoa-to-string",
+   "language": "rust",
+   "prompt": "Clone dtolnay/itoa. Add a public function `pub fn to_string<I: Integer>(value: I) -> String` at the crate root that formats any supported integer with a `Buffer`. Add a test for it, run the crate's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/itoa",
+   "verify": "mkdir -p tests && cat > tests/zz_bench.rs <<'EOF'\nuse itoa;\n\n#[test]\nfn bench_to_string() {\n    assert_eq!(itoa::to_string(-42i32), \"-42\");\n    assert_eq!(itoa::to_string(u64::MAX), \"18446744073709551615\");\n}\nEOF\ncargo test --quiet --test zz_bench && rm tests/zz_bench.rs"
+  },
+  {
+   "id": "rust-unicode-ident-is-identifier",
+   "language": "rust",
+   "prompt": "Clone dtolnay/unicode-ident. Add a public function `pub fn is_identifier(s: &str) -> bool` at the crate root: non-empty, its first character is XID_Start or `_`, every other one XID_Continue. Add a test for it, run the crate's tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/unicode-ident",
+   "verify": "mkdir -p tests && cat > tests/zz_bench.rs <<'EOF'\nuse unicode_ident;\n\n#[test]\nfn bench_is_identifier() {\n    assert!(unicode_ident::is_identifier(\"_café1\"));\n    assert!(!unicode_ident::is_identifier(\"1abc\"));\n    assert!(!unicode_ident::is_identifier(\"\"));\n}\nEOF\ncargo test --quiet --test zz_bench && rm tests/zz_bench.rs"
+  },
+  {
+   "id": "py-packaging-is-prerelease",
+   "language": "python",
+   "prompt": "Clone pypa/packaging. Add a function `is_prerelease_version(text)` to `packaging.version`: it returns whether the version is a pre-release, and False for a string that is not a valid version. Add a test, run the existing test suite in the sandbox, and stop when it passes. Do not push or open a pull request.",
+   "workdir": "/workspace/packaging",
+   "verify": "python -m pip install -q -e . && python -c \"from packaging.version import is_prerelease_version as f; assert f('1.0rc1') and not f('1.0') and not f('not-a-version')\""
+  },
+  {
+   "id": "py-cachetools-lru-keys",
+   "language": "python",
+   "prompt": "Clone tkem/cachetools. Add a function `lru_keys(cache)` to the `cachetools` package (exported from it): for an `LRUCache` it returns the keys from least to most recently used. Add a test, run the existing test suite in the sandbox, and stop when it passes. Do not push or open a pull request.",
+   "workdir": "/workspace/cachetools",
+   "verify": "python -m pip install -q -e . && python -c \"from cachetools import LRUCache, lru_keys; c = LRUCache(3); c['a'] = 1; c['b'] = 2; c['a']; assert lru_keys(c) == ['b', 'a'], lru_keys(c)\""
+  },
+  {
+   "id": "py-more-itertools-every-other",
+   "language": "python",
+   "prompt": "Clone more-itertools/more-itertools. Add a function `every_other(iterable)` to `more_itertools` (exported like the others): it yields the items at even positions (0, 2, 4...). Add a test, run the existing test suite in the sandbox, and stop when it passes. Do not push or open a pull request.",
+   "workdir": "/workspace/more-itertools",
+   "verify": "python -m pip install -q -e . && python -c \"from more_itertools import every_other; assert list(every_other('abcde')) == ['a', 'c', 'e']\""
+  },
+  {
+   "id": "py-slugify-list",
+   "language": "python",
+   "prompt": "Clone un33k/python-slugify. Add a function `slugify_list(values, **kwargs)` exported from the `slugify` package: it returns `slugify` applied to each value with the same keyword arguments. Add a test, run the existing test suite in the sandbox, and stop when it passes. Do not push or open a pull request.",
+   "workdir": "/workspace/python-slugify",
+   "verify": "python -m pip install -q -e . && python -c \"from slugify import slugify_list; assert slugify_list(['Hello World', 'A B'], separator='_') == ['hello_world', 'a_b']\""
+  },
+  {
+   "id": "py-boltons-first-n",
+   "language": "python",
+   "prompt": "Clone mahmoud/boltons. Add a function `first_n(iterable, n)` to `boltons.iterutils`: it returns a list of the first n items (fewer when the iterable is shorter, an empty list for n <= 0). Add a test, run the existing test suite in the sandbox, and stop when it passes. Do not push or open a pull request.",
+   "workdir": "/workspace/boltons",
+   "verify": "python -m pip install -q -e . && python -c \"from boltons.iterutils import first_n; assert first_n(range(10), 3) == [0, 1, 2] and first_n([1], 5) == [1] and first_n([1, 2], 0) == []\""
+  },
+  {
+   "id": "py-requests-is-https",
+   "language": "python",
+   "prompt": "Clone psf/requests. Add a function `is_https(url)` to `requests.utils`: True when the URL's scheme is https (case-insensitive), False otherwise. Add a test, run the existing test suite in the sandbox, and stop when it passes. Do not push or open a pull request.",
+   "workdir": "/workspace/requests",
+   "verify": "python -m pip install -q -e . && python -c \"from requests.utils import is_https; assert is_https('HTTPS://a.example/x') and not is_https('http://a.example')\""
+  },
+  {
+   "id": "py-pathspec-matches-any",
+   "language": "python",
+   "prompt": "Clone cpburnz/python-pathspec. Add a function `matches_any(patterns, path)` exported from the `pathspec` package: whether the path matches any of the gitignore-style patterns. Add a test, run the existing test suite in the sandbox, and stop when it passes. Do not push or open a pull request.",
+   "workdir": "/workspace/python-pathspec",
+   "verify": "python -m pip install -q -e . && python -c \"from pathspec import matches_any; assert matches_any(['*.log', 'build/'], 'build/out.txt') and not matches_any(['*.log'], 'src/a.py')\""
+  },
+  {
+   "id": "py-tomli-load-path",
+   "language": "python",
+   "prompt": "Clone hukkin/tomli. Add a function `load_path(path)` exported from `tomli`: it reads the TOML file at the path (str or Path) and returns the parsed dict. Add a test, run the existing test suite in the sandbox, and stop when it passes. Do not push or open a pull request.",
+   "workdir": "/workspace/tomli",
+   "verify": "python -m pip install -q -e . && python -c \"import tempfile, pathlib, tomli; p = pathlib.Path(tempfile.mkdtemp()) / 'a.toml'; p.write_text('x = 1'); assert tomli.load_path(p) == {'x': 1} and tomli.load_path(str(p)) == {'x': 1}\""
+  },
+  {
+   "id": "js-escape-string-regexp-all",
+   "language": "javascript",
+   "prompt": "Clone sindresorhus/escape-string-regexp. Export a new named function `escapeStringRegexpAll(values)` from `index.js`: it returns an array with each string escaped like the default export. Add a test, run the existing tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/escape-string-regexp",
+   "verify": "node --input-type=module -e \"import { escapeStringRegexpAll } from './index.js'; const r = escapeStringRegexpAll(['a.b', '(x)']); if (r[0] !== 'a\\\\\\\\.b' || r[1] !== '\\\\\\\\(x\\\\\\\\)') { throw new Error(JSON.stringify(r)); }\""
+  },
+  {
+   "id": "js-camelcase-keys",
+   "language": "javascript",
+   "prompt": "Clone sindresorhus/camelcase. Export a new named function `camelCaseKeys(object)` from `index.js`: it returns a new object whose own keys are converted with the default export (values unchanged, not recursive). Add a test, run the existing tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/camelcase",
+   "verify": "node --input-type=module -e \"import { camelCaseKeys } from './index.js'; const r = camelCaseKeys({'foo-bar': 1, baz_qux: {a_b: 2}}); if (r.fooBar !== 1 || !r.bazQux || r.bazQux.a_b !== 2) { throw new Error(JSON.stringify(r)); }\""
+  },
+  {
+   "id": "js-nanoid-list",
+   "language": "javascript",
+   "prompt": "Clone ai/nanoid. Export a new named function `nanoidList(count, size = 21)` from the main entry (`index.js`): it returns an array of `count` distinct ids, each of length `size`. Add a test, run the existing tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/nanoid",
+   "verify": "node --input-type=module -e \"import { nanoidList } from './index.js'; const r = nanoidList(50, 10); if (r.length !== 50 || new Set(r).size !== 50 || r.some(id => id.length !== 10)) { throw new Error('wrong'); }\""
+  },
+  {
+   "id": "js-is-number-list",
+   "language": "javascript",
+   "prompt": "Clone jonschlinkert/is-number. Add `isNumberList(values)` as a property of the module's export (`module.exports.isNumberList`): true when every value passes `isNumber`. Add a test, run the existing tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/is-number",
+   "verify": "node -e \"const isNumber = require('./index.js'); if (!isNumber.isNumberList([1, '2', 3.5]) || isNumber.isNumberList([1, 'x'])) { throw new Error('wrong'); }\""
+  },
+  {
+   "id": "js-escape-html-all",
+   "language": "javascript",
+   "prompt": "Clone component/escape-html. Add `escapeAll(values)` as a property of the module's export: it returns the values escaped like the module does. Add a test, run the existing tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/escape-html",
+   "verify": "node -e \"const e = require('./index.js'); const r = e.escapeAll(['<a>', '\\\"b\\\"']); if (r[0] !== '&lt;a&gt;' || r[1] !== '&quot;b&quot;') { throw new Error(JSON.stringify(r)); }\""
+  },
+  {
+   "id": "ts-mitt-once",
+   "language": "typescript",
+   "prompt": "Clone developit/mitt. Add a method `once(type, handler)` to the emitter `mitt()` returns (in `src/index.ts`, with its type in the `Emitter` interface): the handler runs for the next event of that type only. Add a test, run the existing tests in the sandbox, and stop when they pass. Do not push or open a pull request.",
+   "workdir": "/workspace/mitt",
+   "verify": "node --experimental-strip-types --input-type=module -e \"import mitt from './src/index.ts'; const e = mitt(); let n = 0; e.once('a', () => n++); e.emit('a'); e.emit('a'); if (n !== 1) { throw new Error(String(n)); }\""
+  },
+  {
+   "id": "fe-todo-store",
+   "language": "frontend",
+   "prompt": "In a new folder /workspace/todo-app, build a small to-do page: `index.html` with a form to add items, a list where clicking an item toggles it done, and All / Active / Done filters; keep the logic in `store.js`, an ES module exporting `createStore()` that returns `{ add(text), toggle(id), remove(id), visible(filter) }` where `add` returns the new item's id and `visible` returns items `{id, text, done}` for 'all', 'active' or 'done'. Check it in the sandbox and stop when it works. Do not push or open a pull request.",
+   "workdir": "/workspace/todo-app",
+   "verify": "node --input-type=module -e \"import { createStore } from './store.js'; const s = createStore(); const a = s.add('a'); s.add('b'); s.toggle(a); if (s.visible('done').length !== 1 || s.visible('active')[0].text !== 'b' || s.visible('all').length !== 2) { throw new Error('wrong'); } s.remove(a); if (s.visible('all').length !== 1) { throw new Error('remove'); }\" && grep -qi '<form' index.html"
+  },
+  {
+   "id": "fe-react-badge",
+   "language": "frontend",
+   "prompt": "In a new folder /workspace/badge, make an npm package (\"type\": \"module\") that depends on react and react-dom, with `Badge.js` exporting a React component `Badge({ label, tone = 'neutral' })` written without JSX (React.createElement) that renders `<span class=\"badge badge-<tone>\" role=\"status\">label</span>`. Install the dependencies, check it renders with react-dom/server in the sandbox, and stop when it does. Do not push or open a pull request.",
+   "workdir": "/workspace/badge",
+   "verify": "npm install --silent >/dev/null 2>&1; node --input-type=module -e \"import React from 'react'; import { renderToStaticMarkup } from 'react-dom/server'; import { Badge } from './Badge.js'; const html = renderToStaticMarkup(React.createElement(Badge, { label: 'Ready', tone: 'ok' })); if (html !== '<span class=\\\"badge badge-ok\\\" role=\\\"status\\\">Ready</span>') { throw new Error(html); }\""
+  },
+  {
+   "id": "fe-accessible-form",
+   "language": "frontend",
+   "prompt": "In a new folder /workspace/signup, write `index.html`: a sign-up form with name, e-mail (type email, required) and password (required, at least 8 characters) fields and a submit button. Every field must have a visible <label> tied to it with `for`, the page a <title> and `lang` on <html>. Stop when it is done. Do not push or open a pull request.",
+   "workdir": "/workspace/signup",
+   "verify": "python3 -c \"import html.parser, sys\nclass P(html.parser.HTMLParser):\n    def __init__(s):\n        super().__init__(); s.ids=set(); s.fors=set(); s.inputs=[]; s.lang=False; s.title=False\n    def handle_starttag(s, t, a):\n        a=dict(a)\n        if t=='html' and a.get('lang'): s.lang=True\n        if t=='title': s.title=True\n        if t=='label' and a.get('for'): s.fors.add(a['for'])\n        if t=='input' and a.get('type') not in ('submit','button','hidden'): s.inputs.append(a)\np=P(); p.feed(open('index.html').read())\nassert p.lang and p.title and len(p.inputs)>=3\nassert all(i.get('id') in p.fors for i in p.inputs), 'unlabelled input'\nassert any(i.get('type')=='email' and 'required' in i for i in p.inputs)\nassert any(i.get('type')=='password' and i.get('minlength')=='8' for i in p.inputs)\""
+  }
+ ]
 }

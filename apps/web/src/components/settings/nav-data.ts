@@ -17,6 +17,7 @@ import {
   User,
   Users,
   Webhook,
+  Workflow,
 } from "lucide-react";
 import type { Capability } from "../../lib/access";
 
@@ -73,6 +74,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/settings/org/spend", label: "Spend", icon: Coins, requiresAdmin: true },
       { href: "/settings/agents", label: "Agents", icon: Bot, requiresAdmin: true },
       { href: "/settings/org/git", label: "Git & GitHub", icon: GitPullRequest, requiresAdmin: true },
+      { href: "/settings/org/automation", label: "Automation", icon: Workflow, requiresAdmin: true },
       { href: "/settings/org/sandboxes", label: "Sandboxes", icon: Box, requiresAdmin: true },
       { href: "/settings/org/governance", label: "Security & data", icon: ShieldCheck, requiresAdmin: true },
       { href: "/settings/org/audit", label: "Audit log", icon: ScrollText, requiresAdmin: true },

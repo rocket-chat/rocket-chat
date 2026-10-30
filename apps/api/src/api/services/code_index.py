@@ -1,22 +1,30 @@
 """Session-scoped semantic code index backing the ``code_search`` tool.
 
 The index is built lazily from the sandbox workspace, chunked on line
-boundaries, and embedded with the platform embedding pipeline (LiteLLM, with a
-deterministic offline fallback). Vectors are held in memory per session; the
-pgvector persistence path for cross-restart reuse is a deliberate follow-up so
-this can ship without a schema migration.
+boundaries, and embedded with the organization's embedding model (LiteLLM, with a
+deterministic offline fallback). The index of a session is held in memory; each
+chunk's embedding is kept in pgvector (``code_embeddings``, by content hash and
+model), so an unchanged chunk is never embedded twice, in any session of the
+organization or after a restart.
 """
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import logging
 import math
 import time
+import uuid
 from array import array
 from collections import OrderedDict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+from api.db.models import CodeEmbeddingModel
 from api.services.knowledge import compute_embedding
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 
@@ -108,6 +116,8 @@ class CodeIndex:
 
     entries: list[IndexedChunk] = field(default_factory=list)
     byte_size: int = 0
+    # The embedding model the chunks were embedded with: a query is embedded with the same one.
+    model: str = "text-embedding-3-small"
 
     @property
     def size(self) -> int:
@@ -219,19 +229,99 @@ def _budget_exhausted(index: CodeIndex, max_chunks: int, max_bytes: int) -> bool
     return False
 
 
+EMBEDDING_CONCURRENCY = 8
+
+
+class CodeEmbeddings:
+    """Embeddings of code chunks by content hash: read from ``code_embeddings`` before any is
+    computed, and the new ones saved. Without a database they are kept in process memory."""
+
+    def __init__(self, db_mgr: object | None = None) -> None:
+        self._db = db_mgr
+        self._memory: dict[tuple[str, str, str], list[float]] = {}
+
+    @staticmethod
+    def content_hash(model: str, text: str) -> str:
+        return hashlib.sha256(f"{model}\0{text}".encode()).hexdigest()
+
+    async def embed(self, org_id: str, model: str, texts: list[str]) -> list[list[float]]:
+        hashes = [self.content_hash(model, text) for text in texts]
+        known = await self._load(org_id, model, set(hashes))
+        missing = {h: t for h, t in zip(hashes, texts, strict=True) if h not in known}
+        gate = asyncio.Semaphore(EMBEDDING_CONCURRENCY)
+
+        async def one(text: str) -> list[float]:
+            async with gate:
+                return await compute_embedding(text, model)
+
+        fresh = dict(zip(missing, await asyncio.gather(*map(one, missing.values())), strict=True))
+        if fresh:
+            await self._save(org_id, model, fresh)
+        return [known.get(h) or fresh[h] for h in hashes]
+
+    async def _load(self, org_id: str, model: str, hashes: set[str]) -> dict[str, list[float]]:
+        if self._db is None:
+            return {
+                h: v
+                for (o, m, h), v in self._memory.items()
+                if o == org_id and m == model and h in hashes
+            }
+        async with self._db.session(tenant_org_id=org_id) as session:  # type: ignore[attr-defined]
+            rows = await session.execute(
+                select(CodeEmbeddingModel.content_hash, CodeEmbeddingModel.embedding).where(
+                    CodeEmbeddingModel.org_id == org_id,
+                    CodeEmbeddingModel.model == model,
+                    CodeEmbeddingModel.content_hash.in_(hashes),
+                )
+            )
+            return {h: [float(x) for x in v] for h, v in rows.all()}
+
+    async def _save(self, org_id: str, model: str, vectors: dict[str, list[float]]) -> None:
+        if self._db is None:
+            self._memory.update({(org_id, model, h): v for h, v in vectors.items()})
+            return
+        try:
+            async with self._db.session(tenant_org_id=org_id) as session:  # type: ignore[attr-defined]
+                # Two sessions may embed the same new chunk at once: the second insert is a no-op.
+                await session.execute(
+                    pg_insert(CodeEmbeddingModel)
+                    .values(
+                        [
+                            {
+                                "id": f"cemb_{uuid.uuid4().hex[:16]}",
+                                "org_id": org_id,
+                                "model": model,
+                                "content_hash": h,
+                                "embedding": v,
+                                "created_at": int(time.time()),
+                            }
+                            for h, v in vectors.items()
+                        ]
+                    )
+                    .on_conflict_do_nothing(constraint="uq_code_embeddings")
+                )
+        except Exception as err:
+            logger.warning("Code embeddings not saved for %s: %s", org_id, err)
+
+
 async def build_code_index(
     driver: SandboxDriverProtocol,
     session_id: str,
     max_files: int = DEFAULT_MAX_FILES,
     max_chunks: int = DEFAULT_MAX_CHUNKS,
     max_bytes: int = DEFAULT_CACHE_MAX_BYTES,
+    *,
+    embeddings: CodeEmbeddings | None = None,
+    org_id: str = "default_org",
+    model: str = "text-embedding-3-small",
 ) -> CodeIndex:
     """Build a semantic index over the workspace source files.
 
     Stops as soon as the chunk or byte budget is exhausted, so a pathological
     workspace can never make the process allocate an unbounded index.
     """
-    index = CodeIndex()
+    store = embeddings or CodeEmbeddings()
+    index = CodeIndex(model=model)
     for path in await list_source_files(driver, session_id, limit=max_files):
         if _budget_exhausted(index, max_chunks, max_bytes):
             break
@@ -240,10 +330,12 @@ async def build_code_index(
         except Exception as err:
             logger.debug("Skipping unreadable file %s: %s", path, err)
             continue
-        for start_line, body in chunk_source(content):
+        chunks = chunk_source(content)
+        vectors = await store.embed(org_id, model, [body for _, body in chunks])
+        for (start_line, body), vector in zip(chunks, vectors, strict=True):
             if _budget_exhausted(index, max_chunks, max_bytes):
                 break
-            index.add(path, start_line, body, await compute_embedding(body))
+            index.add(path, start_line, body, vector)
     return index
 
 
@@ -276,7 +368,7 @@ async def search_code_index(
     """Embed a query and retrieve the closest code chunks from the index."""
     if index.size == 0:
         return []
-    query_vector = await compute_embedding(query)
+    query_vector = await compute_embedding(query, index.model)
     return index.search(query_vector, limit=limit, query_text=query)
 
 

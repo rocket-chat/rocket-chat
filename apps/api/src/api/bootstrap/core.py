@@ -87,7 +87,6 @@ async def assemble_core(app: FastAPI) -> CoreServices:
     tool_registry = ToolRegistry(driver=sandbox_driver)
     git_engine = GitEngine(driver=sandbox_driver)
     tool_registry.bind_git_engine(git_engine)
-    app.state.code_index_cache = register_code_search(tool_registry, sandbox_driver)
     orchestrator = AsyncReActOrchestrator(
         gateway=llm_gateway,
         registry=tool_registry,
@@ -98,6 +97,7 @@ async def assemble_core(app: FastAPI) -> CoreServices:
 
     persistence = await open_persistence(database_url)
     db_manager = persistence.db_manager
+    app.state.code_index_cache = register_code_search(tool_registry, sandbox_driver, db_manager)
     usage_ledger = _bind_spend_tracking(app, llm_gateway, db_manager)
 
     shared_bus = await _start_shared_bus(orchestrator, db_manager, database_url)

@@ -8,6 +8,7 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.30.0",
     "slack-assistant",
+    "chat-bridges",
     "agent-core",
     "sandbox-driver",
     "llm-gateway",
@@ -32,6 +33,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "croniter>=6.2.4",
     "json5>=0.17.3",
+    "pypdf>=5.0",
 ]
 
 [build-system]

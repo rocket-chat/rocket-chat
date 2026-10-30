@@ -21,7 +21,13 @@ from slack_assistant.block_kit import (
     build_question_blocks,
     chunk_slack_message,
     markdown_to_slack_mrkdwn,
-    open_in_rocket_context,
+)
+from slack_assistant.cards import (
+    TurnSummary,
+    build_summary_card,
+    published_branch_of,
+    pull_request_of,
+    wait_notice,
 )
 from slack_assistant.policy import SlackOrgPolicy
 from slack_assistant.refusals import access_denied_text, budget_blocked_text
@@ -34,6 +40,9 @@ from specifications.interfaces.agent import (
 from specifications.interfaces.events import EventType, SessionEvent
 
 logger = logging.getLogger(__name__)
+
+# Artifacts up to this size are uploaded to the thread; larger ones are linked.
+ARTIFACT_UPLOAD_CHARS = 200_000
 
 
 @dataclass
@@ -51,6 +60,16 @@ class TurnOutcome:
     # The answer as the runner stored it, read once the turn's final status arrives. The
     # stream can drop events under load, so the stored answer wins when there is one.
     stored_answer: str | None = None
+    # Stopped from elsewhere (the web app); a stop from Slack is reported by the assistant.
+    cancelled: bool = False
+    # How the runner closed the turn ("completed" or "waiting") and what its model calls cost.
+    final_status: str = ""
+    cost_usd: float = 0.0
+    # Pull requests the turn opened (owner/name, number, url), and the branch it last pushed.
+    pull_requests: list[tuple[str, int, str]] = field(default_factory=list)
+    branch: str = ""
+    # The wait the turn ended on (type, target).
+    wait: tuple[str, str] | None = None
 
     @property
     def text(self) -> str:
@@ -80,6 +99,9 @@ class TurnView:
     # belong to a turn already running in the session, which this view must not render.
     message_id: str = field(default_factory=lambda: f"slack-{uuid.uuid4().hex}")
     own_turn_started: bool = False
+    # The request as its author wrote it and its message, for Retry and for edits and deletions.
+    request_text: str = ""
+    request_ts: str = ""
 
 
 def readable_tool(name: str) -> str:
@@ -240,10 +262,27 @@ class SlackTurnStreamMixin(SlackAssistantState):
 
     async def _render_tool_completed(self, payload: dict[str, Any], view: TurnView) -> None:
         result = payload.get("result")
-        if isinstance(result, str):
-            for path in screenshot_paths(result):
-                if path not in view.screenshots:
-                    view.screenshots.append(path)
+        if not isinstance(result, str):
+            return
+        for path in screenshot_paths(result):
+            if path not in view.screenshots:
+                view.screenshots.append(path)
+        if payload.get("subagent_id"):
+            return
+        name = str(payload.get("name") or "")
+        if name == "git_open_pr" and (pull := pull_request_of(result)):
+            if pull not in view.outcome.pull_requests:
+                view.outcome.pull_requests.append(pull)
+        elif name == "git_push" and (branch := published_branch_of(result)):
+            view.outcome.branch = branch
+
+    async def _render_plan(self, payload: dict[str, Any], view: TurnView) -> None:
+        tasks = payload.get("tasks")
+        if view.stream is not None and isinstance(tasks, list):
+            await view.stream.plan(tasks)
+
+    async def _render_wait_started(self, payload: dict[str, Any], view: TurnView) -> None:
+        view.outcome.wait = (str(payload.get("wait_type") or ""), str(payload.get("target") or ""))
 
     async def _render_subagent_started(self, payload: dict[str, Any], view: TurnView) -> None:
         if view.stream is not None:
@@ -262,9 +301,17 @@ class SlackTurnStreamMixin(SlackAssistantState):
 
     async def _render_status(self, payload: dict[str, Any], view: TurnView) -> None:
         message = payload.get("message")
-        if payload.get("status") == "error":
+        status = payload.get("status")
+        if payload.get("final"):
+            view.outcome.final_status = str(status or "")
+            cost = payload.get("cost_usd")
+            if isinstance(cost, int | float):
+                view.outcome.cost_usd = float(cost)
+        if status == "error":
             view.outcome.error = view.outcome.error or str(message or "The turn failed")
-        elif message and payload.get("status") != "completed":
+        elif status == "cancelled":
+            view.outcome.cancelled = True
+        elif message and status not in ("completed", "waiting"):
             await self._safely_update_status(view.status_fn, str(message))
 
     async def _render_token(self, payload: dict[str, Any], view: TurnView) -> None:
@@ -322,19 +369,46 @@ class SlackTurnStreamMixin(SlackAssistantState):
         )
 
     async def _render_artifact_created(self, payload: dict[str, Any], view: TurnView) -> None:
-        title = payload.get("title", "Deliverable")
-        filename = payload.get("filename", "artifact.md")
-        artifact_type = payload.get("artifact_type", "document")
-        text = f"📄 *Artifact Created:* `{filename}` — *{title}* ({artifact_type})\nViewable in the Cockpit Artifacts drawer."
-        await view.say_fn(text=text, thread_ts=view.thread_ts)
+        await self._share_artifact(payload, view, "📄 *Artifact created*")
 
     async def _render_artifact_updated(self, payload: dict[str, Any], view: TurnView) -> None:
-        title = payload.get("title", "Deliverable")
-        filename = payload.get("filename", "artifact.md")
-        version = payload.get("version", "")
-        version_str = f" (v{version})" if version else ""
-        text = f"📝 *Artifact Updated:* `{filename}` — *{title}*{version_str}\nUpdated deliverable viewable in the Cockpit Artifacts drawer."
-        await view.say_fn(text=text, thread_ts=view.thread_ts)
+        version = payload.get("version")
+        await self._share_artifact(
+            payload, view, "📝 *Artifact updated*" + (f" (v{version})" if version else "")
+        )
+
+    async def _share_artifact(self, payload: dict[str, Any], view: TurnView, heading: str) -> None:
+        """The deliverable itself, uploaded to the thread when its content came with the event,
+        else linked to the session where it opens."""
+        title = str(payload.get("title") or "Deliverable")
+        filename = str(payload.get("filename") or "artifact.md")
+        content = payload.get("content")
+        if (
+            isinstance(content, str)
+            and content
+            and len(content) <= ARTIFACT_UPLOAD_CHARS
+            and self._slack_api_ready
+            and not view.private
+            and await upload_file(
+                self.app.client,
+                channel_id=view.channel_id,
+                thread_ts=view.thread_ts,
+                filename=filename,
+                content=content,
+                title=title,
+                comment=f"{heading}: *{title}*",
+            )
+        ):
+            return
+        artifact_id = str(payload.get("id") or "")
+        link = (
+            f"<{view.link_url}?artifact={artifact_id}|open it in Rocket Chat>"
+            if view.link_url and artifact_id
+            else "open the session in Rocket Chat to read it"
+        )
+        await view.say_fn(
+            text=f"{heading}: `{filename}` — *{title}*; {link}.", thread_ts=view.thread_ts
+        )
 
     _EVENT_RENDERERS: ClassVar[dict[EventType, Callable[..., Awaitable[None]]]] = {
         EventType.TOOL_STARTED: _render_tool_started,
@@ -351,46 +425,96 @@ class SlackTurnStreamMixin(SlackAssistantState):
         EventType.ARTIFACT_UPDATED: _render_artifact_updated,
         EventType.SUBAGENT_STARTED: _render_subagent_started,
         EventType.SUBAGENT_COMPLETED: _render_subagent_completed,
+        EventType.PLAN_UPDATED: _render_plan,
+        EventType.WAIT_STARTED: _render_wait_started,
     }
 
     async def _post_result(self, view: TurnView, org_policy: SlackOrgPolicy) -> None:
-        """Post the answer, diffs and screenshots; long content goes up as files."""
+        """Post the answer, diffs and screenshots (long content goes up as files), closed by the
+        turn's summary card; then a card for each pull request it opened."""
         outcome = view.outcome
-        final_text = outcome.text or ("" if outcome.diffs else "I've processed your request.")
+        final_text = outcome.text or self._empty_answer(outcome)
         use_files = org_policy.long_output_to_file and self._slack_api_ready
-        detail = view.stream.outcome_line() if view.stream is not None else None
-        link = open_in_rocket_context(view.link_url, detail)
+        footer: list[dict[str, Any]] | None = self._summary_blocks(view)
         stream = view.stream
+        posted = False
         if stream is not None and stream.started:
             if _MENTION.search(markdown_to_slack_mrkdwn(final_text)):
                 # Slack notifies the mentions of a new message, not those written into the
                 # reply the stream opened: the card closes and the answer follows it.
                 await stream.finish("", [])
-            elif await self._finish_stream(view, stream, final_text, link, use_files, org_policy):
-                return
+            elif await self._finish_stream(view, stream, final_text, footer, use_files, org_policy):
+                posted = True
+        if not posted:
+            if outcome.diffs:
+                await self._post_changes(
+                    view, final_text, use_files and diff_is_large(outcome.diffs), footer or []
+                )
+                footer = None
+            elif final_text and use_files and len(final_text) > org_policy.long_output_chars:
+                await self._post_long_answer(view, final_text, org_policy.long_output_chars)
+            elif final_text:
+                *head, last = chunk_slack_message(markdown_to_slack_mrkdwn(final_text))
+                for chunk in head:
+                    await view.say_fn(text=chunk, thread_ts=view.thread_ts)
+                # The summary rides under the answer, not in a message of its own.
+                await view.say_fn(
+                    text=last, blocks=_with_footer(last, footer), thread_ts=view.thread_ts
+                )
+                footer = None
+            if use_files:
+                await self._upload_screenshots(view)
+            if footer:
+                await view.say_fn(blocks=footer, text="Turn summary", thread_ts=view.thread_ts)
+        await self._post_pull_request_cards(view)
 
-        if outcome.diffs:
-            await self._post_changes(view, final_text, use_files and diff_is_large(outcome.diffs))
-        elif final_text and use_files and len(final_text) > org_policy.long_output_chars:
-            await self._post_long_answer(view, final_text, org_policy.long_output_chars)
-        elif final_text:
-            *head, last = chunk_slack_message(markdown_to_slack_mrkdwn(final_text))
-            for chunk in head:
-                await view.say_fn(text=chunk, thread_ts=view.thread_ts)
-            # The link and what the turn did ride under the answer, not in a message of their own.
-            await view.say_fn(text=last, blocks=_with_footer(last, link), thread_ts=view.thread_ts)
-            link = None
-        if use_files:
-            await self._upload_screenshots(view)
-        if link is not None:
-            await view.say_fn(blocks=[link], text="Open in Rocket Chat", thread_ts=view.thread_ts)
+    @staticmethod
+    def _empty_answer(outcome: TurnOutcome) -> str:
+        if outcome.cancelled:
+            return "⏹️ Stopped from the web app."
+        if outcome.diffs or outcome.wait is not None or outcome.pull_requests:
+            return ""
+        return "Done."
+
+    def _summary_blocks(self, view: TurnView, *, failed: bool = False) -> list[dict[str, Any]]:
+        outcome, stream = view.outcome, view.stream
+        status = (
+            "failed"
+            if failed
+            else "stopped"
+            if outcome.cancelled
+            else "waiting"
+            if outcome.final_status == "waiting" or outcome.wait is not None
+            else "completed"
+        )
+        changes = stream.changes_line() if stream is not None else ""
+        if not changes and outcome.diffs:
+            changes = f"Edited {len(outcome.diffs)} file{'s' if len(outcome.diffs) != 1 else ''}"
+        return build_summary_card(
+            TurnSummary(
+                status=status,
+                elapsed_seconds=stream.elapsed_seconds if stream is not None else None,
+                changes=changes,
+                cost_usd=outcome.cost_usd,
+                pull_request_url=outcome.pull_requests[-1][2] if outcome.pull_requests else "",
+                wait_notice=wait_notice(*outcome.wait)
+                if status == "waiting" and outcome.wait
+                else "",
+            ),
+            link_url=view.link_url,
+            retry_value=view.session_id if failed and view.request_text else None,
+        )
+
+    async def _post_pull_request_cards(self, view: TurnView) -> None:
+        """Hook: the assistant posts a card per pull request the turn opened."""
+        return None
 
     async def _finish_stream(
         self,
         view: TurnView,
         stream: TurnStream,
         text: str,
-        link: dict[str, Any] | None,
+        footer: list[dict[str, Any]] | None,
         use_files: bool,
         org_policy: SlackOrgPolicy,
     ) -> bool:
@@ -398,7 +522,7 @@ class SlackTurnStreamMixin(SlackAssistantState):
         (the full long answer, the diffs, screenshots) follows in the thread."""
         too_long = len(text) > (org_policy.long_output_chars if use_files else ANSWER_CHARS)
         shown = head_of(text, min(org_policy.long_output_chars, 1500)) if too_long else text
-        if not await stream.finish(shown, [link] if link else []):
+        if not await stream.finish(shown, footer or []):
             return False
         if too_long:
             await self._post_overflow(view, text, use_files)
@@ -437,7 +561,9 @@ class SlackTurnStreamMixin(SlackAssistantState):
             return
         await view.say_fn(blocks=build_diff_blocks(diffs), text="Changes", thread_ts=view.thread_ts)
 
-    async def _post_changes(self, view: TurnView, summary: str, as_file: bool) -> None:
+    async def _post_changes(
+        self, view: TurnView, summary: str, as_file: bool, footer: list[dict[str, Any]]
+    ) -> None:
         diffs = view.outcome.diffs
         formatted = markdown_to_slack_mrkdwn(
             summary or "I have prepared and verified the requested code changes:"
@@ -448,7 +574,7 @@ class SlackTurnStreamMixin(SlackAssistantState):
         if as_file:
             listing = "\n".join(f"• `{d.path}` (+{d.additions} -{d.deletions})" for d in diffs[:15])
             blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": listing}})
-            await view.say_fn(blocks=blocks, text=formatted, thread_ts=view.thread_ts)
+            await view.say_fn(blocks=[*blocks, *footer], text=formatted, thread_ts=view.thread_ts)
             await upload_file(
                 self.app.client,
                 channel_id=view.channel_id,
@@ -459,7 +585,7 @@ class SlackTurnStreamMixin(SlackAssistantState):
             )
             return
         blocks.extend(build_diff_blocks(diffs))
-        await view.say_fn(blocks=blocks, text=formatted, thread_ts=view.thread_ts)
+        await view.say_fn(blocks=[*blocks, *footer], text=formatted, thread_ts=view.thread_ts)
 
     async def _post_long_answer(self, view: TurnView, text: str, limit: int) -> None:
         head = markdown_to_slack_mrkdwn(head_of(text, min(limit, 1500)))
@@ -499,6 +625,6 @@ _MENTION = re.compile(
 )
 
 
-def _with_footer(text: str, footer: dict[str, Any] | None) -> list[dict[str, Any]]:
+def _with_footer(text: str, footer: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     section = {"type": "section", "text": {"type": "mrkdwn", "text": text}}
-    return [section, footer] if footer is not None else [section]
+    return [section, *(footer or [])]

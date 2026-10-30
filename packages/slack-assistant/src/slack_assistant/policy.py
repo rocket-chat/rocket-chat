@@ -29,8 +29,8 @@ class ChannelProfile:
     sandbox_image: str = ""
     # "thread" or "private"; empty keeps the bot's (or its route's) mode.
     response_mode: str = ""
-    # The repository ("owner/name") and branch a session in this channel works on. Stored only:
-    # nothing clones them yet, so a session still starts blank.
+    # The repository ("owner/name") and branch a session in this channel works on. Sessions
+    # still start blank: the turn's prompt names them and the agent clones them first.
     repository: str = ""
     branch: str = ""
 
@@ -77,6 +77,9 @@ class SlackOrgPolicy:
     # Apply the deployment's blocked tools to linked members' own requests too.
     restrict_linked_members: bool = False
     channel_profiles: Mapping[str, ChannelProfile] = field(default_factory=dict)
+    # A top-level direct message continues the person's last DM session when it was active in
+    # the last this many minutes (0: every top-level message starts a new session).
+    dm_continue_minutes: int = 60
 
     def profile_for(self, channel_id: str) -> ChannelProfile | None:
         return self.channel_profiles.get(channel_id)
@@ -101,4 +104,5 @@ class SlackOrgPolicy:
             long_output_chars=int(source.get("long_output_chars") or 3500),
             restrict_linked_members=bool(source.get("restrict_linked_members", False)),
             channel_profiles=_profiles(source.get("channel_profiles")),
+            dm_continue_minutes=max(0, int(source.get("dm_continue_minutes", 60) or 0)),
         )

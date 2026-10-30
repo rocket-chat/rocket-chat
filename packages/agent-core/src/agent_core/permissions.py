@@ -66,8 +66,6 @@ READ_TOOLS: frozenset[str] = frozenset(
         "process_list",
         "process_output",
         "process_wait",
-        "task_list",
-        "task_status",
         # Read-only GitHub lookups: nothing in the sandbox, repository or account changes.
         "github_find_repositories",
         "github_read_file",
@@ -243,6 +241,16 @@ def approval_needed(mode: str, name: str, arguments: dict[str, Any]) -> Approval
     if not gated:
         return None
     return ApprovalNeed(action_type=name, description=_summarise(name, arguments), risk_level=risk)
+
+
+def gated_call(name: str, arguments: dict[str, Any]) -> ApprovalNeed:
+    """The gate of a tool the transport always gates (``TurnPolicy.gated_tools``)."""
+    _, risk = _classify(name, arguments)
+    return ApprovalNeed(
+        action_type=name,
+        description=_summarise(name, arguments),
+        risk_level=risk if risk in ("high", "critical") else "high",
+    )
 
 
 def _normalised_command(arguments: Mapping[str, Any]) -> str:

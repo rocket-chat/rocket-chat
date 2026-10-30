@@ -214,17 +214,34 @@ async def _comment(access: GithubAccess, slug: str, number: int, f: dict[str, An
     return f"Commented on #{number}: {made.get('html_url', '')}"
 
 
+# GitHub accepts many inline comments in one review; a bounded number keeps a review readable
+# and the request small.
+MAX_REVIEW_COMMENTS = 50
+
+
 async def _review(access: GithubAccess, slug: str, number: int, f: dict[str, Any]) -> str:
     event = REVIEW_EVENTS.get(str(f.get("event") or "comment"))
     if event is None:
         raise GithubError("The review event is one of: comment, request_changes, approve.")
-    await request(
-        access,
-        "POST",
-        f"/repos/{slug}/pulls/{number}/reviews",
-        body={"event": event, "body": f.get("body") or ""},
+    comments = [
+        {
+            "path": str(c["path"]),
+            "line": int(c["line"]),
+            "side": str(c.get("side") or "RIGHT"),
+            "body": str(c["body"])[:4000],
+        }
+        for c in (f.get("review_comments") or [])[:MAX_REVIEW_COMMENTS]
+    ]
+    body: dict[str, Any] = {"event": event, "body": f.get("body") or ""}
+    if comments:
+        body["comments"] = comments
+    await request(access, "POST", f"/repos/{slug}/pulls/{number}/reviews", body=body)
+    inline = (
+        f" with {len(comments)} inline comment{'s' if len(comments) != 1 else ''}"
+        if comments
+        else ""
     )
-    return f"Submitted a {event.lower().replace('_', ' ')} review on #{number}"
+    return f"Submitted a {event.lower().replace('_', ' ')} review on #{number}{inline}"
 
 
 async def _reply(access: GithubAccess, slug: str, number: int, f: dict[str, Any]) -> str:

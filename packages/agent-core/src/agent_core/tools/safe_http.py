@@ -132,3 +132,45 @@ async def safe_get(
             finally:
                 await response.aclose()
     raise UnsafeURLError(f"Too many redirects (more than {MAX_REDIRECTS}).")
+
+
+async def safe_post(
+    url: str,
+    *,
+    content: bytes,
+    headers: dict[str, str] | None = None,
+    timeout_seconds: float = 10.0,
+    max_bytes: int = 4096,
+) -> tuple[int, bytes]:
+    """POST ``content`` to ``url`` once, to a vetted public address; redirects are not followed
+    (a webhook endpoint that redirects is a misconfiguration, or a way to reach elsewhere).
+
+    Returns the status and the start of the body. Raises ``UnsafeURLError`` for blocked targets
+    and ``httpx.HTTPError`` for transport errors.
+    """
+    proxy = os.getenv(PROXY_ENV, "").strip() or None
+    target = await resolve_public_target(url)
+    parsed = urlparse(url)
+    async with httpx.AsyncClient(
+        timeout=timeout_seconds, follow_redirects=False, proxy=proxy
+    ) as client:
+        if proxy:
+            request = client.build_request("POST", url, content=content, headers=headers)
+        else:
+            pinned = parsed._replace(
+                netloc=f"[{target.address}]" if ":" in target.address else target.address
+            )
+            if parsed.port:
+                pinned = pinned._replace(netloc=f"{pinned.netloc}:{parsed.port}")
+            request = client.build_request(
+                "POST",
+                pinned.geturl(),
+                content=content,
+                headers={**(headers or {}), "Host": parsed.netloc},
+                extensions={"sni_hostname": target.host},
+            )
+        response = await client.send(request, stream=True)
+        try:
+            return response.status_code, await _read_capped(response, max_bytes)
+        finally:
+            await response.aclose()

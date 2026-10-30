@@ -172,6 +172,8 @@ async def test_a_cloned_repositorys_setup_runs_only_when_the_organization_allows
     org = "wire_repo_setup"
     setup = AsyncMock(return_value="ran")
     monkeypatch.setattr(callbacks_module, "run_repository_setup", setup)
+    # What else a clone brings (a dev container image, the repository's skills) is tested apart.
+    monkeypatch.setattr(callbacks_module, "repository_extras", AsyncMock(return_value=[]))
 
     enabled = await build_turn_callbacks(_turn(org), _bundle(), None)
     assert await enabled.repository_cloned("s1", "repo") == "ran"

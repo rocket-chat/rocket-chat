@@ -14,6 +14,8 @@ A skill is a named instruction you invoke with a slash: type `/review src/` and 
 The agent sees the name and summary of every skill it may use and loads one with `execute_skill` when a task matches, so write a clear `description` that says when the skill applies. An instruction skill, once loaded, stays in effect for the whole session: its instructions arrive in the conversation at the moment the agent loads it, and stay there on every later turn. They are never trimmed when a long session prunes older tool results, and a compaction of the history carries them over whole, so they are not lost; loading the skill again does not repeat it. Edit a skill and the next turn tells the agent it changed, so it loads the new text before relying on it. A code skill still returns its output as a result. A persona that lists skills only sees those.
 
 
+**Skills a repository brings.** When the agent clones a repository that has skills in `.rocket/skills/<name>/SKILL.md` (or `.claude/skills/<name>/SKILL.md`, the same format), it is told their names and one-line descriptions (the `description` of the file's front matter, else its first line; 20 skills at most) and reads one with `execute_skill` when its task comes up, from the repository as it is at that moment. Your organization can turn this off (`general.repository_skills`).
+
 Six **starter skills** come with the platform (`/review-diff`, `/write-tests`, `/fix-ci-failure`, `/write-pr-description`, `/investigate-bug`, `/upgrade-dependency`) unless your organization turned them off; a skill of your own with the same name replaces one.
 
 ## MCP servers
@@ -47,6 +49,10 @@ The agent can list the tools it has with `search_tools` (optionally with a keywo
 ## Knowledge bases
 
 Upload documents (architecture notes, runbooks, API docs) and the agent searches them when relevant. This is also the best place to say where things are: "the billing service is `acme/billing-api`" lets the agent pick the right repository without asking.
+
+**Importing.** Besides pasting text, **Add** imports a web page (or a PDF link), a documentation site (the page and up to 25 pages under its address), a PDF file (its text; a scanned PDF needs OCR first), or the Markdown, reStructuredText and text files under a folder of a GitHub repository (200 at most, read with your organization's access). Documents are embedded with the organization's embedding model (`memory.embedding_model`); after changing that model, import the documents again.
+
+**Code search.** The agent's `code_search` embeds the workspace's code with the same model; each chunk's embedding is kept by its content, so unchanged code is never embedded twice, in any session.
 
 ## Agents (personas)
 

@@ -11,6 +11,7 @@ const PAGES = [
   "/settings/knowledge",
   "/settings/slack",
   "/settings/org",
+  "/settings/org/automation",
   "/settings/user",
   "/settings/user/api-tokens",
 ];

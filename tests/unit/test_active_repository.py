@@ -6,13 +6,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from api.routers.webhooks import _sync_repository
 from api.services.session_support import (
     ACTIVE_REPOSITORY_KEY,
     active_repository_of,
     choose_active_repository,
     remember_active_repository,
 )
+from api.services.triggers import sync_active_repository
 from api.store import InMemorySessionStore
 from api.turns.runner import TurnRunner
 from sandbox_driver.fake_driver import FakeSandboxDriver
@@ -163,8 +163,11 @@ async def test_choosing_replaces_the_first_folder() -> None:
 async def test_a_webhook_follow_up_pulls_in_the_active_repository() -> None:
     driver = _repositories_driver("/workspace/api")
 
-    await _sync_repository(driver, "s1", _session({ACTIVE_REPOSITORY_KEY: "/workspace/api"}))
-    await _sync_repository(_repositories_driver(), "s1", _session())
+    await driver.start_sandbox("s1")
+    await sync_active_repository(driver, _session({ACTIVE_REPOSITORY_KEY: "/workspace/api"}))
+    other = _repositories_driver()
+    await other.start_sandbox("s1")
+    await sync_active_repository(other, _session())
 
     pulls = [w for c, w in driver.workdirs if "git pull" in c]
     assert pulls == ["/workspace/api"]

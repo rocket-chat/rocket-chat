@@ -50,9 +50,13 @@ class _CommitIdentity:
 class HostRepository:
     """``async with HostRepository(remote_url, token) as repo:`` - removed on exit."""
 
-    def __init__(self, remote_url: str, token: str | None) -> None:
+    def __init__(
+        self, remote_url: str, token: str | None, basic_user: str = "x-access-token"
+    ) -> None:
         self.remote_url = remote_url
         self._token = token
+        # The user name a forge expects with a token (GitHub: x-access-token, GitLab: oauth2).
+        self._basic_user = basic_user
         self._root = Path()
         self.path = Path()
 
@@ -91,7 +95,7 @@ class HostRepository:
         }
         entries = [("core.hooksPath", os.devnull)]
         if self._token:
-            basic = base64.b64encode(f"x-access-token:{self._token}".encode()).decode()
+            basic = base64.b64encode(f"{self._basic_user}:{self._token}".encode()).decode()
             entries.append((f"http.{self.remote_url}.extraHeader", f"Authorization: Basic {basic}"))
         environment["GIT_CONFIG_COUNT"] = str(len(entries))
         for index, (key, value) in enumerate(entries):

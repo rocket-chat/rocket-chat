@@ -53,6 +53,19 @@ class SlackEntrypointsMixin(SlackGatesMixin):
         """This bot's slash command (``/rocket`` for apps set up before bots had their own)."""
         return self.bot.command if self.bot is not None else DEFAULT_COMMAND
 
+    @property
+    def bot_name(self) -> str:
+        """The name people know this bot by."""
+        return self.bot.name if self.bot is not None and self.bot.name else "Rocket"
+
+    async def _web_base_of(self, team_id: str) -> str:
+        """The organization's web address (``slack.web_base_url``), the one every thread's
+        link uses."""
+        policy = await self._load_org_policy(
+            await self._workspace_org(team_id or self.team_id or "")
+        )
+        return self._web_base(policy)
+
     def _register_entrypoints(self) -> None:
         async def handle_rocket(ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond) -> None:
             await ack()
@@ -99,7 +112,7 @@ class SlackEntrypointsMixin(SlackGatesMixin):
         channel_id = str(body.get("channel_id", ""))
         user_id = str(body.get("user_id", ""))
         posted = await self.app.client.chat_postMessage(
-            channel=channel_id, text=f"<@{user_id}> asked Rocket: {task}"
+            channel=channel_id, text=f"<@{user_id}> asked {self.bot_name}: {task}"
         )
         thread_ts = str(posted.get("ts", ""))
         await self._run_in_thread(
@@ -157,8 +170,11 @@ class SlackEntrypointsMixin(SlackGatesMixin):
     async def _status_text(self, body: dict[str, Any]) -> str:
         sessions = await self._my_sessions(body)
         if not sessions:
-            return f"You have no Slack threads with Rocket yet. Try `{self.command} new <task>`."
-        base = self.settings.slack_web_base_url.rstrip("/")
+            return (
+                f"You have no Slack threads with {self.bot_name} yet. "
+                f"Try `{self.command} new <task>`."
+            )
+        base = await self._web_base_of(str(body.get("team_id", "")))
         lines = []
         for record in sessions:
             state = "running" if record.session_id in self._active_turns else "idle"
@@ -274,24 +290,45 @@ class SlackEntrypointsMixin(SlackGatesMixin):
         if not user_id:
             return
         body = {"user_id": user_id, "team_id": team_id or ""}
-        linked_as: str | None = None
-        if self.resolve_user_fn is not None:
-            org = await self._workspace_org(team_id or self.team_id or "")
-            resolved = await self.resolve_user_fn(user_id, None, org)
-            if resolved:
-                linked_as = str(resolved[0])
-        base = self.settings.slack_web_base_url.rstrip("/")
-        rows = []
-        for record in await self._my_sessions(body):
-            state = "running" if record.session_id in self._active_turns else "idle"
-            link = f"{base}/chat/{record.session_id}" if base else None
-            rows.append((record.title, state, link))
+        linked_as = await self._linked_name(user_id, team_id)
+        base = await self._web_base_of(team_id or "")
+        rows = [
+            (
+                record.title,
+                "running" if record.session_id in self._active_turns else "idle",
+                f"{base}/chat/{record.session_id}" if base else None,
+            )
+            for record in await self._my_sessions(body)
+        ]
         try:
             await self.app.client.views_publish(
                 user_id=user_id,
                 view=build_home_view(
-                    linked_as=linked_as, sessions=rows, web_url=base or None, command=self.command
+                    linked_as=linked_as,
+                    sessions=rows,
+                    web_url=base or None,
+                    command=self.command,
+                    bot_name=self.bot_name,
                 ),
             )
         except Exception as err:
             logger.warning("Could not publish the App Home for %s: %s", user_id, err)
+
+    async def _linked_name(self, user_id: str, team_id: str | None) -> str | None:
+        """Who the Slack user is in Rocket Chat, by name (their member id when it is unknown)."""
+        if self.resolve_user_fn is None:
+            return None
+        org = await self._workspace_org(team_id or self.team_id or "")
+        resolved = await self.resolve_user_fn(user_id, None, org)
+        if not resolved:
+            return None
+        member_id, member_org = str(resolved[0]), str(resolved[1])
+        if self._member_name_fn is not None:
+            try:
+                name = await self._member_name_fn(member_org, member_id)
+            except Exception as err:
+                logger.info("No name for member %s: %s", member_id, err)
+                name = ""
+            if name:
+                return name
+        return member_id

@@ -22,7 +22,7 @@ import re
 import shlex
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
@@ -44,6 +44,7 @@ MAX_BUNDLE_BYTES = 200 * 1024 * 1024
 SYMLINK_MODE, SUBMODULE_MODE, EXECUTABLE_MODE = "120000", "160000", "100755"
 _SLUG_PART = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}"
 _PATH = re.compile(rf"^/?({_SLUG_PART})/({_SLUG_PART}?)(?:\.git)?/?$")
+_NESTED_PATH = re.compile(rf"^/?({_SLUG_PART}(?:/{_SLUG_PART})*)/({_SLUG_PART}?)(?:\.git)?/?$")
 _BRANCH = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")
 
 AppTokenMinter = Callable[[str, int | None], Awaitable[str | None]]
@@ -93,8 +94,9 @@ def graphql_url(api_url: str) -> str:
     return base[: -len("/v3")] + "/graphql" if base.endswith("/api/v3") else f"{base}/graphql"
 
 
-def repository_of(remote_url: str, host: str = "github.com") -> str:
+def repository_of(remote_url: str, host: str = "github.com", *, nested: bool = False) -> str:
     """``owner/name`` of an origin URL on ``host`` (https, ssh or scp form), else a refusal.
+    ``nested`` accepts GitLab's ``group/subgroup/name``.
 
     The host is compared exactly: ``https://evil.example/github.com/acme/app`` is not GitHub.
     """
@@ -107,9 +109,9 @@ def repository_of(remote_url: str, host: str = "github.com") -> str:
         if parsed.scheme not in ("https", "ssh") or parsed.username not in (None, "git"):
             raise PublishError(f"The 'origin' remote is not a GitHub repository on {host}.")
         found_host, path = parsed.hostname or "", parsed.path
-    match = _PATH.match(path)
+    match = (_NESTED_PATH if nested else _PATH).match(path)
     if found_host.lower() != host.lower() or match is None:
-        raise PublishError(f"The 'origin' remote is not a GitHub repository on {host}.")
+        raise PublishError(f"The 'origin' remote is not a repository on {host}.")
     return f"{match.group(1)}/{match.group(2).removesuffix('.git')}"
 
 
@@ -191,6 +193,31 @@ class _Sandbox:
         )
 
 
+@dataclass(frozen=True)
+class OtherForge:
+    """A forge besides GitHub the publisher pushes to (GitLab), chosen by the origin's host.
+    It has no App to re-create commits: they are pushed as they are (or signed with the
+    member's key), with the member's token or ``token``."""
+
+    kind: str
+    web_url: str
+    basic_user: str
+    token: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class _Target:
+    kind: str
+    host: str
+    base_url: str
+    basic_user: str
+    fallback_token: str | None = field(default=None, repr=False)
+
+    @property
+    def label(self) -> str:
+        return "GitLab" if self.kind == "gitlab" else "GitHub"
+
+
 class BranchPublisher:
     """Publishes the working branch of one sandbox session."""
 
@@ -200,39 +227,67 @@ class BranchPublisher:
         api_url: str,
         mint_app_token: AppTokenMinter,
         git_base_url: str | None = None,
+        *,
+        others: tuple[OtherForge, ...] = (),
     ) -> None:
         self._driver = driver
         self._api_url = api_url.rstrip("/")
         self._mint_app_token = mint_app_token
+        web = github_web_url(api_url)
         # Where the platform pushes and fetches: GitHub's web host (tests point it elsewhere).
-        self._git_base_url = (git_base_url or github_web_url(api_url)).rstrip("/")
-        self._host = urlparse(github_web_url(api_url)).hostname or "github.com"
+        self._github = _Target(
+            "github",
+            urlparse(web).hostname or "github.com",
+            (git_base_url or web).rstrip("/"),
+            "x-access-token",
+        )
+        self._others = others
+
+    def _target(self, remote_url: str) -> _Target:
+        """The forge ``remote_url`` is on: one of the others when its host is theirs."""
+        scp = re.match(r"^git@([^:/]+):", remote_url.strip())
+        host = (scp.group(1) if scp else urlparse(remote_url.strip()).hostname or "").lower()
+        for other in self._others:
+            if host and host == (urlparse(other.web_url).hostname or "").lower():
+                return _Target(
+                    other.kind, host, other.web_url.rstrip("/"), other.basic_user, other.token
+                )
+        return self._github
 
     async def publish(self, session_id: str, spec: PublishSpec) -> PublishResult:
         sandbox = _Sandbox(self._driver, session_id, await self._repository_dir(session_id, spec))
         branch = _validated_branch(spec.branch or await self._current_branch(sandbox))
-        repository = repository_of(
-            await sandbox.git("git config --get remote.origin.url"), self._host
-        )
+        remote = await sandbox.git("git config --get remote.origin.url")
+        target = self._target(remote)
+        repository = repository_of(remote, target.host, nested=target.kind != "github")
         plan = await self._plan(sandbox, branch, spec)
         default_branch = await self._default_branch(sandbox, spec.default_branch)
-        via = "github_api" if spec.signing_mode == SigningMode.GITHUB_APP else "git_push"
+        replays = spec.signing_mode == SigningMode.GITHUB_APP and target.kind == "github"
+        via = "github_api" if replays else "git_push"
         if not plan.commits:
             return PublishResult(
-                repository, branch, plan.base, via, commits=0, default_branch=default_branch
+                repository,
+                branch,
+                plan.base,
+                via,
+                commits=0,
+                default_branch=default_branch,
+                forge=target.kind,
             )
-        if spec.signing_mode == SigningMode.GITHUB_APP:
+        if replays:
             await self._refuse_merges(sandbox, plan.base)
-        token, notice = await self._write_token(repository, spec)
+        token, notice = await self._write_token(repository, spec, target)
         notices = [notice] if notice else []
         rewritten: list[tuple[str, str]] = []
         bundle = await sandbox.bundle(plan.base)
         try:
-            async with HostRepository(f"{self._git_base_url}/{repository}.git", token) as host:
+            async with HostRepository(
+                f"{target.base_url}/{repository}.git", token, basic_user=target.basic_user
+            ) as host:
                 if plan.base:
                     await host.fetch_base(plan.base)
                 tip = await host.import_bundle(bundle)
-                if spec.signing_mode == SigningMode.GITHUB_APP:
+                if replays:
                     head = await self._replay(
                         host, repository, branch, plan, token, notices, spec.co_authors, rewritten
                     )
@@ -245,7 +300,7 @@ class BranchPublisher:
         else:
             await sandbox.fetch_branch(branch, required=False)
         if plan.created:
-            notices.append(f"Created the branch {branch} on GitHub.")
+            notices.append(f"Created the branch {branch} on {target.label}.")
         return PublishResult(
             repository,
             branch,
@@ -255,6 +310,7 @@ class BranchPublisher:
             notices=notices,
             rewritten=rewritten,
             default_branch=default_branch,
+            forge=target.kind,
         )
 
     async def _repository_dir(self, session_id: str, spec: PublishSpec) -> str:
@@ -385,8 +441,18 @@ class BranchPublisher:
                 "replay. Rebase onto the base branch (git rebase) and publish again."
             )
 
-    async def _write_token(self, repository: str, spec: PublishSpec) -> tuple[str, str | None]:
+    async def _write_token(
+        self, repository: str, spec: PublishSpec, target: _Target
+    ) -> tuple[str, str | None]:
         """The credential to publish with, and a notice when it is not the usual one."""
+        if target.kind == "gitlab":
+            token = spec.gitlab_token or target.fallback_token
+            if not token:
+                raise PublishError(
+                    f"No GitLab credential can write to {repository}: add a GitLab token under "
+                    "Settings > Git & version control."
+                )
+            return token, None
         if spec.token:
             return spec.token, None
         installation = next(

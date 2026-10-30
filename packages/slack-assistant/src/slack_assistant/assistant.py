@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import Any
@@ -12,11 +13,16 @@ from agent_core.tools.registry import ToolRegistry
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp, AsyncAssistant
 from slack_bolt.context.ack.async_ack import AsyncAck
+from slack_bolt.context.respond.async_respond import AsyncRespond
+from slack_bolt.context.save_thread_context.async_save_thread_context import (
+    AsyncSaveThreadContext,
+)
 from slack_bolt.context.say.async_say import AsyncSay
 from slack_bolt.context.set_status.async_set_status import AsyncSetStatus
 from slack_bolt.context.set_suggested_prompts.async_set_suggested_prompts import (
     AsyncSetSuggestedPrompts,
 )
+from slack_bolt.context.set_title.async_set_title import AsyncSetTitle
 from slack_bolt.request.async_request import AsyncBoltRequest
 from slack_bolt.response import BoltResponse as AsyncBoltResponse
 from slack_sdk.http_retry.builtin_async_handlers import (
@@ -27,8 +33,16 @@ from slack_sdk.http_retry.builtin_async_handlers import (
 from slack_sdk.web.async_client import AsyncWebClient
 
 from slack_assistant.admission import SlackAdmissionMixin
-from slack_assistant.block_kit import SHARE_ACTION_ID, with_session_and_origin
+from slack_assistant.block_kit import (
+    QUESTION_CHECKBOXES_ACTION_ID,
+    QUESTION_OTHER_ACTION_ID,
+    QUESTION_OTHER_CALLBACK_ID,
+    QUESTION_SUBMIT_ACTION_ID,
+    SHARE_ACTION_ID,
+    with_session_and_origin,
+)
 from slack_assistant.bot import SlackBot
+from slack_assistant.cards import FOLLOWUP_ACTION_ID, OPEN_SESSION_ACTION_ID, RETRY_ACTION_ID
 from slack_assistant.config import SlackAssistantSettings
 from slack_assistant.delivery import SlackDeliveryMixin
 from slack_assistant.entrypoints import SlackEntrypointsMixin
@@ -40,13 +54,18 @@ from slack_assistant.file_ingestion import (
 )
 from slack_assistant.gates import SlackGatesMixin
 from slack_assistant.guardrails import (
+    MEMBER_PUBLISH_TOOLS,
     FailureTracker,
     WorkspaceQuotaGate,
 )
 from slack_assistant.health import EventDeduplicator, SocketHealth
 from slack_assistant.policy import ChannelProfile, SlackOrgPolicy
+from slack_assistant.pull_requests import SlackPullRequestMixin
 from slack_assistant.ratelimit import BoundedRateLimiter
+from slack_assistant.refusals import failure_notice
+from slack_assistant.revisits import LAST_REQUEST_KEY, SlackRevisitsMixin, remember_request
 from slack_assistant.routing import ROUTE_KEY, Routing, SlackRoutingMixin
+from slack_assistant.shortcuts import Shortcuts, parse_shortcuts
 from slack_assistant.state import ClassifyFn, HoldMessageFn, RunTurnFn, SlackAssistantState
 from slack_assistant.stream import TurnStream
 from slack_assistant.toolset import SlackToolsetMixin
@@ -96,11 +115,25 @@ class _Admitted:
     private: bool = False
     # The requester is a member who linked their Slack account (not a guest).
     linked: bool = False
+    # What the message asked for with shortcuts (``!deep``, ``!repo``...).
+    shortcuts: Shortcuts | None = None
+    message_ts: str = ""
 
     @property
     def runs_as_member(self) -> bool:
         """The session acts as the linked requester (a DM or their private request)."""
         return self.linked and self.session_user_id == self.rocket_user_id
+
+    @property
+    def publishes_as_member(self) -> bool:
+        """A linked member of the thread's organization asking in a workspace-owned thread:
+        they may publish under their own identity, each publication approved by them."""
+        return (
+            self.linked
+            and not self.runs_as_member
+            and self.rocket_org_id == self.session_org_id
+            and not self.org_policy.restrict_linked_members
+        )
 
 
 class SlackAssistant(
@@ -109,6 +142,8 @@ class SlackAssistant(
     SlackGatesMixin,
     SlackAdmissionMixin,
     SlackRoutingMixin,
+    SlackRevisitsMixin,
+    SlackPullRequestMixin,
     SlackDeliveryMixin,
     SlackAssistantState,
 ):
@@ -132,6 +167,8 @@ class SlackAssistant(
         resolve_workspace_org_fn: Callable[[str], Awaitable[str | None]] | None = None,
         resolve_user_fn: Callable[..., Any] | None = None,
         guest_user_fn: Callable[[str, str, str | None], Awaitable[str]] | None = None,
+        member_name_fn: Callable[[str, str], Awaitable[str]] | None = None,
+        resolve_agent_fn: Callable[[str, str, str], Awaitable[str | None]] | None = None,
         begin_pairing_fn: Callable[[str, str], Awaitable[str | None]] | None = None,
         resolve_slack_policy_fn: Callable[[str], Awaitable[SlackOrgPolicy]] | None = None,
         audit_fn: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None,
@@ -196,7 +233,7 @@ class SlackAssistant(
         self._clear_stored_question_fn = clear_stored_question_fn
         self._active_turns: set[str] = set()
         self._init_delivery()
-        self._stopped_by: dict[str, str] = {}
+        self._init_conversation_state()
         self._rate_counters: dict[str, int] = {
             "rate_limit_user_denied": 0,
             "rate_limit_channel_denied": 0,
@@ -228,6 +265,10 @@ class SlackAssistant(
         # (org, team, Slack user or None for the workspace) -> the guest member that owns
         # what an unlinked user, or a shared channel thread, starts.
         self.guest_user_fn = guest_user_fn
+        # (org, member id) -> the member's name, for App Home.
+        self._member_name_fn = member_name_fn
+        # (org, member, agent name or id) -> the id of that agent if the member may use it.
+        self._resolve_agent_fn = resolve_agent_fn
 
         self._last_activity: dict[str, float] = {}
         self._user_pairings: dict[str, str] = {}
@@ -263,6 +304,14 @@ class SlackAssistant(
         self._register_entrypoints()
         self._register_slack_context_tools()
         self._go_live()
+
+    def _init_conversation_state(self) -> None:
+        """Who stopped which turn and why, continued direct messages, and the channel each
+        assistant thread is viewing."""
+        self._stopped_by: dict[str, str] = {}
+        self._stop_notices: dict[str, str] = {}
+        self._dm_threads: OrderedDict[tuple[str, str], tuple[str, float]] = OrderedDict()
+        self._viewing_channels: OrderedDict[str, str] = OrderedDict()
 
     # -- Slack toolset: discovery + outbound ------------------------------------------
 
@@ -326,10 +375,19 @@ class SlackAssistant(
             )
 
     def _register_message_events(self) -> None:
+        @self.assistant.thread_context_changed
+        async def handle_context_changed(
+            save_thread_context: AsyncSaveThreadContext, event: dict[str, Any]
+        ) -> None:
+            context = (event.get("assistant_thread") or {}).get("context") or {}
+            await save_thread_context(context)
+            self._remember_viewing(event, context)
+
         @self.assistant.user_message
         async def handle_user_message(
             say: AsyncSay,
             set_status: AsyncSetStatus,
+            set_title: AsyncSetTitle,
             event: dict[str, Any],
         ) -> None:
             channel_id = event.get("channel", "")
@@ -341,6 +399,7 @@ class SlackAssistant(
                 return
             if not self._answers_direct_messages():
                 return
+            await self._title_thread(set_title, channel_id, thread_ts, text)
             await self.process_incoming_request(
                 channel_id=channel_id,
                 thread_ts=thread_ts,
@@ -391,14 +450,21 @@ class SlackAssistant(
             event: dict[str, Any],
             context: dict[str, Any],
         ) -> None:
+            subtype = event.get("subtype")
+            if subtype == "message_changed":
+                await self._on_message_changed(event)
+                return
+            if subtype == "message_deleted":
+                await self._on_message_deleted(event)
+                return
             # Ignore messages from bots or system subtypes to avoid loops
-            if event.get("bot_id") or event.get("subtype"):
+            if event.get("bot_id") or subtype:
                 return
 
             if event.get("channel_type") == "im":
                 if self._answers_direct_messages():
                     await self._handle_event_request(event, context, say)
-            elif self._listens_to(event):
+            elif self._listens_to(event) or await self._is_thread_follow_up(event):
                 await self._handle_event_request(event, context, say)
 
     def _answers_direct_messages(self) -> bool:
@@ -413,11 +479,36 @@ class SlackAssistant(
             return False
         return not (self.bot_user_id and f"<@{self.bot_user_id}>" in str(event.get("text", "")))
 
+    async def _is_thread_follow_up(self, event: dict[str, Any]) -> bool:
+        """A reply, without a mention of the bot, in a channel thread where the bot already
+        works for this person: the shared session, or their own private one. The usual
+        classifier then decides whether it is addressed to the bot."""
+        thread_ts, text = str(event.get("thread_ts") or ""), str(event.get("text", ""))
+        user_id = str(event.get("user") or "")
+        if (
+            not thread_ts
+            or thread_ts == event.get("ts")
+            or not user_id
+            or self.session_store is None
+        ):
+            return False
+        if self.bot_user_id and f"<@{self.bot_user_id}>" in text:
+            return False  # arrives as ``app_mention``
+        if not self.should_respond_to_thread_message(text, event.get("channel_type"), user_id):
+            return False
+        channel_id = str(event.get("channel", ""))
+        self._bind_tenant(await self._workspace_org(str(event.get("team") or self.team_id or "")))
+        for private_for in (None, user_id):
+            if await self._session_record(self.get_session_id(channel_id, thread_ts, private_for)):
+                return True
+        return False
+
     async def _handle_event_request(
         self, event: dict[str, Any], context: dict[str, Any], say: AsyncSay
     ) -> None:
         channel_id = event.get("channel", "")
         thread_ts = event.get("thread_ts") or event.get("ts", "")
+        session_thread_ts = await self._session_thread_of_dm(event)
         status_fn = context.get("set_status")
         if not status_fn and thread_ts:
             status_fn = AsyncSetStatus(
@@ -434,18 +525,59 @@ class SlackAssistant(
             team_id=event.get("team") or event.get("team_id"),
             files=event.get("files"),
             message_ts=event.get("ts"),
+            session_thread_ts=session_thread_ts,
         )
+
+    async def _session_thread_of_dm(self, event: dict[str, Any]) -> str | None:
+        """For a top-level direct message, the thread of the conversation it continues."""
+        if event.get("channel_type") != "im" or event.get("thread_ts") or not event.get("user"):
+            return None
+        team = str(event.get("team") or self.team_id or "")
+        policy = await self._load_org_policy(await self._workspace_org(team))
+        return self._continued_dm_thread(
+            str(event.get("channel", "")),
+            str(event["user"]),
+            str(event.get("ts") or ""),
+            policy.dm_continue_minutes,
+        )
+
+    def _remember_viewing(self, event: dict[str, Any], context: dict[str, Any]) -> None:
+        thread = event.get("assistant_thread") or {}
+        key = f"{thread.get('channel_id', '')}:{thread.get('thread_ts', '')}"
+        viewing = str(context.get("channel_id") or "")
+        if viewing:
+            self._viewing_channels[key] = viewing
+            while len(self._viewing_channels) > 5000:
+                self._viewing_channels.popitem(last=False)
+
+    async def _title_thread(
+        self, set_title: AsyncSetTitle, channel_id: str, thread_ts: str, text: str
+    ) -> None:
+        """Name an assistant thread after its first request (later ones keep the title)."""
+        if await self._session_record(self.get_session_id(channel_id, thread_ts)) is not None:
+            return
+        title = " ".join(clean_mention_text(text).split())[:60]
+        if not title:
+            return
+        try:
+            await set_title(title)
+        except Exception as err:
+            logger.debug("Assistant thread title not set: %s", err)
 
     def _register_gate_actions(self) -> None:
         @self.app.action("approve_action")
-        async def handle_approve_action(ack: AsyncAck, body: dict[str, Any], say: AsyncSay) -> None:
+        async def handle_approve_action(
+            ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
+        ) -> None:
             await ack()
-            await self._resolve_approval(body, say, approved=True)
+            await self._resolve_approval(body, respond, approved=True)
 
         @self.app.action("reject_action")
-        async def handle_reject_action(ack: AsyncAck, body: dict[str, Any], say: AsyncSay) -> None:
+        async def handle_reject_action(
+            ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond
+        ) -> None:
             await ack()
-            await self._resolve_approval(body, say, approved=False)
+            await self._resolve_approval(body, respond, approved=False)
 
         @self.app.event("agent_session_stopped")
         async def handle_agent_session_stopped(event: dict[str, Any], body: dict[str, Any]) -> None:
@@ -456,16 +588,55 @@ class SlackAssistant(
             await ack()
             await self._share_private_answer(body)
 
-        @self.app.action("open_private_session")
-        async def handle_open_session(ack: AsyncAck) -> None:
+        @self.app.action(
+            re.compile(
+                rf"^(open_private_session|{OPEN_SESSION_ACTION_ID}|open_pull_request|"
+                rf"{QUESTION_CHECKBOXES_ACTION_ID})$"
+            )
+        )
+        async def handle_link_or_toggle(ack: AsyncAck) -> None:
             await ack()
 
         @self.app.action(re.compile(r"^question_option_select"))
         async def handle_question_option(
-            ack: AsyncAck, body: dict[str, Any], say: AsyncSay
+            ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond, say: AsyncSay
         ) -> None:
             await ack()
-            await self._resolve_question(body, say)
+            await self._resolve_question(body, respond, say)
+
+        self._register_question_forms()
+        self._register_revisit_actions()
+
+    def _register_question_forms(self) -> None:
+        @self.app.action(QUESTION_SUBMIT_ACTION_ID)
+        async def handle_question_submit(
+            ack: AsyncAck, body: dict[str, Any], respond: AsyncRespond, say: AsyncSay
+        ) -> None:
+            await ack()
+            await self._submit_checked_options(body, respond, say)
+
+        @self.app.action(QUESTION_OTHER_ACTION_ID)
+        async def handle_question_other(ack: AsyncAck, body: dict[str, Any]) -> None:
+            await ack()
+            await self._open_other_answer(body)
+
+        @self.app.view(QUESTION_OTHER_CALLBACK_ID)
+        async def handle_other_answer(
+            ack: AsyncAck, body: dict[str, Any], view: dict[str, Any]
+        ) -> None:
+            await ack()
+            await self._submit_other_answer(body, view)
+
+    def _register_revisit_actions(self) -> None:
+        @self.app.action(RETRY_ACTION_ID)
+        async def handle_retry(ack: AsyncAck, body: dict[str, Any]) -> None:
+            await ack()
+            await self._retry_request(body)
+
+        @self.app.action(FOLLOWUP_ACTION_ID)
+        async def handle_followup(ack: AsyncAck, body: dict[str, Any]) -> None:
+            await ack()
+            await self._run_followup(body)
 
     async def _ingest_slack_attachments(
         self,
@@ -541,16 +712,19 @@ class SlackAssistant(
         files: list[dict[str, Any]] | None = None,
         ephemeral_fn: Callable[..., Any] | None = None,
         message_ts: str | None = None,
+        session_thread_ts: str | None = None,
     ) -> None:
         """Admit one Slack message, route it, run it through the shared turn pipeline, render
-        the result.
+        the result. ``session_thread_ts`` names the session's thread when the reply goes to
+        another one (a direct message continuing the last conversation).
 
         Admission (channel policy, quota, rate limits), routing and rendering (spinners, Block
         Kit, chunked replies) are Slack's. The turn itself - persona, model routing, tools,
         approvals, tracing, audit, redaction, persistence - is the same pipeline the web
         cockpit uses, so a Slack session is a first-class, cockpit-visible session.
         """
-        self._last_activity[self.get_session_id(channel_id, thread_ts)] = time.time()
+        key_ts = session_thread_ts or thread_ts
+        self._last_activity[self.get_session_id(channel_id, key_ts)] = time.time()
         admitted = await self._admit(
             channel_id=channel_id,
             thread_ts=thread_ts,
@@ -563,6 +737,7 @@ class SlackAssistant(
         )
         if admitted is None:
             return
+        admitted = replace(admitted, message_ts=message_ts or "")
         await self._safely_update_status(status_fn, "Analyzing request...")
         routing = await self._route_request(
             org_id=admitted.workspace_org,
@@ -577,7 +752,7 @@ class SlackAssistant(
             return
         admitted = await self._apply_routing(admitted, routing, user_id)
         session_id = self.get_session_id(
-            channel_id, thread_ts, private_for=user_id if admitted.private else None
+            channel_id, key_ts, private_for=user_id if admitted.private else None
         )
         self._last_activity[session_id] = time.time()
         self._session_meta[session_id] = (channel_id, thread_ts)
@@ -613,6 +788,8 @@ class SlackAssistant(
             outcome=TurnOutcome(),
             link_url=self._session_link(admitted.org_policy, session_id),
             private=admitted.private,
+            request_text=admitted.title_text,
+            request_ts=admitted.message_ts,
         )
         if admitted.private:
             await self._safely_update_status(status_fn, "")
@@ -673,7 +850,10 @@ class SlackAssistant(
         ephemeral_fn: Callable[..., Any] | None,
     ) -> _Admitted | None:
         """Who is asking, under which organization, and is the request allowed at all."""
-        prompt = clean_mention_text(raw_text) or "Hello! How can I help you today?"
+        shortcuts = parse_shortcuts(clean_mention_text(raw_text))
+        if shortcuts.aside:
+            return None
+        prompt = shortcuts.text or "Hello! How can I help you today?"
         title_text = prompt
         resolved_team_id = team_id or self.team_id or self.settings.slack_team_id or ""
         is_dm = channel_type == "im"
@@ -733,6 +913,7 @@ class SlackAssistant(
             workspace_org=workspace_org,
             rocket_org_id=rocket_org_id,
             linked=linked,
+            shortcuts=shortcuts if shortcuts.any else None,
         )
 
     async def _attachments_for(
@@ -756,8 +937,12 @@ class SlackAssistant(
             say_fn=view.say_fn,
         )
 
+    def _web_base(self, org_policy: SlackOrgPolicy) -> str:
+        """The web app's address: the organization's, else the deployment's."""
+        return (org_policy.web_base_url or self.settings.slack_web_base_url).rstrip("/")
+
     def _session_link(self, org_policy: SlackOrgPolicy, session_id: str) -> str | None:
-        base = (org_policy.web_base_url or self.settings.slack_web_base_url).rstrip("/")
+        base = self._web_base(org_policy)
         return f"{base}/chat/{session_id}" if base else None
 
     async def _run_and_report(
@@ -786,15 +971,18 @@ class SlackAssistant(
         if session_id not in self._active_turns:
             # No Slack turn runs before this one: it is the session's next at once, so who may
             # stop it or answer its gates is known before its first step.
-            await self._remember_requester(session_id, view.org_id, view.requester_slack_id)
+            await self._remember_requester(session_id, view.org_id, view.requester_slack_id, view)
         self._active_turns.add(session_id)
         error: str | None = None
+        shortcuts = admitted.shortcuts
         try:
             await self._run_shared_turn(
                 view,
                 prompt=admitted.prompt,
                 overlay=overlay,
                 author_user_id=admitted.rocket_user_id,
+                reasoning_effort=shortcuts.reasoning_effort if shortcuts else None,
+                agent_id=await self._shortcut_agent(view, admitted),
             )
             error = view.outcome.error
         except Exception as err:
@@ -810,15 +998,7 @@ class SlackAssistant(
         if await self._report_stop(view):
             return
         if error or view.outcome.refusal:
-            # A refusal (a spend limit, an agent not theirs) is policy working, not a failure.
-            if view.outcome.refusal is None:
-                self._failures.record_failure(admitted.team_scope, self._clock())
-            notice = (
-                view.outcome.refusal
-                or f"⚠️ I encountered an error while processing your request: {error}"
-            )
-            if view.stream is None or not await view.stream.finish(notice, []):
-                await view.say_fn(text=notice, thread_ts=view.thread_ts)
+            await self._report_failure(view, admitted, error)
             return
         self._failures.record_success(admitted.team_scope)
         if view.private:
@@ -834,6 +1014,46 @@ class SlackAssistant(
             )
             return
         await self._post_result(view, admitted.org_policy)
+
+    async def _shortcut_agent(self, view: TurnView, admitted: _Admitted) -> str | None:
+        """The agent ``!agent <name>`` asked for, when the requester may use it; otherwise
+        they are told, and the turn runs with the thread's agent."""
+        name = admitted.shortcuts.agent_name if admitted.shortcuts else None
+        if not name:
+            return None
+        agent_id = None
+        if self._resolve_agent_fn is not None:
+            try:
+                agent_id = await self._resolve_agent_fn(
+                    admitted.session_org_id, admitted.rocket_user_id, name
+                )
+            except Exception as err:
+                logger.warning("Could not resolve the agent %r: %s", name, err)
+        if agent_id is None:
+            await view.say_fn(
+                text=f"I don't know an agent called *{name}* that you may use; answering with "
+                "this thread's agent.",
+                thread_ts=view.thread_ts,
+            )
+        return agent_id
+
+    async def _report_failure(self, view: TurnView, admitted: _Admitted, error: str | None) -> None:
+        """Say the turn failed, with a Retry button. A shared thread is told that it failed,
+        not the raw error (paths, hosts, provider messages); its details are in the session."""
+        # A refusal (a spend limit, an agent not theirs) is policy working, not a failure.
+        if view.outcome.refusal is not None:
+            notice = view.outcome.refusal
+            footer: list[dict[str, Any]] = []
+        else:
+            self._failures.record_failure(admitted.team_scope, self._clock())
+            notice = failure_notice(error, shared=not (admitted.is_dm or view.private))
+            footer = self._summary_blocks(view, failed=True)
+        if view.stream is None or not await view.stream.finish(notice, footer):
+            await view.say_fn(
+                text=notice,
+                blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": notice}}, *footer],
+                thread_ts=view.thread_ts,
+            )
 
     async def _direct_say(
         self, user_id: str, channel_id: str, thread_ts: str, session_id: str
@@ -876,12 +1096,14 @@ class SlackAssistant(
         return str(response.get("permalink") or "")
 
     async def _report_stop(self, view: TurnView) -> bool:
-        """End a turn its requester stopped from Slack: say so, and leave "processing"."""
+        """End a turn stopped from Slack (its requester, or their edited or deleted request):
+        say so, and leave "processing"."""
         stopped_by = self._stopped_by.pop(view.session_id, None)
-        if stopped_by is None:
+        reason = self._stop_notices.pop(view.session_id, None)
+        if stopped_by is None and reason is None:
             return False
         # A streamed reply is markdown, where Slack does not turn ":stop_button:" into an emoji.
-        notice = f"⏹️ Stopped by <@{stopped_by}>."
+        notice = reason or f"⏹️ Stopped by <@{stopped_by}>."
         if view.stream is None or not await view.stream.finish(notice, [], failed=True):
             await view.say_fn(text=notice, thread_ts=view.thread_ts)
         await self._set_session_status(view.channel_id, view.thread_ts, "active")
@@ -890,18 +1112,28 @@ class SlackAssistant(
     async def _own_turn_started(self, view: TurnView) -> None:
         # Only now: until this turn begins, the gates in flight belong to the turn before it,
         # whose requester must stay the one who may answer them.
-        await self._remember_requester(view.session_id, view.org_id, view.requester_slack_id)
+        await self._remember_requester(view.session_id, view.org_id, view.requester_slack_id, view)
 
     async def _remember_requester(
-        self, session_id: str, org_id: str, slack_user_id: str | None
+        self,
+        session_id: str,
+        org_id: str,
+        slack_user_id: str | None,
+        view: TurnView | None = None,
     ) -> None:
-        """Record who started this turn on the session, so any replica can check who may answer."""
+        """Record who started this turn on the session, so any replica can check who may answer,
+        and its request (for Retry, and to know an edited or deleted message as this one)."""
         if self.session_store is None or not slack_user_id:
             return
+        request = (
+            {LAST_REQUEST_KEY: remember_request(view.request_text, view.request_ts)}
+            if view is not None and view.request_text
+            else {}
+        )
 
         def remember(record: SessionRecord) -> None:
             known = record.metadata if isinstance(record.metadata, dict) else {}
-            record.metadata = {**known, "slack_turn_requester": slack_user_id}
+            record.metadata = {**known, "slack_turn_requester": slack_user_id, **request}
 
         try:
             await self.session_store.mutate_session(session_id, org_id, remember)
@@ -997,6 +1229,12 @@ class SlackAssistant(
         try:
             existing = await self.session_store.get_session(session_id)
             if existing is not None:
+                if (existing.metadata or {}).get("slack_thread_ts") != thread_ts:
+                    # A continued direct message: later turns no request waits on are posted
+                    # in the newest thread.
+                    await self.session_store.mutate_session(
+                        session_id, admitted.session_org_id, _in_thread(thread_ts)
+                    )
                 if route and (existing.metadata or {}).get(ROUTE_KEY) != route:
                     await self.session_store.mutate_session(
                         session_id, admitted.session_org_id, _with_route(route)
@@ -1067,6 +1305,15 @@ class SlackAssistant(
         profile = None if is_dm else org_policy.profile_for(channel_id)
         if profile and profile.instructions:
             stable += f"House rules for this channel: {profile.instructions} "
+        if profile is not None:
+            # Part of the stable prompt: it is the same for every turn of the channel.
+            stable += _repository_line(profile.repository, profile.branch)
+        shortcuts = admitted.shortcuts
+        if shortcuts is not None and shortcuts.repository:
+            dynamic = f"{dynamic}\n{_repository_line(shortcuts.repository, shortcuts.branch or '')}".strip()
+        viewing = self._viewing_channels.get(f"{channel_id}:{thread_ts}")
+        if viewing:
+            dynamic = f"{dynamic}\nThe person is viewing <#{viewing}> in Slack.".strip()
         allowed = org_policy.allowed_tools
         if profile and profile.allowed_tools:
             allowed = (
@@ -1075,6 +1322,8 @@ class SlackAssistant(
                 else profile.allowed_tools
             )
         denied = self._denied_tools(admitted, allowed)
+        gated = denied & MEMBER_PUBLISH_TOOLS if admitted.publishes_as_member else frozenset()
+        denied = denied - gated
         return TurnOverlay(
             stable_suffix=stable,
             dynamic=dynamic,
@@ -1085,6 +1334,8 @@ class SlackAssistant(
                 base=base, org_allowed=allowed, blocked=denied
             ),
             denied_tools=denied,
+            gated_tools=gated,
+            publish_as_user_id=admitted.rocket_user_id if gated else None,
         )
 
     def _denied_tools(self, admitted: _Admitted, allowed: tuple[str, ...]) -> frozenset[str]:
@@ -1103,27 +1354,6 @@ class SlackAssistant(
         return (
             (profile.agent_persona if profile else "") or org_policy.default_agent_persona or None
         )
-
-    async def hibernate_inactive_sessions(self, timeout_seconds: int | None = None) -> list[str]:
-        """Stop ephemeral containers for idle threads while retaining persistent volumes."""
-        timeout = (
-            timeout_seconds if timeout_seconds is not None else self.settings.auto_hibernate_seconds
-        )
-        now = time.time()
-        hibernated: list[str] = []
-
-        if not self.sandbox_driver:
-            return hibernated
-
-        for session_id, last_time in list(self._last_activity.items()):
-            if now - last_time >= timeout:
-                try:
-                    await self.sandbox_driver.hibernate_sandbox(session_id)
-                    hibernated.append(session_id)
-                except Exception as err:
-                    logger.warning("Failed to hibernate sandbox %s: %s", session_id, err)
-
-        return hibernated
 
     async def is_connected(self) -> bool:
         """Check if Socket Mode client is actively connected."""
@@ -1246,6 +1476,18 @@ def _new_session_record(
     )
 
 
+def _repository_line(repository: str, branch: str) -> str:
+    """The repository a channel (or a ``!repo`` shortcut) works on. Sessions start blank: the
+    agent is told to clone it rather than the platform cloning it on its behalf."""
+    if not repository:
+        return ""
+    where = f"`{repository}`" + (f" (branch `{branch}`)" if branch else "")
+    return (
+        f"This conversation works on {where}: unless the person names another repository, "
+        "clone it with `clone_repository` before working, if it is not in /workspace yet. "
+    )
+
+
 def _with_bot(bot: SlackBot | None) -> Callable[[SessionRecord], None]:
     """Record which bot owns a thread (empty for the deployment's single bot)."""
 
@@ -1254,6 +1496,14 @@ def _with_bot(bot: SlackBot | None) -> Callable[[SessionRecord], None]:
         record.metadata = {**known, "slack_bot_id": bot.id if bot is not None else ""}
 
     return claim
+
+
+def _in_thread(thread_ts: str) -> Callable[[SessionRecord], None]:
+    def move(record: SessionRecord) -> None:
+        known = record.metadata if isinstance(record.metadata, dict) else {}
+        record.metadata = {**known, "slack_thread_ts": thread_ts}
+
+    return move
 
 
 def _with_route(route: str) -> Callable[[SessionRecord], None]:

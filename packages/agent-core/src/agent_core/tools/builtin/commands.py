@@ -5,7 +5,7 @@ import posixpath
 import re
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 from sandbox_driver.workspace import RepositoryNotFoundError, workspace_path
 
 from agent_core.context import current_execution_ctx
@@ -27,6 +27,20 @@ def register(registry: "ToolRegistry") -> None:
     _register_shell_tools(registry)
     _register_verification_tools(registry)
     _register_inspection_tools(registry)
+
+
+class BrowserAction(BaseModel):
+    """One step of ``browser_session``."""
+
+    do: Literal[
+        "start", "navigate", "click", "type", "press", "wait", "snapshot", "screenshot", "close"
+    ] = Field(description="What to do.")
+    url: str | None = Field(default=None, description="navigate: full http(s) URL.")
+    selector: str | None = Field(default=None, description="click, type: a Playwright selector.")
+    text: str | None = Field(default=None, description="type: the text to enter.")
+    key: str | None = Field(default=None, description="press: a key, e.g. Enter.")
+    ms: int | None = Field(default=None, description="wait: milliseconds (at most 10000).")
+    record: bool | None = Field(default=None, description="start: record a video of the session.")
 
 
 ProjectPath = Annotated[
@@ -300,6 +314,30 @@ def _register_inspection_tools(registry: "ToolRegistry") -> None:
         driver, session_id = target
         await registry._ensure_sandbox(session_id)
         return await browser_tools.browser_inspect(driver, session_id, url, screenshot, wait_ms)
+
+    @registry._tool(
+        description=(
+            "Use a browser step by step inside the sandbox; it keeps its cookies and page "
+            "between calls (log in once, then work). Send actions in order: start (record=true "
+            "saves a video), navigate (url), click (selector: any Playwright selector, e.g. "
+            "'text=Sign in' or '#submit'), type (selector, text), press (key), wait (ms), "
+            "snapshot (what the page shows), screenshot, close. At most 20 per call."
+        )
+    )
+    async def browser_session(
+        actions: Annotated[
+            list[BrowserAction],
+            Field(description="Actions to run in order.", min_length=1, max_length=20),
+        ],
+    ) -> str:
+        target = registry._sandbox_target("browser_session")
+        if target is None:
+            return "Error: Sandbox not initialized for browser_session"
+        driver, session_id = target
+        await registry._ensure_sandbox(session_id)
+        return await browser_tools.browser_session(
+            driver, session_id, [a.model_dump(exclude_none=True) for a in actions]
+        )
 
     @registry._tool(
         description=(

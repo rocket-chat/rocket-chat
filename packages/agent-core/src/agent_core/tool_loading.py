@@ -109,3 +109,18 @@ def catalogue(names: Iterable[str]) -> str:
         else:
             lines.append(f"  - {server} ({len(tools)}): " + ", ".join(tools))
     return "\n".join(lines)
+
+
+# Tools that were removed under one name and live on under another: an agent's tool list saved
+# with the old name keeps the tool.
+RENAMED_TOOLS: dict[str, str] = {
+    "task_start": "process_start",
+    "task_list": "process_list",
+    "task_status": "process_output",
+    "task_kill": "process_stop",
+}
+
+
+def current_tool_names(names: list[str]) -> list[str]:
+    """``names`` with renamed tools under their current name, each once, in order."""
+    return list(dict.fromkeys(RENAMED_TOOLS.get(name, name) for name in names))

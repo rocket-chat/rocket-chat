@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from slack_assistant.config import SlackAssistantSettings
 
 from api.bootstrap.background import BackgroundServices
+from api.bootstrap.chat import start_chat_bridges
 from api.bootstrap.core import CoreServices, assemble_core
 from api.bootstrap.slack import SlackBotManager, start_slack
 from api.db.session import current_tenant_org_id
@@ -28,7 +29,9 @@ from api.routers.approval_rules import router as approval_rules_router
 from api.routers.artifacts import router as artifacts_router
 from api.routers.attachments import router as attachments_router
 from api.routers.auth import router as auth_router
+from api.routers.automation import router as automation_router
 from api.routers.changes import router as changes_router
+from api.routers.chat import router as chat_router
 from api.routers.checkpoints import router as checkpoints_router
 from api.routers.credentials import router as credentials_router
 from api.routers.dev import router as dev_router
@@ -38,6 +41,7 @@ from api.routers.git_gateway import router as git_gateway_router
 from api.routers.git_signing import router as git_signing_router
 from api.routers.github_app import router as github_app_router
 from api.routers.github_credentials import router as github_credentials_router
+from api.routers.gitlab_credentials import router as gitlab_credentials_router
 from api.routers.goals import router as goals_router
 from api.routers.knowledge import router as knowledge_router
 from api.routers.mcp_oauth import router as mcp_oauth_router
@@ -49,6 +53,7 @@ from api.routers.organizations import router as organizations_router
 from api.routers.plan import router as plan_router
 from api.routers.preview import router as preview_router
 from api.routers.processes import router as processes_router
+from api.routers.provider_oauth import router as provider_oauth_router
 from api.routers.repository_setups import router as repository_setups_router
 from api.routers.sandboxes import router as sandboxes_router
 from api.routers.session_crud import router as session_crud_router
@@ -74,6 +79,7 @@ from api.routers.usage import router as usage_router
 from api.routers.version import router as version_router
 from api.routers.webhooks import router as webhooks_router
 from api.routers.workspace import router as workspace_router
+from api.routers.workspace_snapshots import router as workspace_snapshots_router
 from api.security_guards import enforce_production_config
 from api.services.metrics import (
     drain_endpoint,
@@ -100,9 +106,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     background = BackgroundServices(app, core)
     background.start()
     slack = start_slack(app, core, SlackAssistantSettings())
+    chat = start_chat_bridges(app, core)
 
     yield
 
+    await chat.stop()
     await _shut_down(app, core, background, slack)
 
 
@@ -308,6 +316,8 @@ for _router in (
     # Before credentials_router: its /user/credentials/{credential_id} would capture
     # /user/credentials/github.
     github_credentials_router,
+    gitlab_credentials_router,
+    provider_oauth_router,
     credentials_router,
     spend_limits_router,
     git_signing_router,
@@ -328,6 +338,9 @@ app.include_router(api_tokens_router)
 app.include_router(repository_setups_router)
 app.include_router(version_router)
 app.include_router(setup_health_router)
+app.include_router(automation_router)
+app.include_router(workspace_snapshots_router)
+app.include_router(chat_router)
 app.include_router(feedback_router)
 app.include_router(session_git_router)
 app.include_router(plan_router)

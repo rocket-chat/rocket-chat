@@ -58,7 +58,7 @@ async def gateway(
         None, store, None, client=httpx.AsyncClient(transport=httpx.MockTransport(github.handler))
     )
 
-    async def credential(grant: object, repository: str) -> str:
+    async def credential(grant: object, repository: str, forge: str = "github") -> str:
         return "ghs_platform_side"
 
     monkeypatch.setattr(service, "credential", credential)

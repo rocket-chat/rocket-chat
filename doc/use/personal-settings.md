@@ -47,6 +47,8 @@ The page shows which credential the sandbox will actually use (yours, or the app
 
 If your role holds `bring_own_keys` you can add **your own provider keys** (Anthropic, OpenRouter, OpenAI, Gemini, DeepSeek, Ollama), each with a label: they are stored encrypted, never shown again, and what they spend is yours (it counts against no spend limit of yours). Your organization decides when they are used (before its own key, only where it has none, or never). You can **share** a key with an organization agent, so an administrator can bind it to that agent; stop sharing it at any time, and the agent's next call on it fails as *credential withdrawn*. Calls an agent makes on a key you shared count against that agent's limits.
 
+**Sign in with OpenRouter** adds an OpenRouter key without copying one: approve on OpenRouter, and the key it issues is stored like the others (marked *Signed in*). Administrators can do the same for an organization key. Consumer subscriptions such as Claude Pro or ChatGPT Plus cannot be used: their providers do not allow third-party applications to use them.
+
 ## My agents
 
 If your role holds `create_personal_agents`, **My agents** edits agents only you can use, in the same editor as the organization's agents (see [Organization settings](/administer/organization#agents)). A personal agent can be bound to your own keys only.

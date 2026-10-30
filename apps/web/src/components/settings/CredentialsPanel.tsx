@@ -169,6 +169,8 @@ export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
         </p>
       )}
 
+      <ProviderSignIn owner={mode === "org" ? "org" : "member"} onError={setError} />
+
       <ul className="divide-y divide-surface-border rounded-xl border border-surface-border bg-surface-card">
         {credentials.length === 0 && platform.length === 0 && (
           <li className="px-4 py-3 text-xs text-neutral-500">No keys stored.</li>
@@ -188,6 +190,9 @@ export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
                 {credential.provider}
               </span>
               <span className="font-mono text-neutral-500">{credential.fingerprint}</span>
+              {credential.kind === "oauth" && (
+                <span className="rounded border border-surface-border px-1.5 py-0.5 text-[10px] text-neutral-500">Signed in</span>
+              )}
               {credential.default_for_provider && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-brand">
                   <Star className="h-3 w-3" aria-hidden="true" /> Default
@@ -351,3 +356,54 @@ export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
     </section>
   );
 }
+
+interface SignInProvider {
+  provider: string;
+  label: string;
+}
+
+/** "Sign in with OpenRouter": the provider issues a key of the person's after they approve. */
+function ProviderSignIn({ owner, onError }: { owner: "member" | "org"; onError: (message: string) => void }) {
+  const [providers, setProviders] = useState<SignInProvider[]>([]);
+
+  useEffect(() => {
+    // Back from the provider: a failed sign-in says why (a successful one is in the list).
+    const query = new URLSearchParams(window.location.search);
+    if (query.get("signin") === "failed") onError(`Sign-in failed: ${query.get("reason") ?? "unknown reason"}`);
+  }, [onError]);
+
+  useEffect(() => {
+    fetch("/v1/credentials/oauth/providers")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((rows: SignInProvider[]) => setProviders(Array.isArray(rows) ? rows : []))
+      .catch(() => setProviders([]));
+  }, []);
+
+  const signIn = async (provider: string) => {
+    const res = await fetch(`/v1/credentials/oauth/${provider}/start?owner=${owner}`, { method: "POST" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || typeof body.authorization_url !== "string") {
+      onError(typeof body.detail === "string" ? body.detail : "Signing in could not start.");
+      return;
+    }
+    window.location.assign(body.authorization_url);
+  };
+
+  if (!providers.length) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2" data-testid="provider-sign-in">
+      {providers.map((provider) => (
+        <button
+          key={provider.provider}
+          type="button"
+          onClick={() => signIn(provider.provider)}
+          className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-foreground hover:border-brand/50"
+        >
+          Sign in with {provider.label}
+        </button>
+      ))}
+      <span className="text-[11px] text-neutral-500">Instead of pasting a key. Subscriptions such as Claude Pro or ChatGPT Plus cannot be used here: their providers do not allow it.</span>
+    </div>
+  );
+}
+

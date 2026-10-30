@@ -23,7 +23,7 @@ from llm_gateway.gateway import LiteLLMGateway
 from sandbox_driver.docker_driver import DockerSandboxDriver
 
 from specifications.interfaces.git import CoAuthor, CommitSpec, SigningMode
-from specifications.interfaces.sandbox import SandboxStatus
+from specifications.interfaces.sandbox import SandboxStatus, WorkspaceSpec
 
 
 def _sandbox_image() -> str:
@@ -50,7 +50,6 @@ async def test_git_and_webhook_interoperability(
     async def _org_sandbox_settings(*args: object, **kwargs: object) -> dict[str, object]:
         return {"default_image": image}
 
-    monkeypatch.setattr("api.routers.webhooks.effective_settings", _org_sandbox_settings)
     monkeypatch.setattr("api.turns.provisioning.effective_settings", _org_sandbox_settings)
 
     # 1. Prepare environment and drivers
@@ -122,6 +121,19 @@ async def test_git_and_webhook_interoperability(
             # -------------------------------------------------------------
             # Step 2: Verify Docker Sandbox spawned & Git workspace initialized
             # -------------------------------------------------------------
+            # Sessions start blank and their sandbox comes up when the turn first needs it; the
+            # test brings it up itself rather than racing the turn the trigger started.
+            record = await session_store.get_session(expected_session_id)
+            assert record is not None and record.metadata["github_issue"] == issue_number
+            await driver.ensure_workspace(
+                WorkspaceSpec(
+                    session_id=expected_session_id,
+                    tenant_org_id=record.tenant_org_id,
+                    tenant_user_id=record.tenant_user_id,
+                    container_image=image,
+                )
+            )
+            await driver.start_sandbox(expected_session_id)
             status = await driver.get_status(expected_session_id)
             assert status == SandboxStatus.RUNNING
 
@@ -273,7 +285,9 @@ async def test_git_and_webhook_interoperability(
             assert resume_data["status"] == "resumed"
             assert resume_data["session_id"] == expected_session_id
 
-            # Verify sandbox was resumed and is RUNNING
+            # The follow-up's turn starts the sandbox when it needs it; started here, the
+            # hibernated workspace comes back as it was.
+            await driver.start_sandbox(expected_session_id)
             resumed_status = await driver.get_status(expected_session_id)
             assert resumed_status == SandboxStatus.RUNNING
 

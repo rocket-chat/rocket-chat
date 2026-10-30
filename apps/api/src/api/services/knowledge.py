@@ -119,12 +119,15 @@ def max_chunks_per_document() -> int:
     return _env_limit("ROCKET_KB_MAX_CHUNKS_PER_DOCUMENT", DEFAULT_MAX_CHUNKS_PER_DOCUMENT)
 
 
-async def _embed_all(chunks: list[str]) -> list[list[float]]:
+DEFAULT_EMBEDDING_MODEL = "text-embedding-3-small"
+
+
+async def _embed_all(chunks: list[str], model: str) -> list[list[float]]:
     gate = asyncio.Semaphore(EMBEDDING_CONCURRENCY)
 
     async def embed(chunk: str) -> list[float]:
         async with gate:
-            return await compute_embedding(chunk)
+            return await compute_embedding(chunk, model)
 
     return list(await asyncio.gather(*(embed(chunk) for chunk in chunks)))
 
@@ -137,8 +140,10 @@ async def ingest_document(
     content: str,
     source_type: str = "text",
     metadata_json: dict[str, Any] | None = None,
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL,
 ) -> KnowledgeDocumentModel:
-    """Chunk and vectorize a document into knowledge_documents and knowledge_chunks."""
+    """Chunk and vectorize a document into knowledge_documents and knowledge_chunks, with the
+    organization's embedding model (``memory.embedding_model``; queries use the same)."""
     if len(content) > max_document_chars():
         raise IngestionLimitError(
             f"Document is {len(content):,} characters; the limit is {max_document_chars():,}."
@@ -151,7 +156,7 @@ async def ingest_document(
             f"{max_chunks_per_document():,}."
         )
     doc_id = f"doc-{uuid.uuid4().hex[:12]}"
-    vectors = await _embed_all(chunks_text)
+    vectors = await _embed_all(chunks_text, embedding_model)
 
     doc = KnowledgeDocumentModel(
         id=doc_id,
@@ -202,9 +207,10 @@ async def query_knowledge_base(
     org_id: str,
     query_text: str,
     limit: int = 5,
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL,
 ) -> list[dict[str, Any]]:
     """Execute cosine distance query against knowledge_chunks."""
-    query_vector = await compute_embedding(query_text)
+    query_vector = await compute_embedding(query_text, embedding_model)
     logger.debug("Querying KB %s for '%s' with limit %d", kb_id, query_text, limit)
 
     # pgvector cosine distance: embedding.cosine_distance(query_vector)
@@ -258,6 +264,7 @@ async def search_knowledge(
     kb_ref: str | None = None,
     limit: int = 5,
     allowed_kb_ids: Sequence[str] = (),
+    embedding_model: str = DEFAULT_EMBEDDING_MODEL,
 ) -> str:
     """Answer the agent's ``kb_search`` from the collections it may read.
 
@@ -284,7 +291,9 @@ async def search_knowledge(
 
     hits: list[dict[str, Any]] = []
     for kb in candidates[:MAX_COLLECTIONS_PER_SEARCH]:
-        for hit in await query_knowledge_base(session, kb.id, org_id, query_text, limit=limit):
+        for hit in await query_knowledge_base(
+            session, kb.id, org_id, query_text, limit=limit, embedding_model=embedding_model
+        ):
             hits.append({**hit, "kb": kb.name})
     hits.sort(key=lambda hit: hit["score"], reverse=True)
     if not hits:

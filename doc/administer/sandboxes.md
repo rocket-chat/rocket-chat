@@ -45,7 +45,7 @@ The settings menu marks these pages **ADMIN**: what you change applies to every 
 
 | Capability | What it enables | What the image must contain |
 | :--- | :--- | :--- |
-| **Browser tools** | The agent can open a page it built and read its text, console errors and failed requests, optionally with a screenshot (`browser_inspect`). | Chromium and Playwright. The `rocket-chat-sandbox-browser` image (built from `deploy/docker/Dockerfile.sandbox-browser`) has both. |
+| **Browser tools** | The agent can open a page it built and read its text, console errors and failed requests, optionally with a screenshot (`browser_inspect`), and use a browser step by step that keeps its cookies and page between calls: navigate, click, type, take screenshots and record a video of what it did (`browser_session`). The browser runs in the sandbox, so it follows the sandbox's network egress. | Chromium and Playwright. The `rocket-chat-sandbox-browser` image (built from `deploy/docker/Dockerfile.sandbox-browser`) has both. |
 
 Capabilities are an explicit promise: ticking *Browser tools* on an image that lacks Chromium makes the tool fail, and an entry without it never offers the tool. **Looking at images** is not a sandbox capability: the agent can open any image in the workspace (`view_image`), and whether it can see it depends on the model.
 
@@ -78,6 +78,14 @@ A sandbox starts with the first tool call that needs it. On Kubernetes that call
 A sandbox with no activity for the idle period is stopped and its workspace volume is kept (the operator sets the period with `SANDBOX_INACTIVITY_PAUSE_SECONDS`: 30 minutes on Docker, 10 minutes on Kubernetes by default), so the next turn finds the repositories it cloned. Sandboxes executing an active turn or running background processes are held awake and never hibernated mid-flight. In multi-replica deployments, the inactivity reaper runs under cluster leader election and cross-checks active running turns and recent turn activity from the database, preventing non-executing replicas from prematurely hibernating active sandboxes. Running background processes end when a sandbox sleeps.
 
 A kept volume still costs storage. After **`workspace_release_days`** (Settings → Organization → Sandboxes, 7 days by default, 0 = keep it as long as the session exists) without activity in the session, the volume is deleted too; a sandbox type can set its own delay. The session stays: its next turn starts with a blank sandbox, and the agent is told the workspace was released, so it clones again (work that was not pushed is gone). Workspaces are also removed with their session.
+
+## Snapshots of a whole workspace
+
+A session's whole workspace (every repository it cloned, uncommitted work included) can be saved and restored: `POST /v1/sessions/{id}/snapshots`, then `…/snapshots/{snapshot}/restore`, which replaces the workspace and restarts the sandbox on it at the next command. On Kubernetes a snapshot is a CSI `VolumeSnapshot` (the operator sets the class); with Docker, an archive of the session's volume. **Snapshot before pausing** (`sandboxes.snapshot_before_hibernate`) takes one each time the idle reaper pauses a sandbox; a session keeps the newest `sandboxes.workspace_snapshots_kept`.
+
+## Dev container images
+
+When the agent clones a repository whose `.devcontainer/devcontainer.json` names an `image` that the catalogue offers, the session runs on that image from its next command (`sandboxes.use_devcontainer_image`, on by default); the workspace is kept. An image the catalogue does not offer is never used, and the agent is told so. A dev container that builds its own image (`build`, Compose, features) is not built: add the image it produces to the catalogue.
 
 ## Shipped sandbox types
 

@@ -30,6 +30,14 @@ STEP_CARD = "steps"
 UPDATE_INTERVAL_SECONDS = 2.0
 # Consecutive failed updates after which the stream is given up (the answer is posted plainly).
 MAX_FAILURES = 3
+# Checklist items shown as task items; a longer checklist is cut (the web app shows it whole).
+MAX_PLAN_ITEMS = 8
+_PLAN_STATUS = {
+    "pending": "pending",
+    "in_progress": "in_progress",
+    "completed": "complete",
+    "failed": "error",
+}
 _READ_TOOLS = frozenset({"file_read", "list_dir", "glob_files", "code_search", "grep_search"})
 _EDIT_TOOLS = frozenset({"file_edit", "file_write", "apply_patch", "apply_diff_file"})
 
@@ -71,6 +79,7 @@ class TurnStream:
         self._edited: set[str] = set()
         self._commands = 0
         self._reads = 0
+        self._plan: tuple[tuple[str, str], ...] = ()
 
     @property
     def started(self) -> bool:
@@ -132,6 +141,31 @@ class TurnStream:
         self.ts = None
         return True
 
+    async def plan(self, tasks: list[dict[str, Any]]) -> None:
+        """The agent's checklist as task items, each updated in place by its position. Sent
+        only when it changed (the agent re-sends it often), and only once the stream exists:
+        a checklist alone does not open a reply."""
+        items = tuple(
+            (
+                str(task.get("title") or task.get("content") or "").strip(),
+                _PLAN_STATUS.get(str(task.get("status") or "pending"), "pending"),
+            )
+            for task in tasks[:MAX_PLAN_ITEMS]
+            if isinstance(task, dict)
+        )
+        if not items or items == self._plan or self.ts is None:
+            return
+        self._plan = items
+        for index, (title, status) in enumerate(items):
+            await self._task(
+                {
+                    "type": "task_update",
+                    "id": f"plan-{index}",
+                    "title": (title or f"Step {index + 1}")[:TASK_CHARS],
+                    "status": status,
+                }
+            )
+
     async def subagent(self, subagent_id: str, title: str, status: str) -> None:
         """One line per subagent, its own card updated in place: started, then done with a
         one-line summary and its cost. Rare enough (two updates a child) to skip the merge."""
@@ -143,6 +177,14 @@ class TurnStream:
                 "status": status,
             }
         )
+
+    @property
+    def elapsed_seconds(self) -> int:
+        return int(self._clock() - self._started_at)
+
+    def changes_line(self) -> str:
+        """What the turn changed and ran: "Edited 2 files · Ran 3 commands"."""
+        return self._summary()
 
     def outcome_line(self) -> str:
         """What the turn did, for the line under its answer: "Done in 42s · Edited 2 files"."""

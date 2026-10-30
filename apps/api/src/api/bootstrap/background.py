@@ -17,6 +17,7 @@ from api.bootstrap.runtime import cluster_bus_enabled
 from api.db.models import McpServerEntityModel
 from api.db.session import DatabaseSessionManager, current_tenant_org_id
 from api.db.store import TurnTraceStore
+from api.services import outbound_webhooks
 from api.services.audit import RetentionPolicy, RetentionSweeper
 from api.services.budgets import BudgetService
 from api.services.cluster import LeaderElection
@@ -28,6 +29,8 @@ from api.services.provider_catalogue import REFRESH_SECONDS, provider_catalogue
 from api.services.queued_messages import stranded_sessions
 from api.services.settings import load_org_config
 from api.services.subagent_runs import supervise_subagent_runs
+from api.services.trigger_schedule import fire_due_schedules
+from api.services.triggers import forget_old_deliveries
 from api.services.turn_resume import resume_interrupted_turns
 from api.services.turn_trace import (
     LEASE_HEARTBEAT_SECONDS,
@@ -49,6 +52,7 @@ from api.services.workspace_release import (
     idle_candidates,
     release_idle_workspaces,
 )
+from api.services.workspace_snapshots import before_pause_hook
 from api.turns.tasks import (
     _spawn_background_turn,
     launch_mission,
@@ -69,6 +73,8 @@ DRAIN_POLL_SECONDS = 2.0
 # Stranded messages wait at least a minute (STRANDED_AFTER_SECONDS) anyway.
 QUEUED_SWEEP_SECONDS = 30.0
 SPEND_SWEEP_SECONDS = 300
+SCHEDULE_TRIGGER_SECONDS = 60
+WEBHOOK_RETRY_SECONDS = 30
 
 
 async def _run_periodically(
@@ -129,6 +135,7 @@ class BackgroundServices:
             self._start_waits_sweeper(admin_manager)
             self._start_queued_messages_sweeper(admin_manager)
             self._start_spend_reservation_sweeper(admin_manager)
+            self._start_automation(admin_manager)
         else:
             self._start_waits_sweeper(None)
             self._start_queued_messages_sweeper(None)
@@ -183,6 +190,10 @@ class BackgroundServices:
         driver = self._core.sandbox_driver
         if not hasattr(driver, "reconcile_inactivity"):
             return
+        if hasattr(driver, "before_idle_pause"):
+            driver.before_idle_pause = before_pause_hook(
+                driver, self._app.state.session_store, self._core.db_manager
+            )
 
         async def _session_is_live(session_id: str) -> bool:
             return await self._app.state.session_store.get_session(session_id) is not None
@@ -317,6 +328,25 @@ class BackgroundServices:
                 await _poll()
 
         self._spawn(_scheduler())
+
+    def _start_automation(self, admin_manager: DatabaseSessionManager) -> None:
+        """Schedule triggers (each minute) and the retries of outbound webhook reports. Every
+        replica runs both: a run and an attempt are each claimed by one of them."""
+        app, db_mgr = self._app, self._core.db_manager
+
+        async def _schedules() -> None:
+            await fire_due_schedules(app, admin_manager)
+
+        async def _retries() -> None:
+            await outbound_webhooks.retry_due(admin_manager, db_mgr)
+
+        async def _retention() -> None:
+            await forget_old_deliveries(admin_manager)
+            await outbound_webhooks.forget_finished(admin_manager)
+
+        self._spawn(_run_periodically("Schedule triggers", SCHEDULE_TRIGGER_SECONDS, _schedules))
+        self._spawn(_run_periodically("Outbound webhook retries", WEBHOOK_RETRY_SECONDS, _retries))
+        self._spawn(_run_periodically("Automation retention", RETENTION_SWEEP_SECONDS, _retention))
 
     def _start_spend_reservation_sweeper(
         self, admin_manager: DatabaseSessionManager | None
