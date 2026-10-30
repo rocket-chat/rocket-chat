@@ -1,7 +1,6 @@
 """Unit test suite for Slack Assistant and Block Kit formatters."""
 
 import json
-import time
 from collections.abc import AsyncIterator
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
@@ -14,7 +13,6 @@ from slack_assistant.block_kit import (
     build_question_blocks,
     markdown_to_slack_mrkdwn,
 )
-from slack_assistant.config import SlackAssistantSettings
 from slack_assistant.state import SlackAssistantState
 from slack_harness import make_slack
 
@@ -25,7 +23,6 @@ from specifications.interfaces.agent import (
     InteractiveQuestion,
     SystemPrompt,
 )
-from specifications.interfaces.sandbox import SandboxDriverProtocol
 
 
 class DummyOrchestrator(AgentOrchestratorProtocol):
@@ -140,8 +137,10 @@ def test_build_question_blocks() -> None:
     assert len(blocks) >= 2
     assert "Choose approach" in blocks[0]["text"]["text"]
     elements = blocks[1]["elements"]
-    assert len(elements) == 2
+    # The options, then "Other…" for a free answer.
+    assert len(elements) == 3
     assert "⭐ Safe" in elements[1]["text"]["text"]
+    assert elements[2]["action_id"] == "question_other"
 
 
 def test_determine_spinner_message() -> None:
@@ -222,31 +221,6 @@ async def test_process_incoming_request_with_diff() -> None:
     assert any("calc.py" in str(b) for b in blocks)
     # No fake "commit" button: nothing in Slack backs it, so it must not be offered.
     assert not any("approve_action" in str(b) for b in blocks)
-
-
-@pytest.mark.asyncio
-async def test_hibernate_inactive_sessions() -> None:
-    driver_mock = MagicMock(spec=SandboxDriverProtocol)
-    driver_mock.hibernate_sandbox = AsyncMock()
-
-    orchestrator = DummyOrchestrator()
-    settings = SlackAssistantSettings(auto_hibernate_seconds=10)
-    assistant = make_slack(
-        orchestrator=orchestrator,
-        sandbox_driver=driver_mock,
-        settings=settings,
-    )
-
-    # Set up session activity timestamps relative to current time
-    now = time.time()
-    assistant._last_activity["session_active"] = now - 5.0
-    assistant._last_activity["session_idle"] = now - 100.0
-
-    # Hibernate with timeout of 50 seconds
-    hibernated = await assistant.hibernate_inactive_sessions(timeout_seconds=50)
-    assert "session_idle" in hibernated
-    assert "session_active" not in hibernated
-    driver_mock.hibernate_sandbox.assert_called_once_with("session_idle")
 
 
 def test_markdown_to_slack_mrkdwn_code_blocks_and_placeholders() -> None:
@@ -380,8 +354,8 @@ def test_build_question_blocks_action_ids_are_unique() -> None:
         if block.get("type") == "actions"
         for element in block["elements"]
     ]
-    assert len(action_ids) == 6
-    assert len(set(action_ids)) == 6
+    assert len(action_ids) == 7  # six options and "Other…"
+    assert len(set(action_ids)) == 7
     # Values still encode the question/option pair for the regex-matched handler.
     assert blocks[1]["elements"][0]["value"] == "q1:Staging"
 

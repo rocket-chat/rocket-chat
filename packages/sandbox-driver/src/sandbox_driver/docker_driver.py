@@ -5,7 +5,9 @@ import contextlib
 import io
 import logging
 import os
+import re
 import time
+import uuid
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -53,13 +55,15 @@ from specifications.interfaces.sandbox import (
     SandboxDriverProtocol,
     SandboxStatus,
     SessionLivenessCheck,
+    WorkspaceSnapshot,
+    WorkspaceSnapshotter,
     WorkspaceSpec,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
+class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol, WorkspaceSnapshotter):
     """Manages ephemeral Docker containers attached to persistent named volumes."""
 
     def __init__(
@@ -248,6 +252,79 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                 pass
 
         await run_blocking(_sync_hibernate)
+
+    # -- workspace snapshots: a compressed archive of the volume, in a volume of its own --------
+
+    def _snapshot_run(self, command: list[str], volumes: dict[str, dict[str, str]]) -> None:
+        """Run a short helper container on the workspace and snapshot volumes, then remove it."""
+        self._client.containers.run(
+            SNAPSHOT_HELPER_IMAGE,
+            command=command,
+            volumes=volumes,
+            remove=True,
+            network_mode="none",
+            labels={"app.kubernetes.io/managed-by": "rocket-chat"},
+        )
+
+    async def snapshot_workspace(self, session_id: str, label: str) -> WorkspaceSnapshot:
+        snapshot_id = f"snap_{uuid.uuid4().hex[:10]}"
+        archive = f"{_safe_name(session_id)}-{snapshot_id}.tgz"
+
+        def _sync_snapshot() -> int:
+            self._snapshot_run(
+                ["tar", "czf", f"/snapshots/{archive}", "-C", "/workspace", "."],
+                {
+                    self._get_volume_name(session_id): {"bind": "/workspace", "mode": "ro"},
+                    SNAPSHOT_VOLUME: {"bind": "/snapshots", "mode": "rw"},
+                },
+            )
+            return 0
+
+        async with self._lifecycle_lock(session_id):
+            await run_blocking(_sync_snapshot)
+        return WorkspaceSnapshot(
+            id=snapshot_id,
+            session_id=session_id,
+            label=label,
+            created_at=int(time.time()),
+            location=archive,
+            driver="docker",
+        )
+
+    async def restore_workspace(self, session_id: str, snapshot: WorkspaceSnapshot) -> None:
+        archive = _validated_archive(snapshot.location)
+        await self.hibernate_sandbox(session_id)
+
+        def _sync_restore() -> None:
+            self._snapshot_run(
+                [
+                    "sh",
+                    "-c",
+                    f"test -f /snapshots/{archive} && find /workspace -mindepth 1 -delete "
+                    f"&& tar xzf /snapshots/{archive} -C /workspace",
+                ],
+                {
+                    self._get_volume_name(session_id): {"bind": "/workspace", "mode": "rw"},
+                    SNAPSHOT_VOLUME: {"bind": "/snapshots", "mode": "ro"},
+                },
+            )
+
+        async with self._lifecycle_lock(session_id):
+            try:
+                await run_blocking(_sync_restore)
+            except docker.errors.ContainerError as err:
+                raise SandboxError(f"Snapshot {snapshot.id} could not be restored: {err}") from err
+
+    async def delete_snapshot(self, snapshot: WorkspaceSnapshot) -> None:
+        archive = _validated_archive(snapshot.location)
+
+        def _sync_delete() -> None:
+            self._snapshot_run(
+                ["rm", "-f", f"/snapshots/{archive}"],
+                {SNAPSHOT_VOLUME: {"bind": "/snapshots", "mode": "rw"}},
+            )
+
+        await run_blocking(_sync_delete)
 
     async def destroy_workspace(self, session_id: str) -> None:
         def _sync_destroy() -> None:
@@ -600,6 +677,7 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                         now - last_time,
                         threshold,
                     )
+                    await self._before_idle_pause(session_id)
                     await self.hibernate_sandbox(session_id)
                     paused.append(session_id)
         return paused
@@ -655,3 +733,20 @@ class DockerSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         cleaned = await self.cleanup_inactive_sandboxes(is_live=is_live)
         await run_blocking(remove_unused_proxies, self._client)
         return paused, cleaned
+
+
+# Workspace snapshots: the archives' volume, and the small image that writes and reads them.
+SNAPSHOT_VOLUME = os.getenv("DOCKER_SNAPSHOT_VOLUME", "rocket_workspace_snapshots")
+SNAPSHOT_HELPER_IMAGE = os.getenv("DOCKER_SNAPSHOT_HELPER_IMAGE", "alpine:3.20")
+_ARCHIVE = re.compile(r"^[A-Za-z0-9_.-]{1,200}\.tgz$")
+
+
+def _safe_name(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", value)[:100]
+
+
+def _validated_archive(location: str) -> str:
+    """An archive name as the driver made it: never a path the helper's shell would follow."""
+    if not _ARCHIVE.match(location) or ".." in location:
+        raise SandboxError(f"Not a workspace snapshot: {location!r}")
+    return location

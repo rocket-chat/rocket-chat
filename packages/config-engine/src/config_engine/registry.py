@@ -151,6 +151,17 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             label="Starter skills",
         ),
         _spec(
+            "repository_skills",
+            "bool",
+            True,
+            "org",
+            "apps/api/src/api/turns/callbacks.py",
+            "Offer the skills a cloned repository brings (`.rocket/skills/<name>/SKILL.md`, and "
+            "`.claude/skills/`) to the agent: their names and descriptions are listed when it "
+            "clones the repository, and `execute_skill` reads them.",
+            label="Repository skills",
+        ),
+        _spec(
             "session_privacy_default",
             "enum",
             "private",
@@ -537,6 +548,36 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
     ),
     "sandboxes": (
         _spec(
+            "snapshot_before_hibernate",
+            "bool",
+            False,
+            "org",
+            "apps/api/src/api/services/workspace_snapshots.py",
+            "Save each sandbox's whole workspace (Docker: an archive of its volume; Kubernetes: a "
+            "VolumeSnapshot) before the idle reaper pauses it, so it can be restored if its volume "
+            "is lost.",
+        ),
+        _spec(
+            "use_devcontainer_image",
+            "bool",
+            True,
+            "org",
+            "apps/api/src/api/turns/callbacks.py",
+            "When a cloned repository's .devcontainer/devcontainer.json names an image that the "
+            "sandbox catalogue offers, run the session on it (the workspace is kept). Images the "
+            "catalogue does not offer are never used.",
+        ),
+        _spec(
+            "workspace_snapshots_kept",
+            "int",
+            3,
+            "org",
+            "apps/api/src/api/services/workspace_snapshots.py",
+            "How many workspace snapshots a session keeps; the oldest is deleted past it.",
+            minimum=1,
+            maximum=20,
+        ),
+        _spec(
             "workspace_release_days",
             "int",
             7,
@@ -871,7 +912,8 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "allowed_tools, sandbox_image, response_mode, repository, branch}. A channel with a "
             "profile uses its persona and house rules; allowed_tools narrows the organization's "
             "tool scope for that channel; response_mode ('thread' or 'private') overrides the "
-            "bot's; repository and branch are stored for the channel's sessions.",
+            "bot's; repository and branch are named in every turn of the channel's sessions, "
+            "which clone them first.",
             member_override=False,
         ),
         _spec(
@@ -881,6 +923,19 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "org_default",
             "packages/slack-assistant/src/slack_assistant/policy.py",
             "Tools the Slack path may use ('*' = every tool except SLACK_BLOCKED_TOOLS).",
+            member_override=False,
+        ),
+        _spec(
+            "dm_continue_minutes",
+            "int",
+            60,
+            "org_default",
+            "packages/slack-assistant/src/slack_assistant/policy.py",
+            "A top-level direct message to the bot continues the person's last DM session when "
+            "it was active within this many minutes, instead of starting a blank one (0: always "
+            "start a new session).",
+            minimum=0,
+            maximum=10080,
             member_override=False,
         ),
     ),
@@ -1303,6 +1358,7 @@ _UNITS: dict[str, str] = {
     "max_turn_cost_usd": "USD",
     "goal_max_total_tokens": "tokens",
     "goal_max_wall_time_minutes": "minutes",
+    "dm_continue_minutes": "minutes",
     "workspace_release_days": "days",
     "process_keepalive_minutes": "minutes",
     "cpu_limit": "cores",

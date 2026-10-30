@@ -37,7 +37,9 @@ def _gateway(request: Request) -> GitGateway:
     return gateway
 
 
-async def _proxy(request: Request, repository_path: str, suffix: str) -> Response:
+async def _proxy(
+    request: Request, repository_path: str, suffix: str, forge: str = "github"
+) -> Response:
     expired = False
     try:
         grant = git_gateway_token.verify(request.headers.get(CAPABILITY_HEADER, ""))
@@ -46,13 +48,13 @@ async def _proxy(request: Request, repository_path: str, suffix: str) -> Respons
     except ValueError as err:
         return PlainTextResponse(str(err), status_code=401, headers=_ERROR_HEADER_EXPIRED)
     try:
-        repository = parse_repository_path(repository_path)
+        repository = parse_repository_path(repository_path, nested=forge == "gitlab")
         gateway = _gateway(request)
         await gateway.authorize(grant, expired=expired)
         headers = {name.lower(): value for name, value in request.headers.items()}
         body = request.stream() if request.method == "POST" else None
         upstream, stream = await gateway.forward(
-            grant, repository, request.method, suffix, request.url.query, headers, body
+            grant, repository, request.method, suffix, request.url.query, headers, body, forge
         )
     except GatewayRefusal as refusal:
         refusal_headers = _ERROR_HEADER_EXPIRED if str(refusal) == EXPIRED_MESSAGE else None
@@ -60,6 +62,24 @@ async def _proxy(request: Request, repository_path: str, suffix: str) -> Respons
     return StreamingResponse(
         stream, status_code=upstream.status_code, headers=response_headers(upstream)
     )
+
+
+# GitLab first: the generic routes below would take ``gitlab/<group>/<name>`` as a GitHub owner.
+@router.get("/gitlab/{repository_path:path}/info/refs")
+async def gitlab_advertise_refs(repository_path: str, request: Request) -> Response:
+    if request.query_params.get("service") != UPLOAD_PACK:
+        return PlainTextResponse(_PUSH_REFUSED, status_code=403)
+    return await _proxy(request, repository_path, "info/refs", "gitlab")
+
+
+@router.post("/gitlab/{repository_path:path}/git-upload-pack")
+async def gitlab_upload_pack(repository_path: str, request: Request) -> Response:
+    return await _proxy(request, repository_path, UPLOAD_PACK, "gitlab")
+
+
+@router.post("/gitlab/{repository_path:path}/git-receive-pack")
+async def gitlab_receive_pack(repository_path: str) -> Response:
+    return PlainTextResponse(_PUSH_REFUSED, status_code=403)
 
 
 @router.get("/{repository_path:path}/info/refs")

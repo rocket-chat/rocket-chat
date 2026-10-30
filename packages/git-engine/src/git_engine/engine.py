@@ -15,8 +15,11 @@ import jwt
 from sandbox_driver.workspace import resolve_repository_dir
 
 from git_engine.config import GitEngineSettings
-from git_engine.publish import BranchPublisher, PublishError
+from git_engine.github_triggers import parse_github_trigger
+from git_engine.gitlab import GitLabHost
+from git_engine.publish import BranchPublisher, OtherForge, PublishError
 from git_engine.trailers import format_commit_message
+from specifications.interfaces.automation import TriggerEvent
 from specifications.interfaces.git import (
     CommitSpec,
     GitEngineProtocol,
@@ -58,6 +61,7 @@ class GitEngine(GitEngineProtocol):
     ) -> None:
         self.driver = driver
         self.settings = settings or GitEngineSettings.from_env()
+        self.gitlab = GitLabHost()
 
     async def create_commit(
         self,
@@ -268,7 +272,8 @@ class GitEngine(GitEngineProtocol):
         return str(login) if login else None
 
     async def publish_branch(self, session_id: str, spec: PublishSpec) -> PublishResult:
-        """Publish the working branch: a push, or GitHub-signed commits created through the API."""
+        """Publish the working branch: a push, or GitHub-signed commits created through the API.
+        A repository on the GitLab forge is pushed with the member's (or deployment's) token."""
         if not self.driver:
             raise PublishError("There is no sandbox to publish from.")
 
@@ -285,6 +290,14 @@ class GitEngine(GitEngineProtocol):
             self.settings.github_api_url,
             mint_app_token,
             git_base_url=self.settings.git_base_url or None,
+            others=(
+                OtherForge(
+                    "gitlab",
+                    self.gitlab.web_url,
+                    self.gitlab.basic_user,
+                    self.gitlab.settings.token or None,
+                ),
+            ),
         )
         return await publisher.publish(session_id, spec)
 
@@ -310,6 +323,20 @@ class GitEngine(GitEngineProtocol):
         published = await self.publish_branch(session_id, spec)
         base = target_branch or published.default_branch or spec.default_branch
         owner_repo, current_branch = published.repository, published.branch
+        if published.forge == "gitlab":
+            gitlab_token = spec.gitlab_token or self.gitlab.settings.token
+            if not gitlab_token:
+                raise RuntimeError("No GitLab credential is available: add a GitLab token")
+            change = await self.gitlab.open_change_request(
+                owner_repo,
+                head=current_branch,
+                base=base,
+                title=title,
+                body=body,
+                token=gitlab_token,
+            )
+            logger.info("Opened GitLab merge request: %s", change.url)
+            return change.url
 
         resolved_token = token or await self.get_github_access_token(
             repo=owner_repo,
@@ -381,6 +408,22 @@ class GitEngine(GitEngineProtocol):
         if event_name == "pull_request":
             return _pull_request_trigger(payload)
         return None
+
+    def trigger_event(self, raw_body: bytes, headers: dict[str, Any]) -> TriggerEvent | None:
+        """The event a verified webhook offers the organization's triggers (None for an event
+        no trigger takes, or a repository outside ``GITHUB_ALLOWED_REPOS``)."""
+        header_map = {k.lower(): v for k, v in headers.items()}
+        self._verify_webhook_signature(raw_body, header_map.get("x-hub-signature-256"))
+        event = parse_github_trigger(raw_body, headers)
+        if event is None or (
+            self.settings.allowed_repos
+            and not any(
+                fnmatch.fnmatchcase(event.repository, pattern.lower())
+                for pattern in self.settings.allowed_repos
+            )
+        ):
+            return None
+        return event
 
     def parse_repo_event(self, raw_body: bytes, headers: dict[str, Any]) -> RepoEvent | None:
         """What a verified webhook reports about a repository, whether or not it triggers a run."""

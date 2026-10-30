@@ -58,10 +58,22 @@ from specifications.interfaces.sandbox import (
     SandboxDriverProtocol,
     SandboxStatus,
     SessionLivenessCheck,
+    WorkspaceSnapshot,
+    WorkspaceSnapshotter,
     WorkspaceSpec,
 )
 
 logger = logging.getLogger(__name__)
+
+# Workspace snapshots are CSI ``VolumeSnapshot`` objects (snapshot.storage.k8s.io/v1); the class
+# is the cluster's (``K8S_VOLUME_SNAPSHOT_CLASS``, empty: the cluster default).
+SNAPSHOT_GROUP, SNAPSHOT_VERSION, SNAPSHOT_PLURAL = (
+    "snapshot.storage.k8s.io",
+    "v1",
+    "volumesnapshots",
+)
+SNAPSHOT_READY_TIMEOUT_SECONDS = 300.0
+PVC_GONE_TIMEOUT_SECONDS = 120.0
 
 # The exec stdin channel (first byte of a frame), and the prelude that turns the base64
 # ``KEY=VALUE`` lines sent on it into the command's environment (see ``_shell_command``).
@@ -193,7 +205,7 @@ class _ExecOutput:
                 self.exit_code = WsApiClient.parse_error_data(payload)
 
 
-class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
+class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol, WorkspaceSnapshotter):
     """Manages ephemeral Kubernetes Pods bound to PersistentVolumeClaims."""
 
     def __init__(
@@ -725,6 +737,118 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         except ApiException as err:
             if err.status != 404:
                 raise SandboxError(f"Failed hibernating Pod {pod_name}: {err}") from err
+
+    # -- workspace snapshots -------------------------------------------------------------------
+
+    async def _snapshots_api(self) -> client.CustomObjectsApi:
+        core_v1, _ = await self._ensure_clients()
+        return client.CustomObjectsApi(api_client=getattr(core_v1, "api_client", None))
+
+    async def snapshot_workspace(self, session_id: str, label: str) -> WorkspaceSnapshot:
+        """A ``VolumeSnapshot`` of the session's PVC, ready (or failed) before this returns."""
+        snapshot_id = f"snap-{uuid.uuid4().hex[:10]}"
+        name = f"{self._pvc_name(session_id)}-{snapshot_id}"[:253]
+        snapshot_class = os.getenv("K8S_VOLUME_SNAPSHOT_CLASS") or None
+        body = {
+            "apiVersion": f"{SNAPSHOT_GROUP}/{SNAPSHOT_VERSION}",
+            "kind": "VolumeSnapshot",
+            "metadata": {
+                "name": name,
+                "labels": {
+                    "agent.session.id": _sanitize_label_value(session_id),
+                    "app.kubernetes.io/managed-by": "rocket-chat",
+                },
+            },
+            "spec": {
+                **({"volumeSnapshotClassName": snapshot_class} if snapshot_class else {}),
+                "source": {"persistentVolumeClaimName": self._pvc_name(session_id)},
+            },
+        }
+        api = await self._snapshots_api()
+        try:
+            await api.create_namespaced_custom_object(
+                SNAPSHOT_GROUP, SNAPSHOT_VERSION, self.namespace, SNAPSHOT_PLURAL, body
+            )
+        except ApiException as err:
+            raise SandboxError(f"Could not snapshot the workspace of {session_id}: {err}") from err
+        size = await self._wait_for_snapshot(api, name)
+        return WorkspaceSnapshot(
+            id=snapshot_id,
+            session_id=session_id,
+            label=label,
+            created_at=int(time.time()),
+            location=name,
+            driver="k8s",
+            size_bytes=size,
+        )
+
+    async def _wait_for_snapshot(self, api: client.CustomObjectsApi, name: str) -> int | None:
+        deadline = time.monotonic() + SNAPSHOT_READY_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            found = await api.get_namespaced_custom_object(
+                SNAPSHOT_GROUP, SNAPSHOT_VERSION, self.namespace, SNAPSHOT_PLURAL, name
+            )
+            status = (found or {}).get("status") or {}
+            if status.get("error"):
+                raise SandboxError(f"Snapshot {name} failed: {status['error'].get('message')}")
+            if status.get("readyToUse"):
+                return parse_storage_bytes(str(status.get("restoreSize") or ""))
+            await asyncio.sleep(2.0)
+        raise SandboxError(
+            f"Snapshot {name} was not ready after {SNAPSHOT_READY_TIMEOUT_SECONDS:.0f}s"
+        )
+
+    async def restore_workspace(self, session_id: str, snapshot: WorkspaceSnapshot) -> None:
+        """Replace the session's PVC with one provisioned from the snapshot (same size and
+        class); the pod is stopped first and started on the new volume by the next command."""
+        core_v1, _ = await self._ensure_clients()
+        pvc_name = self._pvc_name(session_id)
+        try:
+            current = await core_v1.read_namespaced_persistent_volume_claim(
+                pvc_name, self.namespace
+            )
+        except ApiException as err:
+            raise SandboxError(f"The workspace of {session_id} is gone: {err}") from err
+        await self.hibernate_sandbox(session_id)
+        await core_v1.delete_namespaced_persistent_volume_claim(pvc_name, self.namespace)
+        await self._wait_for_pvc_gone(core_v1, pvc_name)
+        restored = client.V1PersistentVolumeClaim(
+            metadata=client.V1ObjectMeta(
+                name=pvc_name, namespace=self.namespace, labels=current.metadata.labels
+            ),
+            spec=client.V1PersistentVolumeClaimSpec(
+                access_modes=current.spec.access_modes,
+                resources=current.spec.resources,
+                storage_class_name=current.spec.storage_class_name,
+                data_source=client.V1TypedLocalObjectReference(
+                    api_group=SNAPSHOT_GROUP, kind="VolumeSnapshot", name=snapshot.location
+                ),
+            ),
+        )
+        await core_v1.create_namespaced_persistent_volume_claim(self.namespace, restored)
+        self._node_affinity_cache.pop(session_id, None)
+
+    async def _wait_for_pvc_gone(self, core_v1: client.CoreV1Api, pvc_name: str) -> None:
+        deadline = time.monotonic() + PVC_GONE_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            try:
+                await core_v1.read_namespaced_persistent_volume_claim(pvc_name, self.namespace)
+            except ApiException as err:
+                if err.status == 404:
+                    return
+                raise
+            await asyncio.sleep(1.0)
+        raise SandboxError(f"The volume {pvc_name} was not released in time to be restored")
+
+    async def delete_snapshot(self, snapshot: WorkspaceSnapshot) -> None:
+        api = await self._snapshots_api()
+        try:
+            await api.delete_namespaced_custom_object(
+                SNAPSHOT_GROUP, SNAPSHOT_VERSION, self.namespace, SNAPSHOT_PLURAL, snapshot.location
+            )
+        except ApiException as err:
+            if err.status != 404:
+                raise SandboxError(f"Could not delete snapshot {snapshot.location}: {err}") from err
 
     async def destroy_workspace(self, session_id: str) -> None:
         """Purge both the ephemeral compute Pod and the persistent storage PVC."""
@@ -1300,6 +1424,7 @@ class K8sSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
                         now - last_time,
                         threshold,
                     )
+                    await self._before_idle_pause(session_id)
                     await self.hibernate_sandbox(session_id)
                     paused.append(session_id)
         return paused
@@ -1392,3 +1517,22 @@ def _tolerations(profile: PlacementProfile | None) -> list[client.V1Toleration] 
         )
         for t in profile.tolerations
     ]
+
+
+_STORAGE_UNITS = {
+    "Ki": 1024,
+    "Mi": 1024**2,
+    "Gi": 1024**3,
+    "Ti": 1024**4,
+    "K": 1000,
+    "M": 1000**2,
+    "G": 1000**3,
+}
+
+
+def parse_storage_bytes(quantity: str) -> int | None:
+    """``"20Gi"`` -> bytes; None for an empty or unknown quantity."""
+    match = re.match(r"^(\d+)([KMGT]i?)?$", quantity.strip())
+    if not match:
+        return None
+    return int(match.group(1)) * _STORAGE_UNITS.get(match.group(2) or "", 1)

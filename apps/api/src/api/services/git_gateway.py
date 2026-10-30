@@ -6,6 +6,7 @@ gateway and to send its gateway capability with every request. The gateway check
 adds the GitHub App's read token for that repository or the member's own token, and passes git's
 smart-HTTP protocol through to GitHub as a stream. Only ``git-upload-pack`` (clone, fetch) is
 served: commits leave the sandbox through ``git_push``, which publishes from the platform.
+GitLab repositories go through ``/v1/git/gitlab/`` the same way, with the member's GitLab token.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ PROCESS_CONCURRENCY = 32
 _OWNER = r"[A-Za-z0-9][A-Za-z0-9_.-]{0,99}"
 _NAME = r"[A-Za-z0-9_.-]{1,100}"
 REPOSITORY_PATH = re.compile(rf"^({_OWNER})/({_NAME}?)(?:\.git)?$")
+NESTED_REPOSITORY_PATH = re.compile(rf"^({_OWNER}(?:/{_OWNER}){{0,9}})/({_NAME}?)(?:\.git)?$")
 # What git sends that GitHub needs; everything else (cookies, the capability) stays here.
 _FORWARDED_REQUEST_HEADERS = (
     "accept",
@@ -67,11 +69,11 @@ class GatewayRefusal(Exception):
         self.status = status
 
 
-def parse_repository_path(path: str) -> str:
-    """``owner/name`` from the gateway path, or a refusal."""
-    match = REPOSITORY_PATH.match(path.strip("/"))
+def parse_repository_path(path: str, *, nested: bool = False) -> str:
+    """``owner/name`` (``group/subgroup/name`` for GitLab) from the gateway path, or a refusal."""
+    match = (NESTED_REPOSITORY_PATH if nested else REPOSITORY_PATH).match(path.strip("/"))
     if match is None or ".." in path:
-        raise GatewayRefusal(404, "Not a GitHub repository path.")
+        raise GatewayRefusal(404, "Not a repository path.")
     return f"{match.group(1)}/{match.group(2).removesuffix('.git')}"
 
 
@@ -122,9 +124,12 @@ class GitGateway:
         if expired and not record.is_processing:
             raise GatewayRefusal(401, EXPIRED_MESSAGE)
 
-    async def credential(self, grant: GitGatewayGrant, repository: str) -> str | None:
-        """The App's read token for ``repository``, else the member's token, else none (public)."""
-        key = (grant.org_id, grant.user_id, repository.lower())
+    async def credential(
+        self, grant: GitGatewayGrant, repository: str, forge: str = "github"
+    ) -> str | None:
+        """The App's read token for ``repository``, else the member's token, else none (public).
+        On GitLab: the member's GitLab token, else the deployment's."""
+        key = (grant.org_id, grant.user_id, f"{forge}:{repository.lower()}")
         cached = self._credentials.get(key)
         if cached is not None and cached.expires_at > time.monotonic():
             return cached.token
@@ -143,13 +148,19 @@ class GitGateway:
             )
         finally:
             current_tenant_org_id.reset(tenant)
-        token = bundle.token or bundle.user_token
+        if forge == "gitlab":
+            fallback = self.git_engine.gitlab.settings.token if self.git_engine else ""
+            token = bundle.gitlab_token or fallback or None
+        else:
+            token = bundle.token or bundle.user_token
         self._credentials[key] = _CachedCredential(
             token, time.monotonic() + CREDENTIAL_CACHE_SECONDS
         )
         return token
 
-    def upstream_url(self, repository: str, suffix: str) -> str:
+    def upstream_url(self, repository: str, suffix: str, forge: str = "github") -> str:
+        if forge == "gitlab" and self.git_engine is not None:
+            return f"{self.git_engine.gitlab.web_url}/{repository}.git/{suffix}"
         return f"{github_web_url(self.api_url)}/{repository}.git/{suffix}"
 
     def _limit(self, session_id: str) -> asyncio.Semaphore:
@@ -168,16 +179,18 @@ class GitGateway:
         query: str,
         headers: dict[str, str],
         body: AsyncIterator[bytes] | None,
+        forge: str = "github",
     ) -> tuple[httpx.Response, AsyncIterator[bytes]]:
         """Send the request upstream; the response and a body stream that releases its slot."""
-        token = await self.credential(grant, repository)
+        token = await self.credential(grant, repository, forge)
         upstream_headers = {
             name: value for name, value in headers.items() if name in _FORWARDED_REQUEST_HEADERS
         }
         if token:
-            basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+            user = "oauth2" if forge == "gitlab" else "x-access-token"
+            basic = base64.b64encode(f"{user}:{token}".encode()).decode()
             upstream_headers["authorization"] = f"Basic {basic}"
-        url = self.upstream_url(repository, suffix) + (f"?{query}" if query else "")
+        url = self.upstream_url(repository, suffix, forge) + (f"?{query}" if query else "")
         session_limit = self._limit(grant.session_id)
         await session_limit.acquire()
         await self._process_limit.acquire()

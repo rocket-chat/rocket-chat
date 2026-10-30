@@ -841,7 +841,7 @@
     }
   },
   {
-    "description": "Work with pull requests. Send a list of actions to run in order. Reads: list, view, files, diff (paged by file), checks, review_threads. Writes: edit (title/body/base), ready, draft, request_reviewers, comment, review (event comment|request_changes|approve), reply_to_thread (comment_id), resolve_thread (thread_id), close, reopen, merge. Open a PR with git_open_pr.",
+    "description": "Work with pull requests. Send a list of actions to run in order. Reads: list, view, files, diff (paged by file), checks, review_threads. Writes: edit (title/body/base), ready, draft, request_reviewers, comment, review (event comment|request_changes|approve, with inline review_comments on changed lines), reply_to_thread (comment_id), resolve_thread (thread_id), close, reopen, merge. Open a PR with git_open_pr.",
     "name": "github_pull_request",
     "parameters": {
       "properties": {
@@ -903,6 +903,13 @@
         "repository": {
           "description": "owner/name or a github.com URL.",
           "type": "string"
+        },
+        "review_comments": {
+          "description": "Inline comments of the review, each on a changed line (review).",
+          "items": {
+            "$ref": "#/$defs/InlineComment"
+          },
+          "type": "array"
         },
         "reviewers": {
           "description": "GitHub logins (request_reviewers).",
@@ -1509,6 +1516,72 @@
     }
   },
   {
+    "description": "Use a browser step by step inside the sandbox; it keeps its cookies and page between calls (log in once, then work). Send actions in order: start (record=true saves a video), navigate (url), click (selector: any Playwright selector, e.g. 'text=Sign in' or '#submit'), type (selector, text), press (key), wait (ms), snapshot (what the page shows), screenshot, close. At most 20 per call.",
+    "name": "browser_session",
+    "parameters": {
+      "properties": {
+        "actions": {
+          "description": "Actions to run in order.",
+          "items": {
+            "description": "One step of ``browser_session``.",
+            "properties": {
+              "do": {
+                "description": "What to do.",
+                "enum": [
+                  "start",
+                  "navigate",
+                  "click",
+                  "type",
+                  "press",
+                  "wait",
+                  "snapshot",
+                  "screenshot",
+                  "close"
+                ],
+                "type": "string"
+              },
+              "key": {
+                "description": "press: a key, e.g. Enter.",
+                "type": "string"
+              },
+              "ms": {
+                "description": "wait: milliseconds (at most 10000).",
+                "type": "integer"
+              },
+              "record": {
+                "description": "start: record a video of the session.",
+                "type": "boolean"
+              },
+              "selector": {
+                "description": "click, type: a Playwright selector.",
+                "type": "string"
+              },
+              "text": {
+                "description": "type: the text to enter.",
+                "type": "string"
+              },
+              "url": {
+                "description": "navigate: full http(s) URL.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "do"
+            ],
+            "type": "object"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "actions"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "description": "Look at an image file from the workspace (a screenshot, a diagram, a design). The image is shown to you with your next step; it needs a model that can see images, and says so if yours cannot. Formats: PNG, JPEG, GIF, WebP, up to 5 MB. Use it to check a UI you built or to read a screenshot instead of guessing.",
     "name": "view_image",
     "parameters": {
@@ -1657,74 +1730,6 @@
       },
       "required": [
         "process_id"
-      ],
-      "type": "object"
-    }
-  },
-  {
-    "description": "Alias for process_start: launch a command as a detached background task.",
-    "name": "task_start",
-    "parameters": {
-      "properties": {
-        "command": {
-          "description": "The shell command to run in the background.",
-          "type": "string"
-        },
-        "name": {
-          "description": "Short label shown to the user (default: the command).",
-          "type": "string"
-        },
-        "workdir": {
-          "description": "Directory to run in (default: /workspace).",
-          "type": "string"
-        }
-      },
-      "required": [
-        "command"
-      ],
-      "type": "object"
-    }
-  },
-  {
-    "description": "Alias for process_list: list active background tasks.",
-    "name": "task_list",
-    "parameters": {
-      "properties": {},
-      "type": "object"
-    }
-  },
-  {
-    "description": "Alias for process_output: read output or check status of a background task.",
-    "name": "task_status",
-    "parameters": {
-      "properties": {
-        "lines": {
-          "description": "How many trailing lines of output to read.",
-          "type": "integer"
-        },
-        "task_id": {
-          "description": "Task id returned by task_start or process_start.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "task_id"
-      ],
-      "type": "object"
-    }
-  },
-  {
-    "description": "Alias for process_stop: cancel or terminate a running background task.",
-    "name": "task_kill",
-    "parameters": {
-      "properties": {
-        "task_id": {
-          "description": "Task id returned by task_start or process_start.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "task_id"
       ],
       "type": "object"
     }

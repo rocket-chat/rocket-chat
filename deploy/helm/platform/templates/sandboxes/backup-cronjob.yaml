@@ -1,0 +1,101 @@
+{{- if and .Values.sandbox.snapshots .Values.sandbox.snapshots.backup.enabled }}
+{{- $ns := .Values.sandbox.namespace | default "agent-sandboxes" }}
+{{- $backup := .Values.sandbox.snapshots.backup }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "rocket-chat.fullname" . }}-workspace-backup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rocket-chat.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "rocket-chat.fullname" . }}-workspace-backup
+  namespace: {{ $ns }}
+  labels:
+    {{- include "rocket-chat.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["get", "list", "create", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "rocket-chat.fullname" . }}-workspace-backup
+  namespace: {{ $ns }}
+  labels:
+    {{- include "rocket-chat.labels" . | nindent 4 }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "rocket-chat.fullname" . }}-workspace-backup
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "rocket-chat.fullname" . }}-workspace-backup
+---
+# Snapshots every session workspace volume, then keeps the newest `keep` backups of each. It runs
+# in the release namespace: the sandbox namespace's egress policy keeps its pods off the API server.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "rocket-chat.fullname" . }}-workspace-backup
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "rocket-chat.labels" . | nindent 4 }}
+spec:
+  schedule: {{ $backup.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      template:
+        spec:
+          serviceAccountName: {{ include "rocket-chat.fullname" . }}-workspace-backup
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+          containers:
+            - name: backup
+              image: {{ $backup.image | quote }}
+              env:
+                - name: SNAPSHOT_CLASS
+                  value: {{ .Values.sandbox.snapshots.volumeSnapshotClass | default "" | quote }}
+                - name: KEEP
+                  value: {{ $backup.keep | default 7 | quote }}
+                - name: NS
+                  value: {{ $ns | quote }}
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  stamp=$(date -u +%Y%m%d%H%M)
+                  for pvc in $(kubectl -n "$NS" get pvc -l app.kubernetes.io/managed-by=rocket-chat -o jsonpath='{.items[*].metadata.name}'); do
+                    class=""
+                    [ -n "$SNAPSHOT_CLASS" ] && class="volumeSnapshotClassName: $SNAPSHOT_CLASS"
+                    cat <<SNAP | kubectl -n "$NS" apply -f -
+                  apiVersion: snapshot.storage.k8s.io/v1
+                  kind: VolumeSnapshot
+                  metadata:
+                    name: backup-${pvc}-${stamp}
+                    labels: {rocket-chat/backup-of: "${pvc}", app.kubernetes.io/managed-by: rocket-chat}
+                  spec:
+                    ${class}
+                    source: {persistentVolumeClaimName: "${pvc}"}
+                  SNAP
+                    kubectl -n "$NS" get volumesnapshot -l rocket-chat/backup-of="${pvc}" --sort-by=.metadata.creationTimestamp -o name \
+                      | head -n -"${KEEP}" | xargs -r kubectl -n "$NS" delete
+                  done
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits: {cpu: 200m, memory: 128Mi}
+{{- end }}

@@ -15,6 +15,7 @@ import {
   GitPullRequest,
 } from "lucide-react";
 import { GitSigningPanel } from "../../../components/settings/GitSigningPanel";
+import { GitLabTokenPanel } from "../../../components/settings/GitLabTokenPanel";
 import { UserScopeSection } from "../../../components/settings/ScopedSettingsSection";
 
 // How the platform reads GitHub for the member's sessions; the sandbox itself holds no credential.
@@ -249,6 +250,8 @@ function GitHubSettingsContent() {
           />
 
           <GitSigningPanel />
+
+          <GitLabTokenPanel />
 
           {/* Personal Access Token (PAT) Fallback */}
           <div className="p-4 rounded-lg border border-border bg-surface-card space-y-3">

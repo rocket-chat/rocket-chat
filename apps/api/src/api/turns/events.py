@@ -12,7 +12,9 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from agent_core.subagent_events import CHILD_TOOL_COMPLETED, CHILD_TOOL_STARTED
+from agent_core.tools.git_tools import parse_pull_request_url
 
+from api.services import outbound_webhooks
 from api.services.approval_rules import allowed_scopes, offered_options
 from api.services.metrics import record_tool_call
 from api.services.queued_messages import QueuedMessageStore
@@ -395,6 +397,18 @@ class TurnEventHandlers:
                 tool_name=tool_name,
                 outcome=str(result_output).splitlines()[0],
             )
+            if tool_name == "git_open_pr" and (pull := parse_pull_request_url(str(result_output))):
+                await outbound_webhooks.emit(
+                    ctx.req.db_mgr,
+                    ctx.session.tenant_org_id,
+                    "pr.opened",
+                    {
+                        "session_id": ctx.session_id,
+                        "repository": pull[0],
+                        "number": pull[1],
+                        "url": str(result_output).split(": ", 1)[-1].split()[0],
+                    },
+                )
         await self._publish(EventType.TOOL_COMPLETED, tool_data)
         call_id_str = str(tool_data.get("id") or "")
         if reasoning := self._step_reasoning.pop(call_id_str, ""):

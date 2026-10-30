@@ -262,7 +262,7 @@ async def test_only_the_requester_may_approve_and_a_stranger_is_refused() -> Non
     await stack.assistant._resolve_approval(
         _gate_body(action_id, "U_STRANGER"), reply, approved=True
     )
-    assert "only the person who asked" in reply.call_args.kwargs["text"]
+    assert "only the person who asked" in reply.call_args.kwargs["text"].lower()
     assert not task.done(), "a stranger's click must not release the turn"
 
     await stack.assistant._resolve_approval(_gate_body(action_id, "U1"), reply, approved=True)
@@ -282,11 +282,13 @@ async def test_only_the_requester_may_answer_a_question() -> None:
 
     question_id = next(iter(stack.assistant._gate_owners))
     reply = AsyncMock()
-    await stack.assistant._resolve_question(_gate_body(f"{question_id}:fast", "U_STRANGER"), reply)
-    assert "only the person who asked" in reply.call_args.kwargs["text"]
+    await stack.assistant._resolve_question(
+        _gate_body(f"{question_id}:fast", "U_STRANGER"), reply, reply
+    )
+    assert "only the person who asked" in reply.call_args.kwargs["text"].lower()
     assert not task.done()
 
-    await stack.assistant._resolve_question(_gate_body(f"{question_id}:safe", "U1"), reply)
+    await stack.assistant._resolve_question(_gate_body(f"{question_id}:safe", "U1"), reply, reply)
     await asyncio.wait_for(task, 5)
     assert "User response: safe" in stack.posted()
 

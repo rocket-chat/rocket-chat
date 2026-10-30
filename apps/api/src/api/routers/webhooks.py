@@ -1,86 +1,30 @@
-import collections
+"""Incoming forge webhooks: verified here, handed to the services that act on them.
+
+A delivery may report on a pull request a session follows (``deliver_repo_event``) and may
+start or wake a session through the organization's triggers (``services/triggers.py``).
+"""
+
 import logging
-import os
-import time
+from collections.abc import Callable
 from typing import Any
 
-from agent_core.orchestrator import AsyncReActOrchestrator
-from agent_core.tools.registry import ToolRegistry
 from fastapi import APIRouter, Header, HTTPException, Request, status
 from git_engine.engine import GitEngine
-from sandbox_driver.workspace import RepositoryNotFoundError, resolve_repository_dir
 
-from api.db.store import ensure_tenant_identity
-from api.services.git_credentials import (
-    inject_git_credentials_into_sandbox,
-    resolve_session_git_credentials,
-)
-from api.services.git_gateway_env import gateway_endpoint, github_api_url_of
 from api.services.github_events import deliver_repo_event
-from api.services.github_installations import installation_org
-from api.services.repository_hint import with_repository_hint
-from api.services.session_support import active_repository_of
-from api.services.settings import effective_settings
-from api.turns.tasks import _spawn_background_turn
-from specifications.interfaces.events import EventBusProtocol
-from specifications.interfaces.sandbox import SandboxDriverProtocol, SandboxStatus, WorkspaceSpec
-from specifications.interfaces.session import (
-    SessionRecord,
-    SessionSource,
-    SessionStoreProtocol,
-)
+from api.services.ticket_trackers import TrackerSignatureError, jira_event, linear_event
+from api.services.trigger_intake import receive_trigger_event, webhook_identity
+from specifications.interfaces.automation import TriggerEvent
 
 logger = logging.getLogger(__name__)
-_SYNC_TIMEOUT_SECONDS = 120
-_SEEN_DELIVERIES: collections.OrderedDict[str, float] = collections.OrderedDict()
-_MAX_SEEN_DELIVERIES = 10000
-_DELIVERY_TTL_SECONDS = 3600.0
-
-
-def _is_duplicate_delivery(delivery_id: str | None) -> bool:
-    if not delivery_id:
-        return False
-    now = time.time()
-    while (
-        _SEEN_DELIVERIES and (now - next(iter(_SEEN_DELIVERIES.values()))) > _DELIVERY_TTL_SECONDS
-    ):
-        _SEEN_DELIVERIES.popitem(last=False)
-    if delivery_id in _SEEN_DELIVERIES:
-        return True
-    _SEEN_DELIVERIES[delivery_id] = now
-    if len(_SEEN_DELIVERIES) > _MAX_SEEN_DELIVERIES:
-        _SEEN_DELIVERIES.popitem(last=False)
-    return False
-
 
 router = APIRouter(prefix="/webhooks", tags=["GitHub Webhooks"])
 
 
-async def _webhook_identity(
-    request: Request, sender_login: str, installation_id: int | None
-) -> tuple[str, str]:
-    """Tenant and synthetic user that own sessions started by a webhook.
-
-    Webhooks carry no Rocket identity. The organization is the one that mapped the GitHub App
-    installation the event came through; only an unmapped installation falls back to the
-    organization configured in ``ROCKET_WEBHOOK_ORG_ID`` (single-tenant installs).
-    """
-    mapped = (
-        await installation_org(getattr(request.app.state, "db_manager", None), installation_id)
-        if installation_id is not None
-        else None
+def _git_engine(request: Request) -> GitEngine:
+    return getattr(request.app.state, "git_engine", None) or GitEngine(
+        driver=getattr(request.app.state, "sandbox_driver", None)
     )
-    org_id: str = mapped or os.getenv("ROCKET_WEBHOOK_ORG_ID") or "default_org"
-    safe_login = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in sender_login)
-    return org_id, f"gh_{safe_login}"
-
-
-async def _provision_webhook_identity(request: Request, org_id: str, user_id: str) -> None:
-    db_mgr = getattr(request.app.state, "db_manager", None)
-    if db_mgr is None:
-        return
-    async with db_mgr.session(tenant_org_id=org_id) as session:
-        await ensure_tenant_identity(session, org_id, user_id)
 
 
 async def _deliver_to_followers(
@@ -90,7 +34,7 @@ async def _deliver_to_followers(
     event = git_engine.parse_repo_event(raw_body, headers)
     if event is None:
         return []
-    org_id, _ = await _webhook_identity(request, event.actor, event.installation_id)
+    org_id, _ = await webhook_identity(request.app, event.actor, event.installation_id)
     return await deliver_repo_event(request.app, org_id, event)
 
 
@@ -101,23 +45,14 @@ async def github_webhook_endpoint(
     x_github_event: str | None = Header(None, alias="X-GitHub-Event"),
     x_github_delivery: str | None = Header(None, alias="X-GitHub-Delivery"),
 ) -> dict[str, Any]:
-    """
-    Ingests signed GitHub webhooks (issues.labeled, issue_comment.created).
-    Automatically wakes or initializes Docker/K8s sandbox workspaces and resumes ReAct agent loops.
-    """
-    if _is_duplicate_delivery(x_github_delivery):
-        logger.info("Dropping duplicate GitHub webhook delivery: %s", x_github_delivery)
-        return {"status": "ignored", "reason": "Duplicate webhook delivery"}
-
+    """Signed GitHub webhooks: reports for the sessions that follow a pull request, and events
+    for the organization's triggers (issues, comments, pull requests, review comments, failed
+    workflow runs). Each delivery starts at most one session, whatever the number of replicas."""
     raw_body = await request.body()
-    headers_dict = dict(request.headers)
-
-    git_engine: GitEngine = getattr(request.app.state, "git_engine", None) or GitEngine(
-        driver=getattr(request.app.state, "sandbox_driver", None)
-    )
-
+    headers = dict(request.headers)
+    git_engine = _git_engine(request)
     try:
-        trigger = await git_engine.handle_webhook(raw_body, headers_dict)
+        event = git_engine.trigger_event(raw_body, headers)
     except ValueError as err:
         logger.warning("Rejected invalid GitHub webhook signature: %s", err)
         raise HTTPException(
@@ -125,187 +60,74 @@ async def github_webhook_endpoint(
             detail=f"Webhook authentication failed: {err}",
         ) from err
 
-    delivered = await _deliver_to_followers(request, git_engine, raw_body, headers_dict)
-    if not trigger:
+    delivered = await _deliver_to_followers(request, git_engine, raw_body, headers)
+    outcome = await receive_trigger_event(request.app, event) if event is not None else None
+    if outcome is None or outcome.status == "ignored":
         if delivered:
             return {"status": "delivered", "sessions": delivered}
-        return {"status": "ignored", "reason": "No actionable trigger in webhook event"}
-
-    # Derive deterministic session ID mapped to repo and issue/PR
-    repo_sanitized = trigger.repo_full_name.replace("/", "_").replace("-", "_").lower()
-    session_id = f"gh_{repo_sanitized}_{trigger.issue_or_pr_number}"
-
-    store: SessionStoreProtocol = request.app.state.session_store
-    driver: SandboxDriverProtocol | None = getattr(request.app.state, "sandbox_driver", None)
-    orchestrator: AsyncReActOrchestrator = request.app.state.orchestrator
-    event_bus: EventBusProtocol = request.app.state.event_bus
-    registry: ToolRegistry | None = getattr(request.app.state, "tool_registry", None)
-
-    existing_session = await store.get_session(session_id)
-
-    # ---------------------------------------------------------
-    # Case A: Existing Session Found -> Automated Session Resume
-    # ---------------------------------------------------------
-    if existing_session:
-        logger.info(
-            "Found existing session %s for %s#%d. Resuming workspace...",
-            session_id,
-            trigger.repo_full_name,
-            trigger.issue_or_pr_number,
-        )
-
-        if driver:
-            if existing_session.sandbox_status == SandboxStatus.HIBERNATED:
-                logger.info("Sandbox is hibernated. Resuming container for %s...", session_id)
-                await driver.start_sandbox(session_id)
-            else:
-                await driver.start_sandbox(session_id)
-
-            await _sync_repository(driver, session_id, existing_session)
-
-        def mark_resumed(record: SessionRecord) -> None:
-            if driver:
-                record.sandbox_status = SandboxStatus.RUNNING
-
-        # The session may be mid-turn: change only what resuming changes, under the row lock.
-        await store.mutate_session(session_id, existing_session.tenant_org_id, mark_resumed)
-
-        prompt_text = (
-            f"Follow-up instruction from @{trigger.sender_login}:\n\n{trigger.prompt_text}"
-        )
-
-        _spawn_background_turn(
-            session_id=session_id,
-            prompt=prompt_text,
-            orchestrator=orchestrator,
-            event_bus=event_bus,
-            driver=driver,
-            registry=registry,
-            store=store,
-            git_engine=git_engine,
-            db_mgr=getattr(request.app.state, "db_manager", None),
-        )
-
         return {
-            "status": "resumed",
-            "session_id": session_id,
-            "issue_or_pr_number": trigger.issue_or_pr_number,
-            "repo": trigger.repo_full_name,
+            "status": "ignored",
+            "reason": outcome.reason if outcome else "No actionable trigger in webhook event",
         }
-
-    # ---------------------------------------------------------
-    # Case B: No Existing Session -> Create Workspace & Start Fix
-    # ---------------------------------------------------------
-    logger.info(
-        "Creating new session %s for %s#%d...",
-        session_id,
-        trigger.repo_full_name,
-        trigger.issue_or_pr_number,
-    )
-
-    webhook_org_id, webhook_user_id = await _webhook_identity(
-        request, trigger.sender_login, trigger.installation_id
-    )
-    await _provision_webhook_identity(request, webhook_org_id, webhook_user_id)
-
-    new_session = SessionRecord(
-        session_id=session_id,
-        tenant_org_id=webhook_org_id,
-        tenant_user_id=webhook_user_id,
-        is_shared=True,
-        title=f"Fix {trigger.repo_full_name}#{trigger.issue_or_pr_number}",
-        source=SessionSource.GITHUB_WEBHOOK,
-        sandbox_status=SandboxStatus.RUNNING if driver else SandboxStatus.NON_EXISTENT,
-        metadata={
-            "github_repo": trigger.repo_full_name,
-            "github_issue": trigger.issue_or_pr_number,
-            "sender": trigger.sender_login,
-        },
-    )
-    await store.create_session(new_session)
-
-    if driver:
-        await driver.ensure_workspace(
-            WorkspaceSpec(
-                session_id=session_id,
-                tenant_org_id=webhook_org_id,
-                tenant_user_id=webhook_user_id,
-                container_image=new_session.container_image
-                or str(
-                    (
-                        await effective_settings(
-                            getattr(request.app.state, "db_manager", None),
-                            webhook_org_id,
-                            "sandboxes",
-                        )
-                    )["default_image"]
-                ),
-                platform_endpoints=[gateway_endpoint()],
-            )
-        )
-        await driver.start_sandbox(session_id)
-
-        git_bundle = await resolve_session_git_credentials(
-            user_id=webhook_user_id,
-            org_id=webhook_org_id,
-            git_engine=git_engine,
-            db_mgr=getattr(request.app.state, "db_manager", None),
-            repo=trigger.repo_full_name,
-        )
-        await inject_git_credentials_into_sandbox(
-            driver,
-            session_id,
-            git_bundle,
-            org_id=webhook_org_id,
-            user_id=webhook_user_id,
-            api_url=github_api_url_of(git_engine),
-        )
-
-    work_branch_instruction = (
-        "Work on the branch above."
-        if trigger.branch_name
-        else f"Do the work on a new branch named `agent/issue-{trigger.issue_or_pr_number}-fix`."
-    )
-    prompt_text = with_repository_hint(
-        f"Resolve GitHub issue #{trigger.issue_or_pr_number} in {trigger.repo_full_name}:\n\n"
-        f"{trigger.prompt_text}\n\n{work_branch_instruction}",
-        trigger.repo_full_name,
-        trigger.branch_name,
-    )
-
-    _spawn_background_turn(
-        session_id=session_id,
-        prompt=prompt_text,
-        orchestrator=orchestrator,
-        event_bus=event_bus,
-        driver=driver,
-        registry=registry,
-        store=store,
-        git_engine=git_engine,
-        db_mgr=getattr(request.app.state, "db_manager", None),
-    )
-
+    if outcome.status == "duplicate":
+        logger.info("Dropping duplicate GitHub webhook delivery: %s", x_github_delivery)
+        return {"status": "ignored", "reason": "Duplicate webhook delivery"}
     return {
-        "status": "created",
-        "session_id": session_id,
-        "issue_or_pr_number": trigger.issue_or_pr_number,
-        "repo": trigger.repo_full_name,
+        "status": outcome.status,
+        "session_id": outcome.session_id,
+        "trigger_id": outcome.trigger_id,
+        "issue_or_pr_number": event.number if event else 0,
+        "repo": event.repository if event else "",
     }
 
 
-async def _sync_repository(
-    driver: SandboxDriverProtocol, session_id: str, session: SessionRecord
-) -> None:
-    """Bring the session's repository up to date with its remote, best effort."""
+@router.post("/gitlab", status_code=status.HTTP_200_OK)
+async def gitlab_webhook_endpoint(request: Request) -> dict[str, Any]:
+    """GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,
+    pipelines and notes for the sessions that follow a merge request, and issues, merge
+    requests, notes and failed pipelines for the organization's ``gitlab_*`` triggers. The
+    organization is ``?org=`` (as the operator connected the project), else the default."""
+    raw_body = await request.body()
+    headers = dict(request.headers)
+    host = _git_engine(request).gitlab
     try:
-        folder = await resolve_repository_dir(
-            driver, session_id, active=active_repository_of(session)
-        )
-    except RepositoryNotFoundError:
-        return
-    await driver.exec_command(
-        session_id,
-        "git fetch origin && git pull origin HEAD --rebase || true",
-        workdir=folder,
-        timeout_seconds=_SYNC_TIMEOUT_SECONDS,
-    )
+        event = host.trigger_event(raw_body, headers)
+        repo_event = host.repo_event(raw_body, headers)
+    except ValueError as err:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(err)) from err
+    org_id = request.query_params.get("org") or (await webhook_identity(request.app, "", None))[0]
+    delivered = await deliver_repo_event(request.app, org_id, repo_event) if repo_event else []
+    outcome = await receive_trigger_event(request.app, event, org_id=org_id) if event else None
+    if outcome is not None and outcome.status not in ("ignored", "duplicate"):
+        return {"status": outcome.status, "session_id": outcome.session_id}
+    if delivered:
+        return {"status": "delivered", "sessions": delivered}
+    return {"status": "ignored", "reason": outcome.reason if outcome else "No actionable event"}
+
+
+async def _tracker_webhook(
+    request: Request, parse: Callable[[bytes, dict[str, str]], TriggerEvent | None]
+) -> dict[str, Any]:
+    raw_body = await request.body()
+    try:
+        event = parse(raw_body, dict(request.headers))
+    except TrackerSignatureError as err:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(err)) from err
+    if event is None:
+        return {"status": "ignored", "reason": "Not an issue event"}
+    # The organization the operator connected the tracker for (``?org=``), else the default.
+    org_id = request.query_params.get("org") or None
+    outcome = await receive_trigger_event(request.app, event, org_id=org_id)
+    return {"status": outcome.status, "session_id": outcome.session_id, "reason": outcome.reason}
+
+
+@router.post("/jira", status_code=status.HTTP_200_OK)
+async def jira_webhook_endpoint(request: Request) -> dict[str, Any]:
+    """Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for ``jira_issue`` triggers."""
+    return await _tracker_webhook(request, jira_event)
+
+
+@router.post("/linear", status_code=status.HTTP_200_OK)
+async def linear_webhook_endpoint(request: Request) -> dict[str, Any]:
+    """Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for ``linear_issue`` triggers."""
+    return await _tracker_webhook(request, linear_event)

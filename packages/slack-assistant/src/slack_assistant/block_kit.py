@@ -256,13 +256,64 @@ def build_diff_blocks(
     return blocks
 
 
+QUESTION_SUBMIT_ACTION_ID = "question_submit"
+QUESTION_CHECKBOXES_ACTION_ID = "question_checkboxes"
+QUESTION_OTHER_ACTION_ID = "question_other"
+QUESTION_OTHER_CALLBACK_ID = "question_other_modal"
+# Slack's limits: 5 elements per actions block, 10 checkbox options, 150-character values.
+_ACTIONS_PER_BLOCK = 5
+_MAX_CHECKBOXES = 10
+_OPTION_VALUE_CHARS = 150
+
+
+def session_block_id(session_id: str, index: int = 0) -> str:
+    """The block id of a gate's buttons: they name their session, so a click finds it whatever
+    the thread or replica (a continued direct message answers in a newer thread)."""
+    suffix = f"#{index}" if index else ""
+    return f"{SESSION_BLOCK_PREFIX}{session_id}{suffix}"[:255]
+
+
+def session_of_block(block_id: str) -> str:
+    return block_id.removeprefix(SESSION_BLOCK_PREFIX).split("#", 1)[0]
+
+
+def approve_label(action_type: str) -> str:
+    """ "Approve git push" for ``git_push``: the button says what it allows."""
+    readable = action_type.replace("_", " ").strip() or "action"
+    return f"Approve {readable}"[:75]
+
+
 def build_approval_blocks(
     action_id: str,
     title: str = "Human Approval Required",
     description: str | None = None,
+    *,
+    action_type: str = "",
+    session_id: str = "",
 ) -> list[dict[str, Any]]:
-    """Format decision gate with [Approve & Push] and [Reject] action buttons."""
-    blocks: list[dict[str, Any]] = [
+    """A decision gate: what is asked, and buttons named after the action."""
+    actions: dict[str, Any] = {
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": approve_label(action_type), "emoji": True},
+                "style": "primary",
+                "action_id": "approve_action",
+                "value": action_id,
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Reject", "emoji": True},
+                "style": "danger",
+                "action_id": "reject_action",
+                "value": action_id,
+            },
+        ],
+    }
+    if session_id:
+        actions["block_id"] = session_block_id(session_id)
+    return [
         {
             "type": "section",
             "text": {
@@ -270,79 +321,104 @@ def build_approval_blocks(
                 "text": f"⚠️ *{title}*\n{description or 'Review the changes before proceeding.'}",
             },
         },
+        actions,
+    ]
+
+
+def build_question_blocks(
+    question: InteractiveQuestion, *, session_id: str = ""
+) -> list[dict[str, Any]]:
+    """A clarification question: one button per option (or checkboxes and Submit for a
+    multi-select), and **Other…**, which opens a form for a free answer."""
+    blocks: list[dict[str, Any]] = [
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"❓ *{question.question_text}*"}}
+    ]
+    if question.is_multi_select and question.options:
+        elements = _checkbox_elements(question)
+    else:
+        elements = [
+            _option_button(question, index, option) for index, option in enumerate(question.options)
+        ]
+    elements.append(
         {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Other…", "emoji": True},
+            "action_id": QUESTION_OTHER_ACTION_ID,
+            "value": question.question_id,
+        }
+    )
+    for index, start in enumerate(range(0, len(elements), _ACTIONS_PER_BLOCK)):
+        block: dict[str, Any] = {
             "type": "actions",
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Approve & Push",
-                        "emoji": True,
-                    },
-                    "style": "primary",
-                    "action_id": "approve_action",
-                    "value": action_id,
-                },
-                {
-                    "type": "button",
-                    "text": {
-                        "type": "plain_text",
-                        "text": "Reject",
-                        "emoji": True,
-                    },
-                    "style": "danger",
-                    "action_id": "reject_action",
-                    "value": action_id,
-                },
-            ],
+            "elements": elements[start : start + _ACTIONS_PER_BLOCK],
+        }
+        if session_id:
+            block["block_id"] = session_block_id(session_id, index)
+        blocks.append(block)
+    return blocks
+
+
+def _option_button(question: InteractiveQuestion, index: int, option: str) -> dict[str, Any]:
+    label = f"⭐ {option}" if option == question.default_recommended_option else option
+    return {
+        "type": "button",
+        "text": {"type": "plain_text", "text": label[:75], "emoji": True},
+        # Slack requires action_id to be unique within a message; the selected option is
+        # carried by `value`, so the index only guarantees uniqueness (matched by a regex).
+        "action_id": f"question_option_select_{index}",
+        "value": f"{question.question_id}:{option}",
+    }
+
+
+def _checkbox_elements(question: InteractiveQuestion) -> list[dict[str, Any]]:
+    options = [
+        {
+            "text": {"type": "plain_text", "text": option[:75]},
+            "value": option[:_OPTION_VALUE_CHARS],
+        }
+        for option in question.options[:_MAX_CHECKBOXES]
+    ]
+    return [
+        {"type": "checkboxes", "action_id": QUESTION_CHECKBOXES_ACTION_ID, "options": options},
+        {
+            "type": "button",
+            "text": {"type": "plain_text", "text": "Submit", "emoji": True},
+            "style": "primary",
+            "action_id": QUESTION_SUBMIT_ACTION_ID,
+            "value": question.question_id,
         },
     ]
-    return blocks
 
 
-def build_question_blocks(question: InteractiveQuestion) -> list[dict[str, Any]]:
-    """Format interactive clarification questions as in-thread selectable options."""
-    blocks: list[dict[str, Any]] = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"❓ *{question.question_text}*",
-            },
-        }
-    ]
-
-    elements: list[dict[str, Any]] = []
-    for opt_index, opt in enumerate(question.options):
-        is_recommended = opt == question.default_recommended_option
-        label = f"⭐ {opt}" if is_recommended else opt
-        elements.append(
+def build_other_answer_modal(question_text: str, private_metadata: str) -> dict[str, Any]:
+    """The form **Other…** opens: the question, and a free answer."""
+    return {
+        "type": "modal",
+        "callback_id": QUESTION_OTHER_CALLBACK_ID,
+        "private_metadata": private_metadata[:3000],
+        "title": {"type": "plain_text", "text": "Your answer"},
+        "submit": {"type": "plain_text", "text": "Send"},
+        "close": {"type": "plain_text", "text": "Cancel"},
+        "blocks": [
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*{question_text[:2900]}*"}},
             {
-                "type": "button",
-                "text": {
-                    "type": "plain_text",
-                    "text": label[:75],
-                    "emoji": True,
+                "type": "input",
+                "block_id": "answer",
+                "label": {"type": "plain_text", "text": "Answer"},
+                "element": {
+                    "type": "plain_text_input",
+                    "action_id": "text",
+                    "multiline": True,
+                    "max_length": 2000,
                 },
-                # Slack requires action_id to be unique within a message; the
-                # selected option is carried by `value`, so the index only
-                # guarantees uniqueness and is matched by a regex handler.
-                "action_id": f"question_option_select_{opt_index}",
-                "value": f"{question.question_id}:{opt}",
-            }
-        )
+            },
+        ],
+    }
 
-    # Slack allows up to 5 elements per actions block; split if needed
-    for i in range(0, len(elements), 5):
-        blocks.append(
-            {
-                "type": "actions",
-                "elements": elements[i : i + 5],
-            }
-        )
 
-    return blocks
+def build_decision_blocks(text: str) -> list[dict[str, Any]]:
+    """What a gate message becomes once answered: the decision, without its buttons."""
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": text[:2900]}}]
 
 
 def open_in_rocket_context(
@@ -363,13 +439,14 @@ def build_home_view(
     sessions: list[tuple[str, str, str | None]],
     web_url: str | None,
     command: str = "/rocket",
+    bot_name: str = "Rocket",
 ) -> dict[str, Any]:
     """The App Home tab: who you are in Rocket Chat, your recent threads and how to start one.
 
     ``sessions`` holds (title, state, link) for the viewer's recent Slack work.
     """
     blocks: list[dict[str, Any]] = [
-        {"type": "header", "text": {"type": "plain_text", "text": "Rocket Chat"}},
+        {"type": "header", "text": {"type": "plain_text", "text": bot_name[:150]}},
     ]
     if linked_as:
         who = f":white_check_mark: Linked to *{linked_as}* in Rocket Chat."
@@ -397,10 +474,13 @@ def build_home_view(
                 "type": "mrkdwn",
                 "text": (
                     "*Ways to work with me*\n"
-                    "• `@Rocket <task>` in any channel, or message me directly\n"
+                    f"• `@{bot_name} <task>` in any channel, or message me directly; reply in "
+                    "the thread to follow up\n"
                     f"• `{command} new <task>` starts a thread; `{command} status` and "
                     f"`{command} stop` manage your running work\n"
-                    "• *Ask Rocket* in a message's ⋮ menu to work on that message"
+                    "• *Ask Rocket* in a message's ⋮ menu to work on that message\n"
+                    "• Shortcuts in a message: `!fast`, `!deep`, `!agent <name>`, "
+                    "`!repo <owner/name>`; start with `(aside)` for a message I should ignore"
                 ),
             },
         }
@@ -423,7 +503,7 @@ def with_session_and_origin(
     """``blocks`` for a direct message: the buttons name their session, and a last line says
     which request they are about."""
     tagged = [
-        {**block, "block_id": f"{SESSION_BLOCK_PREFIX}{session_id}"[:255]}
+        {**block, "block_id": session_block_id(session_id)}
         if block.get("type") == "actions" and "block_id" not in block
         else block
         for block in blocks

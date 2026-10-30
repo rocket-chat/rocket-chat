@@ -261,3 +261,38 @@ class SandboxDriverProtocol(ABC):
         the channel and must ``close()`` it.
         """
         raise NotImplementedError("This sandbox driver has no interactive terminal.")
+
+
+@dataclass(frozen=True)
+class WorkspaceSnapshot:
+    """A saved copy of a session's whole workspace volume (``/workspace``), made by its driver.
+
+    ``location`` is the driver's own reference (a Docker archive name, a Kubernetes
+    ``VolumeSnapshot`` name); the platform stores it on the session and hands it back.
+    """
+
+    id: str
+    session_id: str
+    label: str
+    created_at: int
+    location: str
+    driver: str
+    size_bytes: int | None = None
+
+
+class WorkspaceSnapshotter(ABC):
+    """What a driver that can save and restore whole workspaces implements, besides
+    ``SandboxDriverProtocol``. Restoring replaces the workspace and leaves the sandbox stopped:
+    the next command starts it on the restored volume."""
+
+    @abstractmethod
+    async def snapshot_workspace(self, session_id: str, label: str) -> WorkspaceSnapshot:
+        """Save the workspace as it is now (a running sandbox's files are read as they are)."""
+
+    @abstractmethod
+    async def restore_workspace(self, session_id: str, snapshot: WorkspaceSnapshot) -> None:
+        """Replace the session's workspace with ``snapshot``."""
+
+    @abstractmethod
+    async def delete_snapshot(self, snapshot: WorkspaceSnapshot) -> None:
+        """Free a snapshot's storage (missing is not an error)."""

@@ -16,6 +16,19 @@ finishes a real task quickly and cheaply. This tool does, against any running Ro
             is given, the prompt asks the agent not to push or open pull requests: replaying a
             ticket otherwise publishes real branches.
 
+``ab``      runs the tasks with two configurations (``--a-agent``/``--a-model`` and ``--b-...``)
+            and prints the pass rate and figures of each side by side.
+
+``judge``   scores the answers of a report with a judge model (any LiteLLM model, with its
+            provider key in the environment): correctness, scope, code quality and clarity,
+            1 to 5 each, from the task, the agent's answer and its changes.
+
+``dataset`` turns the organization's answer ratings (thumbs down first) into evaluation cases
+            (JSON lines) that ``judge --cases`` scores the same way.
+
+``bench`` and ``ab`` append each run's pass rate and totals to ``--history`` (JSON lines), so the
+pass rate can be followed over time; ``history`` prints it.
+
 Both spend provider credit. Authenticate with a personal API token (Settings, API access).
 
 Usage::
@@ -24,6 +37,10 @@ Usage::
         --agent persona-123 --report live-report.json [--baseline tests/harness/live/baseline.json]
     uv run python scripts/harness_bench.py replay --api https://rocket.example --token $TOKEN \\
         --session session_3116245f7a
+    uv run python scripts/harness_bench.py ab --api ... --a-model claude-sonnet-5-5 \\
+        --b-model claude-opus-5-5 --only go-uuid-must-parse-bytes
+    uv run python scripts/harness_bench.py judge --api ... --report live-report.json \\
+        --judge-model claude-opus-5-5
 """
 
 from __future__ import annotations
@@ -178,17 +195,47 @@ def _regressions(
     return found
 
 
+def _tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
+    tasks: list[dict[str, Any]] = json.loads(Path(args.tasks).read_text())["tasks"]
+    return [t for t in tasks if t["id"] in args.only] if args.only else tasks
+
+
+def _summary(report: list[dict[str, Any]]) -> dict[str, Any]:
+    passed = sum(1 for row in report if row["passed"])
+    return {
+        "tasks": len(report),
+        "passed": passed,
+        "pass_rate": round(passed / len(report), 3) if report else 0.0,
+        "cost_usd": round(sum(row.get("cost_usd", 0) for row in report), 4),
+        "minutes": round(sum(row.get("minutes", 0) for row in report), 1),
+        "steps": sum(row.get("steps", 0) for row in report),
+    }
+
+
+def _record_history(args: argparse.Namespace, label: str, report: list[dict[str, Any]]) -> None:
+    if not args.history:
+        return
+    entry = {
+        "at": int(time.time()),
+        "label": label,
+        "agent": getattr(args, "agent", None),
+        "model": getattr(args, "model", None),
+        **_summary(report),
+    }
+    with Path(args.history).open("a") as history:
+        history.write(json.dumps(entry) + "\n")
+
+
 def bench(args: argparse.Namespace) -> int:
     api = Api(args.api, args.token)
-    tasks = json.loads(Path(args.tasks).read_text())["tasks"]
-    if args.only:
-        tasks = [t for t in tasks if t["id"] in args.only]
     report = []
-    for task in tasks:
+    for task in _tasks(args):
         row = _run_task(api, task, args)
         print(json.dumps(row), flush=True)
         report.append(row)
     Path(args.report).write_text(json.dumps(report, indent=2) + "\n")
+    _record_history(args, "bench", report)
+    print(json.dumps(_summary(report)))
     if not args.baseline:
         return 0
     problems = _regressions(report, json.loads(Path(args.baseline).read_text()), args.tolerance)
@@ -223,6 +270,146 @@ def replay(args: argparse.Namespace) -> int:
     return 0 if finished else 1
 
 
+def ab(args: argparse.Namespace) -> int:
+    """The same tasks with two configurations, side by side."""
+    api = Api(args.api, args.token)
+    sides: dict[str, list[dict[str, Any]]] = {"a": [], "b": []}
+    for task in _tasks(args):
+        for side in ("a", "b"):
+            config = argparse.Namespace(
+                **{
+                    **vars(args),
+                    "agent": getattr(args, f"{side}_agent"),
+                    "model": getattr(args, f"{side}_model"),
+                }
+            )
+            row = {"side": side, **_run_task(api, task, config)}
+            print(json.dumps(row), flush=True)
+            sides[side].append(row)
+    Path(args.report).write_text(json.dumps(sides, indent=2) + "\n")
+    a, b = _summary(sides["a"]), _summary(sides["b"])
+    _record_history(args, f"ab:a {args.a_agent or ''} {args.a_model or ''}".strip(), sides["a"])
+    _record_history(args, f"ab:b {args.b_agent or ''} {args.b_model or ''}".strip(), sides["b"])
+    print(f"{'figure':<12}{'A':>14}{'B':>14}")
+    for key in a:
+        print(f"{key:<12}{a[key]!s:>14}{b[key]!s:>14}")
+    return 0
+
+
+JUDGE_RUBRIC = (
+    "You grade a coding agent's work. Score each criterion from 1 (bad) to 5 (excellent): "
+    "correctness (does the change do what was asked, are the tests real), scope (only what "
+    "was asked, nothing unrelated), quality (idiomatic, readable, tested), clarity (the answer "
+    "says what changed and how it was checked). Answer with JSON only: "
+    '{"correctness": n, "scope": n, "quality": n, "clarity": n, "notes": "one sentence"}.'
+)
+MAX_JUDGE_CHARS = 30_000
+
+
+def _judge(model: str, task: str, answer: str, changes: str) -> dict[str, Any]:
+    import litellm
+
+    content = f"Task:\n{task}\n\nAgent's answer:\n{answer}\n\nFiles changed:\n{changes}"
+    response = litellm.completion(
+        model=model,
+        messages=[
+            {"role": "system", "content": JUDGE_RUBRIC},
+            {"role": "user", "content": content[:MAX_JUDGE_CHARS]},
+        ],
+        timeout=120,
+    )
+    text = str(response.choices[0].message.content or "")
+    match = text[text.find("{") : text.rfind("}") + 1]
+    try:
+        scores: dict[str, Any] = json.loads(match)
+    except ValueError:
+        return {"error": "the judge gave no JSON", "raw": text[:300]}
+    criteria = ("correctness", "scope", "quality", "clarity")
+    scores["mean"] = round(sum(float(scores.get(c, 0)) for c in criteria) / len(criteria), 2)
+    return scores
+
+
+def _last_answer(session: dict[str, Any]) -> str:
+    for message in reversed(session.get("conversation_history") or []):
+        if message.get("role") == "assistant" and message.get("content"):
+            return str(message["content"])
+    return ""
+
+
+def judge(args: argparse.Namespace) -> int:
+    """Score each task of a report (or each case of a dataset) with the judge model."""
+    scored = []
+    if args.cases:
+        for line in Path(args.cases).read_text().splitlines():
+            case = json.loads(line)
+            row = {"case": case.get("id"), "rating": case.get("rating")}
+            row.update(_judge(args.judge_model, case["prompt"], case["answer"], ""))
+            print(json.dumps(row), flush=True)
+            scored.append(row)
+    else:
+        api = Api(args.api, args.token)
+        prompts = {t["id"]: t["prompt"] for t in json.loads(Path(args.tasks).read_text())["tasks"]}
+        report = json.loads(Path(args.report).read_text())
+        rows = report if isinstance(report, list) else [*report["a"], *report["b"]]
+        for row in rows:
+            session = api.get(f"/v1/sessions/{row['session']}")
+            changes = api.get(f"/v1/sessions/{row['session']}/changes")
+            # The changed files and their sizes (the full diff is in the session, if needed).
+            diff = "\n".join(
+                f"{repo.get('name')}/{f.get('path')} ({f.get('status')}, +{f.get('additions')} -{f.get('deletions')})"
+                for repo in changes.get("repositories") or []
+                for f in repo.get("files") or []
+            )
+            scores = _judge(
+                args.judge_model, prompts.get(row["task"], ""), _last_answer(session), diff
+            )
+            entry = {
+                "task": row["task"],
+                "side": row.get("side"),
+                "passed": row["passed"],
+                **scores,
+            }
+            print(json.dumps(entry), flush=True)
+            scored.append(entry)
+    Path(args.output).write_text(json.dumps(scored, indent=2) + "\n")
+    means = [float(r["mean"]) for r in scored if "mean" in r]
+    print(f"mean judge score: {round(sum(means) / len(means), 2) if means else 'n/a'}")
+    return 0
+
+
+def dataset(args: argparse.Namespace) -> int:
+    """The organization's answer ratings as evaluation cases, thumbs down first."""
+    api = Api(args.api, args.token)
+    ratings = api.get(f"/v1/admin/feedback?since={args.since}")
+    ratings = sorted(ratings, key=lambda r: r.get("rating") != "down")
+    with Path(args.output).open("w") as out:
+        for rating in ratings:
+            case = {
+                "id": f"{rating['session_id']}#{rating['turn_number']}",
+                "rating": rating["rating"],
+                "comment": rating.get("comment") or "",
+                "prompt": rating.get("prompt_excerpt") or "",
+                "answer": rating.get("answer_excerpt") or "",
+                "model": rating.get("model"),
+                "agent_id": rating.get("agent_id"),
+            }
+            out.write(json.dumps(case) + "\n")
+    print(f"{len(ratings)} cases written to {args.output}")
+    return 0
+
+
+def history(args: argparse.Namespace) -> int:
+    """The pass rate over time, oldest first."""
+    entries = [json.loads(line) for line in Path(args.history).read_text().splitlines() if line]
+    print(f"{'when (UTC)':<18}{'label':<34}{'pass':>8}{'rate':>7}{'cost':>10}")
+    for e in entries:
+        when = time.strftime("%Y-%m-%d %H:%M", time.gmtime(e["at"]))
+        print(
+            f"{when:<18}{e['label'][:33]:<34}{e['passed']:>4}/{e['tasks']:<3}{e['pass_rate']:>7}{e['cost_usd']:>10}"
+        )
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Measure the agent harness on real tasks.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -239,11 +426,46 @@ def main() -> int:
     run.add_argument("--report", default="live-report.json")
     run.add_argument("--baseline", help="A previous report to compare with")
     run.add_argument("--tolerance", type=float, default=1.25)
+    run.add_argument("--history", help="Append this run's pass rate to a JSON-lines file")
     again = sub.choices["replay"]
     again.add_argument("--session", required=True, help="The session to replay")
     again.add_argument("--allow-publish", action="store_true")
+    compare = sub.add_parser("ab")
+    compare.add_argument("--api", required=True)
+    compare.add_argument("--token")
+    compare.add_argument("--task-minutes", type=float, default=60.0)
+    compare.add_argument("--tasks", default=str(TASKS))
+    compare.add_argument("--only", nargs="*")
+    for side in ("a", "b"):
+        compare.add_argument(f"--{side}-agent")
+        compare.add_argument(f"--{side}-model")
+    compare.add_argument("--report", default="ab-report.json")
+    compare.add_argument("--history")
+    grade = sub.add_parser("judge")
+    grade.add_argument("--api")
+    grade.add_argument("--token")
+    grade.add_argument("--tasks", default=str(TASKS))
+    grade.add_argument("--report", default="live-report.json")
+    grade.add_argument("--cases", help="A dataset (JSON lines) to score instead of a report")
+    grade.add_argument("--judge-model", required=True)
+    grade.add_argument("--output", default="judge-report.json")
+    export = sub.add_parser("dataset")
+    export.add_argument("--api", required=True)
+    export.add_argument("--token")
+    export.add_argument("--since", type=int, default=0)
+    export.add_argument("--output", default="feedback-cases.jsonl")
+    trend = sub.add_parser("history")
+    trend.add_argument("--history", required=True)
     args = parser.parse_args()
-    return bench(args) if args.command == "bench" else replay(args)
+    commands = {
+        "bench": bench,
+        "replay": replay,
+        "ab": ab,
+        "judge": judge,
+        "dataset": dataset,
+        "history": history,
+    }
+    return commands[args.command](args)
 
 
 if __name__ == "__main__":

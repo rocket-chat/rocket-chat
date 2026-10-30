@@ -56,7 +56,8 @@ async def test_reinjection_replaces_the_capability_instead_of_accumulating(
     await _inject(driver, _bundle("ghs_second"))
 
     assert _capability(driver) != first, "a fresh capability every turn"
-    assert len([k for k in driver.merged_env("sess", None) if k.startswith("GIT_CONFIG_KEY")]) == 4
+    # Three GitHub rewrites, three GitLab ones and the capability header: replaced, not added.
+    assert len([k for k in driver.merged_env("sess", None) if k.startswith("GIT_CONFIG_KEY")]) == 7
     # The setup script is identical both times: nothing credential-dependent was written.
     assert driver.exec_calls[0][1] == driver.exec_calls[1][1]
 

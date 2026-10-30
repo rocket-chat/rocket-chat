@@ -207,7 +207,7 @@ async def test_p2_slack_artifact_updated_renderer() -> None:
     await mixin._render_artifact_updated(payload, view)
     assert say_mock.called
     call_kwargs = say_mock.call_args[1]
-    assert "Artifact Updated" in call_kwargs["text"]
+    assert "Artifact updated" in call_kwargs["text"]
     assert "ARCH.md" in call_kwargs["text"]
     assert "v2" in call_kwargs["text"]
 

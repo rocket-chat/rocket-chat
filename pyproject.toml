@@ -10,6 +10,7 @@ dependencies = [
     "llm-gateway",
     "agent-core",
     "slack-assistant",
+    "chat-bridges",
     "git-engine",
     "config-engine",
     "mcp-runner",
@@ -28,6 +29,7 @@ sandbox-driver = { workspace = true }
 llm-gateway = { workspace = true }
 agent-core = { workspace = true }
 slack-assistant = { workspace = true }
+chat-bridges = { workspace = true }
 git-engine = { workspace = true }
 config-engine = { workspace = true }
 mcp-runner = { workspace = true }
@@ -67,6 +69,7 @@ pythonpath = [
     "packages/llm-gateway/src",
     "packages/agent-core/src",
     "packages/slack-assistant/src",
+    "packages/chat-bridges/src",
     "packages/git-engine/src",
     "packages/config-engine/src",
     "packages/mcp-runner/src",
@@ -76,7 +79,7 @@ pythonpath = [
 [tool.mypy]
 python_version = "3.12"
 strict = true
-mypy_path = ".:packages/sandbox-driver/src:packages/llm-gateway/src:packages/agent-core/src:packages/slack-assistant/src:packages/git-engine/src:packages/config-engine/src:packages/mcp-runner/src:apps/api/src"
+mypy_path = ".:packages/sandbox-driver/src:packages/llm-gateway/src:packages/agent-core/src:packages/slack-assistant/src:packages/chat-bridges/src:packages/git-engine/src:packages/config-engine/src:packages/mcp-runner/src:apps/api/src"
 namespace_packages = true
 explicit_package_bases = true
 warn_unused_configs = true

@@ -25,6 +25,7 @@ COPY packages/llm-gateway/pyproject.toml packages/llm-gateway/
 COPY packages/mcp-runner/pyproject.toml packages/mcp-runner/
 COPY packages/sandbox-driver/pyproject.toml packages/sandbox-driver/
 COPY packages/slack-assistant/pyproject.toml packages/slack-assistant/
+COPY packages/chat-bridges/pyproject.toml packages/chat-bridges/
 COPY apps/api/pyproject.toml apps/api/
 
 # Pre-install external dependencies without workspace packages

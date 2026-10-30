@@ -63,18 +63,18 @@ async def test_c1_artifact_callback_event_publish_arity() -> None:
     assert ev2.payload["version"] == 2
 
 
-def test_c2_repo_foreach_and_task_kill_classified_as_command() -> None:
-    """C2: repo_foreach, task_kill, and process_stop are commands (not reads) and touch workspace."""
+def test_c2_repo_foreach_and_process_stop_classified_as_command() -> None:
+    """C2: repo_foreach and process_stop are commands (not reads) and touch workspace."""
     # repo_foreach
     assert not is_read_call("repo_foreach", {"command": "ls"})
     assert approval_needed("ask", "repo_foreach", {"command": "echo 1"}) is not None
     assert approval_needed("auto_edit", "repo_foreach", {"command": "echo 1"}) is not None
     assert touches_workspace("repo_foreach", {"command": "ls"})
 
-    # task_kill and process_stop
-    assert not is_read_call("task_kill", {"task_id": "p123"})
-    assert approval_needed("ask", "task_kill", {"task_id": "p123"}) is not None
-    assert approval_needed("auto_edit", "task_kill", {"task_id": "p123"}) is not None
+    # process_stop
+    assert not is_read_call("process_stop", {"process_id": "p123"})
+    assert approval_needed("ask", "process_stop", {"process_id": "p123"}) is not None
+    assert approval_needed("auto_edit", "process_stop", {"process_id": "p123"}) is not None
 
     assert not is_read_call("process_stop", {"process_id": "p123"})
     assert approval_needed("ask", "process_stop", {"process_id": "p123"}) is not None

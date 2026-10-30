@@ -18,9 +18,10 @@ import base64
 import fnmatch
 import re
 import time
+import uuid
 from collections.abc import Callable, Mapping
 
-from sandbox_driver.exceptions import SandboxFilesystemError, SandboxNotFoundError
+from sandbox_driver.exceptions import SandboxError, SandboxFilesystemError, SandboxNotFoundError
 from sandbox_driver.patcher import apply_unified_diff
 from sandbox_driver.session_env import SessionEnvMixin
 from sandbox_driver.tracing import traced_exec
@@ -31,6 +32,8 @@ from specifications.interfaces.sandbox import (
     SandboxDriverProtocol,
     SandboxStatus,
     SessionLivenessCheck,
+    WorkspaceSnapshot,
+    WorkspaceSnapshotter,
     WorkspaceSpec,
 )
 
@@ -59,7 +62,7 @@ _CANNED_COMMANDS: tuple[tuple[str, ExecResult], ...] = (
 )
 
 
-class FakeSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
+class FakeSandboxDriver(SessionEnvMixin, SandboxDriverProtocol, WorkspaceSnapshotter):
     """Deterministic, dependency-free sandbox with an in-memory filesystem."""
 
     def __init__(self, seed_files: dict[str, str] | None = None) -> None:
@@ -76,6 +79,33 @@ class FakeSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
         self._held_until: dict[str, float] = {}
         self._last_activity: dict[str, float] = {}
         self.inactivity_pause_seconds: float = 1800.0
+        # Workspace snapshots: location -> the files they hold.
+        self._snapshots: dict[str, dict[str, str]] = {}
+
+    # -- workspace snapshots ---------------------------------------------------
+
+    async def snapshot_workspace(self, session_id: str, label: str) -> WorkspaceSnapshot:
+        snapshot_id = f"snap_{uuid.uuid4().hex[:10]}"
+        files = dict(self._files.get(session_id, {}))
+        self._snapshots[snapshot_id] = files
+        return WorkspaceSnapshot(
+            id=snapshot_id,
+            session_id=session_id,
+            label=label,
+            created_at=int(time.time()),
+            location=snapshot_id,
+            driver="fake",
+            size_bytes=sum(len(content) for content in files.values()),
+        )
+
+    async def restore_workspace(self, session_id: str, snapshot: WorkspaceSnapshot) -> None:
+        if snapshot.location not in self._snapshots:
+            raise SandboxError(f"Snapshot {snapshot.id} no longer exists.")
+        self._files[session_id] = dict(self._snapshots[snapshot.location])
+        self._status[session_id] = SandboxStatus.HIBERNATED
+
+    async def delete_snapshot(self, snapshot: WorkspaceSnapshot) -> None:
+        self._snapshots.pop(snapshot.location, None)
 
     # -- test helpers ---------------------------------------------------------
 
@@ -182,6 +212,7 @@ class FakeSandboxDriver(SessionEnvMixin, SandboxDriverProtocol):
             if now - last_time >= threshold:
                 status = await self.get_status(session_id)
                 if status == SandboxStatus.RUNNING:
+                    await self._before_idle_pause(session_id)
                     await self.hibernate_sandbox(session_id)
                     paused.append(session_id)
         return paused

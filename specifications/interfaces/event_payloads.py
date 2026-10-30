@@ -67,6 +67,8 @@ class StatusPayload(TypedDict):
     context_source: NotRequired[str]
     context_tier2_tokens: NotRequired[int]
     context_tier3_tokens: NotRequired[int]
+    # On the closing status of a completed or waiting turn: what its model calls cost.
+    cost_usd: NotRequired[float]
 
 
 class ToolStartedPayload(TypedDict):

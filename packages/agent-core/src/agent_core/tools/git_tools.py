@@ -143,6 +143,7 @@ def publish_spec_for_policy(
         force_with_lease=force_with_lease,
         signing_key=policy.signing_key if signing == SigningMode.GPG_KEY else None,
         co_authors=_credited(policy) if signed_by_github else (),
+        gitlab_token=policy.gitlab_token,
     )
 
 
@@ -396,11 +397,15 @@ async def git_open_pr(
 
 
 _PULL_REQUEST_URL = re.compile(r"https://[^/\s]+/([\w.-]+/[\w.-]+)/pull/(\d+)")
+# A GitLab merge request: its project may sit in nested groups.
+_MERGE_REQUEST_URL = re.compile(r"https://[^/\s]+/([\w.-]+(?:/[\w.-]+)+)/-/merge_requests/(\d+)")
 
 
 def parse_pull_request_url(text: str) -> tuple[str, int] | None:
     """``(owner/name, number)`` of the pull request a ``git_open_pr`` result links to."""
-    if not text.startswith("Pull request opened") or not (match := _PULL_REQUEST_URL.search(text)):
+    if not text.startswith("Pull request opened") or not (
+        match := _PULL_REQUEST_URL.search(text) or _MERGE_REQUEST_URL.search(text)
+    ):
         return None
     return match.group(1), int(match.group(2))
 

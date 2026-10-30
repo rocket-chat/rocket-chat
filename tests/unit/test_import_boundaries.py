@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 PACKAGES = {
     "agent_core": "packages/agent-core/src/agent_core",
+    "chat_bridges": "packages/chat-bridges/src/chat_bridges",
     "config_engine": "packages/config-engine/src/config_engine",
     "git_engine": "packages/git-engine/src/git_engine",
     "llm_gateway": "packages/llm-gateway/src/llm_gateway",

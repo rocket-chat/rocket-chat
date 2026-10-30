@@ -130,3 +130,12 @@ class TurnContext:
     @property
     def session_id(self) -> str:
         return self.req.session_id
+
+
+def publisher_of(ctx: TurnContext) -> str:
+    """Whose git credentials and identity the turn publishes with: a transport may name the
+    requester (a linked Slack member in a workspace thread), else the session's owner."""
+    overlay = ctx.req.overlay
+    if overlay is not None and overlay.publish_as_user_id:
+        return overlay.publish_as_user_id
+    return ctx.session.tenant_user_id

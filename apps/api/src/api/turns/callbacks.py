@@ -13,12 +13,18 @@ from typing import Any, TypedDict
 from agent_core.context import current_execution_ctx
 from git_engine.engine import pick_installation
 
+from api.services import repository_skills
 from api.services.artifacts import get_artifact_store
-from api.services.git_credentials import GitCredentialBundle, app_may_act_on
+from api.services.git_credentials import (
+    GitCredentialBundle,
+    app_may_act_on,
+    inject_git_credentials_into_sandbox,
+)
 from api.services.git_gateway_env import github_api_url_of
 from api.services.github_installations import installations_for_org
 from api.services.github_read_access import github_read_access
 from api.services.github_watches import (
+    AUTO_FIX_KEY,
     GithubWatchStore,
     pushed_head,
     remember_pushed_head,
@@ -26,11 +32,13 @@ from api.services.github_watches import (
 )
 from api.services.knowledge import search_knowledge
 from api.services.mcp_runtime import McpToolProvider
-from api.services.memory import MemoryService
+from api.services.memory import MemoryService, configured_embedding_model
 from api.services.plan_approval import plan_decision_reader
 from api.services.process_tracker import ProcessTracker
+from api.services.repo_setup import repository_devcontainer_image
 from api.services.repository_setups import RepositorySetupStore
 from api.services.repository_setups import prepare_folder as prepare_repository_folder
+from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.session_env import remember_agent_env
 from api.services.session_support import choose_active_repository, remember_active_repository
 from api.services.session_updates import publish_session_update
@@ -43,7 +51,7 @@ from api.services.tool_loading import (
     remember_skills_read,
 )
 from api.services.waits import get_wait_store, settle_waits
-from api.turns.context import TurnContext
+from api.turns.context import TurnContext, publisher_of
 from api.turns.provisioning import provision_session_sandbox, run_repository_setup
 from api.turns.remembered_approvals import remembered_approval_callbacks
 from api.turns.shared import _background_tasks
@@ -57,6 +65,7 @@ from specifications.interfaces.agent import (
     WaitOutcome,
 )
 from specifications.interfaces.events import EventType, SessionEvent
+from specifications.interfaces.sandbox import SandboxDriverProtocol, SandboxStatus
 from specifications.interfaces.session import (
     ArtifactStoreProtocol,
     SessionArtifact,
@@ -702,6 +711,68 @@ def _make_artifact_callbacks(
     return _create, _update
 
 
+async def repository_extras(
+    db_mgr: Any,
+    store: Any,
+    driver: SandboxDriverProtocol,
+    session_id: str,
+    org_id: str,
+    folder: str,
+    sandbox_cfg: dict[str, Any],
+    general: dict[str, Any],
+) -> list[str]:
+    """What a fresh clone brings besides its files: the dev container image the session switches
+    to (``sandboxes.use_devcontainer_image``) and the repository's skills
+    (``general.repository_skills``), as notes for the clone's result."""
+    notes: list[str] = []
+    if sandbox_cfg.get("use_devcontainer_image", True):
+        if switched := await _switch_to_devcontainer_image(
+            db_mgr, store, driver, session_id, org_id, folder, sandbox_cfg
+        ):
+            notes.append(switched)
+    if general.get("repository_skills", True):
+        found = await repository_skills.discover(driver, session_id, folder)
+        if found:
+            await store.mutate_session(session_id, org_id, repository_skills.remember(found))
+            notes.append(repository_skills.describe(found, folder))
+    return notes
+
+
+async def _switch_to_devcontainer_image(
+    db_mgr: Any,
+    store: Any,
+    driver: SandboxDriverProtocol,
+    session_id: str,
+    org_id: str,
+    folder: str,
+    sandbox_cfg: dict[str, Any],
+) -> str | None:
+    """Run the session on the image the repository's dev container names, when the
+    organization's sandbox catalogue offers it. The workspace volume is kept; the sandbox
+    restarts on the new image at the next command."""
+    image = await repository_devcontainer_image(driver, session_id, folder)
+    record = await store.get_session(session_id, include_history=False)
+    if not image or record is None or record.container_image == image:
+        return None
+    allowed = [str(p) for p in sandbox_cfg.get("allowed_images") or ()]
+    if not await SandboxCatalogue(db_mgr).image_is_offered(org_id, image, allowed):
+        return (
+            f"{folder}'s dev container uses the image {image}, which your organization's sandbox "
+            "catalogue does not offer: the sandbox keeps its image."
+        )
+
+    def use_image(stored: SessionRecord) -> None:
+        stored.container_image = image
+        stored.sandbox_status = SandboxStatus.HIBERNATED
+
+    await store.mutate_session(session_id, org_id, use_image)
+    await driver.hibernate_sandbox(session_id)
+    return (
+        f"The sandbox now runs {folder}'s dev container image ({image}); it restarts on it at "
+        "your next command, with the workspace as it is."
+    )
+
+
 async def build_turn_callbacks(
     ctx: TurnContext, git_bundle: GitCredentialBundle, mcp_tools: McpToolProvider | None
 ) -> TurnCallbacks:
@@ -724,6 +795,17 @@ async def build_turn_callbacks(
             fallback_user=session.tenant_user_id,
             fallback_org=session.tenant_org_id,
         )
+        publisher = publisher_of(ctx)
+        if publisher != session.tenant_user_id:
+            # Provisioning sets the owner's git access up; this turn publishes as its requester.
+            await inject_git_credentials_into_sandbox(
+                driver,
+                target_session_id,
+                git_bundle,
+                org_id=session.tenant_org_id,
+                user_id=publisher,
+                api_url=github_api_url_of(req.git_engine),
+            )
 
     async def rename(target_session_id: str, new_title: str) -> None:
 
@@ -738,6 +820,7 @@ async def build_turn_callbacks(
     async def kb_search(query: str, kb_id: str | None = None, limit: int = 5) -> str:
         if not db_mgr:
             return f"No knowledge base entries matched '{query}'."
+        memory_settings = await effective_settings(db_mgr, session.tenant_org_id, "memory")
         async with db_mgr.session(tenant_org_id=session.tenant_org_id) as db_session:
             return await search_knowledge(
                 db_session,
@@ -747,6 +830,7 @@ async def build_turn_callbacks(
                 kb_ref=kb_id,
                 limit=limit,
                 allowed_kb_ids=binding.knowledge_base_ids,
+                embedding_model=configured_embedding_model(memory_settings),
             )
 
     async def execute_skill(skill_name: str, args: dict[str, Any]) -> str | SkillInstructions:
@@ -758,6 +842,10 @@ async def build_turn_callbacks(
             allowed_ids=binding.skill_ids,
         )
         if skill is None:
+            # A skill of a repository the session cloned (``.rocket/skills``), read now.
+            record = await store.get_session(ctx.session_id, include_history=False)
+            if text := await repository_skills.read_skill(driver, record, skill_name):
+                return SkillInstructions(skill_name, text)
             return f"Skill '{skill_name}' not found."
         if skill.runtime == "python" and skill.code:
             # Only code needs the sandbox; an instructions skill is just read back.
@@ -772,7 +860,13 @@ async def build_turn_callbacks(
         return SkillInstructions(skill_name, skill.body)
 
     github_watch, github_unwatch = watch_callbacks(
-        GithubWatchStore(db_mgr), session.tenant_org_id, ctx.session_id, session.tenant_user_id
+        GithubWatchStore(db_mgr),
+        session.tenant_org_id,
+        ctx.session_id,
+        session.tenant_user_id,
+        # A session a trigger started wakes on its pull request's CI and reviews only when the
+        # trigger opted in (``auto_fix``); otherwise they are shown at its next turn.
+        may_wake=(session.metadata or {}).get(AUTO_FIX_KEY, True) is not False,
     )
 
     sandbox_settings = await effective_settings(db_mgr, session.tenant_org_id, "sandboxes")
@@ -856,6 +950,12 @@ def _session_record_callbacks(ctx: TurnContext) -> _SessionRecordCallbacks:
             req.db_mgr, org, session.tenant_user_id, folder
         ):
             notes.append(proj_mem)
+        general = await effective_settings(req.db_mgr, org, "general")
+        notes.extend(
+            await repository_extras(
+                req.db_mgr, store, driver, target_session_id, org, folder, sandbox_cfg, general
+            )
+        )
         try:
             from agent_core.tools.builtin.workspace import sync_workspace_manifest
 

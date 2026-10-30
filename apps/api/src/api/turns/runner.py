@@ -18,6 +18,7 @@ from agent_core.tools.registry import ToolRegistry
 from git_engine.engine import GitEngine
 
 from api.db.store import _auto_provision_tenants_enabled
+from api.services import outbound_webhooks, ticket_trackers
 from api.services.agent_access import AgentAccessDenied
 from api.services.audit import AuditService, GovernancePolicy
 from api.services.budgets import BudgetService
@@ -59,7 +60,7 @@ from api.services.turn_trace import (
 from api.telemetry import traced_turn
 from api.turns.attention import update_attention
 from api.turns.callbacks import build_turn_callbacks
-from api.turns.context import TurnContext, TurnRequest, TurnSelection, TurnState
+from api.turns.context import TurnContext, TurnRequest, TurnSelection, TurnState, publisher_of
 from api.turns.continuation import check_and_schedule_continuation
 from api.turns.events import TurnEventHandlers
 from api.turns.failure import FAILED_ANSWER_PREFIX, classify_turn_error, refusal_of
@@ -105,6 +106,7 @@ class TurnRunner:
             await self._restore_working_memory(ctx)
             await self._execute(ctx)
             answer = await record_answer(ctx)
+            await self._report_outcome(ctx, "turn.completed", {"answer": answer})
             await self._backup_working_memory(ctx)
             should_continue = await check_and_schedule_continuation(ctx)
             if not should_continue:
@@ -582,8 +584,13 @@ class TurnRunner:
         self, ctx: TurnContext, member_prefs: dict[str, Any]
     ) -> GitCredentialBundle:
         req, session = self.req, ctx.session
+        publisher = publisher_of(ctx)
+        if publisher != session.tenant_user_id:
+            member_prefs = await effective_settings(
+                req.db_mgr, session.tenant_org_id, "user_preferences", publisher
+            )
         git_bundle = await resolve_session_git_credentials(
-            user_id=session.tenant_user_id,
+            user_id=publisher,
             org_id=session.tenant_org_id,
             git_engine=req.git_engine,
             db_mgr=req.db_mgr,
@@ -592,7 +599,7 @@ class TurnRunner:
         )
         if ctx.binding.policy.git.signing == SIGNED_MODE:
             signing = await member_signing_for_turn(
-                req.db_mgr, session.tenant_org_id, session.tenant_user_id, member_prefs
+                req.db_mgr, session.tenant_org_id, publisher, member_prefs
             )
             if signing is not None:
                 git_bundle = replace(git_bundle, signing=signing, author_email=signing.commit_email)
@@ -609,7 +616,7 @@ class TurnRunner:
                 req.session_id,
                 git_bundle,
                 org_id=session.tenant_org_id,
-                user_id=session.tenant_user_id,
+                user_id=publisher,
                 api_url=github_api_url_of(req.git_engine),
             )
         return git_bundle
@@ -623,9 +630,12 @@ class TurnRunner:
             user_name=git.user_name or git_bundle.author_name,
             user_email=git.user_email or git_bundle.author_email,
             user_token=git_bundle.user_token,
+            gitlab_token=git_bundle.gitlab_token,
         )
+        overlay = ctx.req.overlay
         return replace(
             ctx.binding.policy,
+            gated_tools=overlay.gated_tools if overlay is not None else frozenset(),
             git=effective_signing_policy(completed, git_bundle.signing),
             active_repository=active_repository_of(ctx.session),
             tool_loading=replace(
@@ -706,6 +716,11 @@ class TurnRunner:
             await self._announce_start({"message": "Starting…"})
         kind = classify_turn_error(err)
         await self._publish_refusal(err)
+        await self._report_outcome(
+            None,
+            "budget.blocked" if kind == "budget" else "turn.failed",
+            {"error_kind": kind, "error": str(err)},
+        )
         await self._publish(EventType.ERROR, {"error": str(err), "error_kind": kind})
         await self._publish(
             EventType.STATUS_CHANGED,
@@ -726,6 +741,30 @@ class TurnRunner:
                 )
         except Exception:
             pass
+
+    async def _report_outcome(
+        self, ctx: TurnContext | None, event: str, details: dict[str, Any]
+    ) -> None:
+        """Tell the organization's outbound webhooks how the turn ended."""
+        org_id = ctx.session.tenant_org_id if ctx is not None else self._org_id
+        if org_id is None:
+            return
+        await outbound_webhooks.emit(
+            self.req.db_mgr,
+            org_id,
+            event,
+            {
+                "session_id": self.req.session_id,
+                "title": ctx.session.title if ctx is not None else "",
+                "cost_usd": round(ctx.trace.cost_usd, 6) if ctx is not None else 0.0,
+                **details,
+            },
+        )
+        if ctx is not None and event == "turn.completed":
+            # A Jira or Linear ticket that started the session hears how it went.
+            await ticket_trackers.post_outcome(
+                ctx.session.metadata or {}, str(details.get("answer") or "")
+            )
 
     async def _publish_refusal(self, err: Exception) -> None:
         """The typed event a client acts on: which limit stopped the turn, or which agent the

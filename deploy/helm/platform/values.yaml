@@ -268,6 +268,33 @@ github:
   existingSecretPrivateKeyKey: "GITHUB_APP_PRIVATE_KEY"
   existingSecretWebhookSecretKey: "GITHUB_WEBHOOK_SECRET"
 
+# Other forges, trackers and chat platforms (each is off until configured). Secrets go into the
+# chart's Secret, or come from `existingSecret` (a Secret holding any of GITLAB_TOKEN,
+# GITLAB_WEBHOOK_SECRET, JIRA_API_TOKEN, JIRA_WEBHOOK_SECRET, LINEAR_API_KEY,
+# LINEAR_WEBHOOK_SECRET, TEAMS_APP_PASSWORD, MATTERMOST_BOT_TOKEN).
+integrations:
+  existingSecret: ""
+  # The organization Teams and Mattermost work for (empty: ROCKET_WEBHOOK_ORG_ID).
+  chatOrgId: ""
+  gitlab:
+    url: ""  # empty: https://gitlab.com
+    webhookSecret: ""
+    token: ""
+  jira:
+    baseUrl: ""
+    email: ""
+    apiToken: ""
+    webhookSecret: ""
+  linear:
+    apiKey: ""
+    webhookSecret: ""
+  teams:
+    appId: ""
+    appPassword: ""
+  mattermost:
+    url: ""
+    botToken: ""
+
 # Dedicated pod for command (stdio) MCP servers - programs such as `npx -y <package>` or a release
 # binary that members' agents use as tools. They run here, not in the API pod (which holds the
 # database credentials and master key) and not in the agent sandboxes (whose image may lack the
@@ -412,6 +439,18 @@ sandbox:
   # - Local / Kind: "standard" or "local-path"
   # Default is empty ("") to dynamically use the cluster's default StorageClass
   storageClass: ""
+  # Whole-workspace snapshots (CSI VolumeSnapshot). Organizations take them on demand, and
+  # before a sandbox is paused when they turn on sandboxes.snapshot_before_hibernate.
+  snapshots:
+    # The VolumeSnapshotClass of your CSI driver (e.g. "ebs-csi-snapclass", "csi-azuredisk-vsc",
+    # "pd-snapshot-class"); empty uses the cluster's default class.
+    volumeSnapshotClass: ""
+    # A scheduled backup of every workspace volume, as VolumeSnapshots kept `keep` per volume.
+    backup:
+      enabled: false
+      schedule: "0 3 * * *"
+      keep: 7
+      image: "bitnami/kubectl:1.31"
   # Inactivity lifecycle reconciliation
   inactivity:
     pauseSeconds: 1800 # Seconds of inactivity before hibernating sandbox pod (30 minutes)

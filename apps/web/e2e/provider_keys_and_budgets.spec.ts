@@ -22,6 +22,17 @@ test.describe("Provider credentials and spend limits", () => {
     await expect(row).toHaveCount(0);
   });
 
+  test("signing in with OpenRouter goes to the provider and a failed sign-in says why", async ({ page }) => {
+    await page.route("**/v1/credentials/oauth/openrouter/start**", (route) =>
+      route.fulfill({ json: { authorization_url: "/settings/user/keys?signin=failed&reason=The%20sign-in%20was%20cancelled." } }),
+    );
+    await page.goto("/settings/user/keys");
+    const panel = page.getByTestId("credentials-panel-user");
+    await panel.getByRole("button", { name: "Sign in with OpenRouter" }).click();
+    await expect(page).toHaveURL(/signin=failed/);
+    await expect(page.getByTestId("credentials-panel-user").getByRole("alert")).toContainText("The sign-in was cancelled.");
+  });
+
   test("a key set in the deployment's environment is shown beside the organization's own", async ({ page }) => {
     await page.route("**/v1/admin/credentials/platform", (route) =>
       route.fulfill({ json: [{ provider: "mistral", env_var: "MISTRAL_API_KEY", fingerprint: "sk-...9999" }] }),

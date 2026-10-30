@@ -137,7 +137,13 @@ async def record_answer(ctx: TurnContext) -> str:
         SessionEvent(
             session_id=ctx.session_id,
             event_type=EventType.STATUS_CHANGED,
-            payload={"status": status, "message": msg, "final": True, **ctx_stats},
+            payload={
+                "status": status,
+                "message": msg,
+                "final": True,
+                **ctx_stats,
+                "cost_usd": round(ctx.trace.cost_usd, 6),
+            },
         )
     )
     return content

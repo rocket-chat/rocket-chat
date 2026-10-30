@@ -10,14 +10,22 @@ If your administrator has [connected Slack](/administer/slack), you can use the 
 ## What you see
 
 **Response modes: Thread vs Private session.** Your administrator can configure bots and routes to respond in one of two modes:
-- **Thread mode (public):** while Slack's status line shows the bot is working, its reply in the thread shows the step it is on, then a one-line summary ("Done in 41s · Edited 2 files") and the answer in the same message, ending with **Open in Rocket Chat**. A turn that only answers posts the answer directly. To stop a turn you asked for, click Slack's stop button under the thread, or use the bot's command: `/<command> stop`. In the web app, a session that came from Slack has an **Open in Slack** link next to its title.
+- **Thread mode (public):** while Slack's status line shows the bot is working, its reply in the thread shows the step it is on and the agent's checklist (each item with its status), then the answer in the same message, closed by a summary line (Done, Waiting or Failed · time · what changed · cost · pull request) and an **Open in Rocket Chat** button. A turn that only answers posts the answer directly. To stop a turn you asked for, click Slack's stop button under the thread, or use the bot's command: `/<command> stop`. In the web app, a session that came from Slack has an **Open in Slack** link next to its title.
 - **Private mode:** When invoked, the bot marks your message with an acknowledgement reaction (default :white_check_mark:) and sends an ephemeral message in the thread visible *only to you*. It includes an **Open session** button linking to your private cockpit session. The work happens privately; when finished, an ephemeral summary is posted to you in the thread alongside a **Share in thread** button that allows you to post the final answer into the public thread when you choose. Follow-up messages you type in the thread continue your private session.
+
+**Follow-ups need no mention.** Once the bot works in a thread, a reply addressed to it continues the conversation without `@`-mentioning it (small talk such as "thanks" is ignored). In private mode only the person who asked continues their own session. Editing your latest request runs it again with the new text; deleting it while the turn runs stops the turn.
+
+**Pull requests get a card.** When the agent opens a pull request, a card shows its link, branch, the files changed and the CI state, and is updated in place when CI passes or fails and when the pull request is merged or closed.
+
+**Waits are said.** A turn that waits ("Waiting for CI on acme/api#123; I'll post here.") says so in its summary, and the result is posted in the thread when it arrives. After an answer, the bot may offer a **suggested next step** as a button; clicking it sends it as your message.
+
+**A failed turn offers Retry.** In a shared thread the bot says that something went wrong without the raw error (open the session for the details); in your direct messages it says what failed. **Retry** runs your request again; only you can click it. A turn stopped from the web app says so.
 
 **Every turn reaches the thread.** Work that continues without a new Slack message (a CI result or a review the agent was waiting for, a long task's next step, a restart, a message someone sent from the web app on this session) is posted in the same thread, as its own answer.
 
 **A message sent while the agent works is queued.** The bot replies "Queued — I'll take this next." and takes it as soon as the current turn ends; its answer follows in the thread. A message with files starts its own turn.
 
-**Questions and approvals are buttons in the thread.** When the agent needs a decision, or wants to run something your organization requires [approval](/administer/security#b-per-org-approval-policy) for, it posts buttons. In thread mode they are posted to the thread; in private mode they are posted as ephemeral buttons visible only to you. Only the person who started the request can answer. This keeps working after a restart: a question that was waiting when the server restarted is picked up again from the stored question, and the work continues in the same thread.
+**Questions and approvals are buttons in the thread.** When the agent needs a decision, or wants to run something your organization requires [approval](/administer/security#b-per-org-approval-policy) for, it posts buttons named after the action ("Approve git push"). A question with several possible answers has checkboxes and **Submit**, and every question has **Other…** for an answer of your own. Once answered, the message shows the decision and its buttons go away. In thread mode they are posted to the thread; in private mode they are posted as ephemeral buttons visible only to you. Only the person who started the request can answer. This keeps working after a restart: a question that was waiting when the server restarted is picked up again from the stored question, and the work continues in the same thread.
 
 **Long output is attached, not split.** An answer longer than a few thousand characters is summarised in the thread and attached in full as `answer.md`. A large change is listed in the thread and attached as `changes.diff`. Screenshots the agent takes are uploaded as images.
 
@@ -45,16 +53,22 @@ Your organization may connect multiple bots (e.g. `@RocketDev`, `@RocketOps`, `@
 | You do | What happens |
 | :--- | :--- |
 | `@<bot> <task>` in a channel | Answers in that message's thread (or privately, if configured). Follow-ups in the thread continue the same conversation. |
-| Message the bot directly | A private conversation under your own Rocket Chat account (once linked). |
-| `/<command> new <task>` | Posts "you asked Rocket: …" and works in a new thread. Each bot has its own command, named after it (`/triage` for `@triage`); `help` lists them. |
+| Message the bot directly | A private conversation under your own Rocket Chat account (once linked). A new message within an hour of the last continues the same session (your administrator sets the window). |
+| `/<command> new <task>` | Posts "you asked *the bot*: …" (by its name) and works in a new thread. Each bot has its own command, named after it (`/triage` for `@triage`); `help` lists them. |
 | `/<command> status` | Lists your recent Slack threads and which are running (only you see it). |
 | `/<command> stop` | Stops what you have running with that bot in this channel. |
 | **Ask Rocket** in a message's ⋮ menu | Works on that message, in its thread. |
-| Open the app's **Home** tab | Your link status, recent threads and these tips. |
+| Open the app's **Home** tab | Who you are linked as, your recent threads and these tips. |
+
+**Shortcuts** in a message are taken out of it and applied to that request: `!fast` (less reasoning) and `!deep` (more), `!agent <name>` (answer with that agent, if you may use it), `!repo <owner/name>` or `!repo <owner/name>@<branch>` (work on that repository). They go through the same rules as the web app, so a locked setting stays locked. A message that starts with `(aside)` is not for the bot.
+
+**Channel repositories.** A channel can be given a repository and branch in the bot's routing table; the agent is told to clone it before it starts, so you don't have to name it each time.
 
 ---
 
 ## Link your account
+
+**Publishing from a shared channel.** In a channel thread, the agent cannot push, open pull requests or revert for an unlinked person. For a linked member of the organization, it can, under that member's own GitHub identity, after the member approves each publication with the button the agent posts (unless the administrator turned on *restrict linked members*).
 
 Without a link, your direct messages belong to a **guest** member made for your Slack account (it cannot sign in, has no credentials of its own, and an administrator can see its sessions), and a channel conversation belongs to the workspace's guest (no one's personal credentials are ever used in a shared thread). Linking connects you to your own Rocket Chat account for direct messages: your GitHub access, your model keys, your spend limits and the agents you may use. When you link, the sessions your guest started become yours.
 

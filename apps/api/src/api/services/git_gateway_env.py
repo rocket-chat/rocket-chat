@@ -31,7 +31,7 @@ def gateway_endpoint() -> str:
     return f"{parsed.hostname}:{port}"
 
 
-def sandbox_git_environment(capability: str, api_url: str) -> dict[str, str]:
+def sandbox_git_environment(capability: str, api_url: str, gitlab_url: str = "") -> dict[str, str]:
     """The environment that points a sandbox's git at the gateway for every GitHub URL.
 
     ``GIT_CONFIG_COUNT``/``GIT_CONFIG_KEY_n``/``GIT_CONFIG_VALUE_n`` (git 2.31+) add configuration
@@ -39,12 +39,21 @@ def sandbox_git_environment(capability: str, api_url: str) -> dict[str, str]:
     """
     base = f"{gateway_url()}{ROUTE_PREFIX}/"
     host = urlparse(github_web_url(api_url)).hostname or "github.com"
+    gitlab_base = f"{base}gitlab/"
+    gitlab_host = urlparse(gitlab_url).hostname if gitlab_url else None
     entries = [
         (f"url.{base}.insteadOf", f"https://{host}/"),
         (f"url.{base}.insteadOf", f"git@{host}:"),
         (f"url.{base}.insteadOf", f"ssh://git@{host}/"),
         (f"http.{base}.extraHeader", f"{CAPABILITY_HEADER}: {capability}"),
     ]
+    if gitlab_host:
+        # GitLab repositories (gitlab.com or the deployment's own) through the same gateway.
+        entries[3:3] = [
+            (f"url.{gitlab_base}.insteadOf", f"https://{gitlab_host}/"),
+            (f"url.{gitlab_base}.insteadOf", f"git@{gitlab_host}:"),
+            (f"url.{gitlab_base}.insteadOf", f"ssh://git@{gitlab_host}/"),
+        ]
     environment = {"GIT_CONFIG_COUNT": str(len(entries)), "GIT_TERMINAL_PROMPT": "0"}
     for index, (key, value) in enumerate(entries):
         environment[f"GIT_CONFIG_KEY_{index}"] = key

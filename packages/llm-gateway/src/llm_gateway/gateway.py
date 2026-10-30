@@ -10,6 +10,7 @@ from fnmatch import fnmatch
 from typing import Any
 
 import litellm
+from opentelemetry import trace
 
 from llm_gateway.errors import DataGovernanceError
 from llm_gateway.pricing import estimate_cost_usd
@@ -714,8 +715,12 @@ class LiteLLMGateway(LLMGatewayProtocol):
         cost: float | None = None
         produced: list[str] = []
         failed = False
+        finish_reason = ""
+        span = _model_call_span(request, scope)
         try:
             async for chunk in self._stream_model(request.model, request):
+                if chunk.finish_reason:
+                    finish_reason = chunk.finish_reason
                 if chunk.error:
                     failed = True  # a refused call costs nothing; it is not billed
                 if chunk.token_usage:
@@ -746,6 +751,7 @@ class LiteLLMGateway(LLMGatewayProtocol):
                 )
             if reservation is not None:
                 await self._settle(reservation, billed)
+            _end_model_call_span(span, usage, finish_reason, billed, failed, key_source)
 
     async def _with_credentials(
         self, scope: ModelScope | None, request: ModelRequest
@@ -975,3 +981,60 @@ def _produced_text(chunk: StreamChunk) -> str:
     """What a chunk adds to the reply, tool-call arguments included: they are output tokens."""
     arguments = ((chunk.tool_call_delta or {}).get("function") or {}).get("arguments") or ""
     return (chunk.text_delta or "") + (chunk.reasoning_delta or "") + arguments
+
+
+# OpenTelemetry GenAI semantic conventions (gen_ai.*), so Langfuse, Phoenix or any OTLP backend
+# reads each model call. Message content is never recorded: prompts carry code, secrets the
+# redactor may not know and people's data.
+_tracer = trace.get_tracer("llm_gateway")
+
+
+def _provider_of(model: str) -> str:
+    """``gen_ai.system``: the LiteLLM provider prefix, else the family a bare name belongs to."""
+    if "/" in model:
+        return model.split("/", 1)[0]
+    for prefix, provider in (("gpt", "openai"), ("o1", "openai"), ("claude", "anthropic")):
+        if model.startswith(prefix):
+            return provider
+    return "unknown"
+
+
+def _model_call_span(request: ModelRequest, scope: ModelScope | None) -> trace.Span:
+    span = _tracer.start_span(f"chat {request.model}", kind=trace.SpanKind.CLIENT)
+    attributes: dict[str, str | float | int] = {
+        "gen_ai.operation.name": "chat",
+        "gen_ai.system": _provider_of(request.model),
+        "gen_ai.request.model": request.model,
+    }
+    if request.temperature is not None:
+        attributes["gen_ai.request.temperature"] = request.temperature
+    if request.max_tokens:
+        attributes["gen_ai.request.max_tokens"] = request.max_tokens
+    if scope is not None:
+        attributes["rocket.org_id"] = scope.org_id
+        if scope.agent_id:
+            attributes["rocket.agent_id"] = scope.agent_id
+        if scope.call_role:
+            attributes["rocket.call_role"] = scope.call_role
+    span.set_attributes(attributes)
+    return span
+
+
+def _end_model_call_span(
+    span: trace.Span,
+    usage: dict[str, int] | None,
+    finish_reason: str,
+    cost_usd: float,
+    failed: bool,
+    key_source: str,
+) -> None:
+    if usage:
+        span.set_attribute("gen_ai.usage.input_tokens", int(usage.get("prompt_tokens") or 0))
+        span.set_attribute("gen_ai.usage.output_tokens", int(usage.get("completion_tokens") or 0))
+    if finish_reason:
+        span.set_attribute("gen_ai.response.finish_reasons", [finish_reason])
+    span.set_attribute("rocket.cost_usd", round(cost_usd, 6))
+    span.set_attribute("rocket.key_source", key_source)
+    if failed:
+        span.set_status(trace.Status(trace.StatusCode.ERROR))
+    span.end()

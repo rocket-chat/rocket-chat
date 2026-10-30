@@ -82,6 +82,9 @@ class PublishSpec:
     # Credited on every commit GitHub re-creates (``GITHUB_APP``), whatever made it: the
     # ``git_commit`` tool or a plain ``git commit`` in the shell.
     co_authors: tuple[CoAuthor, ...] = ()
+    # The member's GitLab token, used when the repository is on a GitLab forge (else the
+    # deployment's ``GITLAB_TOKEN``). GitLab has no App: there is no signed replay there.
+    gitlab_token: str | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -100,6 +103,8 @@ class PublishResult:
     # The repository's own default branch (from its clone), else the setting's: where a pull
     # request goes unless the caller names another base.
     default_branch: str = ""
+    # The forge it was published to ("github" or "gitlab"): where its change request opens.
+    forge: str = "github"
 
 
 @dataclass

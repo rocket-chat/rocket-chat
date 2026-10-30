@@ -14,6 +14,7 @@ drill that proves those procedures work on this release. The drill is executable
 | :--- | :--- | :--- | :--- |
 | Tenant data (sessions, traces, memories, audit) | PostgreSQL 16 | Logical `pg_dump` + managed-DB PITR | Conversation history and governance trail lost for the window |
 | Attachment blobs | `ROCKET_ATTACHMENTS_DIR` volume / workspace PVC | Volume snapshot (cloud CSI) | Uploaded files unreadable; rows remain and point at missing bytes |
+| Session workspaces (cloned repositories, work in progress) | One PVC (Kubernetes) or named volume (Docker) per session | `VolumeSnapshot`s: the chart's scheduled backup (`sandbox.snapshots.backup`), and per-session snapshots (before an idle pause with `sandboxes.snapshot_before_hibernate`, or on demand); Docker: archives in `DOCKER_SNAPSHOT_VOLUME` | The session restarts blank; the agent clones again, unpushed work is lost |
 | Model credentials / user credentials | PostgreSQL, AES-256-GCM / Fernet encrypted | Follows the database | **Unrecoverable without the master key** — see §6 |
 | Container images & Helm chart | GHCR (`ghcr.io/rocket-chat/...`) | Immutable tagged artifacts + SBOM | Redeploy the last known-good tag |
 | Kubernetes secrets | Cluster secret store / external vault | Vault replication / external-secrets | Reread from the vault; never only in-cluster |
@@ -54,6 +55,12 @@ pg_dump --dbname="$ADMIN_DATABASE_URL" --format=custom \
 > PostgreSQL 18 client against a 16 server). When the versions cannot be matched, take a
 > plain-format dump and restore with `psql`, dropping only that unsupported GUC line — exactly
 > the fallback `scripts/dr_drill.py` implements.
+
+**Workspaces.** On Kubernetes, turn on `sandbox.snapshots.backup.enabled` (with
+`sandbox.snapshots.volumeSnapshotClass` set for your CSI driver): a CronJob snapshots every session
+volume on `schedule` and keeps the newest `keep` of each. A session's own snapshots are listed and
+restored with `GET/POST /v1/sessions/{id}/snapshots` (`…/{snapshot}/restore`). On Docker, back up the
+`DOCKER_SNAPSHOT_VOLUME` volume with the session volumes (`sandbox_vol_*`).
 
 For managed databases, also enable continuous WAL archiving / point-in-time recovery (Aurora,
 Cloud SQL, Azure Flexible Server) and take a daily logical dump as the portable, provider-neutral

@@ -37,6 +37,7 @@
               "use/index",
               "use/sessions",
               "use/slack",
+              "use/teams-and-mattermost",
               "use/automation",
               "use/extend",
               "use/personal-settings"

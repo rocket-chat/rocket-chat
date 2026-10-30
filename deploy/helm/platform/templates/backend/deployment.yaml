@@ -46,6 +46,10 @@ spec:
                 name: {{ include "rocket-chat.fullname" . }}-config
             - secretRef:
                 name: {{ include "rocket-chat.fullname" . }}-secrets
+            {{- if .Values.integrations.existingSecret }}
+            - secretRef:
+                name: {{ .Values.integrations.existingSecret }}
+            {{- end }}
           {{- if .Values.backend.database.existingSecret }}
           env:
             {{- include "rocket-chat.databaseEnv" . | nindent 12 }}

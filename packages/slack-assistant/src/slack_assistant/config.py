@@ -23,10 +23,6 @@ class SlackAssistantSettings(BaseSettings):
         validation_alias="SLACK_APP_TOKEN",
         description="Slack app-level token with connections:write scope for Socket Mode (xapp-...).",
     )
-    auto_hibernate_seconds: int = Field(
-        default=1800,
-        description="Inactivity timeout before hibernating thread sandbox containers.",
-    )
     slack_thread_context_limit: int = Field(
         default=20,
         description=(

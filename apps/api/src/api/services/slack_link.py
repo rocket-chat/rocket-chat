@@ -246,6 +246,33 @@ async def ensure_slack_guest(
     return guest_id
 
 
+async def ensure_chat_guest(
+    db_mgr: Any, org_id: str, platform: str, tenant_id: str, user_id: str, name: str
+) -> str:
+    """The guest member behind a Teams or Mattermost user, created on first contact: a
+    ``viewer`` with no password and no credentials, like a Slack guest."""
+    guest_id = f"{platform}:{tenant_id or 'default'}:{user_id}"[:64]
+    if not _has_database(db_mgr):
+        return guest_id
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        await session.execute(
+            insert(UserModel)
+            .values(
+                id=guest_id,
+                org_id=org_id,
+                email=f"{guest_id.replace(':', '.')}@{platform}-guest.invalid",
+                name=f"{name} ({platform.capitalize()})"[:255],
+                role=GUEST_ROLE,
+                settings={
+                    "chat_guest": {"platform": platform, "tenant_id": tenant_id, "user_id": user_id}
+                },
+                created_at=int(time.time()),
+            )
+            .on_conflict_do_nothing(index_elements=[UserModel.id])
+        )
+    return guest_id
+
+
 async def adopt_guest_sessions(
     db_mgr: Any, org_id: str, team_id: str, slack_user_id: str, member_id: str
 ) -> int:

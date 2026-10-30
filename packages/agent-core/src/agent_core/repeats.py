@@ -27,9 +27,7 @@ REPEAT_AFTER_UNCHANGED = 2
 _ERROR_MARKERS = ("error", "failed", "blocked", "refused", "invalid", "not found")
 _UNCHANGED_MARKER = "\n\n[Repeated call:"
 # Polling a running process or task legitimately returns the same output until it changes.
-_POLLING_TOOLS = frozenset(
-    {"process_output", "process_wait", "process_list", "task_status", "task_list", "wait_for"}
-)
+_POLLING_TOOLS = frozenset({"process_output", "process_wait", "process_list", "wait_for"})
 # Strips timing and volatile progress percentages from test/build error tails
 _STRIP_VOLATILE = re.compile(
     r"\s*(?:\bin\s+\d+(?:\.\d+)?(?:s|ms|m\s+\d+s)\b|\[\s*\d+%\s*\]|\b\d+(?:\.\d+)?s\b)",

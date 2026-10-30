@@ -3,13 +3,14 @@
 import logging
 import time
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import (
     APIRouter,
     HTTPException,
     Request,
 )
+from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 
 from api.auth.access import _get_request_identity
@@ -27,12 +28,24 @@ from api.models import (
     KnowledgeQueryResponse,
     KnowledgeQueryResultItem,
 )
+from api.services.git_credentials import resolve_session_git_credentials
+from api.services.git_gateway_env import github_api_url_of
 from api.services.knowledge import (
     IngestionLimitError,
     ingest_document,
     max_document_chars,
     query_knowledge_base,
 )
+from api.services.knowledge_import import (
+    ImportedDocument,
+    KnowledgeImportError,
+    import_repository_docs,
+    import_site,
+    import_url,
+    pdf_from_base64,
+)
+from api.services.memory import configured_embedding_model
+from api.services.settings import effective_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Sessions & Telemetry"])
@@ -56,6 +69,11 @@ _kb_fallback_store: dict[str, dict[str, Any]] = {
         "updated_at": int(time.time()),
     }
 }
+
+
+async def _embedding_model(db_mgr: Any, org_id: str) -> str:
+    """The organization's embedding model: documents and queries must use the same one."""
+    return configured_embedding_model(await effective_settings(db_mgr, org_id, "memory"))
 
 
 @router.get("/knowledge/bases", response_model=list[KnowledgeBaseResponse])
@@ -254,6 +272,7 @@ async def ingest_knowledge_document(
                     content=req.content,
                     source_type=req.source_type,
                     metadata_json=req.metadata,
+                    embedding_model=await _embedding_model(db_mgr, org_id),
                 )
             except IngestionLimitError as err:
                 raise HTTPException(status_code=413, detail=str(err)) from err
@@ -294,6 +313,95 @@ async def ingest_knowledge_document(
     )
 
 
+class KnowledgeImportRequest(BaseModel):
+    """Where the documents come from: ``url`` (a page or a PDF), ``site`` (a page and the pages
+    under it), ``pdf`` (``content_base64``) or ``repository`` (its docs folder on GitHub)."""
+
+    kind: Literal["url", "site", "pdf", "repository"]
+    url: str = Field(default="", max_length=2000)
+    repository: str = Field(default="", max_length=200)
+    path: str = Field(default="docs", max_length=300)
+    title: str = Field(default="", max_length=200)
+    content_base64: str = Field(default="", max_length=45_000_000)
+    max_pages: int = Field(default=25, ge=1, le=25)
+
+
+class KnowledgeImportResponse(BaseModel):
+    documents: list[KnowledgeDocumentResponse]
+
+
+async def _imported(
+    req: KnowledgeImportRequest, request: Request, org_id: str, user_id: str
+) -> list[ImportedDocument]:
+    if req.kind == "url":
+        return await import_url(req.url)
+    if req.kind == "site":
+        return await import_site(req.url, req.max_pages)
+    if req.kind == "pdf":
+        return [pdf_from_base64(req.content_base64, req.title)]
+    engine = getattr(request.app.state, "git_engine", None)
+    bundle = await resolve_session_git_credentials(
+        user_id=user_id,
+        org_id=org_id,
+        git_engine=engine,
+        db_mgr=getattr(request.app.state, "db_manager", None),
+        repo=req.repository,
+    )
+    return await import_repository_docs(
+        req.repository, req.path, bundle.token or bundle.user_token, github_api_url_of(engine)
+    )
+
+
+@router.post("/knowledge/bases/{kb_id}/import", response_model=KnowledgeImportResponse)
+async def import_knowledge(
+    kb_id: str, req: KnowledgeImportRequest, request: Request
+) -> KnowledgeImportResponse:
+    """Import documents from a web page, a documentation site, a PDF or a repository's docs."""
+    org_id, user_id, _ = _get_request_identity(request)
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    if db_mgr is None:
+        raise HTTPException(status_code=503, detail="Imports need the database")
+    try:
+        documents = await _imported(req, request, org_id, user_id)
+    except KnowledgeImportError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
+    model = await _embedding_model(db_mgr, org_id)
+    created: list[KnowledgeDocumentResponse] = []
+    async with db_mgr.session() as session:
+        kb = await session.execute(
+            select(KnowledgeBaseModel).where(
+                KnowledgeBaseModel.id == kb_id, KnowledgeBaseModel.org_id == org_id
+            )
+        )
+        if not kb.scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Knowledge base not found")
+        for document in documents:
+            try:
+                doc = await ingest_document(
+                    session=session,
+                    kb_id=kb_id,
+                    org_id=org_id,
+                    title=document.title,
+                    content=document.content,
+                    source_type=req.kind,
+                    metadata_json={"source": document.source},
+                    embedding_model=model,
+                )
+            except IngestionLimitError as err:
+                raise HTTPException(status_code=413, detail=f"{document.title}: {err}") from err
+            created.append(
+                KnowledgeDocumentResponse(
+                    id=doc.id,
+                    kb_id=doc.kb_id,
+                    title=doc.title,
+                    source_type=doc.source_type,
+                    chunk_count=doc.chunk_count,
+                    created_at=doc.created_at,
+                )
+            )
+    return KnowledgeImportResponse(documents=created)
+
+
 @router.post("/knowledge/bases/{kb_id}/query", response_model=KnowledgeQueryResponse)
 async def query_knowledge_collection(
     kb_id: str,
@@ -312,6 +420,7 @@ async def query_knowledge_collection(
                 org_id=org_id,
                 query_text=req.query,
                 limit=req.limit,
+                embedding_model=await _embedding_model(db_mgr, org_id),
             )
             return KnowledgeQueryResponse(
                 query=req.query,

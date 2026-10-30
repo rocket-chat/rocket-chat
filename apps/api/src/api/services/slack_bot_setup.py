@@ -52,6 +52,10 @@ _BASE_EVENTS = (
     "app_mention",
     "assistant_thread_context_changed",
     "assistant_thread_started",
+    # Channel messages: follow-ups in a thread the bot works in need no mention, and edited or
+    # deleted requests retry or stop their turn.
+    "message.channels",
+    "message.groups",
     "message.im",
 )
 
@@ -103,8 +107,6 @@ async def _display_name(bot: AsyncWebClient, bot_user_id: str) -> str:
 def manifest(record: SlackBotRecord, web_url: str = "") -> dict[str, Any]:
     """The Slack app manifest for this bot: its name, scopes and events from its behaviour."""
     events = list(_BASE_EVENTS)
-    if record.listen_channels:
-        events += ["message.channels", "message.groups"]
     handle = (record.handle or record.name).lower().replace(" ", "-")[:80]
     description = f"Rocket Chat agent: {record.name}"
     body: dict[str, Any] = {

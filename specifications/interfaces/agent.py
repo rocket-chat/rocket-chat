@@ -657,6 +657,12 @@ class TurnOverlay:
     # Tools this caller may never use, whatever the whitelist. Kept apart from it so an
     # unrestricted caller still gets the tools only known once the turn starts (MCP servers).
     denied_tools: frozenset[str] = frozenset()
+    # Tools this caller may use only after its requester approves each call (a linked Slack
+    # member publishing from a shared channel), whatever the session's permission mode.
+    gated_tools: frozenset[str] = frozenset()
+    # The member whose git credentials and identity this turn publishes with, instead of the
+    # session owner's (a linked member in a workspace-owned Slack thread). None: the owner's.
+    publish_as_user_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -720,6 +726,8 @@ class GitPolicy:
     user_name: str = ""
     user_email: str = ""
     user_token: str | None = field(default=None, repr=False)
+    # The member's GitLab token (a repository on the GitLab forge publishes with it).
+    gitlab_token: str | None = field(default=None, repr=False)
     # The GPG key (fingerprint) the member's commits are signed with, when they commit as
     # themselves under ``signing == "member_gpg"``.
     signing_key_id: str = ""
@@ -901,6 +909,9 @@ class TurnPolicy:
     attribution: ModelAttribution = field(default_factory=lambda: ModelAttribution())
     # ``general.plan_critic``: a ``reviewer`` subagent reads a plan before the person decides.
     plan_critic: bool = False
+    # Tools that raise a human gate on every call whatever the permission mode, and that no
+    # remembered approval answers (``TurnOverlay.gated_tools``).
+    gated_tools: frozenset[str] = frozenset()
 
 
 @dataclass(frozen=True)

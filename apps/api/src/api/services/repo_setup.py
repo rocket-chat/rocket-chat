@@ -75,6 +75,23 @@ def plan_from_devcontainer(text: str) -> SetupPlan | None:
     return SetupPlan(source=DEVCONTAINER, command=command)
 
 
+def devcontainer_image(text: str) -> str | None:
+    """The ``image`` a dev container names (a ``build`` or Compose one is not used here)."""
+    try:
+        config = json5.loads(text)
+    except ValueError:
+        return None
+    image = config.get("image") if isinstance(config, dict) else None
+    return image.strip() if isinstance(image, str) and image.strip() else None
+
+
+async def repository_devcontainer_image(
+    driver: SandboxDriverProtocol, session_id: str, directory: str
+) -> str | None:
+    config = await _read(driver, session_id, f"{directory}/{DEVCONTAINER}")
+    return devcontainer_image(config) if config else None
+
+
 async def _read(driver: SandboxDriverProtocol, session_id: str, path: str) -> str | None:
     try:
         return await driver.read_file(session_id, path)

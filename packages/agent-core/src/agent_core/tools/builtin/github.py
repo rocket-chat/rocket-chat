@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Annotated, Any, Literal
 
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from agent_core.tools import github_ci, github_generic, github_prs
 from agent_core.tools.github_client import GithubError
@@ -28,6 +28,17 @@ PullAction = Literal[
     "reopen", "merge",
 ]  # fmt: skip
 PullActionList = list[PullAction]
+
+
+class InlineComment(BaseModel):
+    """One inline comment of a review, on a line of the pull request's diff."""
+
+    path: str = Field(description="File path in the repository.")
+    line: int = Field(description="Line number in the file's new version (RIGHT) or old (LEFT).")
+    body: str = Field(description="The comment.")
+    side: Literal["RIGHT", "LEFT"] = Field(
+        default="RIGHT", description="Which version the line is in."
+    )
 
 
 async def _write(registry: ToolRegistry, slug: str) -> GithubAccess:
@@ -62,7 +73,8 @@ def _register_pulls(registry: ToolRegistry) -> None:
             "Work with pull requests. Send a list of actions to run in order. "
             "Reads: list, view, files, diff (paged by file), checks, review_threads. "
             "Writes: edit (title/body/base), ready, draft, request_reviewers, comment, "
-            "review (event comment|request_changes|approve), reply_to_thread (comment_id), "
+            "review (event comment|request_changes|approve, with inline review_comments on "
+            "changed lines), reply_to_thread (comment_id), "
             "resolve_thread (thread_id), close, reopen, merge. Open a PR with git_open_pr."
         )
     )
@@ -87,6 +99,10 @@ def _register_pulls(registry: ToolRegistry) -> None:
         event: Annotated[
             str | None, Field(description="comment, request_changes or approve (review).")
         ] = None,
+        review_comments: Annotated[
+            list[InlineComment] | None,
+            Field(description="Inline comments of the review, each on a changed line (review)."),
+        ] = None,
         comment_id: Annotated[int | None, Field(description="Review comment to reply to.")] = None,
         thread_id: Annotated[str | None, Field(description="Review thread to resolve.")] = None,
         merge_method: Annotated[
@@ -98,6 +114,7 @@ def _register_pulls(registry: ToolRegistry) -> None:
         fields = {
             "title": title, "body": body, "base": base, "reviewers": reviewers, "event": event,
             "comment_id": comment_id, "thread_id": thread_id, "merge_method": merge_method,
+            "review_comments": [c.model_dump() for c in review_comments or []],
         }  # fmt: skip
         return await _guarded(_pull(registry, repository, actions, number, fields, state, page))
 

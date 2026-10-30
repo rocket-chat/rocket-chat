@@ -18,6 +18,7 @@ from typing import Protocol
 
 __all__ = [
     "DEFAULT_BLOCKED_TOOLS",
+    "MEMBER_PUBLISH_TOOLS",
     "FailureTracker",
     "QuotaDecision",
     "WorkspaceQuotaGate",
@@ -29,6 +30,9 @@ __all__ = [
 # blocked on the unauthenticated Slack path by default; an operator can tighten (or, if
 # they accept the risk, relax) the list via ``SLACK_BLOCKED_TOOLS``.
 DEFAULT_BLOCKED_TOOLS: tuple[str, ...] = ("git_revert", "git_open_pr", "git_push")
+# Of the blocked tools, those a linked member may use in a shared thread under their own
+# identity, each call approved by them (never an unlinked user, never the workspace guest).
+MEMBER_PUBLISH_TOOLS: frozenset[str] = frozenset({"git_revert", "git_open_pr", "git_push"})
 
 
 def parse_tool_csv(raw: str | None) -> frozenset[str]:
