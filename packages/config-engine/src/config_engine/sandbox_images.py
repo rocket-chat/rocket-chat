@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 
-SANDBOX_IMAGE_TAG = "0.7.2"
+SANDBOX_IMAGE_TAG = "0.8.0"
 SANDBOX_REGISTRY = "ghcr.io/rocket-chat"
 
 
