@@ -80,7 +80,7 @@ This stack uses throwaway secrets, for trying Rocket Chat on your own machine. S
 > *Give your agents their own ephemeral, customized, powerful environment, with all their tools already in it.*
 
 - **Customized.** Build an image with your languages and CLIs, set encrypted secrets and variables, and have every repository prepared right after it is cloned (`.rocket/setup.sh`, a dev container, or setups you define). The agent starts working instead of installing. → [Build your agents' sandbox](doc/administer/custom-sandboxes.md)
-- **Powerful.** CPU, memory and disk per sandbox type or per agent; node pools and placement profiles; a stronger isolation boundary with a runtime class such as gVisor or Kata; a real shell, live previews of the apps it starts, and a browser to check them.
+- **Powerful.** CPU, memory and disk per sandbox type, which each agent picks; node pools and placement profiles; a stronger isolation boundary with a runtime class such as gVisor or Kata; a real shell, live previews of the apps it starts, and a browser to check them.
 - **Ephemeral.** It starts with the first command that needs it, sleeps when idle, and releases its volume when the work is long over.
 - **Autoscalable.** On Kubernetes a sandbox is a pod with its own volume: capacity follows your cluster, autoscalers never evict a sandbox that is mid-command, and the control plane scales with the Helm chart.
 - **Contained.** It never holds your GitHub credentials, runs as non-root, and reaches only the network you allow.
