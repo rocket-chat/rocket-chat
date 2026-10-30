@@ -11,7 +11,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable
 
 import pytest
-from api.db.models import OrganizationModel, UserModel
+from api.db.models import MembershipModel, OrganizationModel, UserModel
 from api.db.session import DatabaseSessionManager
 from api.main import app
 from httpx import ASGITransport, AsyncClient
@@ -50,6 +50,18 @@ async def client(
                 UserModel(id="u_dev", org_id=org_id, email="dev@test", name="Dev", role="developer")
             )
             await session.flush()
+            # Roles live in memberships (migration 053 backfills them for existing users).
+            session.add(
+                MembershipModel(
+                    id=f"m_a_{org_id}", user_id="u_admin", org_id=org_id, role="admin", created_at=0
+                )
+            )
+            session.add(
+                MembershipModel(
+                    id=f"m_d_{org_id}", user_id="u_dev", org_id=org_id, role="member", created_at=0
+                )
+            )
+            await session.flush()
     except Exception as err:
         require_database(err, TEST_DB_URL)
 
@@ -63,6 +75,7 @@ async def client(
         app.state.db_manager = original
         async with admin_manager.session() as session:
             await session.execute(text("DELETE FROM audit_events WHERE org_id = :o"), {"o": org_id})
+            await session.execute(text("DELETE FROM memberships WHERE org_id = :o"), {"o": org_id})
             await session.execute(text("DELETE FROM users WHERE org_id = :o"), {"o": org_id})
             await session.execute(text("DELETE FROM organizations WHERE id = :o"), {"o": org_id})
         await app_manager.close()
@@ -86,8 +99,9 @@ async def test_changes_a_members_role(client: tuple[AsyncClient, str]) -> None:
     )
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["user"]["role"] == "readonly"
-    assert "reload" in body["note"].lower()
+    # The legacy name is accepted and stored under its current one.
+    assert body["user"]["role"] == "viewer"
+    assert "within 15 seconds" in body["note"].lower()
 
 
 @pytest.mark.parametrize("role", ["superuser", "guest"])

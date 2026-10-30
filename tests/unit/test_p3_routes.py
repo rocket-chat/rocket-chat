@@ -205,9 +205,13 @@ def test_bindings_are_validated_on_save(client: TestClient) -> None:
     ]
 
 
-def test_switching_needs_a_database(client: TestClient) -> None:
-    org = _org()
-    res = client.post("/v1/auth/switch-org", json={"org_id": "other"}, headers=_as("member", org))
-    assert res.status_code in (400, 503)
-    mine = client.get("/v1/me/organizations", headers=_as("member", org)).json()
+def test_switching_to_an_organization_one_does_not_belong_to_is_refused(client: TestClient) -> None:
+    # A person of their own: with a database, memberships persist across tests.
+    org, person = _org(), f"u_{uuid.uuid4().hex[:8]}"
+    res = client.post(
+        "/v1/auth/switch-org", json={"org_id": "other"}, headers=_as("member", org, person)
+    )
+    # Refused: not a member there (403), or no database to switch with (400/503).
+    assert res.status_code in (400, 403, 503)
+    mine = client.get("/v1/me/organizations", headers=_as("member", org, person)).json()
     assert [o["id"] for o in mine["organizations"]] == [org]

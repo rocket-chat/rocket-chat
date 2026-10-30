@@ -195,8 +195,8 @@ class _Org:
 
         async def person(
             session: object, user_id: str, org_id: str, email: str, name: str, idp: object
-        ) -> UserModel:
-            return UserModel(id=user_id, org_id=None, email=email, name=name, role="")
+        ) -> tuple[UserModel, bool]:
+            return UserModel(id=user_id, org_id=None, email=email, name=name, role=""), True
 
         async def membership(session: object, user_id: str, org_id: str) -> _Membership | None:
             return _Membership(self.members[user_id]) if user_id in self.members else None

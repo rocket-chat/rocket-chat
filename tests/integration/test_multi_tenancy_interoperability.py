@@ -201,8 +201,11 @@ async def test_encrypted_byok_credential_at_rest(db_manager):
         await session.execute(
             text(
                 """
-                INSERT INTO byok_credentials (id, org_id, provider, encrypted_api_key, key_fingerprint, created_at)
-                VALUES (:id, :org_id, :provider, :encrypted, :fp, :now)
+                INSERT INTO provider_credentials (id, org_id, label, owner_kind, provider, kind,
+                    encrypted_secret, key_fingerprint, default_for_provider, restricted_to_agents,
+                    shared_with_org_agents, created_at, updated_at)
+                VALUES (:id, :org_id, 'corporate', 'org', :provider, 'api_key', :encrypted, :fp,
+                    true, false, '[]', :now, :now)
                 """
             ),
             {
@@ -218,7 +221,7 @@ async def test_encrypted_byok_credential_at_rest(db_manager):
     # Read back raw column directly via SQL under same tenant
     async with db_manager.session(tenant_org_id=org_id) as session:
         res = await session.execute(
-            text("SELECT encrypted_api_key FROM byok_credentials WHERE id = :id"),
+            text("SELECT encrypted_secret FROM provider_credentials WHERE id = :id"),
             {"id": cred_id},
         )
         stored_ciphertext = res.scalar_one()
@@ -226,7 +229,7 @@ async def test_encrypted_byok_credential_at_rest(db_manager):
     # Querying from a different organization yields zero rows due to RLS
     async with db_manager.session(tenant_org_id="unauthorized_org") as session:
         res_unauthorized = await session.execute(
-            text("SELECT encrypted_api_key FROM byok_credentials WHERE id = :id"),
+            text("SELECT encrypted_secret FROM provider_credentials WHERE id = :id"),
             {"id": cred_id},
         )
         assert res_unauthorized.scalar_one_or_none() is None

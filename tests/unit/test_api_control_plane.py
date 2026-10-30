@@ -18,8 +18,12 @@ from specifications.interfaces.session import SessionRecord
 
 
 @pytest.fixture
-def mock_app_state() -> None:
+def mock_app_state(monkeypatch: pytest.MonkeyPatch) -> None:
     """Prepare mock dependencies on app.state for testing."""
+    # An earlier test's lifespan may have left a closed database manager on the shared app;
+    # these tests run on the in-memory store only.
+    monkeypatch.setattr(app.state, "db_manager", None, raising=False)
+    monkeypatch.setattr(app.state, "wait_store", None, raising=False)
     driver = MagicMock(spec=SandboxDriverProtocol)
     driver.ensure_workspace = AsyncMock()
     driver.start_sandbox = AsyncMock()

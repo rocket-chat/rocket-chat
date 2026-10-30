@@ -192,8 +192,9 @@ async def _ensure_db_user_and_org(
 
 async def _person(
     session: Any, user_id: str, org_id: str, email: str, name: str, idp: IdpIdentity | None
-) -> UserModel:
-    """The person signing in, found by identity-provider key, else by id, else created."""
+) -> tuple[UserModel, bool]:
+    """The person signing in, found by identity-provider key, else by id, else created; and
+    whether they were created now."""
     if idp is not None:
         found: UserModel | None = (
             await session.execute(
@@ -203,8 +204,9 @@ async def _person(
             )
         ).scalar_one_or_none()
         if found is not None:
-            return found
+            return found, False
     user: UserModel | None = await session.get(UserModel, user_id)
+    created = user is None
     if user is None:
         # A new person's home organization is the first one they sign in to.
         user = UserModel(id=user_id, org_id=org_id, email=email, name=name, role=MEMBER)
@@ -212,7 +214,7 @@ async def _person(
     if idp is not None and user.idp_subject is None:
         user.idp_issuer, user.idp_subject = idp.issuer, idp.subject
     await session.flush()
-    return user
+    return user, created
 
 
 async def _provision_member(
@@ -236,10 +238,11 @@ async def _provision_member(
             session.add(org)
             await session.flush()
 
-        user = await _person(session, user_id, org_id, email, name, idp)
+        user, created = await _person(session, user_id, org_id, email, name, idp)
         membership = await membership_row(session, user.id, org_id)
-        if membership is None and user.org_id == org_id and user.role:
-            # A member from before memberships: their home organization's stored role.
+        if membership is None and not created and user.org_id == org_id and user.role:
+            # A member from before memberships: their home organization's stored role. (A person
+            # created now carries the default role, which must not stand in for the bootstrap.)
             membership = await ensure_membership(session, user.id, org_id, user.role)
         if membership is not None:
             if matches_admin_email and membership.role not in (ADMIN, OWNER):

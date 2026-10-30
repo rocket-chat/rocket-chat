@@ -46,8 +46,10 @@ async def test_an_administrator_elsewhere_signs_in_here_as_a_member(
     monkeypatch.delenv("ADMIN_EMAILS", raising=False)
     memberships = {("usr_ada", "other_org"): "admin", ("usr_owner", "default_org"): "owner"}
 
-    async def person(session: Any, user_id: str, *_: Any) -> UserModel:
-        return UserModel(id=user_id, org_id="other_org", email="a@x", name="Ada", role="admin")
+    async def person(session: Any, user_id: str, *_: Any) -> tuple[UserModel, bool]:
+        return UserModel(
+            id=user_id, org_id="other_org", email="a@x", name="Ada", role="admin"
+        ), False
 
     async def membership(session: Any, user_id: str, org_id: str) -> Any:
         role = memberships.get((user_id, org_id))

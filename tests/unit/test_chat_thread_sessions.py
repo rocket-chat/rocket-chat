@@ -4,6 +4,7 @@ those who take part, sharing that survives the database, authors by name, readab
 from __future__ import annotations
 
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from api.auth.access import _check_session_access
@@ -69,11 +70,9 @@ def test_a_linked_member_who_writes_in_a_public_thread_becomes_a_collaborator() 
 
 def test_a_thread_session_is_in_the_list_of_participants_only(client: TestClient) -> None:
     store = client.app.state.session_store  # type: ignore[attr-defined]
-    import asyncio
-
     record = _record(link_access=True)
-    record.session_id = "slack_C9_9_9"
-    asyncio.run(store.create_session(record))
+    record.session_id = f"slack_C9_{uuid4().hex[:8]}"
+    client.portal.call(store.create_session, record)
     listed = {s["session_id"] for s in client.get("/v1/sessions", headers=MEMBER).json()}
     assert record.session_id not in listed
     assert client.get(f"/v1/sessions/{record.session_id}", headers=MEMBER).status_code == 200
@@ -82,21 +81,20 @@ def test_a_thread_session_is_in_the_list_of_participants_only(client: TestClient
         r.collaborators = ["grace"]
         r.metadata = {**r.metadata, "collaborators": ["grace"]}
 
-    asyncio.run(store.mutate_session(record.session_id, "thread_org", join))
+    client.portal.call(store.mutate_session, record.session_id, "thread_org", join)
     listed = {s["session_id"] for s in client.get("/v1/sessions", headers=MEMBER).json()}
     assert record.session_id in listed
 
 
 def test_participants_name_members_and_mark_guests(client: TestClient) -> None:
-    import asyncio
-
     record = _record(link_access=True)
-    record.session_id = "slack_C8_8_8"
+    record.session_id = f"slack_C8_{uuid4().hex[:8]}"
     record.conversation_history = [
         ChatMessage(role="user", content="[Speaker: Ada] hi", author_user_id="slack:T1:U1"),
         ChatMessage(role="user", content="hello", author_user_id="grace"),
     ]
-    asyncio.run(client.app.state.session_store.create_session(record))  # type: ignore[attr-defined]
+    store = client.app.state.session_store  # type: ignore[attr-defined]
+    client.portal.call(store.create_session, record)
     body = client.get(f"/v1/sessions/{record.session_id}/participants", headers=MEMBER).json()
     by_id = {p["user_id"]: p for p in body["participants"]}
     assert by_id["slack:T1:U1"]["guest_of"] == "slack" and by_id["grace"]["guest_of"] is None

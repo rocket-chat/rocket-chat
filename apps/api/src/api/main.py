@@ -276,7 +276,8 @@ async def _provision_identity_if_enabled(request: Request, org_id: str, user_id:
     db_manager = getattr(request.app.state, "db_manager", None)
     if db_manager is None:
         return
-    async with db_manager.session() as session:
+    # Bound to the organization: memberships' row-level policy checks it on insert.
+    async with db_manager.session(tenant_org_id=org_id) as session:
         await ensure_tenant_identity(session, org_id, user_id)
     _provisioned_tenant_pairs.add(pair)
 

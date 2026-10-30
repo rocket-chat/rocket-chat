@@ -49,6 +49,15 @@ def canonical_role(role: str) -> str:
     return _LEGACY_ROLES.get(name, VIEWER)
 
 
+def assignable_role(role: str) -> str | None:
+    """A role a request may assign, under its current name (``developer`` and ``readonly`` are
+    still accepted as ``member`` and ``viewer``); None for anything else."""
+    name = (role or "").strip().lower()
+    if name in _EXPANSION:
+        return name
+    return _LEGACY_ROLES.get(name) if name in ("developer", "readonly") else None
+
+
 def roles_for(role: str) -> list[str]:
     """The roles a stored member role grants (``owner`` also acts as ``admin`` and ``member``)."""
     return list(_EXPANSION[canonical_role(role)])

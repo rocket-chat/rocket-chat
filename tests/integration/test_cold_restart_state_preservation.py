@@ -191,7 +191,7 @@ def test_cold_restart_preserves_sessions_and_settings(monkeypatch: pytest.Monkey
         user_data = user_res.json()
         assert user_data["effective"]["git_branch_prefix"] == "release-v1/"
         assert user_data["effective"]["preferred_model"] == "openrouter/acme/locked"
-        assert user_data["field_status"]["preferred_model"] == "locked"
+        assert user_data["provenance"]["preferred_model"]["locked_by"] == "org"
 
     # ==========================================
     # COLD SHUTDOWN OCCURRED HERE
@@ -228,9 +228,9 @@ def test_cold_restart_preserves_sessions_and_settings(monkeypatch: pytest.Monkey
         assert settings_res.status_code == 200
         restored_settings = settings_res.json()
         assert restored_settings["effective"]["preferred_model"] == "openrouter/acme/locked"
-        assert restored_settings["field_status"]["preferred_model"] == "locked"
+        assert restored_settings["provenance"]["preferred_model"]["locked_by"] == "org"
         assert restored_settings["effective"]["git_branch_prefix"] == "release-v1/"
-        assert restored_settings["field_status"]["git_branch_prefix"] == "overridden"
+        assert restored_settings["provenance"]["git_branch_prefix"]["source"] == "member"
 
         # 3. Verify subsequent update works seamlessly post-restart
         post_restart_msg = "Subsequent instruction transmitted after cold server restart."
