@@ -29,6 +29,10 @@ class ChannelProfile:
     sandbox_image: str = ""
     # "thread" or "private"; empty keeps the bot's (or its route's) mode.
     response_mode: str = ""
+    # The repository ("owner/name") and branch a session in this channel works on. Stored only:
+    # nothing clones them yet, so a session still starts blank.
+    repository: str = ""
+    branch: str = ""
 
     @classmethod
     def from_mapping(cls, raw: Any) -> ChannelProfile | None:
@@ -40,6 +44,8 @@ class ChannelProfile:
             allowed_tools=tuple(_as_list(raw.get("allowed_tools"))),
             sandbox_image=str(raw.get("sandbox_image") or ""),
             response_mode=str(raw.get("response_mode") or ""),
+            repository=str(raw.get("repository") or "").strip()[:200],
+            branch=str(raw.get("branch") or "").strip()[:200],
         )
 
 
@@ -60,6 +66,8 @@ class SlackOrgPolicy:
     auto_link_by_verified_email: bool = False
     # Empty means "no organization restriction" (the deployment's env allowlist applies).
     allowed_tools: tuple[str, ...] = ()
+    # The agent of the bot (or of its routing decision) a thread runs; set by the bot, not
+    # by an organization setting.
     default_agent_persona: str = ""
     # Where "Open in Rocket Chat" links point (empty: no link).
     web_base_url: str = ""
@@ -87,7 +95,6 @@ class SlackOrgPolicy:
             allowed_channel_types=types,
             auto_link_by_verified_email=bool(source.get("auto_link_by_verified_email", False)),
             allowed_tools=tuple(_as_list(source.get("allowed_tools"))),
-            default_agent_persona=str(source.get("default_agent_persona") or ""),
             web_base_url=str(source.get("web_base_url") or "").rstrip("/"),
             live_progress=bool(source.get("live_progress", True)),
             long_output_to_file=bool(source.get("long_output_to_file", True)),

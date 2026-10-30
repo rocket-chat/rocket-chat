@@ -18,13 +18,14 @@ test("an agent's sandbox type is saved and offered as the composer's default", a
 
   try {
     await page.goto("/settings/agents");
-    await page.getByRole("button", { name: /New agent/i }).first().click();
-    await page.locator("input").first().fill(agentName);
+    await page.getByTestId("agent-new").click();
+    await page.getByTestId("agent-name").fill(agentName);
+    await page.getByTestId("agent-section-sandbox").click();
     const sandbox = page.getByTestId("agent-sandbox");
     await expect(sandbox.locator("option").first()).toHaveText("Organization default");
     await sandbox.selectOption({ label: boxName });
-    await page.getByRole("button", { name: /save persona/i }).click();
-    await expect(page.getByText("SAVED!")).toBeVisible();
+    await page.getByTestId("agent-save").click();
+    await expect(page.getByTestId("agent-save")).toHaveText(/Saved/);
 
     const agents = await (await page.request.get("/v1/agents")).json();
     const saved = agents.find((a: { name: string }) => a.name === agentName);

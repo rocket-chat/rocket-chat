@@ -25,7 +25,7 @@ test.describe("Agent Cockpit E2E Verification", () => {
     await expect(page.getByText("Agent or model")).toBeVisible();
 
     // Verify specialized agent option is visible
-    const auditorOption = page.locator("button").filter({ hasText: /Security & Penetration Auditor/i }).last();
+    const auditorOption = page.locator("button").filter({ hasText: /Security Auditor/i }).last();
     await expect(auditorOption).toBeVisible();
 
     // Use live search filter to isolate model among hundreds of live provider models
@@ -43,8 +43,8 @@ test.describe("Agent Cockpit E2E Verification", () => {
     // Re-open and select specialized agent persona
     await modeSelector.click();
     await expect(page.getByText("Agent or model")).toBeVisible();
-    await page.locator("button").filter({ hasText: /Security & Penetration Auditor/i }).last().click();
-    await expect(modeSelector).toContainText("Security & Penetration Auditor");
+    await page.locator("button").filter({ hasText: /Security Auditor/i }).last().click();
+    await expect(modeSelector).toContainText("Security Auditor");
   });
 
   test("toggles collapsible right panel (collapsed by default)", async ({ page }) => {
@@ -72,9 +72,9 @@ test.describe("Agent Cockpit E2E Verification", () => {
     await expect(page).toHaveURL(/\/settings/);
 
     // Navigate to Agents tab
-    await page.getByRole("link", { name: "Agents", exact: true }).click();
+    await page.getByRole("navigation", { name: "Organization" }).getByRole("link", { name: /^Agents/ }).click();
     await expect(page).toHaveURL(/\/settings\/agents/);
-    await expect(page.getByText("Custom agent personas")).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
     await expect(page.getByText("General Software Engineer").first()).toBeVisible();
 
     // Navigate to MCP tab
@@ -99,7 +99,7 @@ test.describe("Agent Cockpit E2E Verification", () => {
     await expect(page.getByText("hey", { exact: true }).first()).toBeVisible();
 
     // Ensure system is alive and processing
-    await expect(page.getByText(/Executing|Synthesizing|Ready/i).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/Executing|Working|Sending|Ready/i).first()).toBeVisible({ timeout: 5000 });
   });
 
   test("renders login cockpit with enterprise portal and identity form", async ({ page }) => {

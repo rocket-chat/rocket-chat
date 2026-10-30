@@ -1,119 +1,115 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useId, useState } from "react";
+import { HelpCircle, Send } from "lucide-react";
 import { DecisionQuestion } from "../types/mission";
-import { HelpCircle, CheckCircle2, Send } from "lucide-react";
 
 interface DecisionCardProps {
   decision: DecisionQuestion;
   onSubmit: (selectedOptions: string[], customText?: string) => void;
 }
 
+/** A question the agent asks: one choice (radios) or several (checkboxes), and a free answer.
+ * Number keys pick an option only while focus is inside the card, never from the composer. */
 export const DecisionCard: React.FC<DecisionCardProps> = ({ decision, onSubmit }) => {
-  const [selected, setSelected] = useState<string>(
-    decision.default_recommended_option || decision.options[0] || ""
+  const multi = decision.is_multi_select;
+  const recommended = decision.default_recommended_option || "";
+  const [selected, setSelected] = useState<string[]>(
+    recommended ? [recommended] : multi || decision.options.length === 0 ? [] : [decision.options[0]]
   );
-  const [customText, setCustomText] = useState<string>("");
+  const [other, setOther] = useState("");
+  const groupName = useId();
+  const otherId = useId();
 
-  // Keyboard shortcut listener: 1, 2, 3 to toggle options
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if user is typing in custom input
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return;
-      }
-      const num = parseInt(e.key, 10);
-      if (num >= 1 && num <= decision.options.length) {
-        setSelected(decision.options[num - 1]);
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [decision.options]);
+  const toggle = (option: string) =>
+    setSelected((current) =>
+      multi ? (current.includes(option) ? current.filter((o) => o !== option) : [...current, option]) : [option]
+    );
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selected && !customText.trim()) return;
-    onSubmit(selected ? [selected] : [], customText.trim() || undefined);
+  const onKeyDown = (event: React.KeyboardEvent<HTMLFormElement>) => {
+    if (event.target instanceof HTMLInputElement && event.target.type === "text") return;
+    const index = Number.parseInt(event.key, 10);
+    if (index >= 1 && index <= decision.options.length) {
+      event.preventDefault();
+      toggle(decision.options[index - 1]);
+    }
+  };
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (selected.length === 0 && !other.trim()) return;
+    onSubmit(selected, other.trim() || undefined);
   };
 
   return (
-    <div data-testid="decision-card" className="my-4 rounded-lg border border-cyan/40 bg-elevated/95 p-4 shadow-xl shadow-cyan/5 font-mono text-sm relative overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-200">
-      {/* Top indicator bar */}
-      <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-cyan via-flame to-cyan" />
-
-      <div className="flex items-center gap-2 mb-3 text-cyan">
-        <HelpCircle className="w-4 h-4" />
-        <span className="font-bold text-xs uppercase tracking-wider">
-          Decision Gate Required
+    <div
+      data-testid="decision-card"
+      role="group"
+      aria-label="The agent asks a question"
+      className="rounded-xl border border-cyan/50 bg-surface-card p-4 text-sm shadow-sm"
+    >
+      <div className="mb-2 flex items-center gap-2 text-cyan-800 dark:text-cyan">
+        <HelpCircle className="h-4 w-4" aria-hidden="true" />
+        <span className="text-xs font-semibold">
+          {decision.subagent_role
+            ? `The ${decision.subagent_role.replace(/_/g, " ")} subagent asks`
+            : "The agent asks"}
         </span>
       </div>
-
-      <p className="text-foreground font-sans font-medium text-base mb-4">
-        {decision.question_text}
-      </p>
-
-      <form onSubmit={handleSubmit} className="space-y-3">
-        <div className="space-y-2">
+      <form onSubmit={handleSubmit} onKeyDown={onKeyDown} className="space-y-3">
+        <fieldset className="space-y-2">
+          <legend className="mb-2 text-base font-medium text-foreground">{decision.question_text}</legend>
           {decision.options.map((option, idx) => {
-            const isSelected = selected === option;
-            const isRecommended = option === decision.default_recommended_option;
-
+            const checked = selected.includes(option);
             return (
               <label
                 key={option}
-                onClick={() => setSelected(option)}
-                className={`flex items-center justify-between p-3 rounded-md border cursor-pointer transition-all ${
-                  isSelected
-                    ? "border-cyan bg-cyan/10 text-cyan shadow-sm shadow-cyan/20"
-                    : "border-border bg-surface/60 hover:bg-surface text-muted-foreground hover:text-foreground"
+                className={`flex cursor-pointer items-center gap-3 rounded-md border p-3 transition-colors ${
+                  checked ? "border-cyan bg-cyan/10" : "border-border hover:bg-surface-elevated"
                 }`}
               >
-                <div className="flex items-center gap-3">
-                  <span className="w-5 h-5 rounded border border-border flex items-center justify-center text-xs text-muted-foreground font-mono">
-                    {idx + 1}
+                <input
+                  type={multi ? "checkbox" : "radio"}
+                  name={groupName}
+                  value={option}
+                  checked={checked}
+                  onChange={() => toggle(option)}
+                  data-testid={`decision-option-${idx + 1}`}
+                />
+                <span className="font-mono text-xs text-neutral-600 dark:text-neutral-400" aria-hidden="true">
+                  {idx + 1}
+                </span>
+                <span className="text-foreground">{option}</span>
+                {option === recommended && (
+                  <span className="rounded border border-cyan/40 px-1.5 py-0.5 text-[10px] text-cyan-800 dark:text-cyan">
+                    Recommended
                   </span>
-                  <span className="font-sans text-sm font-medium">
-                    {option}
-                  </span>
-                  {isRecommended && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-cyan/20 text-cyan border border-cyan/30 font-mono">
-                      RECOMMENDED
-                    </span>
-                  )}
-                </div>
-
-                <div
-                  className={`w-4 h-4 rounded-full border flex items-center justify-center ${
-                    isSelected ? "border-cyan bg-cyan text-void" : "border-border"
-                  }`}
-                >
-                  {isSelected && <CheckCircle2 className="w-3.5 h-3.5 stroke-[3]" />}
-                </div>
+                )}
               </label>
             );
           })}
-        </div>
-
-        {/* Custom text clarification input */}
-        <div className="pt-2">
+        </fieldset>
+        <div className="space-y-1">
+          <label htmlFor={otherId} className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
+            {decision.options.length > 0 ? "Other (or more details)" : "Your answer"}
+          </label>
           <input
+            id={otherId}
             type="text"
-            placeholder="Or provide custom steering instructions..."
-            value={customText}
-            onChange={(e) => setCustomText(e.target.value)}
-            className="w-full bg-surface border border-border rounded px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-cyan transition-colors"
+            data-testid="decision-other"
+            value={other}
+            onChange={(e) => setOther(e.target.value)}
+            className="w-full rounded border border-border bg-surface-base px-3 py-2 text-sm text-foreground focus:border-cyan focus:outline-none"
           />
         </div>
-
-        {/* Action Button */}
-        <div className="pt-2 flex justify-end">
+        <div className="flex justify-end">
           <button
             type="submit"
-            className="px-4 py-2 rounded bg-flame hover:bg-flame-hover text-white font-display font-semibold text-xs tracking-wider flex items-center gap-2 shadow-md shadow-flame/20 transition-all active:scale-[0.98]"
+            data-testid="decision-submit"
+            className="flex items-center gap-2 rounded bg-flame px-4 py-2 text-xs font-semibold text-white hover:bg-flame-hover"
           >
-            <Send className="w-3.5 h-3.5" />
-            <span>CONFIRM DECISION</span>
+            <Send className="h-3.5 w-3.5" aria-hidden="true" />
+            Answer
           </button>
         </div>
       </form>

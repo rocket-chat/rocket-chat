@@ -31,7 +31,7 @@ test.describe("Blank sessions and GitHub settings", () => {
         }),
       }),
     );
-    await page.goto("/settings/github");
+    await page.goto("/settings/org/git");
     const panel = page.getByTestId("github-installations");
     await expect(panel).toBeVisible();
     await expect(panel.getByTestId("github-installation")).toContainText("acme");
@@ -47,13 +47,13 @@ test.describe("Blank sessions and GitHub settings", () => {
         json: { app_configured: true, install_url: null, installations: [] },
       }),
     );
-    await page.goto("/settings/github?installation=connected");
+    await page.goto("/settings/org/git?installation=connected");
     const panel = page.getByTestId("github-installations");
     await expect(panel.getByTestId("github-installation-notice")).toHaveText(
       "The GitHub App installation is mapped.",
     );
 
-    await page.goto("/settings/github?installation_error=This%20install%20link%20was%20not%20issued%20to%20you.");
+    await page.goto("/settings/org/git?installation_error=This%20install%20link%20was%20not%20issued%20to%20you.");
     await expect(panel).toContainText("The installation was not mapped: This install link was not issued to you.");
     await expect(panel).toContainText("Set GITHUB_APP_SLUG");
   });

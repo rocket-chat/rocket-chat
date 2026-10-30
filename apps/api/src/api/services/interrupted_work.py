@@ -44,7 +44,7 @@ NOTICE_MAX_CHARS = 4000
 NO_RESULT = "No result: the server restarted while this tool was running. Check what it did."
 
 INTERRUPTED_NOTE = (
-    "⚠️ The server restarted while the agent was working. What it had done is shown above; "
+    "The server restarted while the agent was working. What it had done is shown above; "
     "the conversation and the workspace were kept."
 )
 

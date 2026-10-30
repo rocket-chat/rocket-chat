@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useId, useState } from "react";
+import { tabKeyHandler } from "../../../lib/tab-keys";
 import { Eye, Pencil, Sparkles } from "lucide-react";
 import { MarkdownRenderer } from "../../MarkdownRenderer";
 import { Button } from "../../ui/Button";
@@ -32,8 +33,10 @@ export const GuidanceEditor: React.FC<{ value: string; onChange: (value: string)
       id={`${baseId}-${id}`}
       aria-selected={mode === id}
       aria-controls={`${baseId}-panel`}
+      tabIndex={mode === id ? 0 : -1}
       data-testid={`guidance-tab-${id}`}
       onClick={() => setMode(id)}
+      onKeyDown={tabKeyHandler<Mode>(["write", "preview"], mode, setMode, (m) => `${baseId}-${m}`)}
       className={cn(
         "inline-flex cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60",
         mode === id ? "bg-surface-elevated font-medium text-foreground" : "text-neutral-600 hover:text-foreground dark:text-neutral-400",

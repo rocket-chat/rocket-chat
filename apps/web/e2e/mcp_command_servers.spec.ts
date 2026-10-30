@@ -1,5 +1,6 @@
 import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
+import { asMember } from "./support/access";
 
 const API = "http://localhost:8000";
 const ENV_SERVER = path.resolve(__dirname, "../../../tests/support/env_mcp_server.py");
@@ -8,7 +9,14 @@ async function openOrgForm(page: Page): Promise<void> {
   await page.goto("/settings/mcp");
   await page.getByRole("button", { name: /Add org server/i }).click();
   await expect(page.getByTestId("mcp-server-modal")).toBeVisible();
+  await page.getByTestId("mcp-step-connection").click();
   await page.getByLabel("Transport", { exact: true }).selectOption("stdio");
+}
+
+/** The wizard's later steps: variables and the install script, then the connection test. */
+async function goToStep(page: Page, step: "auth" | "tools"): Promise<void> {
+  await page.getByTestId(`mcp-step-${step}`).click();
+  await expect(page.getByTestId(`mcp-step-${step}`)).toHaveAttribute("aria-current", "step");
 }
 
 async function fillVariable(page: Page, index: number, name: string, value: string, opts: { secret?: boolean; member?: boolean } = {}) {
@@ -35,6 +43,7 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
     await openOrgForm(page);
     await page.getByPlaceholder("e.g. Stripe Billing MCP").fill(name);
     await page.getByPlaceholder(/server-postgres/).fill(`python3 ${ENV_SERVER}`);
+    await goToStep(page, "auth");
     await fillVariable(page, 1, "BASE_URL", "https://grafana.example");
     await fillVariable(page, 2, "API_KEY", "org-readonly-key", { secret: true, member: true });
     await page.getByRole("button", { name: /Probe & connect server/i }).click();
@@ -63,12 +72,14 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
     await openOrgForm(page);
     await page.getByPlaceholder("e.g. Stripe Billing MCP").fill(name);
     await page.getByPlaceholder(/server-postgres/).fill("fake-env-mcp");
+    await goToStep(page, "auth");
     await page.getByTestId("mcp-install-toggle").click();
     await page
       .getByTestId("mcp-install-command")
       .fill(`printf '#!/bin/sh\\nexec python3 ${ENV_SERVER}\\n' > fake-env-mcp\nchmod +x fake-env-mcp`);
 
-    await page.getByRole("button", { name: /TEST & VALIDATE CONNECTION/i }).click();
+    await goToStep(page, "tools");
+    await page.getByTestId("mcp-test-connection").click();
     await expect(page.getByText("Connection Verified")).toBeVisible({ timeout: 30000 });
     await page.getByRole("button", { name: /Probe & connect server/i }).click();
     await expect(page.locator("div.rounded-lg", { hasText: name }).first()).toBeVisible({ timeout: 30000 });
@@ -79,7 +90,8 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
     await openOrgForm(page);
     await page.getByPlaceholder("e.g. Stripe Billing MCP").fill("Broken command");
     await page.getByPlaceholder(/server-postgres/).fill("echo 'package not found' >&2; exit 3");
-    await page.getByRole("button", { name: /TEST & VALIDATE CONNECTION/i }).click();
+    await goToStep(page, "tools");
+    await page.getByTestId("mcp-test-connection").click();
     await expect(page.getByText("Validation Failed")).toBeVisible({ timeout: 30000 });
     await expect(page.getByText(/package not found/)).toBeVisible();
   });
@@ -95,21 +107,17 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
     await page.goto("/settings/mcp");
     await page.getByRole("button", { name: /Add org server/i }).click();
 
-    await expect(page.locator("option[value=stdio]")).toBeDisabled();
     await page.getByTestId("mcp-preset").focus();
     await expect(page.locator("optgroup[label*='Commands'] option").first()).toBeDisabled();
+    await page.getByTestId("mcp-next").click();
+    await expect(page.locator("option[value=stdio]")).toBeDisabled();
   });
 
   test("a member is told to ask an administrator for command servers", async ({ page }) => {
-    await page.route("**/api/auth/me", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({ id: "m", user_id: "member_user", email: "m@example.com", name: "Member", org_id: "default_org", roles: ["developer"] }),
-      }),
-    );
+    await asMember(page, ["register_mcp"]);
     await page.goto("/settings/mcp");
     await page.getByRole("button", { name: /Add server/i }).click();
+    await page.getByTestId("mcp-next").click();
 
     await expect(page.locator("option[value=stdio]")).toBeDisabled();
     await expect(page.getByText(/added by an administrator - ask yours/)).toBeVisible();
@@ -140,6 +148,9 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
       await page.getByRole("button", { name: `Edit ${name}` }).click();
       const dialog = page.getByTestId("mcp-server-modal");
       await expect(dialog.getByRole("heading", { name: `Edit ${name}` })).toBeVisible();
+      // Editing skips the presets: the wizard opens on the connection.
+      await expect(page.getByTestId("mcp-step-preset")).toHaveCount(0);
+      await goToStep(page, "auth");
       await expect(page.getByLabel("Variable 2 value")).toHaveAttribute("placeholder", /Unchanged/);
       await expect(page.getByLabel("Variable 3 value")).toHaveAttribute("placeholder", /Unchanged/);
 

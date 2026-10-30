@@ -8,7 +8,7 @@ import pytest
 from api.main import app
 from api.services import credentials
 from api.services.git_signing import gpg_available
-from api.services.settings import save_user_config
+from api.services.settings import save_org_config
 from httpx import ASGITransport, AsyncClient
 
 from tests.support.gpg_keys import make_key
@@ -16,11 +16,11 @@ from tests.support.gpg_keys import make_key
 pytestmark = pytest.mark.skipif(not gpg_available(), reason="needs GnuPG")
 
 ORG = "signing_api_org"
-ALICE = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "alice", "X-User-Role": "developer"}
-BOB = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "bob", "X-User-Role": "developer"}
+ALICE = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "alice", "X-User-Role": "member"}
+BOB = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "bob", "X-User-Role": "member"}
 # Long and distinctive: a short one turns up by chance in the armored public key.
 SECRET_PASSPHRASE = "correct-horse-battery-staple"
-VIEWER = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "viewer", "X-User-Role": "readonly"}
+VIEWER = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "viewer", "X-User-Role": "viewer"}
 
 
 @pytest.fixture(autouse=True)
@@ -52,10 +52,10 @@ async def test_an_imported_key_is_shown_without_its_private_half(
     assert body["has_passphrase"] is True and len(body["fingerprint"]) == 40
     assert "BEGIN PGP PUBLIC KEY BLOCK" in body["public_key"]
     assert "PRIVATE" not in saved.text and SECRET_PASSPHRASE not in saved.text
-    assert body["available"] is True and body["commit_as_me"] is False
+    assert body["available"] is True and body["mode"] == "github"
 
-    await save_user_config(None, ORG, "alice", "user_preferences", {"commit_as_me": True})
-    assert (await api.get("/v1/user/git-signing", headers=ALICE)).json()["commit_as_me"] is True
+    await save_org_config(None, ORG, "github", {"signing": "member_gpg"}, [])
+    assert (await api.get("/v1/user/git-signing", headers=ALICE)).json()["mode"] == "member_gpg"
 
 
 async def test_a_bad_key_or_passphrase_is_explained(

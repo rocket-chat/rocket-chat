@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "lucide-react";
 
@@ -74,105 +74,108 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ children, className, inline }) =>
   );
 };
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className }) => {
+/** Built once: a new object on every render would make react-markdown rebuild every element. */
+const MARKDOWN_COMPONENTS: Components = {
+  code({ className, children, ...props }) {
+    const isInline = !className && typeof children === "string" && !children.includes("\n");
+    return (
+      <CodeBlock className={className} inline={isInline} {...props}>
+        {children}
+      </CodeBlock>
+    );
+  },
+  p({ children }) {
+    return <p className="mb-3.5 last:mb-0 leading-[1.68] text-foreground/90 font-normal">{children}</p>;
+  },
+  h1({ children }) {
+    return (
+      <h1 className="text-base font-semibold tracking-tight text-foreground mt-5 mb-2.5 pb-1.5 border-b border-surface-border font-sans">
+        {children}
+      </h1>
+    );
+  },
+  h2({ children }) {
+    return (
+      <h2 className="text-[15px] font-semibold tracking-tight text-foreground mt-4 mb-2 font-sans">
+        {children}
+      </h2>
+    );
+  },
+  h3({ children }) {
+    return (
+      <h3 className="text-sm font-semibold text-foreground/90 mt-3 mb-1.5 font-sans">
+        {children}
+      </h3>
+    );
+  },
+  ul({ children }) {
+    return (
+      <ul className="list-disc pl-5 mb-3.5 space-y-1.5 text-foreground/90 marker:text-neutral-400 dark:marker:text-neutral-500">
+        {children}
+      </ul>
+    );
+  },
+  ol({ children }) {
+    return (
+      <ol className="list-decimal pl-5 mb-3.5 space-y-1.5 text-foreground/90 marker:text-neutral-400 dark:marker:text-neutral-500">
+        {children}
+      </ol>
+    );
+  },
+  li({ children }) {
+    return <li className="leading-[1.68] pl-0.5">{children}</li>;
+  },
+  blockquote({ children }) {
+    return (
+      <blockquote className="border-l-2 border-neutral-300 dark:border-neutral-700 bg-neutral-100/60 dark:bg-neutral-800/30 pl-3.5 py-1.5 my-3 text-neutral-700 dark:text-neutral-300 italic rounded-r text-[13.5px] leading-relaxed">
+        {children}
+      </blockquote>
+    );
+  },
+  table({ children }) {
+    return (
+      <div className="my-3.5 max-w-full overflow-x-auto rounded-lg border border-surface-border shadow-sm">
+        <table className="w-full text-xs font-mono text-left border-collapse">
+          {children}
+        </table>
+      </div>
+    );
+  },
+  thead({ children }) {
+    return <thead className="bg-surface-elevated/70 text-neutral-500 dark:text-neutral-400 border-b border-surface-border">{children}</thead>;
+  },
+  th({ children }) {
+    return <th className="px-3.5 py-2 font-medium uppercase tracking-wider text-[10.5px]">{children}</th>;
+  },
+  td({ children }) {
+    return <td className="px-3.5 py-2 border-t border-surface-border text-foreground/90 text-xs font-mono">{children}</td>;
+  },
+  a({ href, children }) {
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="break-all text-brand underline underline-offset-3 hover:text-brand-hover transition-colors font-medium"
+      >
+        {children}
+      </a>
+    );
+  },
+  hr() {
+    return <hr className="border-surface-border my-4" />;
+  },
+};
+
+const REMARK_PLUGINS = [remarkGfm];
+
+/** Memoised: a long conversation re-renders while a turn streams, and only the streaming text changes. */
+export const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
   return (
     <div className={`prose-avionics min-w-0 max-w-full font-sans text-sm leading-relaxed [overflow-wrap:anywhere] ${className || ""}`}>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          code({ className, children, ...props }) {
-            const isInline = !className && typeof children === "string" && !children.includes("\n");
-            return (
-              <CodeBlock className={className} inline={isInline} {...props}>
-                {children}
-              </CodeBlock>
-            );
-          },
-          p({ children }) {
-            return <p className="mb-3.5 last:mb-0 leading-[1.68] text-foreground/90 font-normal">{children}</p>;
-          },
-          h1({ children }) {
-            return (
-              <h1 className="text-base font-semibold tracking-tight text-foreground mt-5 mb-2.5 pb-1.5 border-b border-surface-border font-sans">
-                {children}
-              </h1>
-            );
-          },
-          h2({ children }) {
-            return (
-              <h2 className="text-[15px] font-semibold tracking-tight text-foreground mt-4 mb-2 font-sans">
-                {children}
-              </h2>
-            );
-          },
-          h3({ children }) {
-            return (
-              <h3 className="text-sm font-semibold text-foreground/90 mt-3 mb-1.5 font-sans">
-                {children}
-              </h3>
-            );
-          },
-          ul({ children }) {
-            return (
-              <ul className="list-disc pl-5 mb-3.5 space-y-1.5 text-foreground/90 marker:text-neutral-400 dark:marker:text-neutral-500">
-                {children}
-              </ul>
-            );
-          },
-          ol({ children }) {
-            return (
-              <ol className="list-decimal pl-5 mb-3.5 space-y-1.5 text-foreground/90 marker:text-neutral-400 dark:marker:text-neutral-500">
-                {children}
-              </ol>
-            );
-          },
-          li({ children }) {
-            return <li className="leading-[1.68] pl-0.5">{children}</li>;
-          },
-          blockquote({ children }) {
-            return (
-              <blockquote className="border-l-2 border-neutral-300 dark:border-neutral-700 bg-neutral-100/60 dark:bg-neutral-800/30 pl-3.5 py-1.5 my-3 text-neutral-700 dark:text-neutral-300 italic rounded-r text-[13.5px] leading-relaxed">
-                {children}
-              </blockquote>
-            );
-          },
-          table({ children }) {
-            return (
-              <div className="my-3.5 max-w-full overflow-x-auto rounded-lg border border-surface-border shadow-sm">
-                <table className="w-full text-xs font-mono text-left border-collapse">
-                  {children}
-                </table>
-              </div>
-            );
-          },
-          thead({ children }) {
-            return <thead className="bg-surface-elevated/70 text-neutral-500 dark:text-neutral-400 border-b border-surface-border">{children}</thead>;
-          },
-          th({ children }) {
-            return <th className="px-3.5 py-2 font-medium uppercase tracking-wider text-[10.5px]">{children}</th>;
-          },
-          td({ children }) {
-            return <td className="px-3.5 py-2 border-t border-surface-border text-foreground/90 text-xs font-mono">{children}</td>;
-          },
-          a({ href, children }) {
-            return (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="break-all text-brand underline underline-offset-3 hover:text-brand-hover transition-colors font-medium"
-              >
-                {children}
-              </a>
-            );
-          },
-          hr() {
-            return <hr className="border-surface-border my-4" />;
-          },
-        }}
-      >
+      <ReactMarkdown remarkPlugins={REMARK_PLUGINS} components={MARKDOWN_COMPONENTS}>
         {content}
       </ReactMarkdown>
     </div>
   );
-};
+});

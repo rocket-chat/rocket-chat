@@ -25,7 +25,9 @@ from specifications.interfaces.agent import GithubAccess, TurnCallbacks, TurnPol
 READ, WRITE = "ghs_read_token", "ghs_write_token"
 
 
-async def _approve(action_type: str, description: str, risk_level: str) -> str:
+async def _approve(
+    action_type: str, description: str, risk_level: str, details: object = None
+) -> str:
     return "Approved by the user: proceed."
 
 

@@ -31,8 +31,6 @@ pytestmark = pytest.mark.skipif(not ADMIN_URL, reason="ADMIN_DATABASE_URL not co
 TABLES_WITHOUT_RLS = {
     "organizations",
     "users",
-    "teams",
-    "policies",
     "slack_workspaces",
     "github_installations",
 }

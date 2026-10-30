@@ -6,13 +6,19 @@ import time
 from typing import Any
 
 import httpx
+from config_engine.model_defaults import (
+    PROVIDER_PREFERENCE,
+    PROVIDER_TIERS,
+    deployment_default_model,
+)
 from fastapi import (
     APIRouter,
     Request,
 )
+from llm_gateway.model_facts import facts_for
 
 from api.auth.access import _get_request_identity
-from api.routers.model_keys import _model_key_store
+from api.routers.credentials import credential_store
 from api.services.model_catalogue import build_catalogue
 from api.services.provider_catalogue import parse_openrouter, provider_catalogue
 
@@ -25,50 +31,47 @@ _models_cache: dict[str, Any] = {"timestamp": 0.0, "models": []}
 _MODELS_CACHE_TTL = 3600.0  # 1 hour in-memory cache
 
 
-FALLBACK_MODELS = [
-    {
-        "id": "openrouter/deepseek/deepseek-v4.1-flash",
-        "name": "DeepSeek V4.1 Flash",
-        "provider": "DeepSeek",
-        "context_window": 1048576,
-        "recommended": True,
-    },
-    {
-        "id": "openrouter/anthropic/claude-3.7-sonnet",
-        "name": "Claude 3.7 Sonnet (Hybrid)",
-        "provider": "Anthropic",
-        "context_window": 200000,
-        "recommended": False,
-    },
-    {
-        "id": "openrouter/anthropic/claude-3.5-sonnet",
-        "name": "Claude 3.5 Sonnet",
-        "provider": "Anthropic",
-        "context_window": 200000,
-        "recommended": False,
-    },
-    {
-        "id": "openrouter/openai/gpt-4o",
-        "name": "GPT-4o Omnimodal",
-        "provider": "OpenAI",
-        "context_window": 128000,
-        "recommended": False,
-    },
-    {
-        "id": "openrouter/openai/gpt-4o-mini",
-        "name": "GPT-4o Mini (Fast)",
-        "provider": "OpenAI",
-        "context_window": 128000,
-        "recommended": False,
-    },
-]
+_TIER_LABELS = {
+    "default": "",
+    "fast": " (fast)",
+    "economy": " (economy)",
+    "frontier": " (frontier)",
+}
+
+
+def _fallback_models(default_model: str) -> list[dict[str, Any]]:
+    """The models the platform picks by default for each provider, for when no live listing
+    answered: current models only, sized from ``model_facts``."""
+    entries: dict[str, dict[str, Any]] = {}
+    for provider in PROVIDER_PREFERENCE:
+        tiers = PROVIDER_TIERS[provider]
+        for tier in ("default", "frontier", "fast", "economy"):
+            model = tiers.tier(tier)
+            if model in entries:
+                continue
+            facts = facts_for(model)
+            entries[model] = {
+                "id": model,
+                "name": f"{model.rsplit('/', 1)[-1]}{_TIER_LABELS[tier]}",
+                "provider": provider.title() if provider != "openai" else "OpenAI",
+                "context_window": facts.context_window if facts else 128_000,
+                "recommended": model == default_model,
+            }
+    return list(entries.values())
+
+
+def _popularity(default_model: str) -> dict[str, int]:
+    """The order OpenRouter's listing is shown in: the platform's tier models first."""
+    tiers = PROVIDER_TIERS["openrouter"]
+    ranked = [default_model, *tiers.models()]
+    return {model: rank for rank, model in enumerate(dict.fromkeys(ranked))}
 
 
 @router.get("/models")
 async def list_available_models(request: Request) -> dict[str, Any]:
     """Return available LLM models and sandbox execution driver status."""
 
-    default_model = os.getenv("ROCKET_DEFAULT_MODEL", "openrouter/deepseek/deepseek-v4.1-flash")
+    default_model = deployment_default_model()
     driver_type = getattr(request.app.state, "sandbox_driver", None)
     driver_name = "k8s" if driver_type and hasattr(driver_type, "namespace") else "docker"
 
@@ -110,14 +113,7 @@ async def list_available_models(request: Request) -> dict[str, Any]:
                             }
                         )
                     if parsed:
-                        popular_rank = {
-                            "openrouter/deepseek/deepseek-v4.1-flash": 0,
-                            "openrouter/anthropic/claude-3.7-sonnet": 1,
-                            "openrouter/anthropic/claude-3.5-sonnet": 2,
-                            "openrouter/openai/gpt-4o": 3,
-                            "openrouter/openai/gpt-4o-mini": 4,
-                            "openrouter/deepseek/deepseek-chat": 5,
-                        }
+                        popular_rank = _popularity(default_model)
                         parsed.sort(
                             key=lambda m: (
                                 popular_rank.get(m["id"], 999),
@@ -132,13 +128,13 @@ async def list_available_models(request: Request) -> dict[str, Any]:
             logger.warning("Could not fetch dynamic OpenRouter models: %s", err)
 
     if not models:
-        models = FALLBACK_MODELS
+        models = _fallback_models(default_model)
 
     org_id, user_id, _ = _get_request_identity(request)
     try:
         catalogue = await build_catalogue(
             db_mgr=getattr(request.app.state, "db_manager", None),
-            store=_model_key_store(request),
+            store=credential_store(request),
             org_id=org_id,
             user_id=user_id,
             openrouter=models,

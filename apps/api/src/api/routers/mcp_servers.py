@@ -15,7 +15,9 @@ from mcp_runner.protocol import is_valid_env_name
 from sqlalchemy import or_, select
 
 from api.auth.access import _get_request_identity
+from api.auth.capabilities import Capability, has_capability
 from api.auth.origin import mcp_oauth_callback_url, public_origin
+from api.auth.roles import is_admin as holds_admin
 from api.db.models import (
     McpServerEntityModel,
 )
@@ -316,7 +318,7 @@ async def validate_mcp_server(
 ) -> ValidateMcpServerResponse:
     """Validate MCP connection and probe tools prior to saving."""
     org_id, user_id, roles = _get_request_identity(request)
-    is_admin = "admin" in roles or "owner" in roles
+    is_admin = holds_admin(roles)
 
     if req.id:
         try:
@@ -816,8 +818,15 @@ async def register_or_update_mcp_server(
 ) -> McpServerResponseModel:
     """Register or update an MCP server, securely encrypting secrets with AES-256-GCM."""
     org_id, user_id, roles = _get_request_identity(request)
-    is_admin = "admin" in roles or "owner" in roles
+    is_admin = holds_admin(roles)
     _authorise_registration(req, is_admin)
+    if req.scope == "user" and not await has_capability(
+        getattr(request.app.state, "db_manager", None), org_id, roles, Capability.REGISTER_MCP
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: your role does not have the register_mcp capability",
+        )
     stored = None
     if req.id:
         stored = await _stored_server_for_update(request, org_id, user_id, is_admin, req.id)
@@ -920,7 +929,7 @@ def _store_in_memory(
 async def delete_mcp_server(server_id: str, request: Request) -> dict[str, bool]:
     """Delete a registered MCP server."""
     org_id, user_id, roles = _get_request_identity(request)
-    is_admin = "admin" in roles or "owner" in roles
+    is_admin = holds_admin(roles)
     db_mgr = getattr(request.app.state, "db_manager", None)
 
     if db_mgr:

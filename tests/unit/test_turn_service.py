@@ -32,15 +32,10 @@ async def _resolve_routing(**kwargs: Any) -> tuple[str, str, str]:
     return ("ROUTER", "effective-model", "reason-x")
 
 
-async def _resolve_max_turns(**kwargs: Any) -> int:
-    return 9
-
-
 def _service() -> TurnService:
     return TurnService(
         resolve_agent=_resolve_agent,
         resolve_routing=_resolve_routing,
-        resolve_max_turns=_resolve_max_turns,
     )
 
 
@@ -58,7 +53,7 @@ async def test_plan_turn_resolves_persona_model_and_scope() -> None:
     assert plan.system_prompt == "PERSONA"
     assert plan.whitelisted_tools == ["file_read"]
     assert plan.model == "effective-model"
-    assert plan.max_turns == 9
+    assert plan.max_turns == 7, "the agent's own limit, under the organization's (100)"
     assert plan.model_router == "ROUTER"
     assert plan.routing_reason == "reason-x"
     assert plan.enabled_toolsets == frozenset({"slack"})
@@ -119,44 +114,15 @@ def test_resolve_generation_params_aligns_claude_thinking_budget_with_step_limit
     assert params.reasoning_step_limit_tokens == 8000 + 2048
 
 
-def test_resolve_generation_params_gives_step_limit_headroom_when_thinking_budget_explicit() -> (
-    None
-):
-    class _AgentWithBudget:
-        thinking_budget_tokens = 16000
-        reasoning_effort = "high"
-
+def test_the_effort_chosen_for_the_turn_reaches_the_generation_params() -> None:
+    # A turn's (or session's) effort is a preset the resolver has already applied to
+    # ``models.default_reasoning_effort``; the agent's thinking budget follows the level.
     models_config = {
         "temperature": 0.2,
         "reasoning_step_limit_tokens": 8000,
+        "default_reasoning_effort": "high",
     }
     params = _resolve_model_generation(
-        model="anthropic/claude-3-7-sonnet",
-        agent=_AgentWithBudget(),
-        models=models_config,
-        fallbacks=(),
-    )
-    assert params.thinking_budget_tokens == 16000
-    # Step limit must provide headroom past thinking budget so stream isn't killed prematurely
-    assert params.reasoning_step_limit_tokens == 16000 + 2048
-
-
-def test_resolve_generation_params_respects_per_turn_reasoning_effort_override() -> None:
-    class _AgentWithEffort:
-        thinking_budget_tokens = 4000
-        reasoning_effort = "low"
-
-    models_config = {
-        "temperature": 0.2,
-        "reasoning_step_limit_tokens": 8000,
-        "default_reasoning_effort": "low",
-    }
-    # Per-turn override 'high' should supersede agent/models 'low'
-    params = _resolve_model_generation(
-        model="openai/o3-mini",
-        agent=_AgentWithEffort(),
-        models=models_config,
-        fallbacks=(),
-        reasoning_effort="high",
+        model="openai/o3-mini", agent=None, models=models_config, fallbacks=()
     )
     assert params.reasoning_effort == "high"

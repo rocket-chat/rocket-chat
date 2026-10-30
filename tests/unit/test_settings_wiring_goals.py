@@ -27,10 +27,12 @@ async def _plan(org: str) -> Any:
 @pytest.mark.setting("budgets.max_turn_cost_usd")
 async def test_the_turn_cost_cap_is_carried_on_the_turn_policy() -> None:
     org = "wire_turn_cost"
-    assert (await _plan(org)).policy.max_turn_cost_usd is None
+    assert (await _plan(org)).policy.max_turn_cost_usd == 15.0, "the platform default"
 
     await save_org_config(None, org, "budgets", {"max_turn_cost_usd": 2.5}, [])
     assert (await _plan(org)).policy.max_turn_cost_usd == 2.5
+    await save_org_config(None, org, "budgets", {"max_turn_cost_usd": 0}, [])
+    assert (await _plan(org)).policy.max_turn_cost_usd is None, "0 is no cap"
 
 
 def _unfinished_ctx(org: str, session_id: str) -> Any:

@@ -10,6 +10,8 @@ from sqlalchemy import or_, select
 from api.db.models import (
     CustomSkillModel,
 )
+from api.services.settings import effective_settings
+from api.services.starter_content import starter_skill
 
 logger = logging.getLogger(__name__)
 
@@ -40,9 +42,28 @@ async def _find_visible_skill(
     "does not exist" so a restricted persona cannot be used to probe which skills exist.
     """
     skill = await _lookup_visible_skill(db_mgr, org_id, user_id, name)
+    if skill is None:
+        skill = await _starter(db_mgr, org_id, name)
     if skill is not None and allowed_ids and skill.id not in allowed_ids:
         return None
     return skill
+
+
+def starter_id(name: str) -> str:
+    """The id a starter skill is listed and attached under (no row exists for it)."""
+    return f"starter:{name}"
+
+
+async def _enabled_starters(db_mgr: Any, org_id: str) -> list[str]:
+    general = await effective_settings(db_mgr, org_id, "general")
+    return [str(name) for name in general.get("starter_skills") or []]
+
+
+async def _starter(db_mgr: Any, org_id: str, name: str) -> _VisibleSkill | None:
+    found = starter_skill(name, await _enabled_starters(db_mgr, org_id))
+    if found is None:
+        return None
+    return _VisibleSkill(starter_id(found.name), "text", "", found.body)
 
 
 async def _lookup_visible_skill(
@@ -103,6 +124,11 @@ async def list_visible_skills(
                 record.get("scope") == "org" or record.get("user_id") == user_id
             ):
                 found[skill_id] = (record["name"], record.get("description", ""))
+    taken = {name for name, _ in found.values()}
+    for name in await _enabled_starters(db_mgr, org_id):
+        starter = starter_skill(name, (name,))
+        if starter is not None and name not in taken:
+            found[starter_id(name)] = (name, starter.description)
     return sorted(
         (entry for skill_id, entry in found.items() if not allowed_ids or skill_id in allowed_ids)
     )

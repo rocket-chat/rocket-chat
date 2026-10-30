@@ -96,7 +96,10 @@ def test_an_administrator_can_disable_a_builtin_agent_and_keep_it_disabled(
     # Disable via POST
     res = client.post("/v1/agents", json=_edit(enabled=False), headers=ADMIN)
     assert res.status_code == 200
-    seen = _general(client)
+    assert all(
+        a["id"] != "persona-general" for a in client.get("/v1/agents", headers=MEMBER).json()
+    ), "members no longer see a disabled agent"
+    seen = _general(client, ADMIN)
     assert seen["enabled"] is False and seen["customized"] is True
 
     # Reset restores factory defaults
@@ -106,7 +109,7 @@ def test_an_administrator_can_disable_a_builtin_agent_and_keep_it_disabled(
     # Disable via DELETE ?disable=true
     res2 = client.delete("/v1/agents/persona-general?disable=true", headers=ADMIN)
     assert res2.status_code == 200
-    seen2 = _general(client)
+    seen2 = _general(client, ADMIN)
     assert seen2["enabled"] is False and seen2["customized"] is True
 
     # Reset again restores factory defaults
@@ -146,10 +149,11 @@ def test_an_administrator_can_disable_a_builtin_subagent(
 
 
 async def test_a_disabled_agent_persona_is_rejected_on_turn_planning(client: TestClient) -> None:
+    from api.services.agent_access import AgentAccessDenied
     from api.turns.shared import _turn_service
 
     client.post("/v1/agents", json=_edit(enabled=False), headers=ADMIN)
-    with pytest.raises(ValueError, match="has been disabled"):
+    with pytest.raises(AgentAccessDenied, match="has been disabled"):
         await _turn_service.plan_turn(
             db_mgr=None,
             org_id=ORG,

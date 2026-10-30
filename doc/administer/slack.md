@@ -117,18 +117,21 @@ An organization can run several bots in the same Slack workspace (e.g. `@RocketD
 
 ### Brain: One Agent or Router
 
-* **One Agent:** All messages to this bot run with the selected agent persona.
+Both are set on the bot's **Routing** tab.
+
+* **One Agent:** All messages to this bot run with the selected agent. The agent must allow guests (its **Access** tab), since Slack users who have not paired use it as guests.
 * **Router:** An AI classifier evaluates each incoming request against configured routes (each with its own description, examples, target agent persona, and response mode). Out-of-scope messages can be dismissed without creating a session. Follow-ups in a thread remain sticky to the chosen route. Classification decisions are logged under the **Activity** tab and kept 30 days.
-  * **Classifier model:** the router's own model, else its classifier agent's model, else the organization's default; it must be allowed by the organization's model policy. Any model that returns structured output works; a small, fast one is enough. Classifications are billed to the organization like any model call and count against its spending caps.
+  * **Classifier model:** the router's own model, else its classifier agent's model, else the organization's default; it must be allowed by the organization's model policy. Any model that returns structured output works; a small, fast one is enough. Classifications are billed to the organization like any model call, use the credentials bound to the classifier agent, and count against its spend limits.
   * **OpenRouter System One models** (`typesafe/…`, `inception/mercury-decide`) are called through OpenRouter's decision endpoint and return a probability per route; if that call fails the router falls back to structured output with the same model.
 
 ---
 
 ## 3. Administrator settings (Settings → Slack)
 
+These are the organization's Slack policy. Each bot can choose its own DM policy and outbound channels (its **Behaviour** tab) and channel profiles (its **Routing** tab), except for a setting the organization locked, which keeps the organization's value for every bot. The agent a bot runs is chosen per bot (**Routing** tab), not here.
+
 | Setting | What it does |
 | :--- | :--- |
-| `default_agent_persona` | The agent persona Slack sessions use. |
 | `allowed_channel_types` | Where Rocket answers: public channels, private channels, direct messages, group DMs. |
 | `dm_policy` | Who the agent may direct-message: nobody, linked members only, or everyone. |
 | `outbound_channels` | Channels the agent may post in or react in. Empty limits it to the conversation it was invoked from. Scheduled missions may only report to these. |
@@ -142,7 +145,7 @@ An organization can run several bots in the same Slack workspace (e.g. `@RocketD
 
 ### Per-channel profiles
 
-A channel can have its own persona, house rules, tool scope and sandbox image. In a bot's editor (**Settings → Slack → the bot → Channels**) add one profile per channel: persona, response mode, sandbox image, allowed tools and house rules. The organization-wide default is the `channel_profiles` setting, a JSON object keyed by channel id:
+A channel can have its own persona, house rules, tool scope and sandbox image. In a bot's editor (**Settings → Slack → the bot → Routing**, under the channel profiles) add one profile per channel: persona, response mode, sandbox image, allowed tools and house rules. The organization-wide default is the `channel_profiles` setting, a JSON object keyed by channel id:
 
 ```json
 {
@@ -164,11 +167,13 @@ A direct message from a linked Slack user belongs to that member. Everything els
 * `slack:<team>:<user>` for an unlinked Slack user's direct messages;
 * `slack:<team>` for shared channel threads.
 
-Guests have the `readonly` role, no password and no linked accounts, so they cannot sign in. They appear in **Settings → Organization → Users & roles**. When a Slack user links their account, their guest's sessions move to them. Sessions are never created for a user that does not exist: a turn whose session is missing fails instead.
+Guests have the `viewer` role, no password and no linked accounts, so they cannot sign in. They appear in **Settings → Organization → Members & roles**. They can use only the agents whose **Access** allows guests. When a Slack user links their account, their guest's sessions move to them. Sessions are never created for a user that does not exist: a turn whose session is missing fails instead.
 
 ### Safety limits (deployment-wide)
 
 Environment variables bound what an unlinked Slack user can cost or break: `SLACK_USER_TURNS_PER_MINUTE`, `SLACK_CHANNEL_TURNS_PER_MINUTE`, `SLACK_MAX_ATTACHMENTS_PER_TURN`, `SLACK_MAX_CONSECUTIVE_FAILURES` / `SLACK_FAILURE_COOLDOWN_SECONDS` (a circuit breaker), `SLACK_ALLOWED_TOOLS` / `SLACK_BLOCKED_TOOLS` (by default `git_revert`, `git_open_pr` and `git_push` are blocked on the unauthenticated path: shared channel threads and Slack users who have not linked their account. A linked member's DM or private request runs with their own account and the same tools as the web app, unless the organization turns on `restrict_linked_members`), and `SLACK_HEALTH_CHECK_SECONDS` (below). The settings reference lists every key.
+
+What a Slack workspace's guests may spend (unlinked Slack users and shared channel threads) is a **spend limit** on the subject *Slack workspace* (**Settings → Organization → Spend**), like any other limit; a linked member's requests count against that member's limits instead. When it is used up, the bot answers "Workspace budget reached" before any turn starts, so the refused request costs nothing.
 
 ---
 

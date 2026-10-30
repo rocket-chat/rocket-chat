@@ -24,12 +24,15 @@ from api.routers.admin_audit import router as admin_audit_router
 from api.routers.admin_users import router as admin_users_router
 from api.routers.agents import router as agents_router
 from api.routers.api_tokens import router as api_tokens_router
+from api.routers.approval_rules import router as approval_rules_router
 from api.routers.artifacts import router as artifacts_router
 from api.routers.attachments import router as attachments_router
 from api.routers.auth import router as auth_router
 from api.routers.changes import router as changes_router
 from api.routers.checkpoints import router as checkpoints_router
+from api.routers.credentials import router as credentials_router
 from api.routers.dev import router as dev_router
+from api.routers.feedback import router as feedback_router
 from api.routers.fork import router as fork_router
 from api.routers.git_gateway import router as git_gateway_router
 from api.routers.git_signing import router as git_signing_router
@@ -41,22 +44,27 @@ from api.routers.mcp_oauth import router as mcp_oauth_router
 from api.routers.mcp_servers import router as mcp_servers_router
 from api.routers.memory import router as memory_router
 from api.routers.missions import router as missions_router
-from api.routers.model_keys import router as model_keys_router
 from api.routers.models_catalog import router as models_catalog_router
+from api.routers.organizations import router as organizations_router
+from api.routers.plan import router as plan_router
 from api.routers.preview import router as preview_router
 from api.routers.processes import router as processes_router
 from api.routers.repository_setups import router as repository_setups_router
 from api.routers.sandboxes import router as sandboxes_router
 from api.routers.session_crud import router as session_crud_router
+from api.routers.session_git import router as session_git_router
+from api.routers.session_search import router as session_search_router
 from api.routers.session_turns import router as session_turns_router
 from api.routers.session_ws import router as session_ws_router
 from api.routers.sessions_list import router as sessions_list_router
 from api.routers.settings_api import router as settings_api_router
+from api.routers.setup_health import router as setup_health_router
 from api.routers.sharing import router as sharing_router
 from api.routers.skills import router as skills_router
 from api.routers.slack_admin import router as slack_admin_router
 from api.routers.slack_bots import router as slack_bots_router
 from api.routers.slack_status import router as slack_status_router
+from api.routers.spend_limits import router as spend_limits_router
 from api.routers.subagents import router as subagents_router
 from api.routers.templates import router as templates_router
 from api.routers.terminal import router as terminal_router
@@ -266,6 +274,7 @@ async def _provision_identity_if_enabled(request: Request, org_id: str, user_id:
 
 app.include_router(admin_audit_router)
 app.include_router(admin_users_router)
+app.include_router(organizations_router)
 app.include_router(attachments_router)
 app.include_router(artifacts_router)
 app.include_router(changes_router)
@@ -276,6 +285,7 @@ app.include_router(dev_router)
 # The keyset listing and fork routers must precede the legacy sessions router so the
 # richer GET /v1/sessions (cursor + search) wins the route match.
 app.include_router(sessions_list_router)
+app.include_router(session_search_router)
 app.include_router(fork_router)
 app.include_router(github_app_router)
 app.include_router(memory_router)
@@ -295,8 +305,11 @@ for _router in (
     settings_api_router,
     usage_router,
     slack_status_router,
-    model_keys_router,
+    # Before credentials_router: its /user/credentials/{credential_id} would capture
+    # /user/credentials/github.
     github_credentials_router,
+    credentials_router,
+    spend_limits_router,
     git_signing_router,
     session_turns_router,
     models_catalog_router,
@@ -314,6 +327,11 @@ app.include_router(subagents_router)
 app.include_router(api_tokens_router)
 app.include_router(repository_setups_router)
 app.include_router(version_router)
+app.include_router(setup_health_router)
+app.include_router(feedback_router)
+app.include_router(session_git_router)
+app.include_router(plan_router)
+app.include_router(approval_rules_router)
 app.include_router(workspace_router)
 app.include_router(webhooks_router, prefix="/v1")
 app.include_router(webhooks_router, prefix="/api/v1")

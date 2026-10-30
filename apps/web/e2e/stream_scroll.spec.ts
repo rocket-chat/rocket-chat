@@ -77,18 +77,31 @@ test.describe("Following the stream", () => {
     const socket = await openLongSession(page);
     await expect.poll(async () => (await scrollState(page)).distanceFromBottom).toBeLessThan(80);
 
+    // Once one step has shown, the snapshot is applied and later frames are taken as sent.
+    await pushStep(socket, page);
     await page.getByTestId("flight-log-stream").evaluate((el) => el.scrollTo({ top: 300 }));
     await expect(page.getByTestId("scroll-to-latest")).toBeVisible();
 
-    await pushStep(socket, page);
-    await pushStep(socket, page);
-    await pushStep(socket, page);
+    // A long transcript is virtualised: rows far below the view are not in the page, so the steps
+    // are confirmed by a status frame sent after them (frames are applied in order).
+    const sessionId = page.url().split("/chat/")[1];
+    for (const id of ["t2", "t3", "t4"]) {
+      socket.send(JSON.stringify({ event_type: "tool_started", session_id: sessionId, payload: { id, name: `step_${id}`, arguments: {} } }));
+    }
+    socket.send(JSON.stringify({ event_type: "status_changed", session_id: sessionId, payload: { status: "running", message: "Working", step: 7 } }));
+    await expect(page.getByTestId("turn-progress")).toContainText("step 7");
+    stepCounter = 4;
 
-    expect((await scrollState(page)).top).toBeCloseTo(300, -1);
+    // Rows above the view are measured as they render and the virtualiser keeps them anchored,
+    // which moves the offset by a few pixels; being pulled down would move it by thousands.
+    const held = await scrollState(page);
+    expect(Math.abs(held.top - 300)).toBeLessThan(100);
+    expect(held.distanceFromBottom).toBeGreaterThan(1000);
 
     await page.getByTestId("scroll-to-latest").click();
     await expect.poll(async () => (await scrollState(page)).distanceFromBottom).toBeLessThan(80);
     await expect(page.getByTestId("scroll-to-latest")).toHaveCount(0);
+    await expect(page.getByTestId("flight-log-stream")).toContainText("Used 4 tools");
 
     // Following resumes after the jump.
     await pushStep(socket, page);

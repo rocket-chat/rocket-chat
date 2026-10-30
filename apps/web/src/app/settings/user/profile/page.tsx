@@ -4,9 +4,11 @@ import React, { Suspense } from "react";
 import { ChangePasswordPanel } from "../../../../components/settings/ChangePasswordPanel";
 import { useSession } from "../../../../components/AuthProvider";
 import { SchemaSettingsForm } from "../../../../components/settings/SchemaSettingsForm";
+import { useAccess } from "../../../../lib/access";
 
 export default function UserProfilePage() {
   const { data: session } = useSession();
+  const access = useAccess();
   const user = session?.user as unknown as
     | { name?: string; email?: string; roles?: string[]; orgId?: string }
     | undefined;
@@ -42,7 +44,7 @@ export default function UserProfilePage() {
               <h3 className="text-base font-semibold text-foreground">{user?.name || "Operator"}</h3>
               <p className="text-xs text-neutral-500 dark:text-neutral-400">{user?.email}</p>
               <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
-                {user?.orgId} · {(user?.roles || []).join(", ")}
+                {access.orgName} · {access.role}
               </p>
             </div>
           </div>
@@ -54,9 +56,9 @@ export default function UserProfilePage() {
           <SchemaSettingsForm
             domain="user_preferences"
             mode="user"
-            title="Preferences"
-            description="Your display name (the commit author name when no git name is set) and how the agent follows up."
-            only={["full_name", "suggest_next_questions"]}
+            title="Your name"
+            description="Your display name: the commit author name when no git name is set."
+            only={["full_name"]}
           />
         </div>
       </div>

@@ -1,11 +1,15 @@
 import type { StateCreator } from "zustand";
 import { formatEventTime, matchesPendingEcho } from "./helpers";
-import type { MissionStore, StreamSlice } from "./types";
+import type { MissionStore, StreamSlice, TurnProgress } from "./types";
 
 const TERMINAL_MAX_CHARS = 400_000;
 const TERMINAL_KEEP_CHARS = 300_000;
 const LIVE_OUTPUT_TAIL_CHARS = 6_000;
 const DEDUPE_WINDOW = 200;
+const NO_TURN_PROGRESS: TurnProgress = { startedAt: null, step: null, lastActivityAt: null, currentTool: null };
+
+/** Steps kept on a subagent card (the newest); the Subagents tab reads the whole transcript. */
+const MAX_SUBAGENT_STEPS = 50;
 
 export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> = (set, get) => ({
   connected: false,
@@ -50,6 +54,9 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
       contextTier2Tokens: details?.tier2Tokens ?? null,
       contextTier3Tokens: details?.tier3Tokens ?? null,
     }),
+  turnProgress: { ...NO_TURN_PROGRESS },
+  noteTurnProgress: (update) => set((state) => ({ turnProgress: { ...state.turnProgress, ...update } })),
+  resetTurnProgress: () => set({ turnProgress: { ...NO_TURN_PROGRESS } }),
   turnBinding: null,
   artifacts: [],
   upsertArtifact: (artifact) =>
@@ -102,6 +109,20 @@ export const createStreamSlice: StateCreator<MissionStore, [], [], StreamSlice> 
         }
       }
       return state;
+    }),
+  upsertSubagentStep: (subagentId, step) =>
+    set((state) => {
+      const index = state.flightLog.findLastIndex((item) => item.subagent?.subagentId === subagentId);
+      if (index < 0) return state;
+      const logs = [...state.flightLog];
+      const item = logs[index];
+      const steps = [...(item.subagent?.steps ?? [])];
+      const at = steps.findIndex((s) => s.id === step.id);
+      if (at >= 0) steps[at] = { ...steps[at], ...step };
+      // A child's step list is bounded: its transcript has every step.
+      else steps.push(step);
+      logs[index] = { ...item, subagent: { ...item.subagent!, steps: steps.slice(-MAX_SUBAGENT_STEPS) } };
+      return { flightLog: logs };
     }),
   updateWait: (waitId, data) => {
     const index = get().flightLog.findLastIndex((item) => item.wait?.waitId === waitId);

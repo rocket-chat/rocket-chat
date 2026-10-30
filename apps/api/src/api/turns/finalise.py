@@ -22,8 +22,9 @@ from api.services.turn_trace import (
 )
 from api.turns.context import TurnContext, TurnRequest, TurnState
 from api.turns.followup import suggest_followup
+from api.turns.shared import platform_default_model
 from specifications.interfaces.events import EventType, SessionEvent
-from specifications.interfaces.llm import ChatMessage
+from specifications.interfaces.llm import ChatMessage, ModelExecutionError
 from specifications.interfaces.session import SessionRecord
 
 
@@ -72,9 +73,14 @@ async def record_answer(ctx: TurnContext) -> str:
     streamed = "".join(state.assistant_parts).strip()
     content = state.final_answer if state.final_answer is not None else streamed
     if state.orchestrator_error:
+        failure: Exception = (
+            ModelExecutionError(state.orchestrator_error, state.orchestrator_refusal)
+            if state.orchestrator_refusal is not None
+            else RuntimeError(state.orchestrator_error)
+        )
         if not content:
-            raise RuntimeError(state.orchestrator_error)
-        state.turn_error = RuntimeError(state.orchestrator_error)
+            raise failure
+        state.turn_error = failure
     # What came before each call is saved with that call; the answer keeps what followed.
     reasoning = "".join(state.reasoning_parts[state.reasoning_attached :]).strip()
 
@@ -210,7 +216,10 @@ async def housekeeping(req: TurnRequest, state: TurnState) -> None:
     session = await req.store.get_session(req.session_id)
     if not session:
         return
-    router, fallback = state.router, state.effective_model or req.orchestrator.default_model
+    router, fallback = (
+        state.router,
+        state.effective_model or platform_default_model(req.orchestrator),
+    )
     if req.db_mgr is not None:
         # Distillation is auxiliary work, so route it to the "summarize" model (a fast/cheap
         # model under balanced/economy modes).

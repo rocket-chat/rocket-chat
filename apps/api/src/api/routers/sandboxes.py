@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sandbox_driver.profiles import configured_profiles
 
 from api.auth.access import _get_request_identity, _require_admin
+from api.auth.roles import is_admin
 from api.services.audit import AuditService
 from api.services.sandbox_catalogue import (
     CAPABILITIES,
@@ -110,7 +111,7 @@ async def _audit(request: Request, org_id: str, user_id: str, action: str, entry
 @router.get("/sandboxes", response_model=SandboxCatalogueView)
 async def list_sandboxes(request: Request) -> SandboxCatalogueView:
     org_id, _, roles = _get_request_identity(request)
-    admin = any(role in ("admin", "owner") for role in roles)
+    admin = is_admin(roles)
     entries = await catalogue_for(request).entries(org_id)
     return SandboxCatalogueView(
         sandboxes=[_view(e, admin=admin) for e in entries], capabilities=CAPABILITIES

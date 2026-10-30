@@ -35,6 +35,15 @@ class SubagentTranscriptSummary(BaseModel):
         default_factory=list, description="Artefacts produced by this delegate"
     )
     created_at: int = Field(..., description="Epoch timestamp in seconds")
+    model: str = Field("", description="The model the subagent ran on")
+    report: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "The structured report it ended with: status, summary, findings (file, line, "
+            "severity, evidence), changes (branch, diff_stat, files), open_questions, "
+            "next_steps and data"
+        ),
+    )
 
 
 class SubagentTranscriptDetail(SubagentTranscriptSummary):
@@ -44,43 +53,14 @@ class SubagentTranscriptDetail(SubagentTranscriptSummary):
 
 
 def _to_summary(r: SubagentTranscriptRecord) -> SubagentTranscriptSummary:
-    return SubagentTranscriptSummary(
-        id=r.id,
-        session_id=r.session_id,
-        subagent_id=r.subagent_id,
-        role=r.role,
-        task=r.task,
-        summary=r.summary,
-        status=r.status,
-        turns_taken=r.turns_taken,
-        tool_calls_count=r.tool_calls_count,
-        duration_ms=r.duration_ms,
-        tokens=r.tokens,
-        cost_usd=r.cost_usd,
-        changed_files=r.changed_files,
-        artefacts=r.artefacts,
-        created_at=r.created_at,
+    return SubagentTranscriptSummary.model_validate(
+        {name: getattr(r, name) for name in SubagentTranscriptSummary.model_fields}
     )
 
 
 def _to_detail(r: SubagentTranscriptRecord) -> SubagentTranscriptDetail:
-    return SubagentTranscriptDetail(
-        id=r.id,
-        session_id=r.session_id,
-        subagent_id=r.subagent_id,
-        role=r.role,
-        task=r.task,
-        summary=r.summary,
-        status=r.status,
-        turns_taken=r.turns_taken,
-        tool_calls_count=r.tool_calls_count,
-        duration_ms=r.duration_ms,
-        tokens=r.tokens,
-        cost_usd=r.cost_usd,
-        changed_files=r.changed_files,
-        artefacts=r.artefacts,
-        messages=r.messages,
-        created_at=r.created_at,
+    return SubagentTranscriptDetail.model_validate(
+        {name: getattr(r, name) for name in SubagentTranscriptDetail.model_fields}
     )
 
 

@@ -26,7 +26,7 @@ from tests.turn_harness import run_turn
 SNAPSHOT = Path(__file__).parents[1] / "golden" / "system_prompt_git.json"
 DEFAULT_PROMPT_SNAPSHOT = Path(__file__).parents[1] / "golden" / "system_prompt_default.txt"
 CREDENTIAL_MODES = ("app", "member", "public")
-SIGNING_MODES = ("github_app", "gpg_key", "none")
+SIGNING_MODES = ("github", "member_gpg", "none")
 
 
 def _bundle(mode: str) -> GitCredentialBundle:
@@ -38,7 +38,7 @@ def _bundle(mode: str) -> GitCredentialBundle:
 def _guidance() -> dict[str, str]:
     return {
         f"{mode}/{signing}": "\n".join(
-            prompt.git_guidance(_bundle(mode), GitPolicy(signing_mode=signing))
+            prompt.git_guidance(_bundle(mode), GitPolicy(signing=signing))
         )
         for mode in CREDENTIAL_MODES
         for signing in SIGNING_MODES
@@ -64,8 +64,8 @@ def test_the_git_guidance_is_true_in_every_mode() -> None:
     for key, text in _guidance().items():
         assert "`git push` and the `gh` CLI do not work here" in text, key
         assert "Never commit to `main`" in text and "github_pull_request" in text, key
-    assert "Verified" in _guidance()["app/github_app"]
-    assert "The member's key signs" in _guidance()["member/gpg_key"]
+    assert "Verified" in _guidance()["app/github"]
+    assert "The member's key signs" in _guidance()["member/member_gpg"]
     assert "unsigned" in _guidance()["public/none"]
     assert "Private repositories need" in _guidance()["public/none"]
 

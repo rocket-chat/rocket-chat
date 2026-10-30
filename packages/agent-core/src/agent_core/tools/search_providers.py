@@ -2,9 +2,9 @@
 
 Scraping a public HTML endpoint is fragile and rate-limited, so the default is only a
 zero-configuration fallback. Self-hosters point ``ROCKET_SEARCH_PROVIDER`` at a SearXNG
-instance they run (no API key, no third party) or at the Brave Search API.
+instance they run (no API key, no third party), the Brave Search API or Tavily.
 
-The SearXNG and Brave endpoints are operator configuration, not model-chosen URLs, so they
+The SearXNG, Brave and Tavily endpoints are operator configuration, not model-chosen URLs, so they
 are called directly rather than through the SSRF guard (a self-hosted SearXNG is normally on
 a private network).
 """
@@ -131,9 +131,46 @@ class BraveProvider:
         ]
 
 
+class TavilyProvider:
+    """Tavily's search API (requires ``ROCKET_TAVILY_API_KEY``)."""
+
+    def __init__(self, api_key: str) -> None:
+        self._api_key = api_key
+
+    async def search(self, query: str, max_results: int) -> list[SearchResult]:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                "https://api.tavily.com/search",
+                json={"query": query, "max_results": max_results},
+                headers={"Authorization": f"Bearer {self._api_key}"},
+            )
+            response.raise_for_status()
+        return [
+            SearchResult(
+                title=str(item.get("title") or ""),
+                url=str(item.get("url") or ""),
+                snippet=str(item.get("content") or ""),
+            )
+            for item in response.json().get("results", [])[:max_results]
+        ]
+
+
+# Provider -> the variable holding its key or address (empty for none needed).
+PROVIDER_SETTINGS = {
+    "duckduckgo": "",
+    "searxng": "ROCKET_SEARXNG_URL",
+    "brave": "ROCKET_BRAVE_API_KEY",
+    "tavily": "ROCKET_TAVILY_API_KEY",
+}
+
+
+def configured_provider_name() -> str:
+    return os.getenv("ROCKET_SEARCH_PROVIDER", "duckduckgo").strip().lower() or "duckduckgo"
+
+
 def provider_from_env() -> SearchProvider:
     """Select the backend from ``ROCKET_SEARCH_PROVIDER`` (default ``duckduckgo``)."""
-    name = os.getenv("ROCKET_SEARCH_PROVIDER", "duckduckgo").strip().lower() or "duckduckgo"
+    name = configured_provider_name()
     if name == "duckduckgo":
         return DuckDuckGoHtmlProvider()
     if name == "searxng":
@@ -141,11 +178,12 @@ def provider_from_env() -> SearchProvider:
         if not url:
             raise SearchProviderError("ROCKET_SEARCH_PROVIDER=searxng needs ROCKET_SEARXNG_URL.")
         return SearxngProvider(url)
-    if name == "brave":
-        key = os.getenv("ROCKET_BRAVE_API_KEY", "").strip()
+    if name in ("brave", "tavily"):
+        variable = PROVIDER_SETTINGS[name]
+        key = os.getenv(variable, "").strip()
         if not key:
-            raise SearchProviderError("ROCKET_SEARCH_PROVIDER=brave needs ROCKET_BRAVE_API_KEY.")
-        return BraveProvider(key)
+            raise SearchProviderError(f"ROCKET_SEARCH_PROVIDER={name} needs {variable}.")
+        return BraveProvider(key) if name == "brave" else TavilyProvider(key)
     raise SearchProviderError(
-        f"Unknown ROCKET_SEARCH_PROVIDER '{name}' (use duckduckgo, searxng or brave)."
+        f"Unknown ROCKET_SEARCH_PROVIDER '{name}' (use duckduckgo, searxng, brave or tavily)."
     )

@@ -13,6 +13,7 @@ from fastapi import (
 from sqlalchemy import or_, select
 
 from api.auth.access import _get_request_identity
+from api.auth.roles import is_admin as holds_admin
 from api.db.models import (
     KnowledgeBaseModel,
     KnowledgeDocumentModel,
@@ -121,7 +122,7 @@ async def create_knowledge_base(
 ) -> KnowledgeBaseResponse:
     """Create a new pgvector semantic knowledge base collection."""
     org_id, user_id, roles = _get_request_identity(request)
-    is_admin = "admin" in roles or "owner" in roles
+    is_admin = holds_admin(roles)
 
     if req.scope == "org" and not is_admin:
         raise HTTPException(
@@ -198,7 +199,7 @@ async def create_knowledge_base(
 async def delete_knowledge_base(kb_id: str, request: Request) -> dict[str, bool]:
     """Delete a Knowledge Base collection and cascade delete documents and chunks."""
     org_id, user_id, roles = _get_request_identity(request)
-    is_admin = "admin" in roles or "owner" in roles
+    is_admin = holds_admin(roles)
     db_mgr = getattr(request.app.state, "db_manager", None)
 
     if db_mgr:

@@ -60,9 +60,7 @@ async def test_e2e_parallel_tool_streaming_over_websocket() -> None:
         async def check_budget(self, tenant_org_id: str, tenant_user_id: str) -> bool:
             return True
 
-        async def record_usage(
-            self, tenant_org_id: str, tenant_user_id: str, model: str, pt: int, ct: int
-        ) -> None:
+        async def record_usage(self, *args: Any, **kwargs: Any) -> None:
             pass
 
     gateway = ParallelToolGateway()
@@ -136,7 +134,7 @@ async def test_e2e_subagent_delegation_streaming_over_websocket() -> None:
         async def chat_stream(self, request: ModelRequest) -> AsyncIterator[StreamChunk]:
             self.calls += 1
             is_subagent = any(
-                "Security Auditor" in (m.content or "")
+                "security auditor subagent" in (m.content or "").lower()
                 for m in request.messages
                 if m.role == "system"
             )
@@ -173,9 +171,7 @@ async def test_e2e_subagent_delegation_streaming_over_websocket() -> None:
         async def check_budget(self, tenant_org_id: str, tenant_user_id: str) -> bool:
             return True
 
-        async def record_usage(
-            self, tenant_org_id: str, tenant_user_id: str, model: str, pt: int, ct: int
-        ) -> None:
+        async def record_usage(self, *args: Any, **kwargs: Any) -> None:
             pass
 
     gateway = SubagentDelegationGateway()
@@ -314,7 +310,7 @@ async def test_e2e_subagents_settings_rest_crud() -> None:
     assert len(subagents) >= 3
 
     qa_agent = next(s for s in subagents if s["id"] == "qa_verifier")
-    assert qa_agent["max_turns"] == 30
+    assert qa_agent["max_turns"] == 40
 
     # 2. Update QA Verifier settings
     qa_agent["max_turns"] = 5

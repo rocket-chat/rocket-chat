@@ -1,0 +1,26 @@
+# Rocket Chat devbox + Go, Rust and Java 21, for polyglot repositories and heavier builds.
+# Build the devbox first:
+#   docker build -f deploy/docker/Dockerfile.sandbox -t rocket-chat-sandbox:dev .
+#   docker build -f deploy/docker/Dockerfile.sandbox-polyglot -t rocket-chat-sandbox-polyglot:dev .
+ARG BASE_IMAGE=rocket-chat-sandbox:dev
+FROM ${BASE_IMAGE}
+
+ARG GO_VERSION=1.25.3
+ARG RUST_TOOLCHAIN=stable
+USER root
+# Java 21 from Adoptium (Debian bookworm ships 17), with Maven.
+RUN mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://packages.adoptium.net/artifactory/api/gpg/key/public | gpg --dearmor -o /etc/apt/keyrings/adoptium.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/adoptium.gpg] https://packages.adoptium.net/artifactory/deb bookworm main" > /etc/apt/sources.list.d/adoptium.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends temurin-21-jdk maven \
+    && rm -rf /var/lib/apt/lists/*
+RUN ARCH="$(dpkg --print-architecture)" \
+    && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz
+ENV RUSTUP_HOME=/opt/rustup \
+    PATH=/usr/local/go/bin:/opt/cargo/bin:${PATH}
+RUN curl -fsSL https://sh.rustup.rs | CARGO_HOME=/opt/cargo sh -s -- -y --no-modify-path --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
+    && chmod -R a+rX /opt/rustup /opt/cargo
+# The toolchains live in /opt, so the devbox's caches under /workspace/.rocket/cache (crates
+# included, through its CARGO_HOME) can be wiped without reinstalling them.
+USER agent

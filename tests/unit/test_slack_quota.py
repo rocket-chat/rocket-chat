@@ -98,12 +98,9 @@ async def test_workspace_hourly_quota_denies_then_expires() -> None:
     assert service.counters()["quota_denied"] == 1
 
 
-async def test_workspace_budget_cap_denies() -> None:
+async def test_a_used_up_workspace_spend_limit_denies() -> None:
     store = InMemoryWorkspaceQuotaStore()
-    store.set_state(
-        "T1",
-        WorkspaceQuotaState(monthly_usd_cap=10.0, current_month_spend_usd=10.5),
-    )
+    store.set_state("T1", WorkspaceQuotaState(over_spend_limit=True))
     service = SlackWorkspaceQuotaService(in_memory_store=store)
     decision = await _evaluate(service, now=0.0)
     assert decision.allowed is False

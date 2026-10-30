@@ -35,7 +35,7 @@ Configure it this way (one URL for both jobs):
 
 If you prefer to keep **Request user authorization (OAuth) during installation** off, set **Setup URL** to `https://<your Rocket Chat>/api/v1/github/setup` and tick **Redirect on update**, so configuring an existing installation also comes back. Members still link their account through the Callback URL.
 
-Then, on the same page, generate a **client secret**. The App's **Client ID** and that secret are `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`: no separate OAuth App is needed. The App's URL name (`github.com/apps/<slug>`) is `GITHUB_APP_SLUG`, which shows the install link in **Settings > GitHub**.
+Then, on the same page, generate a **client secret**. The App's **Client ID** and that secret are `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`: no separate OAuth App is needed. The App's URL name (`github.com/apps/<slug>`) is `GITHUB_APP_SLUG`, which shows the install link in **Settings > Organization > Git & GitHub**.
 
 ---
 
@@ -108,7 +108,7 @@ MIIEowIBAAKCAQEA0k...
 ...
 -----END RSA PRIVATE KEY-----"
 
-# The App's URL name (github.com/apps/<slug>): enables the install link in Settings > GitHub.
+# The App's URL name (github.com/apps/<slug>): enables the install link in Settings > Organization > Git & GitHub.
 GITHUB_APP_SLUG="rocket-chat-engineer"
 
 # Members link their GitHub account through the App: its Client ID and a client secret.
@@ -125,33 +125,29 @@ Rocket Chat implements a two-tier hybrid GitHub engine designed for enterprise c
 ### Layer 1: Organization GitHub App (System Infrastructure)
 * **Scope**: Org-wide installation on managed repositories.
 * **Role**: Primary webhook ingress, automated branch triggers (e.g. `ai-fix` label), repo structure indexing, and fallback execution.
-* **Commit Signing**: with `commit_signing_mode: github_app` the agent's commits are re-created through GitHub's API when the branch is published, so GitHub signs them and they earn the green **Verified** badge, made by the App (see *Publishing and signing* below). This needs the App to have **Contents: Read & write**.
+* **Commit Signing**: with `signing: github` the agent's commits are re-created through GitHub's API when the branch is published, so GitHub signs them and they earn the green **Verified** badge, made by the App (see *Publishing and signing* below). This needs the App to have **Contents: Read & write**.
 * **Dynamic Installation Tokens**: the backend requests an ephemeral, read-only installation access token (granular permissions configurable in Organization Settings, defaulting to `contents:read`, `pull_requests:read`) for every session whose repository the App can read, whether or not the member linked a personal token. The permissions come from the `app_token_permissions` setting but are **always lowered to read** before the token is requested, so a `write` or `admin` there cannot give the sandbox a way to push: add reads such as `actions`, `checks` or `statuses` to let the agent follow CI. Publishing mints a separate, short-lived token with `contents: write` for the one repository, outside the sandbox.
 
 ### Layer 2: User Personal OAuth & Git Credential Broker
-* **Scope**: Individual developer accounts linked via the Cockpit Settings UI (`/settings/github`).
-* **Role**: Allows the AI agent to open Pull Requests and publish commits **as the authenticated user**, preserving developer identity in git log and PR metrics. Commits made as the member carry their GitHub **username** and e-mail by default (their primary e-mail, else the account's `id+login@users.noreply.github.com` address); the member can change either under **Settings → Git & version control**.
+* **Scope**: Each member's own GitHub account, linked under **Settings → Git identity** (`/settings/github`).
+* **Role**: Allows the AI agent to open Pull Requests and publish commits **as the authenticated user**, preserving developer identity in git log and PR metrics. Commits made as the member carry their GitHub **username** and e-mail by default (their primary e-mail, else the account's `id+login@users.noreply.github.com` address); the member can change either under **Settings → Git identity**.
 * **Credentials never rest in the sandbox**: git reads the token from the command's environment through a credential helper, so nothing is written to disk. The sandbox holds no GitHub token at all: its git reads through the platform's git gateway, and every token stays on the platform.
 
 ---
 
-## 9. User Configuration & Cascading Settings (`/settings/github`)
+## 9. Publishing and signing settings
 
-Commit authorship is the organization's default, and each member may make it their own in **Settings → Git & version control → Your git policy**. Left at the default, it follows the organization, including its later changes; a member's own value wins until they reset it. An administrator who **locks** it in the organization form keeps it the same for everyone.
+Two settings decide how the agent's work leaves the sandbox (**Settings → Organization → Git & GitHub**):
 
-Pull request identity and commit signing are decided by administrators only: a member cannot choose to publish as the bot or to push unsigned commits. Values members chose before this was the case are ignored.
-
-1. **Commit authorship** (`commit_authorship_policy`):
-   - `co_authored` (*default*): the GitHub App commits and the member is credited with a `Co-authored-by` trailer. The trailer is added when the branch is published, so it is there whatever made the commit (the `git_commit` tool or a plain `git commit` in the shell).
-   - `user_only`: committed as the member.
-   - `bot_only`: committed as the bot.
-2. **Pull requests** (`pr_creation_policy`): `as_user` opens them with the member's linked account when there is one, `as_bot` with the GitHub App.
-3. **Commit signing** (`commit_signing_mode`):
-   - `github_app` (*default*): commits are re-created through GitHub's API when published, so GitHub signs them (**Verified**, made by the GitHub App).
-   - `gpg_key`: a member who imported a GPG key (**Settings → Git & version control → Commit signing**) and turned on **Commit as me** commits as themselves, signed with that key; without both, the `github_app` behaviour applies.
+1. **Publish as** (`publish_as`): `member` (*default*) opens pull requests with the member's linked account when there is one; `bot` opens them with the GitHub App. It is an organization default: a member may choose their own value in **Settings → Git identity**, unless an administrator locks it, and choosing `bot` needs the `publish_as_bot` capability (administrators by default). Either way the commits credit the member with a `Co-authored-by` trailer, added when the branch is published whatever made the commit.
+2. **Commit signing** (`signing`), decided by administrators only:
+   - `github` (*default*): commits are re-created through GitHub's API when published, so GitHub signs them (**Verified**, made by the GitHub App).
+   - `member_gpg`: a member who imported a GPG key (**Settings → Git identity → Commit signing**) commits as themselves, signed with that key; a member without one gets the `github` behaviour.
    - `none`: standard unsigned commits, pushed as they are.
 
-The bot's identity, the default branch and the GitHub App token's permissions and repositories stay the organization's.
+The earlier settings `commit_authorship_policy`, `pr_creation_policy`, `commit_signing_mode` and the member's **Commit as me** were merged into these two; stored values were moved by the upgrade.
+
+The bot's identity (the deployment's `GIT_BOT_NAME` and `GIT_BOT_EMAIL` are its default), the default branch (`GIT_DEFAULT_BRANCH`) and the GitHub App token's permissions (`GITHUB_APP_DEFAULT_PERMISSIONS`) and repositories stay the organization's.
 
 The read tools need the App's **Pull requests** and **Contents** read permissions; with **Issues** read too, a pull request's view also shows its conversation.
 
@@ -172,12 +168,12 @@ The read tools need the App's **Pull requests** and **Contents** read permission
 One GitHub App serves the whole platform, but an installation belongs to one GitHub account's repositories, so each organization maps its own:
 
 1. Set `GITHUB_APP_SLUG` (the `github.com/apps/<slug>` part of your App's URL).
-2. As an organization administrator open **Settings > GitHub > GitHub App installations** and choose **Install on a GitHub account**. The link carries a signed, short-lived `state` naming your organization and you.
+2. As an organization administrator open **Settings > Organization > Git & GitHub > GitHub App installations** and choose **Install on a GitHub account**. The link carries a signed, short-lived `state` naming your organization and you.
 3. GitHub sends you back with the installation id; Rocket Chat confirms with GitHub that it is a real installation of this App and maps it to your organization.
 
 GitHub sends you back through the App's Callback URL or its Setup URL, as configured in [Sign-in and installation redirects](#sign-in-and-installation-redirects).
 
-To map an installation that already exists, use the same link: GitHub shows the account's existing installation; open its configuration and save it. **Settings > GitHub** then says whether the installation was mapped, and if not, why.
+To map an installation that already exists, use the same link: GitHub shows the account's existing installation; open its configuration and save it. **Settings > Organization > Git & GitHub** then says whether the installation was mapped, and if not, why.
 
 Agents of an organization only ever use the installations mapped to it (matched to the repository owner), and GitHub webhook events are attributed to the organization that mapped the installation they came through. An organization with no mapping gets no App token. Single-organization installs that predate mapping can keep the old behaviour with `GITHUB_APP_ALLOW_UNMAPPED_INSTALLATIONS=true` (`github.allowUnmappedInstallations` in the Helm chart) and set `ROCKET_WEBHOOK_ORG_ID` for webhook sessions.
 
@@ -211,7 +207,7 @@ The sandbox has no GitHub credential, so the `gh` CLI cannot work there: the san
 | `gh search code/issues/prs/commits` | `github_search` |
 | `gh api` | `github_api` (REST or GraphQL) |
 
-**Credentials.** Reads use the session's read credential: the organization's GitHub App installation (read-only) or the member's linked account, else public data only. Changes use a write credential the platform resolves for the one repository, on the platform. With `pr_creation: as_user` and a linked account, that is the member's account. Otherwise it is the organization's App installation for that repository (only for repositories `app_token_target_repositories` allows), falling back to the member's account. Each result says who acted ("as @octocat" or "as the organization's GitHub App"). For changes through the App, give it **Issues**, **Pull requests** and **Contents** *Read & write* (Contents for releases), and **Actions** *Read & write* to re-run, cancel or start workflows. Without a credential that may make the change, the tool says so and the agent reports what it could not do. Tokens never appear in tool arguments, results or events.
+**Credentials.** Reads use the session's read credential: the organization's GitHub App installation (read-only) or the member's linked account, else public data only. Changes use a write credential the platform resolves for the one repository, on the platform. With `publish_as: member` and a linked account, that is the member's account. Otherwise it is the organization's App installation for that repository (only for repositories `app_token_target_repositories` allows), falling back to the member's account. Each result says who acted ("as @octocat" or "as the organization's GitHub App"). For changes through the App, give it **Issues**, **Pull requests** and **Contents** *Read & write* (Contents for releases), and **Actions** *Read & write* to re-run, cancel or start workflows. Without a credential that may make the change, the tool says so and the agent reports what it could not do. Tokens never appear in tool arguments, results or events.
 
 **Approval.** Reading never needs approval, even in *Plan* mode. Every change (a comment, a review, an edit, a release, a re-run, a `github_api` call other than `GET`) is a publish: *Ask* and *Auto-edit* request approval and *Plan* refuses it. Merging a pull request and any `github_api` `DELETE` always ask, in every mode except *Bypass*.
 
@@ -219,7 +215,7 @@ The sandbox has no GitHub credential, so the `gh` CLI cannot work there: the san
 
 ## Templates, schedules and webhooks name a repository for you
 
-A session never starts from a repository: the workspace is always blank and the agent clones what the task needs. Sources that know the repository in advance say so in the instruction instead: a session template or a schedule with a **Repository** (and optional branch) begins its prompt with *"Repository for this task: `owner/name`. Clone it with `clone_repository` first."*, and a GitHub webhook does the same for the repository of the issue or pull request (on a new `agent/issue-<n>-fix` branch unless the event names one). Repositories are `owner/name` or an `https://github.com/owner/name` URL; other schemes, credentials in the URL and local paths are refused. Your branch prefix (**Settings > Git & version control**) is part of the agent's context, so the branches it creates follow it.
+A session never starts from a repository: the workspace is always blank and the agent clones what the task needs. Sources that know the repository in advance say so in the instruction instead: a session template or a schedule with a **Repository** (and optional branch) begins its prompt with *"Repository for this task: `owner/name`. Clone it with `clone_repository` first."*, and a GitHub webhook does the same for the repository of the issue or pull request (on a new `agent/issue-<n>-fix` branch unless the event names one). Repositories are `owner/name` or an `https://github.com/owner/name` URL; other schemes, credentials in the URL and local paths are refused. Your branch prefix (**Settings > Git identity**) is part of the agent's context, so the branches it creates follow it.
 
 ### Repository setup
 
@@ -241,8 +237,8 @@ make base && make mocks
 Work through these in order; the agent's own explanation in the session usually names the first one.
 
 1. **The repository was never cloned.** Naming `owner/name` in the prompt does not clone it by itself; the agent has to call `clone_repository`. Ask it to, or check its steps in the session for the refusal it reports.
-2. **The linked GitHub token expired.** A GitHub App user token lives eight hours (OAuth Apps' tokens do not expire). Rocket Chat stores the expiry and an encrypted single-use refresh token when you link GitHub and renews the token before it is used, so a link made with this version keeps working. A link made earlier, or one GitHub revoked, is detected (`GET /user` is rejected), **withheld from the sandbox**, reported in the session ("Your linked GitHub token is no longer valid…") and the App installation token is used instead. Re-link under **Settings > Git & version control**.
-3. **No App installation is mapped to the organization.** The App fallback only mints tokens for installations mapped under **Settings > GitHub > GitHub App installations**. A single-organization deployment that predates mapping can set `GITHUB_APP_ALLOW_UNMAPPED_INSTALLATIONS=true` (the Helm chart's `github.allowUnmappedInstallations`); never enable it on a multi-organization deployment.
+2. **The linked GitHub token expired.** A GitHub App user token lives eight hours (OAuth Apps' tokens do not expire). Rocket Chat stores the expiry and an encrypted single-use refresh token when you link GitHub and renews the token before it is used, so a link made with this version keeps working. A link made earlier, or one GitHub revoked, is detected (`GET /user` is rejected), **withheld from the sandbox**, reported in the session ("Your linked GitHub token is no longer valid…") and the App installation token is used instead. Re-link under **Settings > Git identity**.
+3. **No App installation is mapped to the organization.** The App fallback only mints tokens for installations mapped under **Settings > Organization > Git & GitHub > GitHub App installations**. A single-organization deployment that predates mapping can set `GITHUB_APP_ALLOW_UNMAPPED_INSTALLATIONS=true` (the Helm chart's `github.allowUnmappedInstallations`); never enable it on a multi-organization deployment.
 4. **The image has no `git`.** Minimal images such as `python:3.12-slim` ship without it. Cloning installs `git` and CA certificates first (`apt-get` or `apk`, which needs a root sandbox); with `sandboxes.require_non_root` use an image that already includes git, such as the published devbox.
 
 ---
@@ -258,12 +254,12 @@ A session can hold several clones, each in `/workspace/<name>`. The first reposi
 The agent never pushes with its own credentials. Commits leave the sandbox through the **`git_push`** tool (and `git_open_pr`, which publishes first). The sandbox only packs the branch's new commits into a bundle; the platform imports it into a throwaway repository of its own (the one commit the work builds on, without file contents, so this is quick for any repository size), applies the signing mode and publishes from there. Nothing the agent configures in the sandbox (hooks, credential helpers, push URLs, `insteadOf` rules) takes part:
 
 * The sandbox holds no GitHub credential in any mode, so it cannot push: the git gateway serves reads only and refuses a push, and a hook explains that `git_push` is the way.
-* **`github_app` mode** replays the branch's new commits through GitHub's GraphQL `createCommitOnBranch` mutation, in order, with the same messages (including `Co-authored-by` trailers). GitHub signs them. The App needs **Contents: Read & write** and its installation must be **mapped to your organization** (Settings → GitHub → GitHub App installations). When no App token can be minted, the tool publishes with the member's own linked account instead (GitHub then shows them as the committer) and says so; with neither, it says what to check. Limits: symbolic links and submodules cannot be created this way (the tool refuses and says which file), a new executable file loses its executable bit (reported), merge commits must be rebased away, and one commit's file contents are limited to about 20 MB. Afterwards the sandbox's branch is moved onto the commits GitHub created, so local hashes change; uncommitted work is untouched.
-* **`gpg_key` mode** re-creates the new commits signed with the member's key (same tree, parents, author, committer, dates and message; the local hashes change and the sandbox's branch follows), then pushes them with the member's token. **`none`** pushes the commits as they are, with the member's token (else the App's).
-* `force_with_lease` lets `git_push` replace a remote branch that moved on, only from the remote head the sandbox last fetched. A repository that has no commits yet receives the whole branch (except in `github_app` mode, which can only add to an existing branch and says so).
+* **`github` signing** replays the branch's new commits through GitHub's GraphQL `createCommitOnBranch` mutation, in order, with the same messages (including `Co-authored-by` trailers). GitHub signs them. The App needs **Contents: Read & write** and its installation must be **mapped to your organization** (Settings → Organization → Git & GitHub → GitHub App installations). When no App token can be minted, the tool publishes with the member's own linked account instead (GitHub then shows them as the committer) and says so; with neither, it says what to check. Limits: symbolic links and submodules cannot be created this way (the tool refuses and says which file), a new executable file loses its executable bit (reported), merge commits must be rebased away, and one commit's file contents are limited to about 20 MB. Afterwards the sandbox's branch is moved onto the commits GitHub created, so local hashes change; uncommitted work is untouched.
+* **`member_gpg` signing** re-creates the new commits signed with the member's key (same tree, parents, author, committer, dates and message; the local hashes change and the sandbox's branch follows), then pushes them with the member's token. **`none`** pushes the commits as they are, with the member's token (else the App's).
+* `force_with_lease` lets `git_push` replace a remote branch that moved on, only from the remote head the sandbox last fetched. A repository that has no commits yet receives the whole branch (except with `github` signing, which can only add to an existing branch and says so).
 
-### Member signing keys (`gpg_key` mode)
+### Member signing keys (`member_gpg` signing)
 
-A member imports an armored private key under **Settings → Git & version control → Commit signing**. The key is checked by GnuPG itself in a throwaway keyring (it must be a usable, unexpired signing key; its passphrase must work; the commit e-mail must be one of its identities), stored encrypted, and never shown again; the page shows the fingerprint, the identities and the **public key** to add to GitHub (*Settings → SSH and GPG keys*). GitHub marks a commit **Verified** only when that public key is on the author's account and the commit e-mail is verified there.
+A member imports an armored private key under **Settings → Git identity → Commit signing**. The key is checked by GnuPG itself in a throwaway keyring (it must be a usable, unexpired signing key; its passphrase must work; the commit e-mail must be one of its identities), stored encrypted, and never shown again; the page shows the fingerprint, the identities and the **public key** to add to GitHub (*Settings → SSH and GPG keys*). GitHub marks a commit **Verified** only when that public key is on the author's account and the commit e-mail is verified there.
 
 The key never enters a sandbox. The agent's commits in the sandbox are unsigned; when it publishes, the platform signs them with the key in a temporary keyring (memory-backed where the host offers one) that is removed right after. Deployments need GnuPG in the API image (included); the sandbox image no longer needs it for signing.

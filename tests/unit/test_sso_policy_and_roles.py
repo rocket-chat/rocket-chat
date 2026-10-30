@@ -60,6 +60,15 @@ class _Session:
     async def get(self, _model: object, _user_id: str) -> _User | None:
         return None if self._role is None else _User(self._role, self._org_id)
 
+    async def execute(self, _statement: object) -> _NoMembership:
+        # No ``memberships`` row: the role comes from the person's home organization.
+        return _NoMembership()
+
+
+class _NoMembership:
+    def scalar_one_or_none(self) -> None:
+        return None
+
 
 class _Db:
     session_factory = object()
@@ -69,7 +78,7 @@ class _Db:
         self.org_id = org_id
         self.lookups = 0
 
-    def session(self) -> _Session:
+    def session(self, **_: object) -> _Session:
         self.lookups += 1
         return _Session(self.role, self.org_id)
 
@@ -85,14 +94,14 @@ async def test_demoted_admin_loses_rights_before_token_expiry() -> None:
     clear_role_cache()
     db = _Db("developer")
     live = await with_live_roles(_ctx(), db)
-    assert live.roles == ["developer"]
+    assert live.roles == ["member"]
 
 
 @pytest.mark.asyncio
 async def test_a_role_stored_in_another_organization_grants_nothing_here() -> None:
     clear_role_cache()
     live = await with_live_roles(_ctx(), _Db("admin", org_id="other_org"))
-    assert live.roles == ["readonly"]
+    assert live.roles == [], "no membership here: no role at all"
 
 
 @pytest.mark.asyncio
@@ -125,4 +134,4 @@ async def test_unknown_user_keeps_token_roles() -> None:
 @pytest.mark.asyncio
 async def test_a_human_guest_is_held_to_read_only() -> None:
     clear_role_cache()
-    assert (await with_live_roles(_ctx(), _Db("guest"))).roles == ["readonly"]
+    assert (await with_live_roles(_ctx(), _Db("guest"))).roles == ["viewer"]

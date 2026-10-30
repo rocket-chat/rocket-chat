@@ -3,6 +3,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useMissionStore } from "../lib/store";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { ReportDetails, SUBAGENT_STATUS_LABEL } from "./SubagentExecutionCard";
+import { formatElapsed } from "../lib/elapsed";
+import type { SubagentReport } from "../types/mission";
 import {
   AlertTriangle,
   Bot,
@@ -32,6 +35,8 @@ interface SubagentSummary {
   changed_files: string[];
   artefacts: string[];
   created_at: number;
+  model?: string;
+  report?: SubagentReport | null;
 }
 
 interface SubagentDetail extends SubagentSummary {
@@ -107,7 +112,7 @@ export const SubagentsPanel: React.FC = () => {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Bot className="w-4 h-4 text-brand" />
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-300">
+          <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-700 dark:text-neutral-300">
             Delegated Subagents ({subagents.length})
           </h3>
         </div>
@@ -115,7 +120,7 @@ export const SubagentsPanel: React.FC = () => {
           type="button"
           onClick={() => void loadSubagents()}
           disabled={isLoading}
-          className="p-1 rounded hover:bg-surface-elevated text-neutral-400 hover:text-neutral-200"
+          className="p-1 rounded hover:bg-surface-elevated text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-200"
           title="Refresh subagent transcripts"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
@@ -148,38 +153,43 @@ export const SubagentsPanel: React.FC = () => {
                     <span
                       className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase ${
                         isSuccess
-                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                          : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                          ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
+                          : "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300"
                       }`}
                     >
                       {isSuccess ? <CheckCircle2 className="w-2.5 h-2.5" /> : <AlertTriangle className="w-2.5 h-2.5" />}
-                      {sub.status}
+                      {SUBAGENT_STATUS_LABEL[sub.status === "failed" ? "error" : sub.status] ?? sub.status}
                     </span>
                   </div>
-                  <p className="text-xs text-neutral-400 line-clamp-2">{sub.task}</p>
+                  <p className="text-xs text-neutral-600 dark:text-neutral-400 line-clamp-2">{sub.task}</p>
                 </div>
 
                 <button
                   type="button"
                   data-testid="subagent-transcript-toggle"
                   onClick={() => void loadDetail(sub.subagent_id)}
-                  className="p-1 text-neutral-400 hover:text-neutral-200 cursor-pointer"
+                  className="p-1 text-neutral-600 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-200 cursor-pointer"
                   title="Toggle transcript"
                 >
                   {isSelected ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                 </button>
               </div>
 
-              {sub.summary && (
-                <div className="rounded-lg border border-surface-border bg-surface-base/80 p-2.5 text-xs text-neutral-300">
-                  <MarkdownRenderer content={sub.summary} />
+              {(sub.report?.summary || sub.summary) && (
+                <div className="rounded-lg border border-surface-border bg-surface-base/80 p-2.5 text-xs text-neutral-700 dark:text-neutral-700 dark:text-neutral-300">
+                  <MarkdownRenderer content={sub.report?.summary || sub.summary} />
+                </div>
+              )}
+              {sub.report && (
+                <div className="space-y-2 text-xs" data-testid="subagent-report">
+                  <ReportDetails report={sub.report} />
                 </div>
               )}
 
               {sub.changed_files.length > 0 && (
                 <div className="flex flex-wrap gap-1 font-mono text-[10px]">
                   {sub.changed_files.map((file, idx) => (
-                    <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-elevated border border-surface-border text-neutral-400">
+                    <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-elevated border border-surface-border text-neutral-600 dark:text-neutral-400">
                       <FileCode className="w-2.5 h-2.5" />
                       {file}
                     </span>
@@ -187,16 +197,17 @@ export const SubagentsPanel: React.FC = () => {
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono text-neutral-500 pt-1 border-t border-surface-border/50">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono text-neutral-600 dark:text-neutral-400 pt-1 border-t border-surface-border/50">
                 <span className="inline-flex items-center gap-1">
                   <Clock className="w-3 h-3" />
-                  {sub.duration_ms}ms
+                  {formatElapsed(sub.duration_ms)}
                 </span>
-                <span>{sub.turns_taken} turns</span>
+                {sub.model && <span>{sub.model}</span>}
+                <span>{sub.turns_taken} steps</span>
                 <span>{sub.tool_calls_count} tools</span>
                 {sub.tokens > 0 && <span>{sub.tokens} tokens</span>}
                 {sub.cost_usd > 0 && (
-                  <span className="inline-flex items-center gap-0.5 text-emerald-400">
+                  <span className="inline-flex items-center gap-0.5 text-emerald-800 dark:text-emerald-400">
                     <Coins className="w-3 h-3" />
                     ${sub.cost_usd.toFixed(4)}
                   </span>
@@ -205,7 +216,7 @@ export const SubagentsPanel: React.FC = () => {
 
               {isSelected && (
                 <div className="pt-2 border-t border-surface-border space-y-2">
-                  <h4 className="text-[11px] font-mono uppercase tracking-wider text-neutral-400">
+                  <h4 className="text-[11px] font-mono uppercase tracking-wider text-neutral-600 dark:text-neutral-400">
                     Execution Transcript
                   </h4>
                   {isDetailLoading ? (
@@ -220,7 +231,7 @@ export const SubagentsPanel: React.FC = () => {
                           key={i}
                           className={`p-2 rounded-lg text-xs ${
                             msg.role === "user"
-                              ? "bg-surface-elevated/70 border border-surface-border text-neutral-300"
+                              ? "bg-surface-elevated/70 border border-surface-border text-neutral-700 dark:text-neutral-300"
                               : "bg-surface-card/80 text-foreground"
                           }`}
                         >

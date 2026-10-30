@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
 import { FlightTelemetryHeader } from "./FlightTelemetryHeader";
@@ -9,14 +9,17 @@ import { FlightLogStream } from "./FlightLogStream";
 import { IgnitionConsole } from "./IgnitionConsole";
 import { InspectorTop } from "./InspectorTop";
 import { useSessionStatusPolling } from "../lib/useSessionStatusPolling";
+import { useTurnAttention } from "../lib/turn-attention";
 import { StreamingTerminal } from "./StreamingTerminal";
 import { SessionSidebar } from "./Sidebar/SessionSidebar";
 import { TurnInspector } from "./TurnInspector";
 import { MemoryInspector } from "./MemoryInspector";
-import { ArtifactsDrawer } from "./ArtifactsDrawer";
 import { MissionWebSocket } from "../lib/websocket";
+import { useCockpitSend } from "../lib/cockpit-events";
+import { CommandPalette } from "./CommandPalette";
 import { newMessageId } from "../lib/message-id";
 import { useMissionStore } from "../lib/store";
+import type { ApprovalRememberScope } from "../types/mission";
 import { useAuth } from "./AuthProvider";
 import { GripVertical, X } from "lucide-react";
 
@@ -102,6 +105,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
   const { user } = useAuth();
   const token = user?.accessToken || "";
   useSessionStatusPolling(token);
+  useTurnAttention(session?.title ? `${session.title} · Rocket Chat` : "Rocket Chat");
   const activeSessionId = sessionId || session?.session_id;
   const isDraft = !activeSessionId || activeSessionId === "draft" || activeSessionId === "new" || session?.is_draft;
 
@@ -165,7 +169,17 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
     wsRef.current?.cancelTurn();
   };
 
-  const handleRetryTurn = (prompt: string) => {
+  const sendFromCockpit = useCallback(
+    (text: string) => {
+      const messageId = newMessageId();
+      useMissionStore.getState().appendOwnUserMessage({ messageId, content: text, authorUserId: user?.user_id ?? null });
+      wsRef.current?.sendTurn(text, undefined, messageId, undefined, "steer");
+    },
+    [user?.user_id],
+  );
+  useCockpitSend(sendFromCockpit);
+
+  const handleRetryTurn = (prompt: string, model?: string) => {
     // Recovery for an interrupted turn: re-dispatch its prompt as a fresh turn,
     // recording the optimistic entry so the echoed broadcast dedupes against it.
     const messageId = newMessageId();
@@ -174,15 +188,15 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
       content: prompt,
       authorUserId: user?.user_id ?? null,
     });
-    wsRef.current?.sendTurn(prompt, undefined, messageId);
+    wsRef.current?.sendTurn(prompt, model, messageId);
   };
 
   const handleAnswerQuestion = (questionId: string, selectedOptions: string[], customText?: string) => {
     wsRef.current?.answerQuestion(questionId, selectedOptions, customText);
   };
 
-  const handleApprove = (actionId: string) => {
-    wsRef.current?.submitApproval(actionId, true);
+  const handleApprove = (actionId: string, remember?: ApprovalRememberScope) => {
+    wsRef.current?.submitApproval(actionId, true, remember);
     // Clear the gate optimistically; the server confirms via decision_submitted.
     useMissionStore.getState().setActiveApproval(null);
   };
@@ -194,6 +208,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
 
   return (
     <div className="h-full w-full flex flex-col bg-surface-base text-foreground font-sans overflow-hidden">
+      <CommandPalette />
       {/* Top Application Header */}
       <FlightTelemetryHeader />
       {!isDraft && <ConnectionBanner key={activeSessionId} />}
@@ -211,6 +226,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                   onAnswerQuestion={handleAnswerQuestion}
                   onApprove={handleApprove}
                   onReject={handleReject}
+                  onRetryTurn={handleRetryTurn}
                   opening={opening}
                 />
               <IgnitionConsole
@@ -249,7 +265,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
               )}
             </div>
           ) : (
-            <PanelGroup direction="horizontal" className="h-full w-full">
+            <PanelGroup direction="horizontal" autoSaveId="rocket-cockpit-panels" className="h-full w-full">
               {/* Center Panel: Continuous Flight Stream & Ignition Console */}
               <Panel
                 id="flight-stream-panel"
@@ -262,6 +278,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
                   onAnswerQuestion={handleAnswerQuestion}
                   onApprove={handleApprove}
                   onReject={handleReject}
+                  onRetryTurn={handleRetryTurn}
                   opening={opening}
                 />
                 <IgnitionConsole
@@ -312,9 +329,6 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
 
       {/* Memory Inspector slide-over (view/forget long-term memory) */}
       <MemoryInspector />
-
-      {/* Artifacts Drawer slide-over (persistent deliverables) */}
-      <ArtifactsDrawer />
     </div>
   );
 };

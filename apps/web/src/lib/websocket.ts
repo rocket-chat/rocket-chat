@@ -1,6 +1,7 @@
 import { useMissionStore } from "./store";
 import { formatEventTime } from "./store/helpers";
 import {
+  ApprovalRememberScope,
   ArtifactItem,
   ChecklistTask,
   DecisionQuestion,
@@ -8,8 +9,11 @@ import {
   FlightLogEntry,
   ReplayFrame,
   SessionData,
+  SubagentReport,
+  SubagentStep,
   SyncFrame,
   TurnBinding,
+  TurnErrorInfo,
 } from "../types/mission";
 import {
   advanceCursor,
@@ -22,6 +26,7 @@ import {
 import { isCoveredText, planSync, type SyncPlan } from "./sync-plan";
 import { sessionUpdateFrom } from "./session-update";
 import { isArtifactCall } from "./artifact-calls";
+import { noticeEntry, noticeText } from "./system-notices";
 
 /**
  * The transport boundary. Server frames are untyped JSON whose payload shape is
@@ -37,6 +42,8 @@ interface EventPayload {
   error?: string;
   reason?: string;
   turns_taken?: number;
+  step?: number;
+  error_kind?: string;
   max_turns?: number;
   name?: string;
   id?: string;
@@ -44,6 +51,12 @@ interface EventPayload {
   result?: unknown;
   duration_ms?: number;
   subagent_id?: string;
+  subagent_role?: string;
+  parent_tool_call_id?: string | null;
+  isolation?: string;
+  background?: boolean;
+  branch?: string | null;
+  report?: SubagentReport | null;
   role?: string;
   task?: string;
   is_reasoning?: boolean;
@@ -71,6 +84,10 @@ interface EventPayload {
   options?: string[];
   is_multi_select?: boolean;
   default_recommended_option?: string | null;
+  remember_options?: string[];
+  tool?: string;
+  diff?: string;
+  repository?: string;
   action_id?: string;
   action_type?: string;
   command_or_path?: string;
@@ -91,6 +108,14 @@ interface EventPayload {
   wait_type?: string;
   target?: string;
   timeout_seconds?: number | null;
+  /** Spend limits (`budget_warning`, `budget_blocked`). */
+  limit_id?: string;
+  subject?: string;
+  period?: string;
+  label?: string;
+  spent?: number;
+  amount?: number;
+  resets_at?: number | null;
   [field: string]: unknown;
 }
 
@@ -150,11 +175,28 @@ function subagentThought(log: FlightLogEntry[], subagentId: string): string {
   return "";
 }
 
-/** The server's outcome (`completed`, `partial`, `failed`, `cancelled`) as the cockpit shows it. */
+/** The server's outcome (`completed`, `partial`, `blocked`, `failed`, `cancelled`) as the cockpit shows it. */
 function subagentStatus(status: unknown): string {
   if (status === "failed" || status === "error") return "error";
-  if (status === "partial" || status === "cancelled") return status;
+  if (status === "partial" || status === "cancelled" || status === "blocked") return status;
   return "completed";
+}
+
+/** A subagent's own step, as its card lists it. */
+function subagentStep(payload: EventPayload, settled: boolean): SubagentStep {
+  const result = payload.result;
+  return {
+    id: String(payload.id ?? ""),
+    name: payload.name || "tool",
+    arguments: payload.arguments,
+    status: !settled ? "pending" : payload.status === "error" ? "error" : "success",
+    ...(settled
+      ? {
+          result: typeof result === "string" ? result : JSON.stringify(result, null, 2),
+          duration_ms: payload.duration_ms,
+        }
+      : {}),
+  };
 }
 
 export class MissionWebSocket {
@@ -163,10 +205,15 @@ export class MissionWebSocket {
   private sessionId: string;
   private token: string;
   private reconnectAttempts = 0;
+  /** Streamed text received since the last frame, in arrival order (see `bufferDelta`). */
+  private pendingDeltas: Array<{ kind: "token" | "reasoning_token"; text: string; time: string }> = [];
+  private deltaFrame: number | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   /** Removes the page listeners that reconnect at once when the tab or network comes back. */
   private detachWakeListeners: (() => void) | null = null;
   private isExplicitlyClosed = false;
+  // The typed refusal (`budget_blocked`, `agent_access_denied`) the turn's `error` follows.
+  private pendingRefusal: Pick<TurnErrorInfo, "limit" | "agent"> | null = null;
   /** Cursor this connection asked the server to replay from, if any. */
   private resumeRequestedSeq: number | null = null;
   /** True while the transcript is being rebuilt from the session snapshot. */
@@ -349,6 +396,7 @@ export class MissionWebSocket {
     // the conversation open before (a switch) or none at all: the socket's session is the one asked
     // for, and its snapshot is the only record that comes with the running turn.
     if (activeMissionWebSocket !== this) return;
+    this.flushDeltas();
     const store = useMissionStore.getState();
     if (frame.session && frame.session.session_id === this.sessionId) {
       store.setSession(frame.session);
@@ -357,6 +405,10 @@ export class MissionWebSocket {
       store.setIsExecuting(true);
       const binding = runningTurnBinding(frame);
       if (binding) store.setTurnBinding(binding);
+      const startedAt = frame.running_turn.started_at;
+      if (typeof startedAt === "number") {
+        store.noteTurnProgress({ startedAt: startedAt * 1000, lastActivityAt: Date.now() });
+      }
     }
     this.applySyncPlan(planSync(frame));
     // A turn paused on a person before this tab connected: show the card it is waiting on.
@@ -462,6 +514,8 @@ export class MissionWebSocket {
       );
       if (typeof event.seq === "number") advanceCursor(this.sessionId, event.seq);
     }
+    // The catch-up is applied as a whole, not a frame later.
+    this.flushDeltas();
     if (plan.continueFrom !== null) adoptCursor(this.sessionId, plan.continueFrom);
   }
 
@@ -518,6 +572,66 @@ export class MissionWebSocket {
     }
   }
 
+  private bufferDelta(kind: "token" | "reasoning_token", delta: string, time: string): void {
+    const last = this.pendingDeltas[this.pendingDeltas.length - 1];
+    if (last && last.kind === kind) last.text += delta;
+    else this.pendingDeltas.push({ kind, text: delta, time });
+    if (this.deltaFrame !== null) return;
+    const schedule =
+      typeof requestAnimationFrame === "function" ? requestAnimationFrame : (fn: () => void) => setTimeout(fn, 16);
+    this.deltaFrame = schedule(() => {
+      this.deltaFrame = null;
+      this.flushDeltas();
+    }) as unknown as number;
+  }
+
+  private flushDeltas(): void {
+    if (this.pendingDeltas.length === 0) return;
+    const pending = this.pendingDeltas;
+    this.pendingDeltas = [];
+    const store = useMissionStore.getState();
+    for (const { kind, text, time } of pending) {
+      if (kind === "token") {
+        store.updateLastAgentLog(text, time);
+      } else {
+        store.appendReasoning(text, time);
+        store.setIsReasoningActive(true);
+      }
+    }
+    store.setIsExecuting(true);
+  }
+
+  /** Keeps the running turn's progress line current: when it began, its step, its tool, its last sign of life. */
+  private trackTurnProgress(eventType: string, payload: EventPayload): void {
+    const store = useMissionStore.getState();
+    const progress = store.turnProgress;
+    const now = Date.now();
+    if (eventType === "status_changed") {
+      const status = (payload.status || payload.state || "").toLowerCase();
+      if (payload.final === true || ["completed", "error", "failed", "cancelled", "waiting"].includes(status)) {
+        store.resetTurnProgress();
+      } else if (status === "running" || status === "retrying") {
+        store.noteTurnProgress({
+          startedAt: progress.startedAt ?? now,
+          step: typeof payload.step === "number" ? payload.step : progress.step,
+          lastActivityAt: now,
+        });
+      }
+      return;
+    }
+    if ((eventType === "tool_started" || eventType === "tool_completed") && payload.subagent_id) {
+      // A subagent's step: the turn's own current tool is still the delegation.
+      store.noteTurnProgress({ lastActivityAt: now });
+    } else if (eventType === "tool_started") {
+      store.noteTurnProgress({ currentTool: { name: payload.name || "tool", startedAt: now }, lastActivityAt: now });
+    } else if (eventType === "tool_completed") {
+      store.noteTurnProgress({ currentTool: null, lastActivityAt: now });
+    } else if (progress.startedAt !== null && (progress.lastActivityAt === null || now - progress.lastActivityAt >= 1000)) {
+      // Tokens arrive many times a second: a second's precision is all the line shows.
+      store.noteTurnProgress({ lastActivityAt: now });
+    }
+  }
+
   private applyEvent(
     eventType: string,
     payload: EventPayload,
@@ -530,19 +644,16 @@ export class MissionWebSocket {
     // Entries the conversation derives from an event are named by its sequence number, so a
     // replayed or re-synced event lands on the entry it made the first time.
     const eventKey = seq ?? Date.now();
+    this.trackTurnProgress(eventType, payload);
+    // Streamed text arrives many times a frame: it is applied once per frame. Anything else
+    // applies what is waiting first, so the conversation keeps the order events came in.
+    if (eventType === "token" || eventType === "reasoning_token") {
+      this.bufferDelta(eventType, payload.delta || "", eventTime);
+      return;
+    }
+    this.flushDeltas();
 
     switch (eventType) {
-      case "token":
-        store.updateLastAgentLog(payload.delta || "", eventTime);
-        store.setIsExecuting(true);
-        break;
-
-      case "reasoning_token":
-        store.appendReasoning(payload.delta || "", eventTime);
-        store.setIsReasoningActive(true);
-        store.setIsExecuting(true);
-        break;
-
       case "status_changed": {
         const rawStatus = (payload.status || payload.state || "").toLowerCase();
         const message = payload.message || payload.error || rawStatus || "";
@@ -587,12 +698,9 @@ export class MissionWebSocket {
 
           if (rawStatus === "error" || rawStatus === "failed" || payload.error) {
             const errText = payload.error || payload.message || "Unknown execution error";
-            store.appendFlightLog({
-              id: `err-${eventKey}`,
-              role: "SYSTEM",
-              content: `⚠️ Mission Execution Error: ${errText}`,
-              timestamp: eventTime,
-            });
+            store.appendFlightLog(
+              noticeEntry(`err-${eventKey}`, { kind: "turn_failed", message: String(errText) }, eventTime)
+            );
           }
 
         }
@@ -602,13 +710,10 @@ export class MissionWebSocket {
       case "post_failure_synthesis": {
         const turns = payload.turns_taken || payload.max_turns || 60;
         const reason = payload.reason || "Turn limit reached";
-        store.setStatusMessage(`Synthesizing findings: ${reason}`);
-        store.appendFlightLog({
-          id: `synthesis-${eventKey}`,
-          role: "SYSTEM",
-          content: `⚡ Turn Budget Exceeded (${turns} turns) — Synthesizing final answer from gathered context...`,
-          timestamp: eventTime,
-        });
+        store.setStatusMessage(`Writing the answer: ${reason}`);
+        store.appendFlightLog(
+          noticeEntry(`synthesis-${eventKey}`, { kind: "step_limit", steps: Number(turns), reason: String(reason) }, eventTime)
+        );
         break;
       }
 
@@ -616,12 +721,9 @@ export class MissionWebSocket {
         if (payload.state === "failed") {
           const reason = payload.message || "The sandbox could not start.";
           store.setStatusMessage(reason);
-          store.appendFlightLog({
-            id: `sandbox-${eventKey}`,
-            role: "SYSTEM",
-            content: `⚠️ ${reason}`,
-            timestamp: eventTime,
-          });
+          store.appendFlightLog(
+            noticeEntry(`sandbox-${eventKey}`, { kind: "sandbox_failed", message: String(reason) }, eventTime)
+          );
         } else if (payload.state) {
           store.applySessionUpdate(frameSessionId ?? "", {
             sandbox_status: payload.state,
@@ -653,16 +755,64 @@ export class MissionWebSocket {
         store.setStatusMessage(`Error: ${errText}`);
         store.setIsExecuting(false);
         store.setIsReasoningActive(false);
+        const lastPrompt = [...store.flightLog].reverse().find((entry) => entry.role === "USER")?.content ?? null;
+        const failed = { kind: "turn_failed", message: String(errText) } as const;
         store.appendFlightLog({
           id: `err-${eventKey}`,
           role: "SYSTEM",
-          content: `⚠️ Mission Execution Error: ${errText}`,
+          content: noticeText(failed),
           timestamp: eventTime,
+          notice: failed,
+          turnError: {
+            message: errText,
+            kind: payload.error_kind || "internal",
+            prompt: lastPrompt,
+            ...(this.pendingRefusal ?? {}),
+          },
         });
+        this.pendingRefusal = null;
+        break;
+      }
+
+      case "budget_blocked": {
+        this.pendingRefusal = {
+          limit: {
+            limit_id: String(payload.limit_id ?? ""),
+            subject: String(payload.subject ?? ""),
+            period: String(payload.period ?? ""),
+            spent: Number(payload.spent ?? 0),
+            amount: Number(payload.amount ?? 0),
+            resets_at: typeof payload.resets_at === "number" ? payload.resets_at : null,
+          },
+        };
+        break;
+      }
+
+      case "agent_access_denied": {
+        this.pendingRefusal = {
+          agent: { id: String(payload.agent_id ?? ""), name: String(payload.agent_name ?? "") },
+        };
+        break;
+      }
+
+      case "budget_warning": {
+        const spent = Number(payload.spent ?? 0);
+        const amount = Number(payload.amount ?? 0);
+        store.appendFlightLog(
+          noticeEntry(
+            `budget-${eventKey}`,
+            { kind: "spend_warning", label: String(payload.label ?? "Spend limit"), spent, amount },
+            eventTime
+          )
+        );
         break;
       }
 
       case "tool_started": {
+        if (payload.subagent_id) {
+          store.upsertSubagentStep(payload.subagent_id, subagentStep(payload, false));
+          break;
+        }
         const toolName = payload.name || "";
         const toolId = payload.id;
         const toolCreatedAt =
@@ -688,6 +838,10 @@ export class MissionWebSocket {
       }
 
       case "tool_completed": {
+        if (payload.subagent_id) {
+          store.upsertSubagentStep(payload.subagent_id, subagentStep(payload, true));
+          break;
+        }
         const toolName = payload.name || "";
         const toolId = payload.id;
         const toolCreatedAt =
@@ -722,6 +876,11 @@ export class MissionWebSocket {
             role,
             task,
             status: "running",
+            model: payload.model,
+            isolation: payload.isolation,
+            background: payload.background,
+            parentToolCallId: payload.parent_tool_call_id ?? null,
+            steps: [],
           },
         });
         break;
@@ -748,6 +907,9 @@ export class MissionWebSocket {
             cost: payload.cost,
             changed_files: payload.changed_files,
             artefacts: payload.artefacts,
+            model: payload.model,
+            branch: payload.branch ?? null,
+            report: payload.report ?? null,
           });
         }
         break;
@@ -780,6 +942,7 @@ export class MissionWebSocket {
           options: payload.options || [],
           is_multi_select: payload.is_multi_select || false,
           default_recommended_option: payload.default_recommended_option,
+          subagent_role: payload.subagent_role,
         };
         store.setActiveDecision(question);
         break;
@@ -791,11 +954,20 @@ export class MissionWebSocket {
         break;
 
       case "approval_required": {
+        const remember = Array.isArray(payload.remember_options)
+          ? payload.remember_options.filter((o): o is ApprovalRememberScope => o === "session" || o === "repository")
+          : [];
         store.setActiveApproval({
           action_id: payload.action_id || "",
           action_type: payload.action_type || "action",
           description: payload.command_or_path || payload.description || "",
           risk_level: payload.risk_level || "medium",
+          tool: typeof payload.tool === "string" ? payload.tool : undefined,
+          arguments: payload.arguments,
+          diff: typeof payload.diff === "string" ? payload.diff : undefined,
+          repository: typeof payload.repository === "string" ? payload.repository : undefined,
+          remember_options: remember,
+          subagent_role: payload.subagent_role,
         });
         break;
       }
@@ -816,7 +988,7 @@ export class MissionWebSocket {
             store.appendFlightLog({
               id: `artifact-${art.id}-${art.version || eventKey}`,
               role: "SYSTEM",
-              content: `Deliverable: ${art.title} (${art.filename})`,
+              content: `Artifact: ${art.title} (${art.filename})`,
               timestamp: eventTime,
               artifact: art,
             });
@@ -830,14 +1002,20 @@ export class MissionWebSocket {
         const tokensBefore = payload.tokens_before ?? 0;
         const tokensAfter = payload.tokens_after ?? 0;
         const summary = typeof payload.summary === "string" ? payload.summary : "Working context compacted";
-        store.appendFlightLog({
-          id: `compacted-${eventKey}`,
-          role: "SYSTEM",
-          content: `Context Compacted: Compressed ${count} messages from ${Number(tokensBefore).toLocaleString()} to ${Number(tokensAfter).toLocaleString()} tokens.${
-            payload.summary_status === "digest" ? " The model's summary was unusable, so it was rebuilt from the tool history." : ""
-          }\n\n${summary}`,
-          timestamp: eventTime,
-        });
+        store.appendFlightLog(
+          noticeEntry(
+            `compacted-${eventKey}`,
+            {
+              kind: "compaction",
+              compactedMessages: Number(count),
+              tokensBefore: Number(tokensBefore),
+              tokensAfter: Number(tokensAfter),
+              summary,
+              rebuilt: payload.summary_status === "digest",
+            },
+            eventTime
+          )
+        );
         break;
       }
 
@@ -845,12 +1023,13 @@ export class MissionWebSocket {
         const turnIdx = payload.continuation_index ?? 1;
         const maxTurns = payload.max_continuations ?? 10;
         const reason = payload.reason || "Turn step limit reached with unfinished tasks";
-        store.appendFlightLog({
-          id: `continuation-${eventKey}`,
-          role: "SYSTEM",
-          content: `Goal Continuation (${turnIdx}/${maxTurns}): ${reason}`,
-          timestamp: eventTime,
-        });
+        store.appendFlightLog(
+          noticeEntry(
+            `continuation-${eventKey}`,
+            { kind: "continuation", index: Number(turnIdx), max: Number(maxTurns), reason: String(reason) },
+            eventTime
+          )
+        );
         break;
       }
 
@@ -1080,12 +1259,9 @@ export class MissionWebSocket {
       store.setIsExecuting(false);
       store.setIsReasoningActive(false);
       store.setStatusMessage(`Failed to dispatch message: ${msg}`);
-      store.appendFlightLog({
-        id: `err-send-${Date.now()}`,
-        role: "SYSTEM",
-        content: `⚠️ Dispatch Error: Failed to transmit instruction to backend (${msg}).`,
-        timestamp: new Date().toLocaleTimeString(),
-      });
+      store.appendFlightLog(
+        noticeEntry(`err-send-${Date.now()}`, { kind: "send_failed", message: msg }, new Date().toLocaleTimeString())
+      );
     }
   }
 
@@ -1093,13 +1269,8 @@ export class MissionWebSocket {
     const store = useMissionStore.getState();
     store.setIsExecuting(false);
     store.setIsReasoningActive(false);
-    store.setStatusMessage("Turn interrupted by user.");
-    store.appendFlightLog({
-      id: `cancel-${Date.now()}`,
-      role: "SYSTEM",
-      content: "🛑 Mission Turn Cancelled / Interrupted.",
-      timestamp: new Date().toLocaleTimeString(),
-    });
+    store.setStatusMessage("Turn stopped.");
+    store.appendFlightLog(noticeEntry(`cancel-${Date.now()}`, { kind: "turn_stopped" }, new Date().toLocaleTimeString()));
 
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       try {
@@ -1136,13 +1307,15 @@ export class MissionWebSocket {
     }
   }
 
-  public submitApproval(actionId: string, approved: boolean): void {
+  /** Answer an approval; ``remember`` saves a "yes" for the session or the repository. */
+  public submitApproval(actionId: string, approved: boolean, remember?: ApprovalRememberScope): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(
         JSON.stringify({
           type: "approval",
           action_id: actionId,
           approved,
+          ...(approved && remember ? { remember } : {}),
         })
       );
     }
@@ -1161,6 +1334,7 @@ export class MissionWebSocket {
 
   public disconnect(): void {
     this.isExplicitlyClosed = true;
+    this.flushDeltas();
     this.detachWakeListeners?.();
     this.detachWakeListeners = null;
     if (this.reconnectTimer) {

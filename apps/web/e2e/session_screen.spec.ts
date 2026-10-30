@@ -18,7 +18,7 @@ test.describe("Session screen", () => {
     await expect(page.getByTestId("share-trigger")).toContainText("Share");
     await page.getByTestId("view-menu-trigger").click();
     const menu = page.getByRole("menu");
-    for (const name of ["Deliverables", "Turn history", "Memory", "Settings"]) {
+    for (const name of ["Artifacts", "Turn history", "Memory", "Settings"]) {
       await expect(menu.getByRole("menuitem", { name })).toBeVisible();
     }
     await page.keyboard.press("Escape");
@@ -109,7 +109,7 @@ test.describe("Session screen", () => {
       status: "failed",
     });
     await expect(page.getByText("Gave up: the repository is not cloned.")).toBeVisible();
-    await expect(page.getByText("error", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("subagent-status")).toHaveText("Failed");
   });
 
   test("typing in the composer keeps Enter and Escape for the composer", async ({ page, request }) => {

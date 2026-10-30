@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from agent_core.permissions import permission_class
 from agent_core.tool_loading import ALWAYS_LOADED, deferred_names, sent_count
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -46,6 +47,9 @@ class ToolCatalogEntry(BaseModel):
     description: str
     category: str
     toolset: str | None = None
+    permission: str = Field(
+        default="command", description="read, edit, command or publish (what approval it needs)"
+    )
 
 
 class ToolCatalogResponse(BaseModel):
@@ -80,6 +84,7 @@ async def list_tools(request: Request) -> ToolCatalogResponse:
             description=(definition.description or "").strip(),
             category=_category(definition.name, registry.toolset_of(definition.name)),
             toolset=registry.toolset_of(definition.name),
+            permission=permission_class(definition.name),
         )
         for definition in registry.catalog()
     ]

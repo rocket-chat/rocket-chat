@@ -7,6 +7,7 @@ callbacks, so one organization's edits never change another's delegates.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import re
 import time
@@ -18,7 +19,7 @@ from sqlalchemy import select
 
 from api.db.models import SubagentConfigEntityModel
 from api.models import SubagentConfigModel
-from specifications.interfaces.agent import SubagentConfig
+from specifications.interfaces.agent import DEFAULT_SUBAGENT_INHERIT, SubagentConfig
 
 # Development-only store used without a database: org id -> role id -> config.
 _memory: dict[str, dict[str, SubagentConfigModel]] = {}
@@ -36,37 +37,40 @@ def _row_prefix(org_id: str) -> str:
     return hashlib.sha256(org_id.encode()).hexdigest()[:12] + ":"
 
 
+# The fields an organization stores for a role (the API model, the row and the config share them).
+_STORED_FIELDS = (
+    "name", "role_title", "description", "system_prompt", "model", "max_turns",
+    "whitelisted_tools", "disallowed_tools", "temperature", "enabled", "tier",
+    "reasoning_effort", "max_cost_usd", "max_wall_seconds", "isolation", "can_ask_user",
+    "inherit", "output_schema",
+)  # fmt: skip
+
+
 def _to_model(config: SubagentConfig) -> SubagentConfigModel:
     return SubagentConfigModel(
         id=config.id,
-        name=config.name,
-        role_title=config.role_title,
-        description=config.description,
-        system_prompt=config.system_prompt,
-        model=config.model,
-        max_turns=config.max_turns,
-        whitelisted_tools=list(config.whitelisted_tools),
-        temperature=config.temperature,
-        enabled=config.enabled,
+        source="builtin" if config.source == "builtin" else "org",
+        **{name: copy.deepcopy(getattr(config, name)) for name in _STORED_FIELDS},
     )
 
 
 def _to_config(model: SubagentConfigModel) -> SubagentConfig:
-    base = DEFAULT_SUBAGENT_CONFIGS.get(model.id)
-    config = SubagentConfig(
-        id=model.id,
-        name=model.name,
-        role_title=model.role_title,
-        description=model.description,
-        system_prompt=model.system_prompt,
-        model=model.model,
-        max_turns=model.max_turns,
-        whitelisted_tools=list(model.whitelisted_tools),
-        temperature=model.temperature,
-        enabled=model.enabled,
-    )
+    values = {name: copy.deepcopy(getattr(model, name)) for name in _STORED_FIELDS}
     # Delegation rights are never configurable from the API.
-    return replace(config, can_delegate=False, can_ask_user=base.can_ask_user if base else False)
+    return SubagentConfig(id=model.id, source="org", can_delegate=False, **values)
+
+
+def _row_values(row: SubagentConfigEntityModel) -> dict[str, Any]:
+    values = {name: getattr(row, name) for name in _STORED_FIELDS}
+    # Columns added after a row was written read as their defaults.
+    values["whitelisted_tools"] = list(row.whitelisted_tools or ["*"])
+    values["disallowed_tools"] = list(row.disallowed_tools or [])
+    values["inherit"] = (
+        list(row.inherit) if row.inherit is not None else list(DEFAULT_SUBAGENT_INHERIT)
+    )
+    values["tier"] = row.tier or "default"
+    values["isolation"] = row.isolation or "none"
+    return values
 
 
 async def _overrides(db_mgr: Any, org_id: str) -> dict[str, SubagentConfigModel]:
@@ -79,16 +83,7 @@ async def _overrides(db_mgr: Any, org_id: str) -> dict[str, SubagentConfigModel]
         prefix = _row_prefix(org_id)
         return {
             row.id.removeprefix(prefix): SubagentConfigModel(
-                id=row.id.removeprefix(prefix),
-                name=row.name,
-                role_title=row.role_title,
-                description=row.description,
-                system_prompt=row.system_prompt,
-                model=row.model,
-                max_turns=row.max_turns,
-                whitelisted_tools=list(row.whitelisted_tools or ["*"]),
-                temperature=row.temperature,
-                enabled=row.enabled,
+                id=row.id.removeprefix(prefix), **_row_values(row)
             )
             for row in rows.scalars().all()
         }
@@ -174,18 +169,8 @@ async def save_subagent_config(
             .scalars()
             .first()
         )
-        fields = {
-            "name": config.name,
-            "role_title": config.role_title,
-            "description": config.description,
-            "system_prompt": config.system_prompt,
-            "model": config.model,
-            "max_turns": config.max_turns,
-            "whitelisted_tools": config.whitelisted_tools,
-            "temperature": config.temperature,
-            "enabled": config.enabled,
-            "updated_at": now,
-        }
+        fields = {name: getattr(config, name) for name in _STORED_FIELDS}
+        fields["updated_at"] = now
         if row is None:
             session.add(
                 SubagentConfigEntityModel(

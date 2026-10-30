@@ -25,9 +25,11 @@ test("the MCP form saves credentials and per-member OAuth mode", async ({ page }
 
   await page.goto("/settings/mcp");
   await page.getByRole("button", { name: /Add org server/i }).click();
+  await page.getByTestId("mcp-next").click();
   await page.getByPlaceholder("e.g. Stripe Billing MCP").fill("E2E Linear");
   await page.getByPlaceholder("https://api.internal.service/mcp").fill("https://mcp.example/mcp");
-  await page.locator("select").filter({ hasText: /OAuth 2\.1/ }).first().selectOption("oauth2");
+  await page.getByTestId("mcp-next").click();
+  await page.getByLabel("Authentication Mode").selectOption("oauth2");
   await page.getByTestId("mcp-oauth-member-mode").check();
   const signIn = page.context().waitForEvent("page");
   await page.getByRole("button", { name: /Add & sign in/i }).click();
@@ -70,10 +72,13 @@ test("a server that signs people in needs only its URL", async ({ page }) => {
 
   await page.goto("/settings/mcp");
   await page.getByRole("button", { name: /^Add server/i }).click();
+  await page.getByTestId("mcp-next").click();
   await page.getByPlaceholder("e.g. Stripe Billing MCP").fill("Knowledge base");
   const url = page.getByPlaceholder("https://api.internal.service/mcp");
   await url.fill("https://kb.example/mcp");
   await url.blur();
+  await expect(page.getByTestId("mcp-save-label")).toHaveText("Add & sign in");
+  await page.getByTestId("mcp-next").click();
 
   await expect(page.getByLabel("Authentication Mode")).toHaveValue("oauth2");
   await expect(page.getByTestId("mcp-sign-in-summary")).toContainText("Nothing to set up");

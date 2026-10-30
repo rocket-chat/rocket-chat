@@ -1,9 +1,8 @@
-"""Organization user administration (list members, change roles).
+"""Organization member administration (list members, change roles).
 
-Admin/owner-only, scoped to the caller's organization. Role changes are written to the
-``users`` table; because a session's roles are baked into its token at login, a change
-takes effect when the affected user **reloads / re-authenticates** — the API says so
-explicitly in its response so the cockpit can prompt the admin.
+Admin/owner-only, scoped to the caller's organization. A role is the member's
+``memberships`` row in this organization; a signed-in member's role is re-read within
+15 seconds (``with_live_roles``), so a change applies without signing in again.
 """
 
 from __future__ import annotations
@@ -13,20 +12,20 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
 
 from api.auth.access import _require_admin as require_admin
 from api.auth.local import LocalAccounts, generate_temporary_password
-from api.auth.roles import invalidate_role
+from api.auth.roles import ADMIN, OWNER, ROLES, invalidate_role
 from api.db.models import UserModel
 from api.services.audit import AuditService
+from api.services.memberships import Member, admin_count, members, membership_row
 
 router = APIRouter(prefix="/v1", tags=["Admin · Users"])
 
-# Roles a user may hold. `owner` and `admin` both carry administrative privileges.
+# Roles a member may hold. `owner` and `admin` both carry administrative privileges.
 # ``guest`` is internal (guest tokens, Slack guests), never a role an administrator assigns.
-ALLOWED_USER_ROLES: tuple[str, ...] = ("owner", "admin", "developer", "readonly")
-_ADMIN_ROLES = ("owner", "admin")
+ALLOWED_USER_ROLES: tuple[str, ...] = ROLES
+_ADMIN_ROLES = (OWNER, ADMIN)
 
 
 class UserSummary(BaseModel):
@@ -43,22 +42,25 @@ class UserPage(BaseModel):
 
 
 class UpdateUserRoleRequest(BaseModel):
-    role: str = Field(..., description="One of owner | admin | developer | readonly")
+    role: str = Field(..., description="One of owner | admin | member | viewer")
 
 
 class UpdateUserRoleResponse(BaseModel):
     user: UserSummary
-    # The token carries the roles, so the change applies when the user next authenticates.
-    note: str = "The user must reload / sign in again for the new role to take effect."
+    note: str = "The new role applies to the member's open sessions within 15 seconds."
 
 
 def _require_admin(request: Request) -> tuple[str, str, list[str]]:
     return require_admin(request)
 
 
-def _to_summary(user: UserModel) -> UserSummary:
+def _to_summary(member: Member) -> UserSummary:
     return UserSummary(
-        id=user.id, email=user.email, name=user.name, role=user.role, created_at=user.created_at
+        id=member.user_id,
+        email=member.email,
+        name=member.name,
+        role=member.role,
+        created_at=member.created_at,
     )
 
 
@@ -76,28 +78,8 @@ async def list_org_users(
         raise HTTPException(status_code=503, detail="Database is not available")
 
     async with db_mgr.session(tenant_org_id=org_id) as session:
-        # ``users`` has no row-level security: every read names the organization.
-        conditions = [UserModel.org_id == org_id]
-        if q:
-            like = f"%{q.strip()}%"
-            conditions.append((UserModel.email.ilike(like)) | (UserModel.name.ilike(like)))
-        if role:
-            conditions.append(UserModel.role == role)
-        stmt = (
-            select(UserModel)
-            .where(*conditions)
-            .order_by(UserModel.created_at.asc(), UserModel.id.asc())
-            .limit(limit)
-        )
-        users = list((await session.execute(stmt)).scalars().all())
-        total = int(
-            (
-                await session.execute(
-                    select(func.count()).select_from(UserModel).where(*conditions)
-                )
-            ).scalar_one()
-        )
-    return UserPage(users=[_to_summary(u) for u in users], total=total)
+        found, total = await members(session, org_id, q=q, role=role, limit=limit)
+    return UserPage(users=[_to_summary(m) for m in found], total=total)
 
 
 @router.patch("/admin/users/{user_id}", response_model=UpdateUserRoleResponse)
@@ -106,8 +88,8 @@ async def update_user_role(
     body: UpdateUserRoleRequest,
     request: Request,
 ) -> UpdateUserRoleResponse:
-    """Change a member's role (admin/owner only). Takes effect on their next login."""
-    org_id, admin_id, _ = _require_admin(request)
+    """Change a member's role (admin/owner only). Applies to their open sessions within 15 seconds."""
+    org_id, admin_id, roles = _require_admin(request)
     new_role = body.role.strip().lower()
     if new_role not in ALLOWED_USER_ROLES:
         raise HTTPException(
@@ -119,31 +101,33 @@ async def update_user_role(
         raise HTTPException(status_code=503, detail="Database is not available")
 
     async with db_mgr.session(tenant_org_id=org_id) as session:
-        target = await session.get(UserModel, user_id)
-        if target is None or target.org_id != org_id:
+        membership = await membership_row(session, user_id, org_id)
+        person = await session.get(UserModel, user_id)
+        if membership is None or person is None:
             raise HTTPException(status_code=404, detail="User not found in this organization")
+        if new_role == OWNER and OWNER not in roles:
+            raise HTTPException(status_code=403, detail="Only an owner can make someone an owner")
 
         # Never strand the organization without an administrator.
-        if target.role in _ADMIN_ROLES and new_role not in _ADMIN_ROLES:
-            admin_count = int(
-                (
-                    await session.execute(
-                        select(func.count())
-                        .select_from(UserModel)
-                        .where(UserModel.org_id == org_id, UserModel.role.in_(_ADMIN_ROLES))
-                    )
-                ).scalar_one()
-            )
-            if admin_count <= 1:
+        if membership.role in _ADMIN_ROLES and new_role not in _ADMIN_ROLES:
+            if await admin_count(session, org_id) <= 1:
                 raise HTTPException(
                     status_code=409,
                     detail="Cannot remove the last administrator of the organization.",
                 )
 
-        target.role = new_role
+        membership.role = new_role
+        if person.org_id == org_id:
+            person.role = new_role
         await session.flush()
         invalidate_role(user_id)
-        summary = _to_summary(target)
+        summary = UserSummary(
+            id=person.id,
+            email=person.email,
+            name=person.name,
+            role=new_role,
+            created_at=membership.created_at,
+        )
 
     await AuditService(db_mgr).record(
         "settings_change",
@@ -158,7 +142,7 @@ async def update_user_role(
 class CreateLocalUserRequest(BaseModel):
     email: str = Field(..., max_length=255)
     name: str = Field(..., min_length=1, max_length=255)
-    role: str = Field(default="developer")
+    role: str = Field(default="member")
 
 
 class TemporaryCredential(BaseModel):
@@ -230,7 +214,18 @@ async def reset_local_password(user_id: str, request: Request) -> TemporaryCrede
     db_mgr = request.app.state.db_manager
     async with db_mgr.session(tenant_org_id=org_id) as session:
         target = await session.get(UserModel, user_id)
-        summary = _to_summary(target) if target is not None else None
+        membership = await membership_row(session, user_id, org_id)
+        summary = (
+            UserSummary(
+                id=target.id,
+                email=target.email,
+                name=target.name,
+                role=membership.role,
+                created_at=membership.created_at,
+            )
+            if target is not None and membership is not None
+            else None
+        )
     if summary is None:
         raise HTTPException(status_code=404, detail="User not found in this organization")
     await AuditService(db_mgr).record(

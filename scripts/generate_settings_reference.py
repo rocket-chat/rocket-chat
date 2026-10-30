@@ -21,21 +21,33 @@ OUTPUT = ROOT / "doc" / "administer" / "settings-reference.md"
 DOMAIN_TITLES = {
     "general": "General",
     "models": "Models",
-    "budgets": "Budgets",
-    "routing": "Cost routing",
+    "budgets": "Turn and task limits",
     "sandboxes": "Sandboxes",
     "github": "Git & GitHub",
     "mcp": "MCP policy",
     "slack": "Slack",
     "governance": "Governance & data controls",
     "memory": "Long-term memory",
+    "access": "Access (capabilities by role)",
     "user_preferences": "Member preferences",
 }
-SCOPE_LABEL = {
+POLICY_LABEL = {
+    "instance": "Operator (environment)",
     "org": "Organization",
-    "user": "Member",
-    "both": "Org default, member override",
+    "org_default": "Org default, member override",
+    "member": "Member",
 }
+
+
+def _policy(spec: SettingSpec) -> str:
+    label = POLICY_LABEL[spec.policy]
+    if spec.policy == "org_default" and not spec.member_override:
+        label = "Org default, Slack bot override"
+    if spec.ceiling:
+        label += " (ceiling: may only be lowered)"
+    if spec.env and spec.policy != "instance":
+        label += f"; operator default `{spec.env[0]}`"
+    return label
 
 
 def _default(spec: SettingSpec) -> str:
@@ -69,24 +81,27 @@ def render() -> str:
         "> Generated from the typed registry in `packages/config-engine/src/config_engine/registry.py` "
         "by `scripts/generate_settings_reference.py`. Do not edit by hand.",
         "",
-        "Every setting declares who may write it (**Scope**), its type, its default and the "
-        "runtime file that reads it. Organization settings are edited by administrators at "
-        "`PUT /v1/admin/settings/{domain}`; member settings at `PUT /v1/settings/{domain}`. "
-        "Settings with scope *Org default, member override* can be **locked** by an "
-        "administrator so members cannot change them. Unknown keys, wrong-scope writes and "
+        "Every setting declares who decides it (**Policy**), its type, its default and the "
+        "runtime file that reads it. *Operator* settings come from the environment and are "
+        "read-only in the product. *Organization* settings are edited by administrators at "
+        "`PUT /v1/admin/settings/{domain}`; *Member* settings at `PUT /v1/settings/{domain}`. "
+        "*Org default* settings may be changed by members, sessions and agents (or, where "
+        "noted, a Slack bot) unless an administrator **locks** them. A *ceiling* lets those "
+        "levels lower a number but never raise it, and an *operator default* is an environment "
+        "variable used under the organization's value. Unknown keys, wrong-policy writes and "
         "out-of-range values are rejected with `422`.",
         "",
     ]
     for domain, specs in REGISTRY.items():
         lines += [f"## {DOMAIN_TITLES.get(domain, domain)} (`{domain}`)", ""]
         lines += [
-            "| Setting | Scope | Type / values | Default | Description |",
+            "| Setting | Policy | Type / values | Default | Description |",
             "| :-- | :-- | :-- | :-- | :-- |",
         ]
         for spec in specs.values():
             name = f"`{spec.key}`" + (" *(deprecated)*" if spec.deprecated else "")
             lines.append(
-                f"| {name} | {SCOPE_LABEL[spec.scope]} | {_constraint(spec)} | "
+                f"| {name} | {_policy(spec)} | {_constraint(spec)} | "
                 f"{_default(spec)} | {_mdx_safe(spec.description)} |"
             )
         lines.append("")

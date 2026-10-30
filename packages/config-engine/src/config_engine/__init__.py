@@ -2,7 +2,6 @@
 
 from .cascading import (
     CascadingSettingsResolver,
-    FieldStatus,
     ResolvedSettings,
 )
 from .crypto import CredentialCipher
@@ -11,6 +10,7 @@ from .exceptions import (
     CredentialDecryptionError,
     PolicyViolationError,
 )
+from .policy import Policy, Preset, ResolveContext, Resolved, resolve
 from .registry import (
     REGISTRY,
     FieldError,
@@ -27,11 +27,15 @@ __all__ = [
     "CredentialCipher",
     "CredentialDecryptionError",
     "FieldError",
-    "FieldStatus",
+    "Policy",
     "PolicyViolationError",
+    "Preset",
+    "ResolveContext",
+    "Resolved",
     "ResolvedSettings",
     "SettingSpec",
     "ValidationResult",
+    "resolve",
     "validate",
     "validate_locked_keys",
 ]

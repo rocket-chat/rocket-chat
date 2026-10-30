@@ -16,7 +16,7 @@ def client():
 
 
 def test_get_settings_defaults(client: TestClient) -> None:
-    """GET /v1/settings/{domain} returns defaults with 'org_default' status."""
+    """GET /v1/settings/{domain} returns the defaults and says they are the platform's."""
     res = client.get(
         "/v1/settings/github",
         headers={"X-Tenant-Org-Id": "test_org", "X-Tenant-User-Id": "user_1"},
@@ -24,8 +24,9 @@ def test_get_settings_defaults(client: TestClient) -> None:
     assert res.status_code == 200
     data = res.json()
     assert data["domain"] == "github"
-    assert data["effective"]["commit_authorship_policy"] == "co_authored"
-    assert data["field_status"]["commit_authorship_policy"] == "org_default"
+    assert data["effective"]["publish_as"] == "member"
+    assert data["provenance"]["publish_as"]["source"] == "platform"
+    assert "field_status" not in data
 
 
 def test_update_user_settings_override(client: TestClient) -> None:
@@ -38,7 +39,7 @@ def test_update_user_settings_override(client: TestClient) -> None:
     assert res.status_code == 200
     data = res.json()
     assert data["effective"]["git_branch_prefix"] == "fix/"
-    assert data["field_status"]["git_branch_prefix"] == "overridden"
+    assert data["provenance"]["git_branch_prefix"]["source"] == "member"
 
 
 def test_members_cannot_write_organization_managed_keys(client: TestClient) -> None:
@@ -122,7 +123,7 @@ def test_admin_lockout_and_enforcement(client: TestClient) -> None:
     user_headers = {
         "X-Tenant-Org-Id": "test_org",
         "X-Tenant-User-Id": "user_2",
-        "X-User-Role": "developer",
+        "X-User-Role": "member",
     }
     user_res = client.put(
         "/v1/settings/user_preferences",
@@ -134,9 +135,9 @@ def test_admin_lockout_and_enforcement(client: TestClient) -> None:
     assert user_res.status_code == 200
     user_data = user_res.json()
     assert user_data["effective"]["preferred_model"] == "openrouter/acme/locked-model"
-    assert user_data["field_status"]["preferred_model"] == "locked"
+    assert user_data["provenance"]["preferred_model"]["locked_by"] == "org"
     assert user_data["effective"]["git_branch_prefix"] == "dev/"
-    assert user_data["field_status"]["git_branch_prefix"] == "overridden"
+    assert user_data["provenance"]["git_branch_prefix"]["source"] == "member"
     assert "Locked keys ignored" in user_data["warning"]
 
 
@@ -151,8 +152,8 @@ def test_reset_user_settings(client: TestClient) -> None:
     res = client.delete("/v1/settings/user_preferences", headers=headers)
     assert res.status_code == 200
     data = res.json()
-    assert data["effective"]["git_branch_prefix"] == "feat/rocket-"
-    assert data["field_status"]["git_branch_prefix"] == "org_default"
+    assert data["effective"]["git_branch_prefix"] == "rocket/"
+    assert data["provenance"]["git_branch_prefix"]["source"] == "platform"
 
 
 def test_session_reset_clean_slate(client: TestClient) -> None:

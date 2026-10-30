@@ -8,6 +8,7 @@ from pydantic import Field
 from sandbox_driver.workspace import WORKSPACE
 
 from agent_core.context import current_execution_ctx
+from agent_core.permissions import approval_details
 from agent_core.tools import code_search as code_search_tools
 from agent_core.tools import tier2
 from agent_core.tools.lsp import run_diagnostics_on_file
@@ -187,6 +188,9 @@ def _register_patch_tools(registry: "ToolRegistry") -> None:
                 "apply_diff_file",
                 f"Apply the patch section for '{path}' to the workspace.",
                 "medium",
+                approval_details(
+                    "apply_diff_file", {"path": path, "diff_content": diff_content}, ""
+                ),
             )
             if not decision.startswith("Approved"):
                 return f"Patch for '{path}' was not approved: {decision}"

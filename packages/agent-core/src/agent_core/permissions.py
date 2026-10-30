@@ -11,12 +11,23 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from agent_core.edit_preview import CUT_NOTICE, clamp_text, edit_preview
 from agent_core.tools.github_ci import ACTIONS_READ, RELEASES_READ
 from agent_core.tools.github_generic import call_is_critical, call_is_read
 from agent_core.tools.github_prs import PR_READ_ACTIONS
+from specifications.interfaces.agent import (
+    APPROVAL_RULE_SCOPES,
+    MAX_APPROVAL_ARGUMENT_CHARS,
+    MAX_APPROVAL_ARGUMENTS_CHARS,
+    MAX_APPROVAL_DIFF_CHARS,
+    ApprovalDetails,
+    ApprovalRule,
+    RememberedApprovals,
+)
 
 # The Slack toolset's reads: conversations, people, user groups and links.
 SLACK_READ_TOOLS: frozenset[str] = frozenset(
@@ -81,6 +92,8 @@ READ_TOOLS: frozenset[str] = frozenset(
         "git_checkpoint",
         "delegate_subagent",
         "delegate_subagents_parallel",
+        "subagent_status",
+        "subagent_cancel",
         "workspace_status",
         "git_status_all",
         "env_list",
@@ -94,6 +107,9 @@ READ_TOOLS: frozenset[str] = frozenset(
 EDIT_TOOLS: frozenset[str] = frozenset(
     {"file_write", "file_edit", "apply_patch", "apply_diff_file"}
 )
+# Edits that raise their own gate, with what the person must see (a merged branch's whole
+# diff): plan mode refuses them like any edit, but no mode gates them a second time.
+SELF_GATED_EDIT_TOOLS: frozenset[str] = frozenset({"merge_subagent_branch"})
 # Publishing changes leaves the sandbox: commits, branches, pull requests.
 # Messages and reactions in Slack reach other people: they are publications too.
 PUBLISH_TOOLS: frozenset[str] = frozenset(
@@ -196,7 +212,7 @@ def _classify(name: str, arguments: dict[str, Any]) -> tuple[str, str]:
         return _classify_github(name, arguments)
     if name in READ_TOOLS:
         return "read", "low"
-    if name in EDIT_TOOLS:
+    if name in EDIT_TOOLS or name in SELF_GATED_EDIT_TOOLS:
         return "edit", "medium"
     if name == "git_revert" and str(arguments.get("mode", "files")) == "hard":
         return "publish", "critical"
@@ -207,10 +223,16 @@ def _classify(name: str, arguments: dict[str, Any]) -> tuple[str, str]:
     return "command", "medium"
 
 
+def permission_class(name: str) -> str:
+    """``read``, ``edit``, ``command`` or ``publish``: what a tool does with no arguments, which
+    is how the agent editor groups it (a GitHub tool's actions may change it per call)."""
+    return _classify(name, {})[0]
+
+
 def approval_needed(mode: str, name: str, arguments: dict[str, Any]) -> ApprovalNeed | None:
     """The human gate ``mode`` raises before this call runs, or ``None`` to run it."""
     kind, risk = _classify(name, arguments)
-    if kind == "read":
+    if kind == "read" or name in SELF_GATED_EDIT_TOOLS:
         return None
     gated = (
         (kind == "edit" and mode in MODES_GATING_EDITS)
@@ -221,6 +243,77 @@ def approval_needed(mode: str, name: str, arguments: dict[str, Any]) -> Approval
     if not gated:
         return None
     return ApprovalNeed(action_type=name, description=_summarise(name, arguments), risk_level=risk)
+
+
+def _normalised_command(arguments: Mapping[str, Any]) -> str:
+    return " ".join(str(arguments.get("command") or "").split())
+
+
+def rememberable_command(name: str, arguments: Mapping[str, Any]) -> str | None:
+    """What a ``repository`` rule saved from these (approval card) arguments matches.
+
+    ``""`` for a tool that runs no command (every call of the tool), the command for a shell
+    tool, and ``None`` when the card only showed part of the command: a rule saved from a cut
+    command would never match the real one.
+    """
+    if name not in _SHELL_TOOLS:
+        return ""
+    raw = str(arguments.get("command") or "")
+    if not raw.strip() or raw.endswith(CUT_NOTICE.format(limit=MAX_APPROVAL_ARGUMENT_CHARS)):
+        return None
+    return _normalised_command(arguments)
+
+
+def covering_rule(
+    remembered: RememberedApprovals,
+    need: ApprovalNeed,
+    arguments: Mapping[str, Any],
+    repository: str,
+) -> ApprovalRule | None:
+    """The remembered approval that answers this gate, if one does.
+
+    A rule never answers a critical call, nor a risk level the platform left out of
+    ``remembered.risks`` (the organization denies or auto-approves it, switched remembered
+    approvals off, or locked the permission mode).
+    """
+    if need.risk_level == "critical" or need.risk_level not in remembered.risks:
+        return None
+    command = _normalised_command(arguments)
+    for rule in remembered.rules:
+        if rule.tool != need.action_type:
+            continue
+        if rule.command and rule.command != command:
+            continue
+        if rule.scope == "repository" and (not repository or rule.repository != repository):
+            continue
+        if rule.scope in APPROVAL_RULE_SCOPES:
+            return rule
+    return None
+
+
+def _bounded_arguments(arguments: Mapping[str, Any]) -> dict[str, Any]:
+    """The call's arguments as a person reads them: each long string cut, the whole bounded."""
+    shown: dict[str, Any] = {}
+    used = 0
+    for key, value in arguments.items():
+        text = value if isinstance(value, str) else json.dumps(value, default=str)
+        text = clamp_text(text, MAX_APPROVAL_ARGUMENT_CHARS)
+        if used + len(text) > MAX_APPROVAL_ARGUMENTS_CHARS:
+            shown["…"] = f"{len(arguments) - len(shown)} more arguments not shown"
+            break
+        shown[key] = text
+        used += len(text)
+    return shown
+
+
+def approval_details(name: str, arguments: Mapping[str, Any], repository: str) -> ApprovalDetails:
+    """What an approval card shows for this call: its arguments and, for an edit, the diff."""
+    return ApprovalDetails(
+        tool=name,
+        arguments=_bounded_arguments(arguments),
+        diff=edit_preview(name, arguments, MAX_APPROVAL_DIFF_CHARS),
+        repository=repository,
+    )
 
 
 def touches_workspace(name: str, arguments: dict[str, Any]) -> bool:

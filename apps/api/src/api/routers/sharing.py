@@ -9,6 +9,7 @@ issued.
 from __future__ import annotations
 
 import secrets
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Response
@@ -16,8 +17,11 @@ from pydantic import BaseModel, Field
 
 from api.auth import share_token
 from api.auth.access import _get_request_identity
+from api.auth.roles import is_admin
 from api.db.session import current_tenant_org_id
+from api.services.artifacts import get_artifact_store
 from api.services.audit import AuditService
+from api.services.redaction import RedactionPolicy, Redactor
 from api.services.settings import effective_settings
 from api.services.sharing import (
     PUBLIC_LINK_KEY,
@@ -25,6 +29,7 @@ from api.services.sharing import (
     members_by_email,
     members_by_id,
     parse_emails,
+    public_artifacts,
     public_link_of,
     public_transcript,
 )
@@ -65,11 +70,34 @@ class CreateLinkRequest(BaseModel):
     expires_in_days: int = Field(default=share_token.DEFAULT_LINK_DAYS, ge=1, le=30)
 
 
+class SharedStep(BaseModel):
+    name: str
+    kind: str = Field(..., description="edit (a file change) or step")
+    arguments: str = Field(..., description="Redacted and cut; never the step's output")
+
+
+class SharedMessage(BaseModel):
+    role: str
+    content: str
+    steps: list[SharedStep] = Field(
+        default_factory=list, description="The tool steps behind an answer (redacted, bounded)"
+    )
+    steps_cut: int = Field(0, description="Earlier steps of that answer not shown")
+
+
+class SharedArtifact(BaseModel):
+    title: str
+    filename: str
+    artifact_type: str
+    content: str
+
+
 class SharedConversation(BaseModel):
     title: str
     updated_at: int
     expires_at: int
-    messages: list[dict[str, str]]
+    messages: list[SharedMessage]
+    artifacts: list[SharedArtifact] = Field(default_factory=list)
 
 
 async def _owned_session(
@@ -80,7 +108,7 @@ async def _owned_session(
     record = await store.get_session(session_id, tenant_org_id=org_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    if "admin" not in roles and record.tenant_user_id != user_id:
+    if not is_admin(roles) and record.tenant_user_id != user_id:
         raise HTTPException(
             status_code=403, detail="Forbidden: Only session owner or admin can configure sharing"
         )
@@ -213,9 +241,27 @@ async def read_shared_conversation(token: str, request: Request, response: Respo
             "Referrer-Policy": "no-referrer",
         }
     )
+    redact = await _redactor(request, grant.org_id)
+    artifacts = await get_artifact_store(
+        getattr(request.app.state, "db_manager", None)
+    ).list_artifacts(grant.session_id, grant.org_id)
     return SharedConversation(
         title=record.title,
         updated_at=record.updated_at,
         expires_at=grant.expires_at,
-        messages=public_transcript(record),
+        messages=[SharedMessage(**m) for m in public_transcript(record, redact)],
+        artifacts=[SharedArtifact(**a) for a in public_artifacts(artifacts, redact)],
     )
+
+
+async def _redactor(request: Request, org_id: str) -> Callable[[str], str]:
+    """The organization's redaction rules, as applied to anything a public link shows."""
+    tenant = current_tenant_org_id.set(org_id)
+    try:
+        governance = await effective_settings(
+            getattr(request.app.state, "db_manager", None), org_id, "governance"
+        )
+    finally:
+        current_tenant_org_id.reset(tenant)
+    redactor = Redactor(RedactionPolicy.from_settings(governance))
+    return lambda text: redactor.redact_text(text)[0]

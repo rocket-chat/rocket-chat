@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent_core.context import current_execution_ctx
+from config_engine import Preset
 from fastapi import FastAPI
 from sandbox_driver.blobs import read_bytes
 from slack_assistant.assistant import SlackAssistant
@@ -23,10 +24,12 @@ from slack_assistant.state import ClassifyFn
 from api.bootstrap.core import CoreServices
 from api.db.session import DatabaseSessionManager, current_tenant_org_id
 from api.services.audit import AuditService
+from api.services.budgets import BudgetService
 from api.services.cluster import LeaderElection
 from api.services.decision_answer import decision_answer_prompt
+from api.services.queued_messages import hold_for_running_turn
 from api.services.quota import SlackWorkspaceQuotaService
-from api.services.settings import effective_settings
+from api.services.settings import resolve_settings
 from api.services.slack_bots import (
     SlackBotRecord,
     SlackBotStore,
@@ -37,14 +40,15 @@ from api.services.slack_link import (
     PairingCodes,
     ensure_slack_guest,
     find_member,
+    slack_guest_id,
     workspace_org,
 )
 from api.services.slack_routing import classify_slack_message
-from api.services.usage import month_start
 from api.turns.gates import _forget_pending_decisions, take_stored_question
 from api.turns.tasks import run_guarded_turn
 from specifications.interfaces.agent import TurnOverlay
 from specifications.interfaces.events import EventType, SessionEvent
+from specifications.interfaces.llm import ModelScope
 
 logger = logging.getLogger(__name__)
 
@@ -226,6 +230,7 @@ def _build_assistant(
         db_manager=core.db_manager,
         event_bus=core.event_bus,
         run_turn_fn=callbacks.run_turn,
+        hold_message_fn=callbacks.hold_message,
         bind_tenant_fn=callbacks.bind_tenant,
         resolve_workspace_org_fn=callbacks.workspace_org,
         resolve_user_fn=callbacks.resolve_user,
@@ -234,10 +239,10 @@ def _build_assistant(
         # Unauthenticated Slack is bounded before any turn starts and ingests files
         # through the same attachment pipeline as the web cockpit.
         quota_gate=SlackWorkspaceQuotaService(
-            db_manager=core.db_manager, spend=callbacks.month_spend
+            db_manager=core.db_manager, spend=callbacks.workspace_over_limit
         ),
         ingest_attachment_fn=core.attachment_service.store_bytes,
-        resolve_slack_policy_fn=callbacks.resolve_policy,
+        resolve_slack_policy_fn=lambda org_id: callbacks.resolve_policy(org_id, bot),
         audit_fn=callbacks.audit,
         read_file_bytes_fn=callbacks.read_sandbox_file,
         answer_stored_question_fn=callbacks.answer_stored_question,
@@ -309,14 +314,48 @@ class _SlackCallbacks:
             return None
         return await self.pairing_codes.begin(slack_user_id, team_id)
 
-    async def month_spend(self, org_id: str) -> float:
-        """Slack's share of the month's spend: its sessions are named ``slack_<thread>``."""
-        return await self._core.usage_ledger.spend_usd(
-            org_id, since=month_start(), session_prefix="slack_"
+    async def workspace_over_limit(self, org_id: str, team_id: str) -> bool:
+        """Whether a block spend limit on this Slack workspace has no room left."""
+        budgets = getattr(self._core.orchestrator.gateway, "budget_guard", None)
+        if not isinstance(budgets, BudgetService):
+            return False
+        status = await budgets.status(
+            ModelScope(org_id=org_id, user_id=slack_guest_id(team_id, None))
+        )
+        return any(
+            item.limit.mode == "block"
+            and item.limit.subject_kind == "slack_workspace"
+            and item.remaining_usd <= 0
+            for item in status.limits
         )
 
     async def workspace_org(self, team_id: str) -> str | None:
         return await workspace_org(self._core.db_manager, team_id)
+
+    async def hold_message(
+        self, *, session_id: str, prompt: str, author_user_id: str, message_id: str
+    ) -> bool:
+        """Keep a Slack message sent while a turn of its session runs, as the web app does.
+
+        It is queued for after that turn (durably, so no restart or replica loses it), and the
+        turn that takes it reaches the thread through the bot's delivery.
+        """
+        core = self._core
+        record = await core.session_store.get_session(session_id, include_history=False)
+        if record is None:
+            return False
+        return await hold_for_running_turn(
+            session_store=core.session_store,
+            orchestrator=core.orchestrator,
+            event_bus=core.event_bus,
+            db_mgr=core.db_manager,
+            org_id=record.tenant_org_id,
+            session_id=session_id,
+            prompt=prompt,
+            delivery="queue",
+            message_id=message_id,
+            author_user_id=author_user_id,
+        )
 
     async def run_turn(
         self,
@@ -382,10 +421,12 @@ class _SlackCallbacks:
     async def read_sandbox_file(self, session_id: str, path: str) -> bytes:
         return await read_bytes(self._core.sandbox_driver, session_id, path)
 
-    async def resolve_policy(self, org_id: str) -> SlackOrgPolicy:
-        """The org's Slack policy from the `slack` settings domain."""
-        conf = await effective_settings(self._core.db_manager, org_id, "slack")
-        return SlackOrgPolicy.from_settings(conf)
+    async def resolve_policy(self, org_id: str, bot: SlackBot | None = None) -> SlackOrgPolicy:
+        """The org's Slack policy (the ``slack`` settings), with the bot's overrides as a
+        preset: a key the organization locked keeps the organization's value."""
+        presets = (Preset(f"slack_bot:{bot.id}", dict(bot.policy)),) if bot is not None else ()
+        resolved = await resolve_settings(self._core.db_manager, org_id, "slack", presets=presets)
+        return SlackOrgPolicy.from_settings(resolved.effective)
 
     async def audit(self, event_type: str, payload: dict[str, Any]) -> None:
         ctx = current_execution_ctx.get()

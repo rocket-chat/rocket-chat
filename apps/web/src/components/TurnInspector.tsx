@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckpointsPanel } from "./CheckpointsPanel";
+import { useConfirm } from "./ui/ConfirmDialog";
 import React, { useCallback, useEffect, useState } from "react";
 import { useMissionStore } from "../lib/store";
 import { useSessionUsage } from "../lib/useSessionUsage";
@@ -65,21 +66,26 @@ const TurnRow: React.FC<{
   sessionId: string;
   retryPrompt: string | null;
   onRetry: (prompt: string) => void;
+  /** Called once a rewind is applied, so the list reads the remaining turns again. */
+  onRewound?: () => void;
 }> = ({
   turn,
   ledger,
   sessionId,
   retryPrompt,
   onRetry,
+  onRewound,
 }) => {
+  const [confirm, confirmDialog] = useConfirm();
   const [isReasoningOpen, setIsReasoningOpen] = useState(false);
   const [isCallsOpen, setIsCallsOpen] = useState(false);
   const [isForking, setIsForking] = useState(false);
   const [isRewinding, setIsRewinding] = useState(false);
+  const [rewindError, setRewindError] = useState<string | null>(null);
   const statusClass = STATUS_STYLES[turn.status] || "border-surface-border bg-surface-card text-neutral-400";
   const toolCount = turn.tool_calls.length;
   const approvalCount = turn.approvals.length;
-  const canRetry = turn.status === "interrupted";
+  const canRetry = turn.status === "interrupted" || turn.status === "error";
 
   const tokenRecord = ((turn.tokens ?? {}) as Record<string, unknown>);
   const usage = ((tokenRecord.usage ?? tokenRecord) as Record<string, unknown>);
@@ -120,24 +126,33 @@ const TurnRow: React.FC<{
 
   const handleRewind = async () => {
     if (
-      !confirm(
-        `Rewind this session and workspace back to turn #${turn.turn_index}? Later turns and commits will be truncated.`
-      )
+      !(await confirm({
+        title: `Rewind to turn #${turn.turn_index}?`,
+        message: "The session and its workspace go back to that turn. Later turns and commits are truncated.",
+        confirmLabel: "Rewind",
+        tone: "danger",
+      }))
     ) {
       return;
     }
     setIsRewinding(true);
+    setRewindError(null);
     try {
       const res = await fetch(`/v1/sessions/${sessionId}/rewind`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ target_turn: turn.turn_index }),
       });
-      if (res.ok) {
-        window.location.reload();
+      if (!res.ok) {
+        const detail = ((await res.json().catch(() => ({}))) as { detail?: unknown }).detail;
+        throw new Error(typeof detail === "string" ? detail : `The server answered ${res.status}.`);
       }
+      // The rewound transcript replaces the one on screen, without reloading the page.
+      const session = await fetch(`/v1/sessions/${sessionId}`).then((r) => (r.ok ? r.json() : null));
+      if (session && session.session_id === sessionId) useMissionStore.getState().setSession(session);
+      onRewound?.();
     } catch (err) {
-      console.error("Rewind failed", err);
+      setRewindError(err instanceof Error ? err.message : "The rewind failed.");
     } finally {
       setIsRewinding(false);
     }
@@ -149,6 +164,7 @@ const TurnRow: React.FC<{
       data-turn-status={turn.status}
       className="rounded-xl border border-surface-border bg-surface-card/60 p-3 space-y-2"
     >
+      {confirmDialog}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[11px] font-mono text-neutral-500">
@@ -344,6 +360,11 @@ const TurnRow: React.FC<{
           <RotateCcw className="w-3 h-3 text-amber-400" />
           <span>{isRewinding ? "Rewinding..." : "Rewind to here"}</span>
         </button>
+        {rewindError && (
+          <span role="alert" data-testid={`turn-rewind-error-${turn.turn_index}`} className="text-[10px] text-rose-600 dark:text-rose-400">
+            Rewind failed: {rewindError}
+          </span>
+        )}
 
         {canRetry && (
           <button
@@ -490,6 +511,7 @@ export const TurnInspector: React.FC<TurnInspectorProps> = ({ onRetryTurn }) => 
                 sessionId={sessionId || ""}
                 retryPrompt={retryPrompt}
                 onRetry={onRetryTurn}
+                onRewound={() => void loadTurns()}
               />
             ))}
           </ul>

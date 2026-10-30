@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useMissionStore } from "../../lib/store";
 import { SessionData } from "../../types/mission";
 import { RocketChatIcon } from "../RocketChatLogo";
+import { OrgSwitcher } from "../OrgSwitcher";
 import { ThemeToggle } from "../Theme/ThemeToggle";
 import { IconButton } from "../ui/IconButton";
 import { useSession } from "../AuthProvider";
@@ -34,6 +35,8 @@ import {
   Share2,
   Slack,
 } from "lucide-react";
+import { useConfirm } from "../ui/ConfirmDialog";
+import { useSessionSearch } from "../../lib/useSessionSearch";
 import { ago, groupSessions, STATUS_LABEL, statusOf, type SessionStatus } from "../../lib/session-groups";
 
 interface SessionSidebarProps {
@@ -66,6 +69,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "shared" | "slack">("all");
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [clearError, setClearError] = useState<string | null>(null);
+  const [confirm, confirmDialog] = useConfirm();
+  const serverMatches = useSessionSearch(query, { archived: showArchived, scope: sessionsScope });
   const { data: authSession } = useSession();
   const roles = (authSession?.user as unknown as { roles?: string[] })?.roles || [];
   const isAdmin = !authSession || roles.includes("admin") || roles.includes("owner");
@@ -82,10 +88,10 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
     router.push(`/chat/draft`);
   }, [setIsLeftSidebarOpen, initDraftSession, onSelectSession, router]);
 
-  // Keyboard shortcut Cmd+K / Ctrl+K for new conversation
+  // ⌘⇧O / Ctrl+Shift+O starts a conversation (⌘K is the command palette).
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "o") {
         e.preventDefault();
         handleCreateNewSession();
       }
@@ -97,7 +103,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
   const handleDeleteSession = async (e: React.MouseEvent, sessionId: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (confirm("Delete this session and tear down its sandbox?")) {
+    const confirmed = await confirm({
+      title: "Delete this conversation?",
+      message: "Its sandbox is torn down and its transcript deleted. This cannot be undone.",
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (confirmed) {
       const remaining = sessions.filter((s) => s.session_id !== sessionId);
       await deleteSession(sessionId);
       if (session?.session_id === sessionId) {
@@ -139,19 +151,22 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
     const question =
       "Delete all of your sessions, archived ones included, and their sandboxes? " +
       "Sessions of other members and sessions shared with you are kept.";
-    if (!confirm(question)) return;
+    if (!(await confirm({ title: "Clear your conversations?", message: question, confirmLabel: "Delete all", tone: "danger" }))) return;
+    setClearError(null);
     const fresh = await resetAllSessions();
     if (fresh) {
       router.push(`/chat/${fresh.session_id}`);
     } else {
-      alert("Your sessions could not be cleared. Try again.");
+      setClearError("Your sessions could not be cleared. Try again.");
     }
   };
 
   const isSlackSession = (s: SessionData) =>
     s.source === "slack" || s.session_id.startsWith("slack_") || Boolean(s.metadata?.slack_channel_id);
 
-  const visibleSessions = sessions
+  // The loaded page answers at once; the server's matches add the conversations not loaded yet.
+  const loaded = new Set(sessions.map((s) => s.session_id));
+  const visibleSessions = [...sessions, ...serverMatches.filter((s) => !loaded.has(s.session_id))]
     .filter((s) => !s.is_draft && s.session_id !== "draft" && s.session_id !== "new")
     // Archived sessions are listed only in their own view, and leave the default one the moment
     // they are archived instead of waiting for the next fetch.
@@ -198,7 +213,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
           <Link href="/missions" aria-label="Missions" title="Missions" className="rounded-lg p-2 text-neutral-600 hover:bg-surface-elevated hover:text-foreground dark:text-neutral-300">
             <CalendarClock className="h-4 w-4 text-brand" />
           </Link>
-          <Link href="/settings/github" aria-label="Settings" title="Settings" className="rounded-lg p-2 text-neutral-600 hover:bg-surface-elevated hover:text-foreground dark:text-neutral-300">
+          <Link href="/settings" aria-label="Settings" title="Settings" className="rounded-lg p-2 text-neutral-600 hover:bg-surface-elevated hover:text-foreground dark:text-neutral-300">
             <Settings className="h-4 w-4 text-brand" />
           </Link>
         </div>
@@ -248,8 +263,9 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
             </button>
           </div>
 
-          {/* Quick Action: New Thread (with ⌘K indicator) */}
+          {/* Quick Action: New Thread (with ⌘⇧O indicator) */}
           <div className="px-3 pt-3 pb-2 space-y-2">
+            <OrgSwitcher compact />
             <button
               type="button"
               data-testid="new-conversation-btn"
@@ -260,7 +276,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                 <Edit className="w-3.5 h-3.5 text-brand" />
                 <span>New conversation</span>
               </span>
-              <kbd className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400 bg-surface-base px-1.5 py-0.5 rounded border border-surface-border">⌘K</kbd>
+              <kbd className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400 bg-surface-base px-1.5 py-0.5 rounded border border-surface-border">⌘⇧O</kbd>
             </button>
 
             <div className="relative">
@@ -390,6 +406,11 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                 Clear my conversations
               </button>
             )}
+            {clearError && (
+              <p role="alert" data-testid="clear-sessions-error" className="mt-2 text-center text-[11px] text-rose-600 dark:text-rose-400">
+                {clearError}
+              </p>
+            )}
           </div>
 
           {/* Navigation footer: the places outside the conversation */}
@@ -404,7 +425,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                 <span>Missions</span>
               </Link>
               <Link
-                href="/settings/github"
+                href="/settings"
                 data-testid="sidebar-settings-link"
                 className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm text-neutral-700 transition-colors hover:bg-surface-elevated hover:text-foreground dark:text-neutral-300"
               >
@@ -438,6 +459,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
         </div>
       </aside>
 
+      {confirmDialog}
       {menu && (
         <SessionContextMenu
           x={menu.x}

@@ -4,9 +4,9 @@ import { test, expect } from "@playwright/test";
 test.describe("Agent prompt warnings", () => {
   test("a wrong tool argument and an oversized prompt are flagged, and saving still works", async ({ page }) => {
     await page.goto("/settings/agents");
-    await page.getByRole("button", { name: /New agent/i }).first().click();
-    await page.locator("input").first().fill("Linted Agent");
-    const prompt = page.getByPlaceholder("Enter markdown-formatted system instructions...");
+    await page.getByTestId("agent-new").click();
+    await page.getByTestId("agent-name").fill("Linted Agent");
+    const prompt = page.getByTestId("agent-prompt");
 
     await prompt.fill("Wait for CI with `wait_for(ci_status, pr=<url>)`.");
     await expect(page.getByTestId("persona-warning-unknown_argument")).toContainText("has no `pr` parameter");
@@ -15,7 +15,7 @@ test.describe("Agent prompt warnings", () => {
     await expect(page.getByTestId("persona-warning-too_long")).toBeVisible();
     await expect(page.getByTestId("persona-warning-unknown_argument")).toHaveCount(0);
 
-    await page.getByRole("button", { name: /save persona/i }).click();
-    await expect(page.getByText("SAVED!")).toBeVisible();
+    await page.getByTestId("agent-save").click();
+    await expect(page.getByTestId("agent-save")).toHaveText(/Saved/);
   });
 });

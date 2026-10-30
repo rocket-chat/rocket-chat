@@ -22,6 +22,7 @@ from sqlalchemy import select
 
 from api.db.models import UserModel
 from api.db.session import DatabaseSessionManager
+from api.services.memberships import ensure_membership
 
 logger = logging.getLogger(__name__)
 
@@ -228,6 +229,8 @@ class LocalAccounts:
                     must_change_password=must_change,
                 )
             )
+            await session.flush()
+            await ensure_membership(session, user_id, org_id, role)
 
     async def reset_password(self, org_id: str, user_id: str, password: str) -> bool:
         """Set a temporary password the member must change at next login (administrators)."""

@@ -55,7 +55,8 @@ test("each artifact type is shown the way it should be", async ({ page, request 
   await page.goto(`/chat/${sessionId}`);
   await page.getByTestId("view-menu-trigger").click();
   await page.getByTestId("artifacts-drawer-toggle").click();
-  const drawer = page.locator("div.fixed").filter({ hasText: "Session Deliverables" });
+  // One place for artifacts: the menu opens the inspector on its Artifacts tab.
+  const drawer = page.getByRole("tabpanel", { name: "Artifacts" });
   await expect(drawer).toBeVisible();
 
   await drawer.getByRole("button", { name: /Migration plan/ }).click();
@@ -83,7 +84,8 @@ test("an updated artifact offers its earlier versions", async ({ page, request }
   await page.goto(`/chat/${sessionId}`);
   await page.getByTestId("view-menu-trigger").click();
   await page.getByTestId("artifacts-drawer-toggle").click();
-  const drawer = page.locator("div.fixed").filter({ hasText: "Session Deliverables" });
+  // One place for artifacts: the menu opens the inspector on its Artifacts tab.
+  const drawer = page.getByRole("tabpanel", { name: "Artifacts" });
 
   await drawer.getByRole("button", { name: /Patch/ }).click();
   await expect(drawer.getByTestId("inline-diff")).toContainText("+new");

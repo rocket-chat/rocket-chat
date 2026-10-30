@@ -24,6 +24,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from api.db.models import SessionModel, SlackPairingCodeModel, SlackWorkspaceModel, UserModel
+from api.services.memberships import belongs_to, role_in
 
 PAIRING_CODE_TTL_SECONDS = 600
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I lookalikes
@@ -184,16 +185,14 @@ async def find_member(
         return None
     async with db_mgr.session(tenant_org_id=org_id) as session:
         members = (
-            (await session.execute(select(UserModel).where(UserModel.org_id == org_id)))
-            .scalars()
-            .all()
+            (await session.execute(select(UserModel).where(belongs_to(org_id)))).scalars().all()
         )
         for member in members:
             settings = member.settings if isinstance(member.settings, dict) else {}
             if settings.get("slack_user_id") == slack_user_id:
-                return member.id, member.org_id
+                return member.id, org_id
             if email and member.email.lower() == email.lower():
-                return member.id, member.org_id
+                return member.id, org_id
     return None
 
 
@@ -203,7 +202,7 @@ async def link_member(db_mgr: Any, member_id: str, org_id: str, slack_user_id: s
         return False
     async with db_mgr.session(tenant_org_id=org_id) as session:
         member = await session.get(UserModel, member_id)
-        if member is None or member.org_id != org_id:
+        if member is None or await role_in(session, member_id, org_id) is None:
             return False
         updated = dict(member.settings) if isinstance(member.settings, dict) else {}
         updated["slack_user_id"] = slack_user_id
@@ -211,7 +210,7 @@ async def link_member(db_mgr: Any, member_id: str, org_id: str, slack_user_id: s
     return True
 
 
-GUEST_ROLE = "readonly"
+GUEST_ROLE = "viewer"
 GUEST_SETTINGS_KEY = "slack_guest"
 
 

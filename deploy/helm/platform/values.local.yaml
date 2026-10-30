@@ -10,7 +10,8 @@ backend:
   replicas: 1
   env:
     DEFAULT_SANDBOX_DRIVER: "k8s"
-    ROCKET_DEFAULT_MODEL: "openrouter/deepseek/deepseek-v4.1-flash"
+    # Empty: the default follows the provider keys the deployment holds (Anthropic first).
+    ROCKET_DEFAULT_MODEL: ""
     SANDBOX_CPU_REQUEST: "50m"
     SANDBOX_CPU_LIMIT: "500m"
     SANDBOX_MEMORY_REQUEST: "128Mi"

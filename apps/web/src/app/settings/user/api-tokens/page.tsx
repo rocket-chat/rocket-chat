@@ -2,18 +2,16 @@
 
 import React from "react";
 import { ExternalLink, KeyRound } from "lucide-react";
-import { useSession } from "@/components/AuthProvider";
 import { ApiTokensPanel } from "@/components/settings/ApiTokensPanel";
 import { Badge } from "@/components/ui/Badge";
 import { Card, SectionTitle } from "@/components/ui/Card";
 import { PageBody, PageHeader } from "@/components/ui/PageHeader";
+import { useAccess } from "../../../../lib/access";
 
 const API_REFERENCE_URL = "https://rocket-chat.mintlify.site/api/rest";
 
 export default function ApiAccessPage() {
-  const { data: session } = useSession();
-  const roles = (session?.user as unknown as { roles?: string[] })?.roles || [];
-  const isAdmin = !session || roles.includes("admin") || roles.includes("owner");
+  const { isAdmin } = useAccess();
 
   return (
     <PageBody>

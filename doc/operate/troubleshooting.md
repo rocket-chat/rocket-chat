@@ -131,4 +131,4 @@ kubectl logs -f deployment/rocket-chat-backend -n rocket-chat
   1. **Wrong address:** `ROCKET_GIT_GATEWAY_URL` must be the API as a *sandbox* reaches it, not the public URL. The chart sets the backend Service; with Compose, the API must publish port 8000 on the host.
   2. **NetworkPolicy (Kubernetes):** the chart allows the API pods' port from every sandbox. If you renamed the release or changed pod labels, check `ROCKET_PLATFORM_POD_LABELS`, and that the platform namespace has the standard `kubernetes.io/metadata.name` label.
   3. **Restricted Docker sandboxes:** the egress proxy allows the gateway's exact `host:port`; a proxy started before an upgrade is replaced on the next sandbox start (its policy changed).
-  4. **"Repository not found" or `401` on a private repository:** the member has not linked GitHub and no GitHub App installation that can read the repository is mapped to the organization (Settings > GitHub).
+  4. **"Repository not found" or `401` on a private repository:** the member has not linked GitHub and no GitHub App installation that can read the repository is mapped to the organization (Settings > Organization > Git & GitHub).

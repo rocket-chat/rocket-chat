@@ -5,12 +5,16 @@ steps"), and when the turn ends it becomes a one-line summary and the answer is 
 same message. One card rather than one per tool call: an agent can call dozens of tools, and a
 card per call buried the answer under a list of finished steps. It replaces a separate progress message: the thread gets one reply, and Slack's status
 line under it says the bot is working. The stream opens on the first tool call, so a turn that
-only answers posts a plain reply. Any Slack failure turns the stream off and the answer is
-posted the usual way; it never fails the turn.
+only answers posts a plain reply. Step updates are merged (one every ``UPDATE_INTERVAL_SECONDS``
+at most): an agent can call several tools a second, and Slack rate-limits ``appendStream``.
+A failure is retried by the client's handlers; failures that last turn the stream off and the
+answer is posted the usual way; it never fails the turn.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -22,6 +26,10 @@ logger = logging.getLogger(__name__)
 TASK_CHARS = 256
 ANSWER_CHARS = 11_500
 STEP_CARD = "steps"
+# Slack allows about one chat.appendStream per second per message; stay well under it.
+UPDATE_INTERVAL_SECONDS = 2.0
+# Consecutive failed updates after which the stream is given up (the answer is posted plainly).
+MAX_FAILURES = 3
 _READ_TOOLS = frozenset({"file_read", "list_dir", "glob_files", "code_search", "grep_search"})
 _EDIT_TOOLS = frozenset({"file_edit", "file_write", "apply_patch", "apply_diff_file"})
 
@@ -40,6 +48,7 @@ class TurnStream:
         recipient_user_id: str | None,
         recipient_team_id: str | None,
         clock: Callable[[], float] = time.monotonic,
+        update_interval: float | None = None,
     ) -> None:
         self._client = client
         self._channel = channel_id
@@ -50,6 +59,13 @@ class TurnStream:
         self._started_at = clock()
         self.ts: str | None = None
         self._broken = False
+        self._failures = 0
+        self._update_interval = (
+            UPDATE_INTERVAL_SECONDS if update_interval is None else update_interval
+        )
+        self._last_update = float("-inf")
+        self._pending: dict[str, Any] | None = None
+        self._flush: asyncio.Task[None] | None = None
         self._steps = 0
         self._current = ""
         self._edited: set[str] = set()
@@ -65,13 +81,32 @@ class TurnStream:
         self._count(name, arguments)
         self._steps += 1
         self._current = label
-        await self._task(_card(label, "in_progress"))
+        card = _card(label, "in_progress")
+        wait = self._last_update + self._update_interval - self._clock()
+        if self.ts is None or wait <= 0:
+            await self._task(card)
+            return
+        # Too soon after the last update: the latest step goes out once the interval is over.
+        self._pending = card
+        if self._flush is None or self._flush.done():
+            self._flush = asyncio.create_task(self._flush_after(wait))
+
+    async def _flush_after(self, delay: float) -> None:
+        await asyncio.sleep(delay)
+        card, self._pending = self._pending, None
+        if card is not None:
+            await self._task(card)
 
     async def finish(
         self, answer: str, blocks: list[dict[str, Any]], *, failed: bool = False
     ) -> bool:
         """Close the step card with the turn's summary and write the answer; False when the
         stream cannot take it (the caller then posts the answer itself)."""
+        if self._flush is not None:
+            self._flush.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._flush
+            self._flush, self._pending = None, None
         if not self.started:
             return False
         # A stopped turn's card keeps the step it stopped on; the answer says who stopped it.
@@ -97,6 +132,18 @@ class TurnStream:
         self.ts = None
         return True
 
+    async def subagent(self, subagent_id: str, title: str, status: str) -> None:
+        """One line per subagent, its own card updated in place: started, then done with a
+        one-line summary and its cost. Rare enough (two updates a child) to skip the merge."""
+        await self._task(
+            {
+                "type": "task_update",
+                "id": f"subagent-{subagent_id}"[:64],
+                "title": title[:TASK_CHARS],
+                "status": status,
+            }
+        )
+
     def outcome_line(self) -> str:
         """What the turn did, for the line under its answer: "Done in 42s · Edited 2 files"."""
         elapsed = int(self._clock() - self._started_at)
@@ -105,6 +152,7 @@ class TurnStream:
     async def _task(self, chunk: dict[str, Any]) -> None:
         if self._broken:
             return
+        self._last_update = self._clock()
         try:
             if self.ts is None:
                 response = await self._client.chat_startStream(**self._start_args(), chunks=[chunk])
@@ -113,9 +161,14 @@ class TurnStream:
                     self._broken = True
                 return
             await self._client.chat_appendStream(channel=self._channel, ts=self.ts, chunks=[chunk])
+            self._failures = 0
         except Exception as err:
-            logger.info("Streamed reply unavailable, answering without it: %s", err)
-            self._broken = True
+            # A step update that fails is skipped; the next one carries the latest step anyway.
+            # A stream that cannot start, or keeps failing, is given up.
+            self._failures += 1
+            if self.ts is None or self._failures >= MAX_FAILURES:
+                logger.info("Streamed reply unavailable, answering without it: %s", err)
+                self._broken = True
 
     def _start_args(self) -> dict[str, Any]:
         args: dict[str, Any] = {

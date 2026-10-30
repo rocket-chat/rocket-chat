@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 from agent_core.context import ExecutionContext, current_execution_ctx
-from agent_core.subagents import READ_ONLY_TOOLS, SubagentRunner
+from agent_core.subagents import SubagentRunner
 from agent_core.tools.registry import ToolRegistry
 from api.main import app
 from fastapi.testclient import TestClient
@@ -61,7 +61,7 @@ def test_one_organizations_override_does_not_change_another(client: TestClient) 
         return int(roles["researcher"]["max_turns"])
 
     assert researcher_turns(ADMIN_A) == 2
-    assert researcher_turns(ADMIN_B) == 30
+    assert researcher_turns(ADMIN_B) == 40
 
 
 def test_only_administrators_edit_roles_and_ids_are_validated(client: TestClient) -> None:
@@ -111,7 +111,7 @@ def test_delete_subagent_role_and_reset(client: TestClient) -> None:
 
     roles_reset = {r["id"]: r for r in client.get("/v1/subagents", headers=ADMIN_A).json()}
     assert roles_reset["security_auditor"]["customized"] is False
-    assert roles_reset["security_auditor"]["max_turns"] == 30
+    assert roles_reset["security_auditor"]["max_turns"] == 40
 
 
 @dataclass
@@ -174,13 +174,13 @@ def test_a_subagent_cannot_call_a_tool_outside_its_whitelist() -> None:
     assert "bash_exec" not in gateway.seen_tools[0]
 
 
-def test_an_invented_role_gets_read_only_tools() -> None:
+def test_an_invented_role_is_refused_without_running() -> None:
     gateway = _Scripted(calls=[])
 
-    _run(gateway, "hacker-supreme", None)
+    result = _run(gateway, "hacker-supreme", None)
 
-    assert set(gateway.seen_tools[0]) <= set(READ_ONLY_TOOLS)
-    assert "bash_exec" not in gateway.seen_tools[0] and "file_write" not in gateway.seen_tools[0]
+    assert result.status == "failed" and "no 'hacker-supreme' subagent role" in result.summary
+    assert gateway.seen_tools == [], "an unknown role never reaches a model"
 
 
 def test_a_disabled_role_does_not_run() -> None:

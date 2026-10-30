@@ -28,6 +28,7 @@ from specifications.interfaces.sandbox import SandboxDriverProtocol
 from specifications.interfaces.session import SessionStoreProtocol
 
 RunTurnFn = Callable[..., Awaitable[None]]
+HoldMessageFn = Callable[..., Awaitable[bool]]
 # The classifier's decision for a message, or None when it could not decide (the router's
 # fallback applies).
 ClassifyFn = Callable[[ClassifyRequest], Awaitable[RouteDecision | None]]
@@ -56,6 +57,8 @@ class SlackAssistantState:
     _ingest_attachment_fn: Callable[..., Any] | None
     _file_downloader: FileDownloader | None
     _run_turn_fn: RunTurnFn | None
+    # (session, prompt, author, message id) -> whether a running turn's queue kept the message.
+    _hold_message_fn: HoldMessageFn | None
     _bind_tenant_fn: Callable[[str], None] | None
     _resolve_workspace_org_fn: Callable[[str], Awaitable[str | None]] | None
     _begin_pairing_fn: Callable[[str, str], Awaitable[str | None]] | None

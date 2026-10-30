@@ -25,6 +25,7 @@ from api.services.redaction import Redactor
 from api.services.turn_trace import TurnTraceAccumulator
 from specifications.interfaces.agent import AgentBinding, TurnOverlay
 from specifications.interfaces.events import EventBusProtocol
+from specifications.interfaces.llm import CallRefusal
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 from specifications.interfaces.session import SessionRecord, SessionStoreProtocol
 
@@ -95,6 +96,8 @@ class TurnState:
     # The question the turn is paused on, until the next event shows it was answered.
     open_decision: dict[str, Any] | None = None
     orchestrator_error: str | None = None
+    # The platform's refusal behind ``orchestrator_error`` (a spend limit, a withdrawn key).
+    orchestrator_refusal: CallRefusal | None = None
     # What the orchestrator said the turn answers with; None when it ended without one (an
     # error, a wait), and the streamed text is stored instead.
     final_answer: str | None = None

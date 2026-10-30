@@ -1,11 +1,15 @@
 """Getting code: cloning repositories and read-only GitHub lookups."""
 
+from __future__ import annotations
+
 import logging
 from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import Field
 from sandbox_driver.workspace import RepositoryNotFoundError
 
+from agent_core.context import current_execution_ctx
+from agent_core.subagent_roles import load_repository_roles
 from agent_core.tools import github_prs, github_tools
 from agent_core.tools import repository as repository_tools
 from agent_core.tools.builtin import github as github_builtin
@@ -13,17 +17,18 @@ from agent_core.tools.github_client import GithubError
 
 if TYPE_CHECKING:
     from agent_core.tools.registry import ToolRegistry
+    from specifications.interfaces.sandbox import SandboxDriverProtocol
 
 logger = logging.getLogger(__name__)
 
 
-def register(registry: "ToolRegistry") -> None:
+def register(registry: ToolRegistry) -> None:
     _register_clone(registry)
     _register_watch(registry)
     _register_github_reads(registry)
 
 
-def _register_clone(registry: "ToolRegistry") -> None:
+def _register_clone(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
             "Clone a GitHub repository into /workspace/<name> and describe it (branch, last "
@@ -63,6 +68,8 @@ def _register_clone(registry: "ToolRegistry") -> None:
             driver, session_id, repository, branch, directory, depth
         )
         message = outcome.message
+        if outcome.folder:
+            message += await _repository_roles(driver, session_id, outcome.folder)
         if outcome.folder and registry.remember_active_repository(outcome.folder):
             message += (
                 f"\n{outcome.folder} is now the active repository: git, test and build tools "
@@ -111,7 +118,7 @@ def _register_clone(registry: "ToolRegistry") -> None:
         return f"{folder} is now the active repository."
 
 
-def _register_watch(registry: "ToolRegistry") -> None:
+def _register_watch(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
             "Follow a pull request (or a branch) so this session hears about it: CI results, "
@@ -158,7 +165,7 @@ def _register_watch(registry: "ToolRegistry") -> None:
         return str(await unfollow(repository, pull_request, branch))
 
 
-def _register_github_reads(registry: "ToolRegistry") -> None:
+def _register_github_reads(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
             "Find GitHub repositories without a sandbox: by owner/organization (its most "
@@ -244,3 +251,22 @@ def _register_github_reads(registry: "ToolRegistry") -> None:
             return await github_prs.write_issue(write, slug, number, action, fields)
         except (GithubError, repository_tools.InvalidRepositoryError) as err:
             return f"Error: {err}"
+
+
+async def _repository_roles(driver: SandboxDriverProtocol, session_id: str, folder: str) -> str:
+    """Make the subagent roles the repository defines (``.rocket/agents/*.md``) delegable."""
+    ctx = current_execution_ctx.get()
+    if ctx is None:
+        return ""
+    try:
+        roles = await load_repository_roles(driver, session_id, folder)
+    except Exception:
+        logger.warning("Could not read the subagent roles of %s", folder, exc_info=True)
+        return ""
+    fresh = {k: v for k, v in roles.items() if k not in ctx.repository_subagents}
+    if not fresh:
+        return ""
+    ctx.repository_subagents.update(fresh)
+    return (
+        f"\nThe repository defines subagent roles you can delegate to: {', '.join(sorted(fresh))}."
+    )

@@ -17,7 +17,8 @@ export function middleware(request: NextRequest) {
 
   if (!sessionCookie) {
     const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("return_to", request.nextUrl.pathname);
+    // With the query: an invitation link carries its token there.
+    loginUrl.searchParams.set("return_to", request.nextUrl.pathname + request.nextUrl.search);
     return NextResponse.redirect(loginUrl);
   }
 

@@ -89,3 +89,32 @@ async def test_the_next_step_suggestion_is_offered_only_when_the_member_wants_it
     assert await suggestions("wire_suggest_on") >= 1
     await _prefs("wire_suggest_off", suggest_next_questions=False)
     assert await suggestions("wire_suggest_off") == 0
+
+
+@pytest.mark.setting("user_preferences.turn_notifications")
+@pytest.mark.setting("user_preferences.notification_sound")
+def test_turn_alerts_are_a_members_own_choice_the_cockpit_reads() -> None:
+    """The cockpit reads these from the member's effective preferences (``turn-attention.ts``);
+    the browser behaviour itself is covered by ``e2e/turn_attention.spec.ts``."""
+    from api.main import app
+    from fastapi.testclient import TestClient
+
+    member = {"X-Tenant-Org-Id": "wire_alerts", "X-Tenant-User-Id": "u1"}
+    other = {**member, "X-Tenant-User-Id": "u2"}
+    with TestClient(app) as client:
+        assert (
+            client.get("/v1/settings/user_preferences", headers=member).json()["effective"][
+                "turn_notifications"
+            ]
+            is False
+        )
+        client.put(
+            "/v1/settings/user_preferences",
+            json={"overrides": {"turn_notifications": True, "notification_sound": True}},
+            headers=member,
+        ).raise_for_status()
+        mine = client.get("/v1/settings/user_preferences", headers=member).json()["effective"]
+        theirs = client.get("/v1/settings/user_preferences", headers=other).json()["effective"]
+
+    assert (mine["turn_notifications"], mine["notification_sound"]) == (True, True)
+    assert (theirs["turn_notifications"], theirs["notification_sound"]) == (False, False)

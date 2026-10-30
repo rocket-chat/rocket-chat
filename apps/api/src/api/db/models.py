@@ -45,38 +45,12 @@ class OrganizationModel(Base):
         JSON().with_variant(JSONB, "postgresql"), default=dict
     )
 
-    teams: Mapped[list["TeamModel"]] = relationship(
-        back_populates="organization", cascade="all, delete-orphan"
-    )
     users: Mapped[list["UserModel"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )
     sessions: Mapped[list["SessionModel"]] = relationship(
         back_populates="organization", cascade="all, delete-orphan"
     )
-
-
-class TeamModel(Base):
-    """Team grouping within an Organization, optionally bound to an IdP group."""
-
-    __tablename__ = "teams"
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    org_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    slug: Mapped[str] = mapped_column(String(100), nullable=False)
-    idp_group: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[int] = mapped_column(
-        BigInteger, default=lambda: int(time.time()), nullable=False
-    )
-    settings: Mapped[dict[str, Any]] = mapped_column(
-        JSON().with_variant(JSONB, "postgresql"), default=dict
-    )
-
-    organization: Mapped["OrganizationModel"] = relationship(back_populates="teams")
-    users: Mapped[list["UserModel"]] = relationship(back_populates="team")
 
 
 class UserModel(Base):
@@ -88,12 +62,15 @@ class UserModel(Base):
     org_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    team_id: Mapped[str | None] = mapped_column(
-        String(64), ForeignKey("teams.id", ondelete="SET NULL"), nullable=True, index=True
-    )
     email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[str] = mapped_column(String(50), default="developer", nullable=False)
+    # The role in the home organization (``org_id``); kept for one release while
+    # ``memberships`` takes over (a person may belong to several organizations).
+    role: Mapped[str] = mapped_column(String(50), default="member", nullable=False)
+    # The identity provider's subject and issuer, when the person signed in through one: the
+    # stable key of a person, where the e-mail-derived id may change with the address.
+    idp_issuer: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    idp_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[int] = mapped_column(
         BigInteger, default=lambda: int(time.time()), nullable=False
     )
@@ -108,8 +85,49 @@ class UserModel(Base):
     locked_until: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     organization: Mapped["OrganizationModel"] = relationship(back_populates="users")
-    team: Mapped["TeamModel | None"] = relationship(back_populates="users")
     sessions: Mapped[list["SessionModel"]] = relationship(back_populates="user")
+
+
+class MembershipModel(Base):
+    """A person's role in one organization; a person may belong to several. Forced RLS:
+    an organization sees its own rows, and a person their own across organizations."""
+
+    __tablename__ = "memberships"
+    __table_args__ = (UniqueConstraint("user_id", "org_id", name="uq_memberships_user_org"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default="member")
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+
+
+class OrgInviteModel(Base):
+    """A link that makes its holder a member of an organization, until it expires or is used."""
+
+    __tablename__ = "org_invites"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(50), nullable=False, default="member")
+    # SHA-256 of the secret part of the link; the link itself is shown once.
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+    accepted_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    accepted_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class SessionModel(Base):
@@ -152,27 +170,42 @@ class SessionModel(Base):
     user: Mapped["UserModel"] = relationship(back_populates="sessions")
 
 
-class BYOKCredentialModel(Base):
-    """Encrypted Bring-Your-Own-Key credentials stored at rest."""
+class ProviderCredentialModel(Base):
+    """A model provider credential with an identity: who owns it, which agents may use it.
 
-    __tablename__ = "byok_credentials"
+    An organization may hold several for one provider (a restricted, expensive key for one
+    agent beside the default). Sealed at rest; only the fingerprint leaves the database.
+    """
+
+    __tablename__ = "provider_credentials"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    org_id: Mapped[str | None] = mapped_column(
-        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=True, index=True
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    user_id: Mapped[str | None] = mapped_column(
+    label: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    owner_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="org")
+    owner_user_id: Mapped[str | None] = mapped_column(
         String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
-    team_id: Mapped[str | None] = mapped_column(
-        String(64), ForeignKey("teams.id", ondelete="CASCADE"), nullable=True, index=True
-    )
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
-    encrypted_api_key: Mapped[str] = mapped_column(Text, nullable=False)
+    # ``api_key`` today; ``oauth`` and ``subscription`` logins fit the same row later.
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default="api_key")
+    encrypted_secret: Mapped[str] = mapped_column(Text, nullable=False)
     key_fingerprint: Mapped[str] = mapped_column(String(50), nullable=False)
     # Self-hosted or proxied endpoints (Ollama, vLLM, an OpenAI-compatible gateway).
     api_base: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    default_for_provider: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Skipped by the default chain: used only by the agents bound to it.
+    restricted_to_agents: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Org agents a member's credential may be bound to; only its owner sets it.
+    shared_with_org_agents: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=list
+    )
     created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+    updated_at: Mapped[int] = mapped_column(
         BigInteger, default=lambda: int(time.time()), nullable=False
     )
 
@@ -255,28 +288,70 @@ class SessionQueuedMessageModel(Base):
     )
 
 
-class PolicyModel(Base):
-    """Hierarchical policy definitions for Org, Team, or User."""
+class AnswerFeedbackModel(Base):
+    """A member's thumbs up or down, with an optional comment, on one answer of a session.
 
-    __tablename__ = "policies"
+    One row per member and answered turn (``turn_number``: the 1-indexed user turn); the prompt
+    and answer are kept as excerpts so a later rewind or deletion of the turn leaves the rating
+    readable for evaluation. Protected by PostgreSQL Row-Level Security (RLS).
+    """
+
+    __tablename__ = "answer_feedback"
+    __table_args__ = (
+        UniqueConstraint("session_id", "user_id", "turn_number", name="uq_answer_feedback_turn"),
+    )
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     org_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    team_id: Mapped[str | None] = mapped_column(
-        String(64), ForeignKey("teams.id", ondelete="CASCADE"), nullable=True, index=True
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    user_id: Mapped[str | None] = mapped_column(
-        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
-    )
-    policy_type: Mapped[str] = mapped_column(String(50), nullable=False)  # 'org', 'team', 'user'
-    policy_data: Mapped[dict[str, Any]] = mapped_column(
-        JSON().with_variant(JSONB, "postgresql"), default=dict
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    turn_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    rating: Mapped[str] = mapped_column(String(8), nullable=False)
+    comment: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    prompt_excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    answer_excerpt: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    model: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    agent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
     )
     updated_at: Mapped[int] = mapped_column(
         BigInteger, default=lambda: int(time.time()), nullable=False
     )
+
+
+class ApprovalRuleModel(Base):
+    """An approval a member remembered: the gate it answers is not raised again.
+
+    ``scope`` ``session`` applies to every later call of ``tool`` in ``session_id``;
+    ``repository`` applies to the same ``command`` in ``repository`` (``owner/name``) in every
+    session of ``user_id``. Protected by PostgreSQL Row-Level Security (RLS).
+    """
+
+    __tablename__ = "approval_rules"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)
+    session_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    repository: Mapped[str] = mapped_column(
+        String(255), nullable=False, default="", server_default=""
+    )
+    tool: Mapped[str] = mapped_column(String(255), nullable=False)
+    command: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+    last_used_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
 class OrgSettingModel(Base):
@@ -561,13 +636,19 @@ class AgentPersonaEntityModel(Base):
         JSON().with_variant(JSONB, "postgresql"), default=list
     )
     icon: Mapped[str] = mapped_column(String(50), default="bot")
-    sandbox_image: Mapped[str] = mapped_column(String(255), default="python:3.12-slim")
+    # The sandbox type (``sandbox_catalogue``) the agent runs in; the type holds the image,
+    # CPU and memory, so an agent never sets resources of its own.
     sandbox_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    cpu_limit: Mapped[str] = mapped_column(String(50), default="")
-    memory_limit: Mapped[str] = mapped_column(String(50), default="")
     temperature: Mapped[float | None] = mapped_column(Float, nullable=True)
-    thinking_budget_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reasoning_effort: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # The agent's own provider credentials: [{provider, credential_id}]. With
+    # ``strict_binding`` a call on any other provider is refused.
+    credential_bindings: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=list
+    )
+    strict_binding: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     max_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     active_tools: Mapped[list[str]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), default=list
@@ -606,12 +687,61 @@ class SubagentConfigEntityModel(Base):
     )
     temperature: Mapped[float] = mapped_column(Float, default=0.2)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    tier: Mapped[str] = mapped_column(String(16), default="default", nullable=False)
+    disallowed_tools: Mapped[list[str] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    reasoning_effort: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    max_cost_usd: Mapped[float] = mapped_column(Float, default=3.0, nullable=False)
+    max_wall_seconds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    isolation: Mapped[str] = mapped_column(String(16), default="none", nullable=False)
+    can_ask_user: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    inherit: Mapped[list[str] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    output_schema: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
     created_at: Mapped[int] = mapped_column(
         BigInteger, default=lambda: int(time.time()), nullable=False
     )
     updated_at: Mapped[int] = mapped_column(
         BigInteger, default=lambda: int(time.time()), nullable=False
     )
+
+
+class SubagentRunModel(Base):
+    """A background subagent as a supervised task, leased by the replica running it (forced RLS)."""
+
+    __tablename__ = "subagent_runs"
+    __table_args__ = (
+        UniqueConstraint("session_id", "subagent_id", name="uq_subagent_runs_child"),
+        Index("ix_subagent_runs_active_lease", "status", "lease_expires_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    subagent_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    role: Mapped[str] = mapped_column(String(64), nullable=False)
+    task: Mapped[str] = mapped_column(Text, nullable=False)
+    context: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    background: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    parent_tool_call_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    lease_owner: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    lease_expires_at: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    result: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 class TurnTraceModel(Base):
@@ -805,6 +935,10 @@ class SubagentTranscriptModel(Base):
         JSONB().with_variant(JSON(), "sqlite"), nullable=False, default=list
     )
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    report: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB().with_variant(JSON(), "sqlite"), nullable=True
+    )
+    model: Mapped[str] = mapped_column(String(255), nullable=False, default="")
 
 
 class SessionArtifactModel(Base):
@@ -1230,10 +1364,8 @@ class SlackWorkspaceQuotaModel(Base):
     org_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    monthly_usd_cap: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     turns_per_hour: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     max_concurrent_sessions: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-    current_month_spend_usd: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     turns_this_hour: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     hour_window_start: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[int] = mapped_column(
@@ -1282,7 +1414,6 @@ Index(
     TurnTraceModel.session_id,
     TurnTraceModel.turn_index,
 )
-Index("ix_policies_org_type", PolicyModel.org_id, PolicyModel.policy_type)
 Index("uq_org_settings_domain", OrgSettingModel.org_id, OrgSettingModel.domain, unique=True)
 Index("uq_user_settings_domain", UserSettingModel.user_id, UserSettingModel.domain, unique=True)
 Index(
@@ -1384,3 +1515,114 @@ class UsageEventModel(Base):
     cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     key_source: Mapped[str] = mapped_column(String(16), nullable=False, default="platform")
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    # Attribution (rows from before it are reported as "unattributed").
+    agent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    credential_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    turn_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    subagent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    call_role: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    requester_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class SpendLimitModel(Base):
+    """A spend limit on a subject over a period. Forced RLS.
+
+    ``subject_kind``: ``org`` (no subject), ``member`` (a member, or every member when
+    ``subject_id`` is NULL), ``agent``, ``agent_member`` (an agent for one member in
+    ``member_id``, or for each member when NULL) or ``slack_workspace`` (a Slack team id).
+    """
+
+    __tablename__ = "spend_limits"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    subject_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    subject_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    member_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    period: Mapped[str] = mapped_column(String(16), nullable=False)
+    amount_usd: Mapped[float] = mapped_column(Float, nullable=False)
+    mode: Mapped[str] = mapped_column(String(8), nullable=False, default="block")
+    warn_at_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=80)
+    # A default-for-each row marked as a ceiling: an explicit row may only lower it.
+    is_ceiling: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+    updated_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+
+
+class SpendCounterModel(Base):
+    """Spent and reserved dollars of one limit, for one subject, in one window. Forced RLS.
+
+    Calendar periods have one row per window; rolling periods one per hour, summed over the
+    window; ``session`` and ``turn`` one per session or turn (window 0).
+    """
+
+    __tablename__ = "spend_counters"
+
+    limit_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("spend_limits.id", ondelete="CASCADE"), primary_key=True
+    )
+    subject_key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    window_start: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    spent_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    reserved_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+
+
+class SpendReservationModel(Base):
+    """An estimate set aside before a call; a sweeper releases those whose call never settled."""
+
+    __tablename__ = "spend_reservations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    amount_usd: Mapped[float] = mapped_column(Float, nullable=False)
+    # [[limit_id, subject_key, window_start], ...]
+    counters: Mapped[list[Any]] = mapped_column(JSON().with_variant(JSONB, "postgresql"))
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+
+
+class AgentGrantModel(Base):
+    """Who may use an organization agent. No rows: every member (not guests). Forced RLS.
+
+    ``principal_kind``: ``everyone``, ``member`` (``principal_id`` = user id), ``role``
+    (``principal_id`` = role name) or ``guests`` (Slack guests and guest tokens).
+    """
+
+    __tablename__ = "agent_grants"
+    __table_args__ = (
+        UniqueConstraint(
+            "agent_id", "principal_kind", "principal_id", name="uq_agent_grants_principal"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    principal_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    principal_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+
+
+Index(
+    "ix_usage_events_org_agent_created",
+    UsageEventModel.org_id,
+    UsageEventModel.agent_id,
+    UsageEventModel.created_at,
+)

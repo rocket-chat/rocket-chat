@@ -7,7 +7,7 @@ from typing import Any
 
 from config_engine.environment import env_value
 
-from api.services.settings import load_org_config
+from api.services.settings import resolve_setting
 from specifications.interfaces.agent import DEFAULT_MAX_TURNS
 
 logger = logging.getLogger(__name__)
@@ -20,15 +20,14 @@ def deployment_max_turns() -> int:
 
 
 async def organization_max_turns(db_mgr: Any, org_id: str) -> int:
-    """The organization's step limit: its ``max_turns`` setting, else the deployment default.
+    """The organization's step limit: its ``max_turns`` setting, else the deployment's
+    (``AGENT_MAX_TURNS``, the setting's instance default), else the platform default.
 
     It is both the default for an agent that sets nothing and the ceiling for one that does.
     """
-    org_general, _ = await load_org_config(db_mgr, org_id, "general")
-    configured = org_general.get("max_turns")
-    if configured is not None:
-        try:
-            return int(configured)
-        except (TypeError, ValueError):
-            logger.warning("Ignoring invalid general.max_turns=%r for org %s", configured, org_id)
-    return deployment_max_turns()
+    resolved = await resolve_setting(db_mgr, org_id, "general", "max_turns")
+    try:
+        return int(resolved.value)
+    except (TypeError, ValueError):
+        logger.warning("Ignoring invalid general.max_turns=%r for org %s", resolved.value, org_id)
+        return deployment_max_turns()

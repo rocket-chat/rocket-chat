@@ -55,8 +55,9 @@ async def check_and_schedule_continuation(ctx: TurnContext) -> bool:
     goal = await goal_store.get_goal(ctx.session_id, ctx.session.tenant_org_id)
     if goal is None:
         budgets = await effective_settings(ctx.req.db_mgr, ctx.session.tenant_org_id, "budgets")
-        sess_cap = float(budgets.get("session_budget_usd", 0.0) or 0.0)
-        max_cost = sess_cap if sess_cap > 0 else None
+        # Dollars are bounded by spend limits (a ``session`` period caps one session) at every
+        # model call; a goal bounds tokens, time and turns.
+        max_cost = None
         max_tokens = int(budgets["goal_max_total_tokens"]) or None
         max_wall_time = int(budgets["goal_max_wall_time_minutes"]) * 60 or None
         max_continuations = int(budgets["max_continuations"])

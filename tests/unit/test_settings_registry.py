@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 from config_engine import REGISTRY, validate, validate_locked_keys
-from config_engine.registry import system_defaults
+from config_engine.registry import system_defaults, writable_keys
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -92,10 +92,9 @@ def test_defaults_are_valid_for_their_own_specs() -> None:
     for domain in REGISTRY:
         defaults = {k: v for k, v in system_defaults(domain).items() if v is not None}
         # Member-only settings are written by the member; every other one by an administrator.
-        for writer in ("org", "user"):
-            writable = {
-                k: v for k, v in defaults.items() if REGISTRY[domain][k].scope in (writer, "both")
-            }
+        for writer in ("org", "member"):
+            keys = writable_keys(domain, writer)  # type: ignore[arg-type]
+            writable = {k: v for k, v in defaults.items() if k in keys}
             result = validate(domain, writable, writer=writer)  # type: ignore[arg-type]
             assert result.ok, (domain, writer, result.errors)
 
@@ -117,9 +116,9 @@ def test_system_defaults_are_independent_copies() -> None:
         ("general", {"max_turns": True}, "org", "must be a int"),
         ("models", {"fallback_models": [1]}, "org", "list of text"),
         ("github", {"app_token_permissions": "contents"}, "org", "object"),
-        ("user_preferences", {"suggest_next_questions": "maybe"}, "user", "true or false"),
-        ("user_preferences", {"nonsense": 1}, "user", "unknown setting"),
-        ("github", {"bot_author_name": "Someone else"}, "user", "administrator"),
+        ("user_preferences", {"suggest_next_questions": "maybe"}, "member", "true or false"),
+        ("user_preferences", {"nonsense": 1}, "member", "unknown setting"),
+        ("github", {"bot_author_name": "Someone else"}, "member", "administrator"),
         ("nope", {"a": 1}, "org", "unknown settings domain"),
     ],
 )
@@ -140,15 +139,17 @@ def test_validation_coerces_and_normalises() -> None:
     assert result.ok
     assert result.values == {"allowed_transports": ["sse", "http"], "max_user_servers": 5}
     assert validate(
-        "user_preferences", {"suggest_next_questions": "false"}, writer="user"
+        "user_preferences", {"suggest_next_questions": "false"}, writer="member"
     ).values == {"suggest_next_questions": False}
 
 
-def test_both_scope_keys_are_writable_by_either_party_and_lockable() -> None:
+def test_org_default_keys_are_writable_by_either_party_and_lockable() -> None:
     assert validate("user_preferences", {"git_branch_prefix": "x/"}, writer="org").ok
-    assert validate("user_preferences", {"git_branch_prefix": "x/"}, writer="user").ok
+    assert validate("user_preferences", {"git_branch_prefix": "x/"}, writer="member").ok
     assert validate_locked_keys("user_preferences", ["preferred_model"]) == []
-    assert validate_locked_keys("github", ["default_branch"])[0].message.startswith("only member")
+    assert validate_locked_keys("github", ["default_branch"])[0].message.startswith(
+        "only organization defaults"
+    )
     assert validate_locked_keys("github", ["nope"])[0].message.startswith("cannot lock")
 
 
@@ -162,14 +163,14 @@ def test_optional_integers_accept_clearing() -> None:
 async def test_effective_settings_refuse_a_key_the_registry_does_not_declare() -> None:
     from api.services.settings import UndeclaredSettingError, effective_settings
 
-    budgets = await effective_settings(None, "org_declared", "budgets")
+    models = await effective_settings(None, "org_declared", "models")
 
-    assert budgets["monthly_budget_usd"] == 0.0
-    assert budgets.get("session_budget_usd") == 0.0
+    assert models["max_tokens"] == 32_000
+    assert models.get("context_target_tokens") == 200_000
     with pytest.raises(UndeclaredSettingError):
-        budgets.get("max_wall_time_seconds")
+        models.get("max_wall_time_seconds")
     with pytest.raises(UndeclaredSettingError):
-        budgets["max_tokens"]
+        models["monthly_budget_usd"]
 
 
 async def test_undeclared_reads_only_log_outside_the_test_suite(

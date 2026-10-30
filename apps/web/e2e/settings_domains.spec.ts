@@ -62,7 +62,7 @@ test.describe("Schema-driven settings forms", () => {
     await page.getByTestId("settings-save-all").click();
     await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
 
-    await page.goto("/settings/user/profile");
+    await page.goto("/settings/user/preferences");
     const field = page.getByTestId("settings-field-user_preferences-suggest_next_questions");
     await expect(field).toBeDisabled();
     await expect(field).not.toBeChecked();

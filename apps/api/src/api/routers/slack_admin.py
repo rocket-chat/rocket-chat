@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api.auth.access import _get_request_identity, _require_admin
+from api.auth.roles import can_write
 from api.services.audit import AuditService
 from api.services.slack_bots import SlackBotStore
 from api.services.slack_link import (
@@ -46,7 +47,7 @@ async def _connected_team(request: Request, org_id: str) -> str | None:
 async def complete_slack_pairing(body: PairRequest, request: Request) -> dict[str, Any]:
     """Finish linking: the signed-in member claims the Slack user that issued the code."""
     org_id, user_id, roles = _get_request_identity(request)
-    if "readonly" in roles:
+    if not can_write(roles):
         raise HTTPException(
             status_code=403, detail="Forbidden: read-only role cannot link accounts"
         )

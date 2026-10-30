@@ -5,10 +5,10 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 
 from api.auth.access import _get_request_identity
+from api.auth.roles import can_write
 from api.models import GitSigningImportRequest, GitSigningStatus
 from api.services.audit import AuditService
 from api.services.git_signing import (
-    COMMIT_AS_ME,
     PROVIDER,
     SigningKeyError,
     SigningUnavailable,
@@ -26,19 +26,14 @@ router = APIRouter(prefix="/v1", tags=["Sessions & Telemetry"])
 async def _status(request: Request, org_id: str, user_id: str) -> GitSigningStatus:
     db_mgr = getattr(request.app.state, "db_manager", None)
     github = await effective_settings(db_mgr, org_id, "github", user_id)
-    prefs = await effective_settings(db_mgr, org_id, "user_preferences", user_id)
     stored = await stored_signing_metadata(db_mgr, org_id, user_id)
     available = gpg_available()
-    mode = str(github.get("commit_signing_mode") or "")
-    commit_as_me = bool(prefs.get(COMMIT_AS_ME))
+    mode = str(github.get("signing") or "")
     if stored is None:
-        return GitSigningStatus(
-            available=available, mode=mode, commit_as_me=commit_as_me, configured=False
-        )
+        return GitSigningStatus(available=available, mode=mode, configured=False)
     return GitSigningStatus(
         available=available,
         mode=mode,
-        commit_as_me=commit_as_me,
         configured=True,
         fingerprint=stored.get("fingerprint"),
         key_id=stored.get("key_id"),
@@ -62,10 +57,8 @@ async def get_git_signing(request: Request) -> GitSigningStatus:
 async def import_git_signing(req: GitSigningImportRequest, request: Request) -> GitSigningStatus:
     """Import a GPG private key: it is validated by GnuPG, then stored encrypted."""
     org_id, user_id, roles = _get_request_identity(request)
-    if "readonly" in roles:
-        raise HTTPException(
-            status_code=403, detail="Forbidden: Read-only role cannot import signing keys"
-        )
+    if not can_write(roles):
+        raise HTTPException(status_code=403, detail="Forbidden: viewers cannot import signing keys")
     db_mgr = getattr(request.app.state, "db_manager", None)
     try:
         info, email = await save_signing_key(

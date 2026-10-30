@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from agent_core.context import ExecutionContext, current_execution_ctx
 from agent_core.tools.registry import ToolRegistry
@@ -178,6 +178,7 @@ async def test_delegate_subagents_parallel_tool() -> None:
             ),
         ]
     )
+    mock_runner.roles = MagicMock(return_value={})
     registry._subagent_runner = mock_runner
 
     delegations = [

@@ -34,7 +34,7 @@ session record was being read) it is `{"from_seq": 398, "events": [...]}`: the e
 record cannot hold yet, to apply on top of `session`. `running_turn` provides the in-flight turn metadata, `current_reasoning` and `current_text` (what it has streamed since its last step: the thought in progress, and a preface or the answer so far), `seq` (the sequence those two cover through: every `token`/`reasoning_token` up to it is in them, none after it), and its completed steps (`steps` list with `id`, `name`, `arguments`, `result`, `status`, `duration_ms`, `redacted`, `seq`, and `reasoning`: what the model thought before the call, on the first call of each step) so a client connecting or refreshing mid-turn renders the full flight log without waiting for the turn to complete. Events are idempotent by `seq`, and
 tokens of an answer that is already stored are ignored, so overlap with the record is safe. `catch_up` starts where the running turn began, so it also holds the events of the steps `running_turn` already lists: a client showing them skips the catch-up's `tool_started` for a listed call, and every `token`/`reasoning_token` up to `running_turn.seq` (or, without it, up to the highest step `seq`, the sequence just after that step's `tool_completed`), in the catch-up and among the live events that follow alike. On a replica that is not running the turn, `running_turn` holds the stored steps and the live part reported by the replica that is, and there may be no `catch_up`. A client that applies a `sync` with a `catch_up` must rewind its resume cursor to `from_seq` first: the snapshot replaced the transcript, so anything it had applied beyond that point has to be applied again.
 
-A turn is over when a `status_changed` event with `"final": true` arrives (completed, or error). The orchestrator also reports `completed` earlier, before the answer is stored, which is why that one does not carry the flag.
+A turn is over when a `status_changed` event with `"final": true` arrives (completed, or error). The orchestrator also reports `completed` earlier, before the answer is stored, which is why that one does not carry the flag. A failed turn's closing status, and its `error` event, carry `error_kind`: `provider` (keys, quota or an outage at the provider), `budget` (a spend limit), `model` (the model is unknown or not allowed), `sandbox` (the workspace), `access` (the sender may not use the session's agent) or `internal`, so a client can offer the right way out without reading the message.
 
 The cockpit consumes this frame to repopulate its store after a reconnect, and stores
 `last_seq` so it can ask for exactly the events it missed (see §3 F). The server closes
@@ -95,6 +95,7 @@ Announces a tool about to run, then reports its result:
   }
 }
 ```
+A **subagent's own step** carries `subagent_id` and `parent_tool_call_id` (the parent's `delegate_subagent` call) on both events: clients nest it under that subagent's card and never count it as one of the turn's steps.
 
 ### C. Live Terminal Logs (`log_chunk`)
 Streams ANSI-colored stdout and stderr chunks for the `@xterm/xterm` log viewer. A command's output arrives **while it runs**, a few times a second and whole lines at a time, already redacted; `tool_call_id` names the tool call it belongs to (the same id as in `tool_started` and `tool_completed`), so a client can show it under that step. It is absent for text that belongs to no call. A call that streamed its output does not repeat it in a final chunk; its `tool_completed` carries the complete (clamped) result. Streaming for one call stops after about 200,000 characters.
@@ -124,11 +125,11 @@ Reports one edit the agent made to a file, with its unified diff. It is also the
 ```
 
 ### E. Status, Plans, Subagents, Synthesis, and Errors
-The remaining catalogue uses the same envelope: `token`, `status_changed` (payload: `status`, `message`, `context_tokens`, `context_limit`, `context_model_limit`, `context_target_tokens`, `context_source`, `context_tier2_tokens`, `context_tier3_tokens`; while a step runs tools, `status: "running"` carries a short action such as `Reading files...` or `Running a command...`, never the model's own text, which arrives as `token` events; `context_tokens` and `context_limit` provide live context window gauge metrics with pruning and compaction thresholds),
-`plan_updated`, `post_failure_synthesis`, `subagent_started`,
-`subagent_progress`, `subagent_completed`, `followup_suggestion`,
+The remaining catalogue uses the same envelope: `token`, `status_changed` (payload: `status`, `message`, `context_tokens`, `context_limit`, `context_model_limit`, `context_target_tokens`, `context_source`, `context_tier2_tokens`, `context_tier3_tokens`, `step` (the model call a running turn is on, from 1), `error_kind` (on a failed turn's closing status), `turn_start` and `message_id` (on the first `running` status of a turn: where it begins, and the id of the message that started it when the sender gave one); while a step runs tools, `status: "running"` carries a short action such as `Reading files...` or `Running a command...`, never the model's own text, which arrives as `token` events; `context_tokens` and `context_limit` provide live context window gauge metrics with pruning and compaction thresholds),
+`plan_updated`, `post_failure_synthesis`, `subagent_started` (payload: `subagent_id`, `role`, `name`, `task`, `parent_tool_call_id`, `model`, `isolation`, `background`),
+`subagent_progress` (payload: `subagent_id`, `delta`, `is_reasoning`; merged, at most one event per 250 ms or 200 characters), `subagent_completed` (payload: `subagent_id`, `role`, `task`, `summary`, `status`: `completed`, `partial`, `blocked`, `failed` or `cancelled`, `duration_ms`, `turns_taken`, `tool_calls_count`, `tokens`, `cost`, `changed_files`, `artefacts`, `parent_tool_call_id`, `model`, `branch` holding its changes, and `report`: the whole structured report with `status`, `summary`, `findings` (`file`, `line`, `severity`, `evidence`), `changes` (`branch`, `diff_stat`, `files`), `open_questions`, `next_steps`, `data`), `followup_suggestion`,
 `session_updated`, `sandbox_state` (payload: `state`, `message`; `state: "failed"` means the sandbox could not start and `message` says why, for example an image that cannot be pulled), `decision_submitted`, `user_message`, `message_pending` (payload: `message_id`, `delivery`, `content`, `author_user_id`), `message_cancelled` (payload: `message_id`), `process_started`,
-`process_exited` (payload: `process_id`, `name`, `command`, `state`, `port`, `exit_code`), `github_event` (activity on a pull request the session follows; payload: `kind`, `repo`, `pr_number`, `summary`, `outcome`, `url`, `actor`, `at`, `woke`), `context_compacted` (payload: `tokens_before`, `tokens_after`, `compacted_messages_count`, `summary`, `summary_status`), `goal_updated` (payload: `goal_id`, `description`, `status`, `consumed_tokens`, `consumed_cost_usd`, `continuation_count`, `max_continuations`, `stop_condition`), `continuation_scheduled` (payload: `continuation_index`, `max_continuations`, `reason`, `goal_id`), `wait_started` (payload: `wait_id`, `wait_type`, `target`, `timeout_seconds`, `sha` for a CI wait on a named commit), `wait_completed` (payload: `wait_id`, `wait_type`, `target`, `status`, `payload`), `artifact_created` (payload: `artifact_id`, `title`, `kind`, `path`), `artifact_updated` (payload: `artifact_id`, `title`, `kind`, `path`), `task_started` (payload: `task_id`, `command`, `state`), `task_completed` (payload: `task_id`, `exit_code`, `status`), and `error`.
+`process_exited` (payload: `process_id`, `name`, `command`, `state`, `port`, `exit_code`), `github_event` (activity on a pull request the session follows; payload: `kind`, `repo`, `pr_number`, `summary`, `outcome`, `url`, `actor`, `at`, `woke`), `context_compacted` (payload: `tokens_before`, `tokens_after`, `compacted_messages_count`, `summary`, `summary_status`), `goal_updated` (payload: `goal_id`, `description`, `status`, `consumed_tokens`, `consumed_cost_usd`, `continuation_count`, `max_continuations`, `stop_condition`), `continuation_scheduled` (payload: `continuation_index`, `max_continuations`, `reason`, `goal_id`), `wait_started` (payload: `wait_id`, `wait_type`, `target`, `timeout_seconds`, `sha` for a CI wait on a named commit), `wait_completed` (payload: `wait_id`, `wait_type`, `target`, `status`, `payload`), `artifact_created` (payload: `artifact_id`, `title`, `kind`, `path`), `artifact_updated` (payload: `artifact_id`, `title`, `kind`, `path`), `task_started` (payload: `task_id`, `command`, `state`), `task_completed` (payload: `task_id`, `exit_code`, `status`), `budget_warning` (a spend limit that applies to the turn is nearly used; payload: `limit_id`, `subject`, `subject_id`, `period`, `mode`, `label`, `spent`, `amount`, `resets_at`), `budget_blocked` (a block limit refused the turn's next model call before anything was bought; payload: `limit_id`, `subject`, `period`, `spent`, `amount`, `resets_at`, `message`), `agent_access_denied` (the person who sent the message may not use the session's agent, never granted or revoked; payload: `agent_id`, `agent_name`, `message`), and `error` (payload: `error`, `error_kind`: `provider`, `budget`, `model`, `sandbox`, `access` or `internal`). `budget_blocked` and `agent_access_denied` come just before the turn's `error`.
 
 ### E2. Replay After a Reconnect (`replay`)
 Sent in answer to a client `resume` frame (§3 F). It carries every retained event
@@ -171,7 +172,7 @@ Prompts the human engineer for clarification. Emitted by the orchestrator's
   }
 }
 ```
-The cockpit renders `DecisionCard`; Slack renders Block Kit option buttons.
+The cockpit renders `DecisionCard` (radios, or checkboxes when `is_multi_select`, and an "Other" answer); Slack renders Block Kit option buttons. A question a subagent asks (only a role allowed to ask) adds `subagent_id` and `subagent_role`.
 
 ### G. Human Approval Gates (`approval_required`)
 Emitted when the agent pauses for explicit human approval — entering/exiting plan
@@ -187,11 +188,58 @@ mode, or any sensitive action routed through the `request_approval` tool:
   }
 }
 ```
+The payload also carries the structured call when there is one: `tool`, `arguments` (each value
+cut at 2,000 characters), `diff` for an edit (cut at 20,000), `repository` (`owner/name`),
+`remember_options` (`session`, `repository`: how a "yes" may be remembered, empty when none
+applies), and `subagent_id` / `subagent_role` when a subagent needs the approval.
 The session enters `paused_for_input` and the turn stays suspended until a
 decision arrives. The cockpit renders `ApprovalCard` (Approve / Reject); Slack
 renders `approve_action` / `reject_action` Block Kit buttons. Approving resumes
 the turn; rejecting returns an explicit denial to the model so it can choose a
 safe alternative.
+
+A gate whose `action_type` is `execute_plan` comes from `exit_plan_mode`: the cockpit shows it
+as a plan card (the proposed checklist, Approve / Edit / Reject and the permission mode the work
+continues in) and answers it with `POST /v1/sessions/{id}/plan/decision`, not the `approval`
+frame. When the organization turned on `general.plan_critic`, `command_or_path` ends with the
+`reviewer` subagent's notes on the plan. Every participant then receives `plan_decided`:
+```json
+{
+  "event_type": "plan_decided",
+  "payload": {
+    "action_id": "ap_3f9c21ab",
+    "approved": true,
+    "permission_mode": "auto_edit",
+    "edited": false,
+    "decided_by": "user_42"
+  }
+}
+```
+`permission_mode` is empty for a rejected plan; otherwise it is the session's mode from then on
+(the running turn switches to it too).
+
+### G3. Remembered Approvals (`approval_rules_changed`)
+A person saved or revoked a remembered approval for the session (payload: `change`: `added` or
+`revoked`, `rule_id`, `scope`: `session` or `repository`). Clients read the session's rules again
+(`GET /v1/sessions/{id}/approval-rules`); the rules themselves are never sent on the socket.
+
+### G2. Publishing From the Cockpit (`git_published`)
+A person committed, pushed or opened a pull request from the Git tab (`POST
+/v1/sessions/{id}/git/commit`, `/git/push`, `/git/pull-request`). Clients refresh their Git view
+and show the line in the conversation; `summary` is what the publishing path answered (bounded),
+`url` is set for a pull request:
+```json
+{
+  "event_type": "git_published",
+  "payload": {
+    "action": "pull_request",
+    "repository": "/workspace/api",
+    "summary": "Pull request opened: https://github.com/acme/api/pull/42",
+    "url": "https://github.com/acme/api/pull/42",
+    "decided_by": "user_42"
+  }
+}
+```
 
 ### H. Graceful Drain (`draining`)
 When the pod is draining for a rollout, a newly accepted socket is told immediately,
@@ -257,9 +305,13 @@ Resolves a pending `approval_required` gate:
 {
   "type": "approval",
   "action_id": "ap_3f9c21ab",
-  "approved": true
+  "approved": true,
+  "remember": "session"
 }
 ```
+`remember` (optional, with `approved: true`) is one of the gate's `remember_options`: the same
+call is then answered for the rest of the session (`session`) or, for the same command in the
+same repository, in every session of yours (`repository`).
 The equivalent REST endpoint is `POST /v1/sessions/{session_id}/approvals/{action_id}`.
 
 ### E. Keepalive

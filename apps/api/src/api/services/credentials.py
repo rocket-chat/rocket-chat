@@ -12,14 +12,18 @@ from typing import Any
 from cryptography.fernet import Fernet, InvalidToken
 from sqlalchemy import select
 
+from api.auth.roles import MEMBER
 from api.db.models import OrganizationModel, UserCredentialModel, UserModel
 from api.db.session import DatabaseSessionManager
+from api.services.memberships import ensure_membership
 
 logger = logging.getLogger(__name__)
 
 # Fallback development key ensuring zero-config local operation
 _DEV_KEY_SOURCE = "rocket-chat-development-symmetric-encryption-seed-2026"
-_in_memory_credentials: dict[tuple[str, str], dict[str, Any]] = {}
+# Without a database (development and tests): (org, user, provider) -> the sealed credential.
+# Per organization, as the table is: a person who belongs to several keeps them apart.
+_in_memory_credentials: dict[tuple[str, str, str], dict[str, Any]] = {}
 
 
 def _get_fernet() -> Fernet:
@@ -86,7 +90,7 @@ async def store_user_credential(
     encrypted = encrypt_secret(secret)
 
     # In-memory sync for fast reads and non-db fallback
-    _in_memory_credentials[(user_id, provider)] = {
+    _in_memory_credentials[(org_id, user_id, provider)] = {
         "user_id": user_id,
         "org_id": org_id,
         "provider": provider,
@@ -120,10 +124,11 @@ async def store_user_credential(
                         org_id=org_id,
                         email=user_email,
                         name=user_login,
-                        role="developer",
+                        role=MEMBER,
                     )
                     session.add(user)
                     await session.flush()
+                    await ensure_membership(session, user_id, org_id, MEMBER)
 
                 stmt = select(UserCredentialModel).where(
                     UserCredentialModel.user_id == user_id,
@@ -194,7 +199,7 @@ async def get_user_credential(
         except Exception as err:
             logger.debug("Database read failed for user_credential: %s", err)
 
-    cached = _in_memory_credentials.get((user_id, provider))
+    cached = _in_memory_credentials.get((org_id, user_id, provider))
     if cached:
         decrypted = decrypt_secret(cached["encrypted_secret"])
         return UserCredentialData(
@@ -217,7 +222,7 @@ async def delete_user_credential(
     org_id: str = "default_org",
 ) -> bool:
     """Remove user credential from DB and in-memory cache."""
-    removed = _in_memory_credentials.pop((user_id, provider), None) is not None
+    removed = _in_memory_credentials.pop((org_id, user_id, provider), None) is not None
 
     if db_mgr and db_mgr.session_factory:
         try:

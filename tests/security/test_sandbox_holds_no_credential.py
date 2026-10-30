@@ -17,7 +17,7 @@ import pytest
 from agent_core.tools import github_client
 from api.services import git_credentials
 from api.services.credentials import store_user_credential
-from api.services.settings import save_org_config, save_user_config
+from api.services.settings import save_org_config
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
 from specifications.interfaces.git import PublishResult, PublishSpec
@@ -81,7 +81,7 @@ def github(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 async def _configure(org: str, user: str, member: bool, signing: str) -> None:
-    await save_org_config(None, org, "github", {"commit_signing_mode": signing}, [])
+    await save_org_config(None, org, "github", {"signing": signing}, [])
     if not member:
         return
     await store_user_credential(None, user, org, "github", MEMBER_TOKEN, {"login": "octocat"})
@@ -90,10 +90,9 @@ async def _configure(org: str, user: str, member: bool, signing: str) -> None:
         json.dumps({"private_key": PRIVATE_KEY, "passphrase": PASSPHRASE}),
         {"fingerprint": "ABCD" * 10, "commit_email": "octo@example.com"},
     )  # fmt: skip
-    await save_user_config(None, org, user, "user_preferences", {"commit_as_me": True})
 
 
-@pytest.mark.parametrize("signing", ["github_app", "gpg_key", "none"])
+@pytest.mark.parametrize("signing", ["github", "member_gpg", "none"])
 @pytest.mark.parametrize("source", ["app", "member", "app+member", "none"])
 async def test_no_secret_reaches_the_sandbox_or_the_model(source: str, signing: str) -> None:
     org = f"org_nosecret_{source.replace('+', '_')}_{signing}"
@@ -113,7 +112,7 @@ async def test_no_secret_reaches_the_sandbox_or_the_model(source: str, signing: 
     )
 
     assert engine.published, "the turn did publish"
-    if "member" in source and signing == "gpg_key":
+    if "member" in source and signing == "member_gpg":
         key = engine.published[0].signing_key
         assert key is not None and "secret-key-material" in key.private_key, "kept host-side"
     seen_by_sandbox = json.dumps(

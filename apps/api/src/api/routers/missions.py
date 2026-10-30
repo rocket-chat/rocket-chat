@@ -7,12 +7,16 @@ than its creator could do by hand.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api.auth.access import _get_request_identity
+from api.auth.roles import can_write
+from api.auth.roles import is_admin as holds_admin
+from api.services.agent_access import AgentAccessDenied, require_usable_agent
 from api.services.missions import Mission, MissionError, MissionStore
 from api.services.repository_validation import (
     InvalidRepositoryError,
@@ -20,6 +24,7 @@ from api.services.repository_validation import (
     validate_branch,
 )
 from api.services.settings import effective_settings
+from api.services.starter_content import MISSION_TEMPLATES
 from api.turns.tasks import launch_mission
 from specifications.interfaces.agent import PERMISSION_MODES
 
@@ -112,17 +117,32 @@ async def _owned(request: Request, mission_id: str) -> tuple[Mission, MissionSto
     org_id, user_id, roles = _get_request_identity(request)
     store = _store(request)
     mission = await store.get(org_id, mission_id)
-    is_admin = any(role in ("admin", "owner") for role in roles)
+    is_admin = holds_admin(roles)
     # Another member's mission is reported as absent, not forbidden.
     if mission is None or (mission.user_id != user_id and not is_admin):
         raise HTTPException(status_code=404, detail="Mission not found")
     return mission, store
 
 
+class MissionTemplateResponse(BaseModel):
+    id: str
+    name: str
+    description: str
+    prompt: str
+    cron: str
+    permission_mode: str
+
+
+@router.get("/missions/templates", response_model=list[MissionTemplateResponse])
+async def list_mission_templates() -> list[MissionTemplateResponse]:
+    """Starting points for recurring maintenance missions (created disabled until switched on)."""
+    return [MissionTemplateResponse(**asdict(template)) for template in MISSION_TEMPLATES]
+
+
 @router.get("/missions", response_model=list[MissionResponse])
 async def list_missions(request: Request, all: bool = False) -> list[MissionResponse]:
     org_id, user_id, roles = _get_request_identity(request)
-    see_all = all and any(role in ("admin", "owner") for role in roles)
+    see_all = all and holds_admin(roles)
     found = await _store(request).list(org_id, None if see_all else user_id)
     return [_view(m) for m in found]
 
@@ -130,12 +150,11 @@ async def list_missions(request: Request, all: bool = False) -> list[MissionResp
 @router.post("/missions", response_model=MissionResponse)
 async def create_mission(body: MissionBody, request: Request) -> MissionResponse:
     org_id, user_id, roles = _get_request_identity(request)
-    if "readonly" in roles:
-        raise HTTPException(
-            status_code=403, detail="Forbidden: Read-only role cannot create missions"
-        )
+    if not can_write(roles):
+        raise HTTPException(status_code=403, detail="Forbidden: viewers cannot create missions")
     _check_mode(body.permission_mode)
     await _check_slack_channel(request, org_id, body.slack_channel)
+    await _usable_agent(request, org_id, user_id, roles, body.agent_id)
     try:
         repo = parse_repository(body.git_repo).url if body.git_repo else None
         branch = validate_branch(body.git_branch) if body.git_branch else None
@@ -189,3 +208,15 @@ async def run_mission_now(mission_id: str, request: Request) -> dict[str, str]:
     session_id = await launch_mission(request.app, mission)
     await store.mark_run(mission.org_id, mission.id, session_id, "started")
     return {"status": "started", "session_id": session_id}
+
+
+async def _usable_agent(
+    request: Request, org_id: str, user_id: str, roles: list[str], agent_id: str | None
+) -> None:
+    """403 for an agent the caller may not use (``agent_access``)."""
+    try:
+        await require_usable_agent(
+            getattr(request.app.state, "db_manager", None), org_id, user_id, roles, agent_id
+        )
+    except AgentAccessDenied as err:
+        raise HTTPException(status_code=403, detail=str(err)) from err

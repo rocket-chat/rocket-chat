@@ -9,7 +9,7 @@ import { settingLabel } from "../../lib/settings-labels";
 interface SchemaField {
   key: string;
   description: string;
-  scope: "org" | "user" | "both";
+  policy: "instance" | "org" | "org_default" | "member";
   label?: string;
   deprecated?: boolean;
 }
@@ -24,17 +24,17 @@ interface Result {
 
 // The page a domain's settings are edited on (member-scoped keys live on the personal pages).
 const DOMAIN_PAGE: Record<string, { href: string; where: string }> = {
-  general: { href: "/settings/org", where: "Defaults" },
-  models: { href: "/settings/org/models", where: "Models & budgets" },
-  budgets: { href: "/settings/org/models", where: "Models & budgets" },
-  routing: { href: "/settings/org/models", where: "Models & budgets" },
+  general: { href: "/settings/org", where: "General" },
+  models: { href: "/settings/org/models", where: "Models & credentials" },
+  budgets: { href: "/settings/org/spend", where: "Spend" },
   governance: { href: "/settings/org/governance", where: "Security & data" },
   memory: { href: "/settings/org/governance", where: "Security & data" },
   sandboxes: { href: "/settings/org/sandboxes", where: "Sandboxes" },
-  github: { href: "/settings/github", where: "Git & GitHub" },
+  github: { href: "/settings/org/git", where: "Git & GitHub" },
   mcp: { href: "/settings/mcp", where: "MCP servers" },
   slack: { href: "/settings/slack", where: "Slack" },
-  user_preferences: { href: "/settings/user/profile", where: "Profile & preferences" },
+  access: { href: "/settings/org/users", where: "Members & roles" },
+  user_preferences: { href: "/settings/user/preferences", where: "Preferences" },
 };
 
 function matches(text: string, words: string[]): boolean {

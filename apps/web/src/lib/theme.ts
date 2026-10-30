@@ -55,3 +55,17 @@ export function useTheme() {
 
   return { theme, setTheme };
 }
+
+/** Monaco's theme for the page's current colours ("vs" or "vs-dark"), following theme changes. */
+export function useMonacoTheme(): "vs" | "vs-dark" {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const root = document.documentElement;
+    const read = () => setDark(root.classList.contains("dark"));
+    read();
+    const observer = new MutationObserver(read);
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return dark ? "vs-dark" : "vs";
+}

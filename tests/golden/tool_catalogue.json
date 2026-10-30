@@ -208,20 +208,31 @@
     }
   },
   {
-    "description": "Delegate an isolated investigation or task to a specialist subagent (e.g. security_auditor, qa_verifier, researcher, or any custom role configured by the organization).",
+    "description": "Delegate one focused task to a subagent role (the roles index in your instructions says when to use each). The subagent works with its own tools and budget and ends with a structured report; roles with an isolation work on a branch you merge with merge_subagent_branch. background=true returns a handle at once.",
     "name": "delegate_subagent",
     "parameters": {
       "properties": {
+        "background": {
+          "description": "Run it in the background and continue; read the result with subagent_status or wait_for target=subagent.",
+          "type": "boolean"
+        },
         "context": {
-          "description": "Optional background hints or specific files to inspect.",
+          "description": "Optional background hints or files to inspect.",
           "type": "string"
         },
         "role": {
-          "description": "Specialist role to spawn (e.g. 'security_auditor', 'qa_verifier', 'researcher', or custom organization specialist).",
+          "description": "The subagent role to run.",
           "type": "string"
         },
+        "skills": {
+          "description": "Skills the subagent should follow, by name.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "task": {
-          "description": "Clear, specific objective for the subagent to accomplish.",
+          "description": "Clear, specific objective for the subagent.",
           "type": "string"
         }
       },
@@ -233,20 +244,94 @@
     }
   },
   {
-    "description": "Delegate multiple specialized subagents to execute tasks concurrently or sequentially. Parallel write subagents require >= 2 CPU and >= 4 GiB RAM; if the sandbox profile is smaller, delegations run sequentially to prevent memory exhaustion.",
+    "description": "Delegate several independent tasks to subagents at once. Read-only roles run in parallel; roles that edit or run commands run in parallel only in trees of their own, as many as the session's sandbox can take, else one after another.",
     "name": "delegate_subagents_parallel",
     "parameters": {
       "properties": {
         "delegations": {
-          "description": "List of subagent tasks: [{'role': '...', 'task': '...', 'context': '...'}, ...]",
+          "description": "The tasks, at most 8.",
           "items": {
+            "properties": {
+              "context": {
+                "description": "Background hints or files to inspect.",
+                "type": "string"
+              },
+              "role": {
+                "description": "The subagent role (see the roles index in your instructions).",
+                "type": "string"
+              },
+              "skills": {
+                "description": "Skills the subagent should follow (by name).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "task": {
+                "description": "Clear, specific objective for the subagent.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "role",
+              "task"
+            ],
             "type": "object"
           },
+          "maxItems": 8,
           "type": "array"
         }
       },
       "required": [
         "delegations"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "The state of a background subagent, or its report once it has finished.",
+    "name": "subagent_status",
+    "parameters": {
+      "properties": {
+        "subagent_id": {
+          "description": "The id delegate_subagent returned.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subagent_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Stop a background subagent; its partial transcript is kept.",
+    "name": "subagent_cancel",
+    "parameters": {
+      "properties": {
+        "subagent_id": {
+          "description": "The id delegate_subagent returned.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subagent_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Bring a subagent's branch (subagent/<id>) into your working tree: its diff is shown to the person to approve, then applied as uncommitted changes. Reject it by not merging.",
+    "name": "merge_subagent_branch",
+    "parameters": {
+      "properties": {
+        "subagent_id": {
+          "description": "The subagent whose branch to merge.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "subagent_id"
       ],
       "type": "object"
     }
@@ -1858,12 +1943,12 @@
     }
   },
   {
-    "description": "Wait durably for an event: CI of a pull request ('ci_status'), its review ('review'), a background process ('process_exit') or a delay ('time'). The turn ends 'waiting' and a new turn wakes with the result; if the condition has already settled, the result says so and you continue at once.",
+    "description": "Wait durably for an event: CI of a pull request ('ci_status'), its review ('review'), a background process ('process_exit'), a background subagent ('subagent') or a delay ('time'). The turn ends 'waiting' and a new turn wakes with the result; if the condition has already settled, the result says so and you continue at once.",
     "name": "wait_for",
     "parameters": {
       "properties": {
         "identifier": {
-          "description": "Target identifier: 'owner/repo#123' for ci_status/review, process id for process_exit, or duration in seconds for time.",
+          "description": "Target identifier: 'owner/repo#123' for ci_status/review, process id for process_exit, subagent id for subagent, or duration in seconds for time.",
           "type": "string"
         },
         "sha": {
@@ -1871,11 +1956,12 @@
           "type": "string"
         },
         "target": {
-          "description": "The event category to wait for: ci_status, review, process_exit, or time.",
+          "description": "The event category to wait for: ci_status, review, process_exit, subagent, or time.",
           "enum": [
             "ci_status",
             "review",
             "process_exit",
+            "subagent",
             "time"
           ],
           "type": "string"

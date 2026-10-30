@@ -108,10 +108,11 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
   hasOlderHistory: false,
   isLoadingOlderHistory: false,
   historyStartIndex: 0,
+  historyUserTurnsBefore: 0,
   hydratedSessionId: null,
   setSession: (session) => {
     if (!session) {
-      set({ session: null, hydratedSessionId: null, hasOlderHistory: false, historyStartIndex: 0 });
+      set({ session: null, hydratedSessionId: null, hasOlderHistory: false, historyStartIndex: 0, historyUserTurnsBefore: 0 });
       return;
     }
     if (
@@ -163,6 +164,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       historyStartIndex: session.total_messages && session.conversation_history
         ? session.total_messages - session.conversation_history.length
         : 0,
+      historyUserTurnsBefore: session.user_turns_before ?? 0,
       turnBinding: sessionChanged ? null : get().turnBinding,
       activeDecision: sessionChanged ? null : get().activeDecision,
       activeApproval: sessionChanged ? null : get().activeApproval,
@@ -227,6 +229,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
               suggestedFollowup: followup,
               hasOlderHistory: Boolean(fullData.has_older_history),
               historyStartIndex: startIdx,
+              historyUserTurnsBefore: fullData.user_turns_before ?? 0,
               session: { ...get().session!, conversation_history: fullData.conversation_history },
             });
           }
@@ -259,6 +262,10 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         flightLog: [...olderLogs, ...flightLog],
         hasOlderHistory: data.has_more,
         historyStartIndex: data.start_index,
+        historyUserTurnsBefore: Math.max(
+          0,
+          get().historyUserTurnsBefore - data.messages.filter((m) => m.role === "user").length,
+        ),
       });
     } catch {
       // Ignore network errors
@@ -491,7 +498,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
         headers: { "Content-Type": "application/json" },
         signal: AbortSignal.timeout(8000),
         body: JSON.stringify({
-          title: title || `Mission ${new Date().toLocaleDateString()}`,
+          title: title || "New Session",
           agent_id: targetAgentId,
         }),
       });
@@ -522,7 +529,7 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
       // Local fallback session
       const fallback: SessionData = {
         session_id: `session_${Date.now().toString(36)}`,
-        title: title || "Offline Mission Session",
+        title: title || "New Session",
         tenant_org_id: "default_org",
         tenant_user_id: "default_user",
         sandbox_status: "running",

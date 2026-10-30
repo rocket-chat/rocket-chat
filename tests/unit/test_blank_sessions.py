@@ -225,7 +225,7 @@ def test_the_install_flow_maps_an_installation_only_with_a_matching_signed_state
     done = client.get(
         f"/v1/github/setup?installation_id=9&state={state}", headers=ADMIN, follow_redirects=False
     )
-    assert done.status_code == 303 and done.headers["location"].startswith("/settings/github")
+    assert done.status_code == 303 and done.headers["location"].startswith("/settings/org/git")
     mapped = client.get("/v1/admin/github/installations", headers=ADMIN).json()["installations"]
     assert mapped == [{"installation_id": 9, "account_login": "acme"}]
 
@@ -299,7 +299,7 @@ def test_an_app_that_authorizes_users_during_install_is_mapped_through_the_oauth
     )
 
     assert "installation_error=" in refused.headers["location"]
-    assert done.headers["location"] == "/settings/github?installation=connected"
+    assert done.headers["location"] == "/settings/org/git?installation=connected"
     mapped = client.get("/v1/admin/github/installations", headers=ADMIN).json()["installations"]
     assert mapped == [{"installation_id": 9, "account_login": "acme"}]
 
@@ -336,7 +336,7 @@ def test_an_installation_github_only_knows_a_moment_later_is_still_mapped(
         follow_redirects=False,
     )
 
-    assert done.headers["location"] == "/settings/github?installation=connected"
+    assert done.headers["location"] == "/settings/org/git?installation=connected"
     assert engine.get_installation_account.await_count == 3
 
 
@@ -445,4 +445,4 @@ def test_the_callback_judges_the_administrator_by_their_roles_now(
         follow_redirects=False,
     )
 
-    assert done.headers["location"] == "/settings/github?installation=connected"
+    assert done.headers["location"] == "/settings/org/git?installation=connected"

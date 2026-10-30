@@ -1,27 +1,33 @@
 import type React from "react";
 import {
-  ShieldCheck,
   Bot,
-  Server,
+  Box,
+  Building2,
   Code2,
+  Coins,
   Cpu,
   Database,
   GitPullRequest,
-  MessageSquare,
-  User,
-  Coins,
-  Box,
-  Users,
-  SlidersHorizontal,
   KeyRound,
+  MessageSquare,
   ScrollText,
+  Server,
+  ShieldCheck,
+  SlidersHorizontal,
+  User,
+  Users,
+  Webhook,
 } from "lucide-react";
+import type { Capability } from "../../lib/access";
 
 export interface NavItem {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Shown to administrators only (hidden, not dimmed, for everyone else). */
   requiresAdmin?: boolean;
+  /** Shown only when the member's role holds this capability. */
+  capability?: Capability;
 }
 
 export interface NavSection {
@@ -30,42 +36,46 @@ export interface NavSection {
   items: NavItem[];
 }
 
-// Grouped by who a page is for, not by what it is built from: what is yours, what the agent can
-// use, and what only administrators change for everyone.
+// Organized by topic, with what is yours apart from what only administrators change for
+// everyone (P4.1). Each page shows a few core fields and folds the rest under Advanced.
 export const NAV_SECTIONS: NavSection[] = [
   {
     title: "Personal",
     hint: "Only affects you",
     items: [
-      { href: "/settings/user/profile", label: "Profile & preferences", icon: User },
-      { href: "/settings/github", label: "Git & GitHub", icon: GitPullRequest },
-      { href: "/settings/user/models", label: "My models & keys", icon: Cpu },
-      { href: "/settings/user/api-tokens", label: "API access", icon: KeyRound },
+      { href: "/settings/user/profile", label: "Profile", icon: User },
+      { href: "/settings/user/preferences", label: "Preferences", icon: SlidersHorizontal },
+      { href: "/settings/user/keys", label: "My keys", icon: KeyRound, capability: "bring_own_keys" },
+      { href: "/settings/user/agents", label: "My agents", icon: Bot, capability: "create_personal_agents" },
+      { href: "/settings/github", label: "Git identity", icon: GitPullRequest },
+      { href: "/settings/user/usage", label: "Usage", icon: Coins },
+      { href: "/settings/user/api-tokens", label: "API tokens", icon: Webhook },
     ],
   },
   {
-    title: "Agent capabilities",
-    hint: "What the agent can use",
+    title: "Integrations",
+    hint: "What the agent can reach",
     items: [
-      { href: "/settings/agents", label: "Agents", icon: Bot },
-      { href: "/settings/subagents", label: "Subagents", icon: Cpu },
       { href: "/settings/mcp", label: "MCP servers", icon: Server },
       { href: "/settings/skills", label: "Skills", icon: Code2 },
       { href: "/settings/knowledge", label: "Knowledge bases", icon: Database },
+      // Every member links their own Slack account here; the page hides bots and the workspace from non-administrators.
+      { href: "/settings/slack", label: "Slack", icon: MessageSquare },
     ],
   },
   {
     title: "Organization",
     hint: "Applies to everyone",
     items: [
-      { href: "/settings/org/models", label: "Models & budgets", icon: Coins, requiresAdmin: true },
+      { href: "/settings/org", label: "General", icon: Building2, requiresAdmin: true },
+      { href: "/settings/org/users", label: "Members & roles", icon: Users, requiresAdmin: true },
+      { href: "/settings/org/models", label: "Models & credentials", icon: Cpu, requiresAdmin: true },
+      { href: "/settings/org/spend", label: "Spend", icon: Coins, requiresAdmin: true },
+      { href: "/settings/agents", label: "Agents", icon: Bot, requiresAdmin: true },
+      { href: "/settings/org/git", label: "Git & GitHub", icon: GitPullRequest, requiresAdmin: true },
+      { href: "/settings/org/sandboxes", label: "Sandboxes", icon: Box, requiresAdmin: true },
       { href: "/settings/org/governance", label: "Security & data", icon: ShieldCheck, requiresAdmin: true },
       { href: "/settings/org/audit", label: "Audit log", icon: ScrollText, requiresAdmin: true },
-      { href: "/settings/org/sandboxes", label: "Sandboxes", icon: Box, requiresAdmin: true },
-      { href: "/settings/org/users", label: "Users & roles", icon: Users, requiresAdmin: true },
-      { href: "/settings/org/usage", label: "Usage & spend", icon: Coins },
-      { href: "/settings/slack", label: "Slack", icon: MessageSquare },
-      { href: "/settings/org", label: "Defaults", icon: SlidersHorizontal, requiresAdmin: true },
     ],
   },
 ];

@@ -32,7 +32,7 @@ test.describe("Permission modes", () => {
 
     await page.getByTestId("agent-model-picker").click();
     await expect(page.getByText("Applies to your next message")).toBeVisible();
-    await page.getByRole("button", { name: /Security & Penetration Auditor/i }).last().click();
+    await page.getByRole("button", { name: /Security Auditor/i }).last().click();
     await expect(page.getByTestId("agent-model-picker")).toContainText(/Security/);
   });
 

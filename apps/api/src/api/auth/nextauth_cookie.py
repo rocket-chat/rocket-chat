@@ -12,6 +12,8 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from starlette.requests import HTTPConnection
 
+from api.auth.roles import expand_roles
+
 from .context import RequestContext
 
 logger = logging.getLogger(__name__)
@@ -94,7 +96,7 @@ def extract_nextauth_context(request: HTTPConnection) -> RequestContext | None:
         org_id = claims.get("orgId") or claims.get("org_id") or "default_org"
         email = claims.get("email") or f"{user_id}@{org_id}.internal"
         name = claims.get("name")
-        roles = claims.get("roles") or ["developer"]
+        roles = claims.get("roles") or ["member"]
         if not isinstance(roles, list):
             roles = [str(roles)]
 
@@ -103,7 +105,7 @@ def extract_nextauth_context(request: HTTPConnection) -> RequestContext | None:
             org_id=str(org_id),
             email=str(email),
             name=name,
-            roles=roles,
+            roles=expand_roles(roles),
             groups=[],
         )
     except Exception as err:

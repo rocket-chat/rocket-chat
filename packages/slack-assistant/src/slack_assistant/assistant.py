@@ -19,11 +19,18 @@ from slack_bolt.context.set_suggested_prompts.async_set_suggested_prompts import
 )
 from slack_bolt.request.async_request import AsyncBoltRequest
 from slack_bolt.response import BoltResponse as AsyncBoltResponse
+from slack_sdk.http_retry.builtin_async_handlers import (
+    AsyncConnectionErrorRetryHandler,
+    AsyncRateLimitErrorRetryHandler,
+    AsyncServerErrorRetryHandler,
+)
+from slack_sdk.web.async_client import AsyncWebClient
 
 from slack_assistant.admission import SlackAdmissionMixin
 from slack_assistant.block_kit import SHARE_ACTION_ID, with_session_and_origin
 from slack_assistant.bot import SlackBot
 from slack_assistant.config import SlackAssistantSettings
+from slack_assistant.delivery import SlackDeliveryMixin
 from slack_assistant.entrypoints import SlackEntrypointsMixin
 from slack_assistant.file_ingestion import (
     FileDownloader,
@@ -40,10 +47,10 @@ from slack_assistant.health import EventDeduplicator, SocketHealth
 from slack_assistant.policy import ChannelProfile, SlackOrgPolicy
 from slack_assistant.ratelimit import BoundedRateLimiter
 from slack_assistant.routing import ROUTE_KEY, Routing, SlackRoutingMixin
-from slack_assistant.state import ClassifyFn, RunTurnFn, SlackAssistantState
+from slack_assistant.state import ClassifyFn, HoldMessageFn, RunTurnFn, SlackAssistantState
 from slack_assistant.stream import TurnStream
 from slack_assistant.toolset import SlackToolsetMixin
-from slack_assistant.turn_stream import SlackTurnStreamMixin, TurnOutcome, TurnView
+from slack_assistant.turn_stream import TurnOutcome, TurnView
 from specifications.interfaces.agent import (
     AgentOrchestratorProtocol,
     TurnOverlay,
@@ -58,6 +65,9 @@ from specifications.interfaces.session import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Every Slack Web API call is bounded: a hung call must not hold a turn's reply.
+SLACK_API_TIMEOUT_SECONDS = 30
 
 
 def clean_mention_text(text: str) -> str:
@@ -99,7 +109,7 @@ class SlackAssistant(
     SlackGatesMixin,
     SlackAdmissionMixin,
     SlackRoutingMixin,
-    SlackTurnStreamMixin,
+    SlackDeliveryMixin,
     SlackAssistantState,
 ):
     """
@@ -117,6 +127,7 @@ class SlackAssistant(
         db_manager: Any = None,
         event_bus: EventBusProtocol | None = None,
         run_turn_fn: RunTurnFn | None = None,
+        hold_message_fn: HoldMessageFn | None = None,
         bind_tenant_fn: Callable[[str], None] | None = None,
         resolve_workspace_org_fn: Callable[[str], Awaitable[str | None]] | None = None,
         resolve_user_fn: Callable[..., Any] | None = None,
@@ -166,6 +177,7 @@ class SlackAssistant(
         # uses) and the bus its events are published on. Slack only renders them.
         self.event_bus: EventBusProtocol | None = event_bus
         self._run_turn_fn = run_turn_fn
+        self._hold_message_fn = hold_message_fn
         self._bind_tenant_fn = bind_tenant_fn
         self._resolve_workspace_org_fn = resolve_workspace_org_fn
         self._begin_pairing_fn = begin_pairing_fn
@@ -183,6 +195,7 @@ class SlackAssistant(
         self._answer_stored_question_fn = answer_stored_question_fn
         self._clear_stored_question_fn = clear_stored_question_fn
         self._active_turns: set[str] = set()
+        self._init_delivery()
         self._stopped_by: dict[str, str] = {}
         self._rate_counters: dict[str, int] = {
             "rate_limit_user_denied": 0,
@@ -227,7 +240,19 @@ class SlackAssistant(
         self.team_id: str | None = None
 
         bot_token = self.settings.slack_bot_token or "xoxb-test-placeholder"
-        self.app: AsyncApp = app or AsyncApp(token=bot_token)
+        self.app: AsyncApp = app or AsyncApp(
+            client=AsyncWebClient(
+                token=bot_token,
+                timeout=SLACK_API_TIMEOUT_SECONDS,
+                # Slack answers 429 with a Retry-After under load (a busy thread's updates);
+                # a dropped connection or a 5xx is worth one more try before giving up.
+                retry_handlers=[
+                    AsyncRateLimitErrorRetryHandler(max_retry_count=2),
+                    AsyncConnectionErrorRetryHandler(max_retry_count=1),
+                    AsyncServerErrorRetryHandler(max_retry_count=1),
+                ],
+            )
+        )
         self.assistant: AsyncAssistant = AsyncAssistant()
         self.handler: AsyncSocketModeHandler | None = handler
 
@@ -741,6 +766,14 @@ class SlackAssistant(
         """Run the turn, its steps streamed into its reply, then post the result."""
         session_id = view.session_id
         view.org_id = admitted.session_org_id
+        if not overlay.attachments and await self._hold_if_busy(
+            view, admitted.prompt, admitted.rocket_user_id
+        ):
+            return
+        if self.handler is not None:
+            # A workspace bound without a bot record is known only once one of its requests
+            # arrives; from then on its other turns reach their threads too.
+            self._start_delivery({view.org_id})
         if admitted.org_policy.live_progress and self._slack_api_ready and not view.private:
             view.stream = TurnStream(
                 self.app.client,
@@ -776,9 +809,14 @@ class SlackAssistant(
                 await self._set_session_status(view.channel_id, view.thread_ts, "active")
         if await self._report_stop(view):
             return
-        if error:
-            self._failures.record_failure(admitted.team_scope, self._clock())
-            notice = f"⚠️ I encountered an error while processing your request: {error}"
+        if error or view.outcome.refusal:
+            # A refusal (a spend limit, an agent not theirs) is policy working, not a failure.
+            if view.outcome.refusal is None:
+                self._failures.record_failure(admitted.team_scope, self._clock())
+            notice = (
+                view.outcome.refusal
+                or f"⚠️ I encountered an error while processing your request: {error}"
+            )
             if view.stream is None or not await view.stream.finish(notice, []):
                 await view.say_fn(text=notice, thread_ts=view.thread_ts)
             return
@@ -963,8 +1001,16 @@ class SlackAssistant(
                     await self.session_store.mutate_session(
                         session_id, admitted.session_org_id, _with_route(route)
                     )
+                if "slack_bot_id" not in (existing.metadata or {}):
+                    # A thread from before bots were recorded: claim it, so its later turns
+                    # are delivered.
+                    await self.session_store.mutate_session(
+                        session_id, admitted.session_org_id, _with_bot(self.bot)
+                    )
                 return
             record = _new_session_record(session_id, admitted, channel_id, thread_ts, slack_user_id)
+            # Which bot owns the thread: only it posts the turns no request waits on.
+            _with_bot(self.bot)(record)
             permalink = await self._thread_permalink(channel_id, thread_ts)
             if permalink:
                 record.metadata["slack_permalink"] = permalink
@@ -1124,6 +1170,8 @@ class SlackAssistant(
                 app_token=self.settings.slack_app_token,
             )
         await self.authenticate()
+        # Only the connection's holder posts, so each turn reaches its thread once.
+        self._start_delivery({self.bot.org_id} if self.bot is not None else set())
         if self.settings.slack_health_check_seconds > 0:
             self._watchdog = asyncio.create_task(self._watch_connection())
         # slack-bolt AsyncSocketModeHandler.start_async method lacks type hints
@@ -1157,6 +1205,7 @@ class SlackAssistant(
     async def stop_socket_mode(self) -> None:
         """Cleanly close Socket Mode connection."""
         self._go_offline()
+        self._stop_delivery()
         watchdog, self._watchdog = self._watchdog, None
         if watchdog is not None:
             watchdog.cancel()
@@ -1195,6 +1244,16 @@ def _new_session_record(
             "toolsets": ["slack"],
         },
     )
+
+
+def _with_bot(bot: SlackBot | None) -> Callable[[SessionRecord], None]:
+    """Record which bot owns a thread (empty for the deployment's single bot)."""
+
+    def claim(record: SessionRecord) -> None:
+        known = record.metadata if isinstance(record.metadata, dict) else {}
+        record.metadata = {**known, "slack_bot_id": bot.id if bot is not None else ""}
+
+    return claim
 
 
 def _with_route(route: str) -> Callable[[SessionRecord], None]:

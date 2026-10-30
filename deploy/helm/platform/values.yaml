@@ -71,7 +71,8 @@ backend:
   logFormat: "console" # Options: console, json
   env:
     DEFAULT_SANDBOX_DRIVER: "k8s"
-    ROCKET_DEFAULT_MODEL: "openrouter/deepseek/deepseek-v4.1-flash"
+    # Empty: the default follows the provider keys the deployment holds (Anthropic first).
+    ROCKET_DEFAULT_MODEL: ""
     # Ordered fallback models (comma-separated) used on transient provider failures.
     ROCKET_FALLBACK_MODELS: ""
     # Retry attempts for transient provider errors (delegated to LiteLLM).
@@ -382,9 +383,11 @@ ingress:
 # `fetchProxy` routes `web_fetch` through an egress proxy that enforces your allowlist; every
 # redirect hop is still checked for private/link-local targets before it is requested.
 search:
+  # duckduckgo (fragile HTML fallback), searxng, brave or tavily.
   provider: "duckduckgo"
   searxngUrl: ""
   braveApiKey: ""
+  tavilyApiKey: ""
   fetchProxy: ""
 
 # OpenTelemetry tracing (turn -> tool -> sandbox spans). Leave the endpoint empty to disable.

@@ -8,12 +8,12 @@ from typing import Any
 from config_engine import CascadingSettingsResolver
 from pydantic import BaseModel
 
+from api.bootstrap.runtime import default_model
 from api.services.audit import (
     GovernanceRateLimiter,
 )
 from api.services.turn_service import TurnService
 from api.turns.routing import (
-    _resolve_effective_max_turns,
     _resolve_turn_routing,
     resolve_agent_persona,
 )
@@ -51,5 +51,9 @@ class FollowUpSuggestion(BaseModel):
 _turn_service = TurnService(
     resolve_agent=resolve_agent_persona,
     resolve_routing=_resolve_turn_routing,
-    resolve_max_turns=_resolve_effective_max_turns,
 )
+
+
+def platform_default_model(orchestrator: Any) -> str:
+    """The orchestrator's default model, else the deployment's (from its provider keys)."""
+    return str(getattr(orchestrator, "default_model", "") or "") or default_model()

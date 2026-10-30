@@ -12,8 +12,13 @@ const ROUTES_TO_WARM = [
   "/settings/agents",
   "/settings/github",
   "/settings/mcp",
-  "/settings/subagents",
-  "/settings/user/models",
+  "/settings/slack",
+  "/settings/user/preferences",
+  "/settings/user/keys",
+  "/settings/org/models",
+  "/settings/org/spend",
+  "/settings/org/users",
+  "/invite",
 ];
 
 export default async function globalSetup(): Promise<void> {

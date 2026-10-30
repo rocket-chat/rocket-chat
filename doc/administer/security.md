@@ -23,7 +23,7 @@ Rocket Chat is built with defense-in-depth principles for enterprise compliance 
                                       |
 +-----------------------------------------------------------------------------+
 | LAYER 3: CREDENTIAL SECURITY (AT REST)                                      |
-| - BYOK API keys encrypted with hardware-grade AES-256-GCM                   |
+| - Model credentials encrypted with hardware-grade AES-256-GCM               |
 | - PBKDF2 HMAC-SHA256 (100,000 iterations) with random 16-byte salt per key  |
 | - 96-bit unique IVs and 128-bit authentication tags prevent tampering        |
 +-----------------------------------------------------------------------------+
@@ -104,7 +104,7 @@ To ensure defense-in-depth against malicious workloads or container escapes exec
 
 The Slack bot is intentionally reachable by **anyone in the workspace**, with no Rocket Chat account required. That reach is bounded and observable rather than trusted:
 
-* **Per-workspace quotas** (`slack_workspace_quotas`, migration `007`, RLS-scoped by `org_id`) cap monthly model spend, turns per rolling hour, and concurrent sessions. The check runs **before** any orchestrator call, so an over-limit request costs zero model tokens and never creates a session.
+* **Per-workspace quotas** (`slack_workspace_quotas`, migration `007`, RLS-scoped by `org_id`) cap turns per rolling hour and concurrent sessions, and the organization's *Slack workspace* spend limits cap what the workspace's guests spend. The check runs **before** any orchestrator call, so an over-limit request costs zero model tokens and never creates a session.
 * **Token-bucket rate limits** per `(team, user)` and `(team, channel)` bound bursts; the buckets live in a bounded in-process LRU so they cannot grow without bound. Rejection counters are exposed on `GET /v1/slack/status`.
 * **Server-side tool enforcement:** the Slack tool allowlist and destructive-tool blocklist (`git_revert`, `git_open_pr`, `git_push` by default) are enforced in `ToolRegistry.call_tool`, the same gate that enforces plan mode. The model is never asked to police itself.
 * **Abuse guardrails:** a per-turn attachment cap and a consecutive-failure circuit breaker stop a failing or abusive workspace from burning budget on retries.
@@ -213,14 +213,14 @@ config edit or a data migration.
 
 | Secret | Protects | Rotation effect |
 | :--- | :--- | :--- |
-| `ENCRYPTION_MASTER_KEY` | Tenant BYOK provider keys, AES-256-GCM (`CredentialCipher`) | **Re-encryption migration required.** Changing it without re-encrypting makes every stored BYOK credential undecryptable. |
+| `ENCRYPTION_MASTER_KEY` | Organization and member model credentials (`provider_credentials`), AES-256-GCM (`CredentialCipher`) | **Re-encryption migration required.** Changing it without re-encrypting makes every stored model credential undecryptable. |
 | `CREDENTIALS_ENCRYPTION_KEY` | User OAuth / PAT tokens, Fernet (`services/credentials.py`) | **Re-encryption migration required.** All stored user tokens become unreadable if rotated without re-encrypting. |
 | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | Socket Mode connectivity | Safe to rotate: regenerate in the Slack app, update the secret, rolling-restart the backend; Socket Mode reconnects automatically. |
-| Provider keys (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`) | Platform-provided model access | Safe to rotate: issue a new key at the provider, update `values.yaml` (or the `existingSecret`), rolling-restart. Tenant BYOK keys are separate rows in §A below. |
+| Provider keys (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `GEMINI_API_KEY`) | Platform-provided model access | Safe to rotate: issue a new key at the provider, update `values.yaml` (or the `existingSecret`), rolling-restart. Organization and member credentials are database rows, see §A below. |
 | `ROCKET_ATTACHMENT_SIGNING_KEY` | Signed attachment retrieval URLs | Safe to rotate: it only invalidates outstanding preview tokens. When unset, an ephemeral per-process key is used and tokens never leave the pod. |
 | Auth secrets (`NEXTAUTH_SECRET`, OIDC/Google/GitHub client secrets, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`) | SSO sessions, webhook signature verification, Git automation | Rotate at the identity provider / GitHub App, then update the secret and rolling-restart. Session cookies signed with the old `NEXTAUTH_SECRET` are invalidated. |
 
-### A. BYOK master-key rotation (the one that needs a migration)
+### A. Master-key rotation for model credentials (the one that needs a migration)
 
 Because `CredentialCipher` derives a single AES-256-GCM key and has no key versioning, rotation
 is performed by decrypting with the old key and re-encrypting with the new key. Use
@@ -251,7 +251,7 @@ same approach applies to `CREDENTIALS_ENCRYPTION_KEY` for the Fernet-encrypted u
 3. Update the secret in the vault / `existingSecret`; **do not** edit plaintext into
    `values.yaml` in production.
 4. Rolling-restart; confirm `/v1/ready` is `200`.
-5. Verify: a BYOK credential resolves and an existing OAuth token still decrypts before deleting
+5. Verify: a stored model credential resolves and an existing OAuth token still decrypts before deleting
    the old key from the vault.
 
 ### C. Supply chain: dependency audit & SBOM

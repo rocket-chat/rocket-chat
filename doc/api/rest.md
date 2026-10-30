@@ -49,7 +49,7 @@ Create a password-login member with a one-time temporary password (admin/owner o
 
 ### `PATCH /v1/admin/users/{user_id}`
 
-Change a member's role (admin/owner only). Takes effect on their next login.
+Change a member's role (admin/owner only). Applies to their open sessions within 15 seconds.
 
 **Parameters**
 
@@ -61,7 +61,7 @@ Change a member's role (admin/owner only). Takes effect on their next login.
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| role | string | yes | One of owner \| admin \| developer \| readonly |
+| role | string | yes | One of owner \| admin \| member \| viewer |
 
 **Responses:** `200`
 
@@ -77,11 +77,21 @@ Issue a new one-time password for a member and unlock their account (admin/owner
 
 **Responses:** `200`
 
+## Administration
+
+### `GET /v1/admin/setup-health`
+
+A provider key and a default model it can call, embeddings, web search, the GitHub App,
+and the sandbox images (administrators).
+
+**Responses:** `200`
+
 ## Agents
 
 ### `GET /v1/agents`
 
-List the built-in personas plus the organization's and the caller's own.
+The agents the caller may use: built-in, the organization's (per their access grants)
+and the caller's own. Administrators also see disabled organization agents.
 
 **Responses:** `200`
 
@@ -111,16 +121,14 @@ persona carries the stored id, which can differ from the proposed one.
 | customized | boolean | no | A built-in agent whose organization edit is in effect (it can be reset) |
 | enabled | boolean | no | Whether this agent persona is enabled and selectable in the cockpit/sessions |
 | icon | string | no | Avatar/icon key |
-| sandbox_image | string | no | Sandbox image; empty inherits the organization default |
 | sandbox_id | string | no | Sandbox type the agent's sessions start in when their creator picks none; empty uses the organization's default |
-| cpu_limit | string | no | CPU cores; empty inherits the org setting |
-| memory_limit | string | no | Memory limit; empty inherits the org setting |
 | temperature | number | no | Sampling temperature override |
-| thinking_budget_tokens | integer | no | Extended thinking budget tokens override |
 | reasoning_effort | string | no | Reasoning effort override: none (off), minimal, low, medium, high, xhigh or max. An OpenRouter model that does not take the level gets the nearest one it does |
 | max_turns | integer | no | Maximum reasoning steps per turn for this agent (0: no limit); empty inherits the organization's limit, and a value above it is refused |
 | active_tools | list of string | no | Tools sent with every step besides the core set, by name or pattern (mcp__signoz*__*search*); every other allowed tool is listed by name and loaded when the agent needs it |
 | default_permission_mode | string | no | Default permission mode ('plan', 'ask', 'auto_edit', 'auto', 'bypass'); empty inherits |
+| credential_bindings | list of CredentialBindingModel | no | The agent's own provider credentials: a call on a bound provider uses the bound credential; administrators bind organization agents, owners their personal ones |
+| strict_binding | boolean | no | Refuse calls on any provider the agent has no binding for |
 
 **Responses:** `200`
 
@@ -156,6 +164,38 @@ Delete a custom agent persona, or reset/disable a built-in persona.
 
 **Responses:** `200`
 
+### `GET /v1/agents/{persona_id}/access`
+
+Who may use an organization agent (administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| persona_id | path | yes | string |
+
+**Responses:** `200`
+
+### `PUT /v1/agents/{persona_id}/access`
+
+Replace who may use an organization agent (administrators). Turns already running
+finish; the next turn of someone who lost access fails with ``agent_access_denied``, and
+scheduled missions of people who lost it are paused.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| persona_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| grants | list of AgentGrantModel | no |  |
+
+**Responses:** `200`
+
 ### `GET /v1/subagents`
 
 List the organization's subagent roles (built-in defaults plus its overrides).
@@ -184,8 +224,18 @@ Override a subagent role for this organization (admin only; other orgs are unaff
 | model | string | no |  |
 | max_turns | integer | no | Steps the subagent may take before it must report (0: until it finishes). |
 | whitelisted_tools | list of string | no |  |
+| disallowed_tools | list of string | no | Tools the role never gets, even under `*`. |
 | temperature | number | no |  |
 | enabled | boolean | no |  |
+| tier | `fast` / `default` / `frontier` | no | Model tier when `model` is empty: fast, default or frontier. |
+| reasoning_effort | string | no | Reasoning level for the role. |
+| max_cost_usd | number | no | Spend cap per run (0: none). |
+| max_wall_seconds | integer | no | Wall-clock cap per run in seconds (0: none). |
+| isolation | `none` / `worktree` / `sandbox` | no | Where its changes land: the shared tree, a worktree, a sandbox. |
+| can_ask_user | boolean | no | Whether its approvals and questions reach the person. |
+| inherit | list of `agents_md` / `memory` / `checklist` / `skills` | no | What it starts with besides its prompt. |
+| output_schema | object | no | JSON Schema of the `data` its report must carry. |
+| source | `builtin` / `org` / `repository` | no |  |
 | built_in | boolean | no | Shipped with the platform default fleet |
 | customized | boolean | no | A built-in role customized by the organization |
 
@@ -268,6 +318,52 @@ Revoke one of the signed-in member's API tokens; it stops working at once.
 | Name | In | Required | Type |
 | :--- | :--- | :--- | :--- |
 | token_id | path | yes | string |
+
+**Responses:** `200`
+
+## Approvals
+
+### `GET /v1/approval-rules`
+
+Your "always for this command in this repository" rules, in every session.
+
+**Responses:** `200`
+
+### `DELETE /v1/approval-rules/{rule_id}`
+
+Revoke one of your repository rules; it stops applying at the next gate of any turn.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| rule_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/approval-rules`
+
+What this session no longer asks about ("Allow for this session"), and the scopes the
+organization allows.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `DELETE /v1/sessions/{session_id}/approval-rules/{rule_id}`
+
+Ask again: the session's next call of the tool raises the approval it used to.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| rule_id | path | yes | string |
 
 **Responses:** `200`
 
@@ -498,6 +594,21 @@ A changed file at the base and as it is now, whole, for a side-by-side view.
 
 **Responses:** `200`
 
+### `GET /v1/sessions/{session_id}/changes/hunks`
+
+The changed regions of one file, to undo them one at a time.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| repository | query | yes | string |
+| path | query | yes | string |
+| scope | query | no | `session` / `turn` |
+
+**Responses:** `200`
+
 ### `POST /v1/sessions/{session_id}/changes/revert`
 
 Put one file back as it was at the base (or delete it when it did not exist then).
@@ -515,6 +626,27 @@ Put one file back as it was at the base (or delete it when it did not exist then
 | repository | string | yes |  |
 | path | string | yes |  |
 | scope | `session` / `turn` | no |  |
+
+**Responses:** `200`
+
+### `POST /v1/sessions/{session_id}/changes/revert-hunk`
+
+Undo one changed region of a file; the rest of the file is kept.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| repository | string | yes |  |
+| path | string | yes |  |
+| scope | `session` / `turn` | no |  |
+| index | integer | yes | Which hunk of the file, from the hunk listing |
 
 **Responses:** `200`
 
@@ -566,6 +698,53 @@ Restore the workspace to a checkpoint the platform created.
 | :--- | :--- | :--- | :--- |
 | reference | string | yes |  |
 | mode | string | no | 'files' restores tracked files; 'hard' also resets the worktree and index |
+
+**Responses:** `200`
+
+## Feedback
+
+### `GET /v1/admin/feedback`
+
+Every rating of the organization since ``since`` (epoch seconds), newest first, with
+the prompt and answer excerpts (administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| since | query | no | integer |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/feedback`
+
+The caller's own ratings on the session.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `PUT /v1/sessions/{session_id}/feedback`
+
+Rate one answer of a session the caller can see (again to change the rating).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| turn_number | integer | yes | The answered turn, counted from 1 |
+| rating | `up` / `down` | yes |  |
+| comment | string | no |  |
 
 **Responses:** `200`
 
@@ -945,6 +1124,12 @@ Create Mission
 
 **Responses:** `200`
 
+### `GET /v1/missions/templates`
+
+Starting points for recurring maintenance missions (created disabled until switched on).
+
+**Responses:** `200`
+
 ### `PATCH /v1/missions/{mission_id}`
 
 Update Mission
@@ -993,6 +1178,169 @@ Start a run immediately, without moving the schedule.
 
 **Responses:** `200`
 
+## Model credentials
+
+### `GET /v1/admin/credentials`
+
+The organization's credentials, and members' credentials shared with its agents.
+
+**Responses:** `200`
+
+### `POST /v1/admin/credentials`
+
+Add an organization credential; a restricted one serves only the agents bound to it.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| provider | string | yes |  |
+| api_key | string | yes | The provider API key |
+| label | string | no |  |
+| api_base | string | no | Endpoint for self-hosted or proxied providers (Ollama, vLLM, ...) |
+| default_for_provider | boolean | no |  |
+| restricted_to_agents | boolean | no | Skip it in the default chain: only the agents bound to it use it (admins) |
+
+**Responses:** `200`
+
+### `GET /v1/admin/credentials/platform`
+
+Providers whose key the deployment itself holds in the environment (administrators).
+
+Members use these when neither they nor the organization stored a key; an organization key
+for the same provider replaces the deployment's for this organization only.
+
+**Responses:** `200`
+
+### `PATCH /v1/admin/credentials/{credential_id}`
+
+Update Org Credential
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| credential_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| label | string | no |  |
+| api_base | string | no |  |
+| clear_api_base | boolean | no |  |
+| default_for_provider | boolean | no |  |
+| restricted_to_agents | boolean | no |  |
+| shared_with_org_agents | list of string | no | Organization agents that may use this member credential |
+
+**Responses:** `200`
+
+### `DELETE /v1/admin/credentials/{credential_id}`
+
+Remove an organization credential; agents bound to it fail with "credential withdrawn".
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| credential_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/admin/credentials/{credential_id}/rotate`
+
+Rotate Org Credential
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| credential_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| api_key | string | yes |  |
+
+**Responses:** `200`
+
+### `GET /v1/user/credentials`
+
+The signed-in member's own provider credentials (fingerprints only).
+
+**Responses:** `200`
+
+### `POST /v1/user/credentials`
+
+Store a provider key of the member's own (needs the ``bring_own_keys`` capability).
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| provider | string | yes |  |
+| api_key | string | yes | The provider API key |
+| label | string | no |  |
+| api_base | string | no | Endpoint for self-hosted or proxied providers (Ollama, vLLM, ...) |
+| default_for_provider | boolean | no |  |
+| restricted_to_agents | boolean | no | Skip it in the default chain: only the agents bound to it use it (admins) |
+
+**Responses:** `200`
+
+### `PATCH /v1/user/credentials/{credential_id}`
+
+Rename, re-point, make default, or share with organization agents (the owner only).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| credential_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| label | string | no |  |
+| api_base | string | no |  |
+| clear_api_base | boolean | no |  |
+| default_for_provider | boolean | no |  |
+| restricted_to_agents | boolean | no |  |
+| shared_with_org_agents | list of string | no | Organization agents that may use this member credential |
+
+**Responses:** `200`
+
+### `DELETE /v1/user/credentials/{credential_id}`
+
+Delete My Credential
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| credential_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/user/credentials/{credential_id}/rotate`
+
+Rotate My Credential
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| credential_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| api_key | string | yes |  |
+
+**Responses:** `200`
+
 ## Operations
 
 ### `GET /metrics`
@@ -1013,6 +1361,83 @@ Deep readiness: pings the database and reports code-index stats. A pod that is d
 
 **Responses:** `200`
 
+## Organizations
+
+### `GET /v1/admin/invites`
+
+The organization's invitations, newest first (admin/owner only).
+
+**Responses:** `200`
+
+### `POST /v1/admin/invites`
+
+Invite a person by e-mail; the link expires and works once (admin/owner only).
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| email | string | yes |  |
+| role | string | no | One of owner \| admin \| member \| viewer |
+| lifetime_days | integer | no |  |
+
+**Responses:** `200`
+
+### `DELETE /v1/admin/invites/{invite_id}`
+
+Withdraw an invitation (admin/owner only).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| invite_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/auth/switch-org`
+
+Make another organization the active one: allowed only for one the caller belongs to.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| org_id | string | yes |  |
+
+**Responses:** `200`
+
+### `POST /v1/invites/accept`
+
+Join the invitation's organization; switch to it with ``POST /v1/auth/switch-org``.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| token | string | yes |  |
+
+**Responses:** `200`
+
+### `GET /v1/me/access`
+
+The caller's role and capabilities in the active organization (for the cockpit: what
+to show; the API enforces each of them again).
+
+**Responses:** `200`
+
+### `GET /v1/me/organizations`
+
+Every organization the caller belongs to, the active one marked.
+
+**Responses:** `200`
+
+### `GET /v1/organization`
+
+The caller's active organization, by name.
+
+**Responses:** `200`
+
 ## Other
 
 ### `GET /health`
@@ -1030,6 +1455,34 @@ Static **liveness** signal: healthy while the process runs, no dependency is che
 
 Use `/v1/ready` for the database check; conflating the two would restart pods for a
 database outage they cannot fix.
+
+**Responses:** `200`
+
+## Plans
+
+### `POST /v1/sessions/{session_id}/plan/decision`
+
+Approve (in a chosen permission mode, optionally with an edited plan) or reject the plan.
+
+Approving changes the session's permission mode, so it takes the session's owner or an
+administrator, and the mode must pass the organization's lock and, for ``bypass``, the
+``use_bypass_mode`` capability. Any member who may write to the session can reject.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| action_id | string | yes | The plan's gate |
+| approved | boolean | yes |  |
+| permission_mode | `ask` / `auto_edit` / `auto` / `bypass` | no | The mode the work continues in; required to approve |
+| checklist | list of PlanTaskInput | no | The plan as edited on the card; omit when it was not edited |
+| feedback | string | no |  |
 
 **Responses:** `200`
 
@@ -1285,63 +1738,28 @@ Time-travel rewind: roll conversation history, transcript, and sandbox back to t
 
 **Responses:** `200`
 
+### `GET /v1/sessions/{session_id}/search`
+
+Find the messages of a session's whole history that contain ``q`` (case-insensitive).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| q | query | yes | string |
+| limit | query | no | integer |
+
+**Responses:** `200`
+
 ## Sessions & Telemetry
-
-### `PUT /v1/admin/budget`
-
-Set the organization's monthly spend cap (shorthand for the ``budgets`` settings domain).
-
-**Responses:** `200`
-
-### `GET /v1/admin/model-keys`
-
-Provider keys shared by the organization (administrators).
-
-**Responses:** `200`
-
-### `GET /v1/admin/model-keys/platform`
-
-Providers whose key the deployment itself holds in the environment (administrators).
-
-Members use these when neither they nor the organization stored a key; an organization key
-for the same provider replaces the deployment's for this organization only.
-
-**Responses:** `200`
-
-### `PUT /v1/admin/model-keys/{provider}`
-
-Put Org Model Key
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| provider | path | yes | string |
-
-**Request body**
-
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| api_key | string | yes | The provider API key |
-| api_base | string | no | Endpoint for self-hosted or proxied providers (Ollama, vLLM, ...) |
-
-**Responses:** `200`
-
-### `DELETE /v1/admin/model-keys/{provider}`
-
-Delete Org Model Key
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| provider | path | yes | string |
-
-**Responses:** `200`
 
 ### `GET /v1/admin/settings/{domain}`
 
-Retrieve organization-wide policy configuration and locked keys (admin only).
+The organization's values, locks and where each value comes from (admin only).
+
+``provenance`` says, per key, whether the value is the platform default, the operator's
+(``instance``: an environment variable, read-only here) or the organization's own.
 
 **Parameters**
 
@@ -1555,6 +1973,70 @@ Approve or deny an agent confirmation gate.
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | approved | boolean | yes | True if approved, False if denied |
+| remember | `session` / `repository` | no | With approved: also allow later calls without asking: 'session' (this tool in this session) or 'repository' (this command in this repository, in all your sessions). Only a scope the approval offered (remember_options) is saved. |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/git`
+
+The active repository's branch against its base, its commits, and its pull request.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/sessions/{session_id}/git/commit`
+
+Commit every change in the active repository, under the organization's authorship and
+signing policy (as the agent's ``git_commit``).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| message | string | yes |  |
+
+**Responses:** `200`
+
+### `POST /v1/sessions/{session_id}/git/pull-request`
+
+Publish the branch and open a pull request (as the agent's ``git_open_pr``).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| title | string | yes |  |
+| body | string | no |  |
+| base | string | no |  |
+
+**Responses:** `200`
+
+### `POST /v1/sessions/{session_id}/git/push`
+
+Publish the branch through the platform's publish path (as the agent's ``git_push``).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
 
 **Responses:** `200`
 
@@ -1691,7 +2173,7 @@ start times); without it only the totals are returned.
 
 ### `GET /v1/settings-schema`
 
-Every settings domain's fields (type, scope, default, constraints) for form rendering.
+Every settings domain's fields (type, policy, default, constraints) for form rendering.
 
 The cockpit builds its organization and member settings forms from this, so a field
 exists in the UI if and only if it is declared in the registry.
@@ -1700,7 +2182,8 @@ exists in the UI if and only if it is declared in the registry.
 
 ### `GET /v1/settings/org/usage`
 
-This month's token and dollar spend for the organization, from the persisted ledger.
+This month's token and dollar spend for the organization, from the persisted ledger,
+in total and grouped by agent, credential and member.
 
 **Responses:** `200`
 
@@ -1802,6 +2285,13 @@ Create or update a prompt skill from a ``SKILL.md`` document (front matter + bod
 | :--- | :--- | :--- | :--- |
 | markdown | string | yes | Contents of a SKILL.md file |
 | scope | string | no | 'org' (administrators) or 'user' |
+
+**Responses:** `200`
+
+### `GET /v1/skills/starter`
+
+The shipped instruction skills and whether the organization offers each
+(``general.starter_skills``; administrators switch them on and off).
 
 **Responses:** `200`
 
@@ -1922,43 +2412,6 @@ Import a GPG private key: it is validated by GnuPG, then stored encrypted.
 ### `DELETE /v1/user/git-signing`
 
 Remove the member's imported signing key.
-
-**Responses:** `200`
-
-### `GET /v1/user/model-keys`
-
-Provider keys the signed-in member stored (fingerprints only, never the secret).
-
-**Responses:** `200`
-
-### `PUT /v1/user/model-keys/{provider}`
-
-Store or replace the member's own key for a provider.
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| provider | path | yes | string |
-
-**Request body**
-
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| api_key | string | yes | The provider API key |
-| api_base | string | no | Endpoint for self-hosted or proxied providers (Ollama, vLLM, ...) |
-
-**Responses:** `200`
-
-### `DELETE /v1/user/model-keys/{provider}`
-
-Delete My Model Key
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| provider | path | yes | string |
 
 **Responses:** `200`
 
@@ -2212,6 +2665,79 @@ Finish linking: the signed-in member claims the Slack user that issued the code.
 
 **Responses:** `200`
 
+## Spend limits
+
+### `GET /v1/admin/spend-limits`
+
+The organization's spend limits, with what each has used in its current window.
+
+**Responses:** `200`
+
+### `POST /v1/admin/spend-limits`
+
+Add a spend limit (needs ``manage_spend_limits``).
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| subject_kind | `org` / `member` / `agent` / `agent_member` / `slack_workspace` | yes |  |
+| subject_id | string | no |  |
+| member_id | string | no |  |
+| period | `day` / `week` / `month` / `rolling_24h` / `rolling_7d` / `session` / `turn` | yes |  |
+| amount_usd | number | yes |  |
+| mode | `warn` / `block` | no |  |
+| warn_at_percent | integer | no |  |
+| is_ceiling | boolean | no |  |
+
+**Responses:** `200`
+
+### `PATCH /v1/admin/spend-limits/{limit_id}`
+
+Update Spend Limit
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| limit_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| amount_usd | number | no |  |
+| mode | `warn` / `block` | no |  |
+| warn_at_percent | integer | no |  |
+| is_ceiling | boolean | no |  |
+
+**Responses:** `200`
+
+### `DELETE /v1/admin/spend-limits/{limit_id}`
+
+Delete Spend Limit
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| limit_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/sessions/{session_id}/spend`
+
+What the caller has left under the limits of this session (the header chip).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | path | yes | string |
+| agent_id | query | no | string |
+
+**Responses:** `200`
+
 ## Subagents
 
 ### `GET /v1/sessions/{session_id}/subagents`
@@ -2251,7 +2777,8 @@ The running release, or `dev` for a build that is not a tagged release.
 
 ### `GET /v1/templates`
 
-List Templates
+The organization's templates and the caller's own; ``blocked`` marks those naming an
+agent the caller may no longer use.
 
 **Responses:** `200`
 
@@ -2288,7 +2815,8 @@ Delete Template
 
 ### `POST /v1/templates/{template_id}/start`
 
-Start a session from the template (the opening prompt runs immediately).
+Start a session from the template (the opening prompt runs immediately); refused (403)
+while the template is blocked.
 
 **Parameters**
 

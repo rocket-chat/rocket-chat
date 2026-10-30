@@ -222,12 +222,18 @@ async def run_turn(
     synthetic_prompt: bool = False,
     transcript_store: Any = None,
     compaction_store: Any = None,
+    author: str | None = None,
+    model: ScriptedModel | None = None,
 ) -> TurnOutcome:
-    """Run a web-cockpit style turn for ``org`` and return what happened."""
+    """Run a web-cockpit style turn for ``org`` and return what happened.
+
+    ``author`` is the person who sends the message (the session's owner when ``None``);
+    ``model`` replaces the scripted model (a subclass that refuses a call, say).
+    """
     session_id = f"session_{org}"
     store, bus = store or InMemorySessionStore(), AsyncIOEventBus()
     driver = driver or FakeSandboxDriver()
-    model = ScriptedModel(
+    model = model or ScriptedModel(
         script=script or [],
         steps=steps or [],
         final_text=final_text,
@@ -267,6 +273,7 @@ async def run_turn(
             selection=selection,
             model=model_choice,
             synthetic_prompt=synthetic_prompt,
+            author_user_id=author,
         )
         events, _ = bus.replay_since(session_id, 0)
         record = await store.get_session(session_id)

@@ -289,6 +289,10 @@ async def _turn_with_org_settings(
     from specifications.interfaces.session import SessionRecord
 
     org = "perm_org"
+    # ``allow_bypass_permissions`` became the ``use_bypass_mode`` capability.
+    allow = governance.pop("allow_bypass_permissions", None)
+    roles = ["owner", "admin", "member"] if allow else ["owner"]
+    await save_org_config(None, org, "access", {"use_bypass_mode": roles}, [])
     await save_org_config(None, org, "governance", governance, [])
     await save_org_config(None, org, "user_preferences", preferences or {}, locked or [])
     store = InMemorySessionStore()

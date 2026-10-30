@@ -93,7 +93,7 @@ async def test_the_commit_email_must_be_an_identity_of_the_key(tmp_path: pathlib
         choose_commit_email(info, None)
 
 
-async def test_a_stored_key_is_encrypted_and_only_used_when_the_member_opts_in(
+async def test_a_stored_key_is_encrypted_and_used_for_the_members_turns(
     tmp_path: pathlib.Path,
 ) -> None:
     private, _ = make_key(tmp_path / "k", "Octo <octo@example.com>", passphrase="pw")
@@ -107,23 +107,23 @@ async def test_a_stored_key_is_encrypted_and_only_used_when_the_member_opts_in(
     assert credential.metadata["fingerprint"] == info.fingerprint
     assert "private_key" not in credential.metadata
 
-    assert await member_signing_for_turn(None, org, user, {}) is None
-    chosen = await member_signing_for_turn(None, org, user, {"commit_as_me": True})
+    assert await member_signing_for_turn(None, org, "someone_else", {}) is None
+    chosen = await member_signing_for_turn(None, org, user, {})
     assert chosen is not None and chosen.fingerprint == info.fingerprint
     assert chosen.commit_email == "octo@example.com"
     assert "BEGIN PGP" not in repr(chosen) and "pw" not in repr(chosen)
 
 
-def test_gpg_mode_means_signing_as_the_member_or_the_verified_fallback() -> None:
-    policy = GitPolicy(signing_mode="gpg_key", authorship="co_authored")
+def test_member_gpg_means_signing_as_the_member_or_the_verified_fallback() -> None:
+    policy = GitPolicy(signing="member_gpg", user_name="Octo")
     signing = MemberSigning("ABCD" * 10, "octo@example.com", "key")
 
     mine = effective_signing_policy(policy, signing)
-    assert (mine.signing_mode, mine.authorship) == ("gpg_key", "user_only")
+    assert mine.signing == "member_gpg" and mine.commits_as_member
     assert mine.user_email == "octo@example.com" and mine.signing_key_id == "ABCD" * 10
 
     fallback = effective_signing_policy(policy, None)
-    assert (fallback.signing_mode, fallback.authorship) == ("github_app", "co_authored")
+    assert fallback.signing == "github" and not fallback.commits_as_member
 
-    other = GitPolicy(signing_mode="github_app")
+    other = GitPolicy(signing="github")
     assert effective_signing_policy(other, signing) is other, "other modes are left alone"

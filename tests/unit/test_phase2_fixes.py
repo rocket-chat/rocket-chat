@@ -22,12 +22,13 @@ def test_m7_dead_events_removed() -> None:
     assert not hasattr(EventType, "TASK_COMPLETED")
 
 
-def test_m8_persona_limits_default() -> None:
-    """Verify persona models default cpu_limit and memory_limit to empty strings."""
+def test_m8_agents_hold_no_sandbox_resources() -> None:
+    """Agents pick a sandbox type; the type holds the image, CPU and memory (decision D7)."""
     from api.db.models import AgentPersonaEntityModel
 
-    assert AgentPersonaEntityModel.__table__.c.cpu_limit.default.arg == ""
-    assert AgentPersonaEntityModel.__table__.c.memory_limit.default.arg == ""
+    columns = AgentPersonaEntityModel.__table__.c
+    assert "cpu_limit" not in columns and "memory_limit" not in columns
+    assert "sandbox_image" not in columns and "sandbox_id" in columns
 
 
 def test_m9_parse_repo_pr() -> None:

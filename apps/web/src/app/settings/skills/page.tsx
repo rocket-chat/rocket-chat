@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "../../../components/ui/Button";
+import { useConfirm } from "../../../components/ui/ConfirmDialog";
 import { PageHeader } from "../../../components/ui/PageHeader";
 
 import { Field, Input, Textarea } from "../../../components/ui/Field";
@@ -18,17 +19,17 @@ import {
   BookOpen,
   Pencil,
 } from "lucide-react";
-import { useSession } from "../../../components/AuthProvider";
 import {
   UserScopeSection,
   ScopeDivider,
   OrgScopeSection,
 } from "../../../components/settings/ScopedSettingsSection";
+import { useAccess } from "../../../lib/access";
+import { StarterSkillsPanel } from "../../../components/settings/StarterSkillsPanel";
 
 export default function SkillsSettingsPage() {
-  const { data: session } = useSession();
-  const userRoles = (session?.user as unknown as { roles?: string[] })?.roles || [];
-  const isAdmin = !session || userRoles.includes("admin") || userRoles.includes("owner");
+  const [confirm, confirmDialog] = useConfirm();
+  const { isAdmin } = useAccess();
 
   const [skills, setSkills] = useState<CustomSkillConfig[]>([]);
   const [expandedSkillId, setExpandedSkillId] = useState<string | null>(null);
@@ -169,7 +170,7 @@ export default function SkillsSettingsPage() {
   };
 
   const handleDeleteSkill = async (id: string, skillTitle: string) => {
-    if (!confirm(`Are you sure you want to delete skill '${skillTitle}'?`)) return;
+    if (!(await confirm({ title: `Delete the skill “${skillTitle}”?`, message: "Agents can no longer load it.", confirmLabel: "Delete", tone: "danger" }))) return;
     try {
       const res = await fetch(`/v1/skills/${id}`, { method: "DELETE" });
       if (res.ok) {
@@ -267,12 +268,15 @@ export default function SkillsSettingsPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
+      {confirmDialog}
       {/* Header */}
       <PageHeader
         title="Skills &amp; tools"
         icon={<Code2 className="h-5 w-5" aria-hidden="true" />}
         description="Prompt-based guidelines and procedural knowledge injected into autonomous agents."
       />
+
+      <StarterSkillsPanel isAdmin={isAdmin} />
 
       {errorBanner && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">

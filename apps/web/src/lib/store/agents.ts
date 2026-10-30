@@ -32,6 +32,13 @@ export const createAgentsSlice: StateCreator<MissionStore, [], [], AgentsSlice> 
     });
   },
   setAvailableAgents: (availableAgents) => set({ availableAgents }),
+  agentDraft: null,
+  agentDraftSaved: null,
+  openAgentDraft: (draft) => set({ agentDraft: draft, agentDraftSaved: draft }),
+  patchAgentDraft: (changes) => {
+    const current = get().agentDraft;
+    if (current) set({ agentDraft: { ...current, ...changes } });
+  },
   setInferenceMode: (inferenceMode) => set({ inferenceMode }),
   selectAgent: (agent: AgentPersonaConfig) => {
     const currentSession = get().session;

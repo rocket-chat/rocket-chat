@@ -1,7 +1,6 @@
-"""Token usage, spend and the organization budget cap."""
+"""Token usage and spend, from the usage ledger."""
 
 import logging
-import math
 from collections.abc import Sequence
 from typing import Any
 
@@ -12,24 +11,16 @@ from fastapi import (
     Request,
 )
 
-from api.auth.access import _check_session_access, _get_request_identity, _require_admin
-from api.bootstrap.runtime import FALLBACK_MODEL
+from api.auth.access import _check_session_access, _get_request_identity
+from api.bootstrap.runtime import default_model
 from api.db.store import TurnTraceStore
-from api.services.audit import (
-    AuditService,
-)
-from api.services.budgets import BudgetService
 from api.services.session_usage import (
     ActiveContextModel,
     SessionUsage,
     TurnWindow,
     summarize_session_usage,
 )
-from api.services.settings import (
-    effective_settings,
-    load_org_config,
-    save_org_config,
-)
+from api.services.settings import load_org_config
 from api.services.usage import UsageLedger, month_start
 from specifications.interfaces.session import SessionRecord
 
@@ -48,60 +39,20 @@ def _usage_ledger(request: Request) -> UsageLedger:
 
 @router.get("/settings/org/usage")
 async def get_org_usage_telemetry(request: Request) -> dict[str, Any]:
-    """This month's token and dollar spend for the organization, from the persisted ledger."""
+    """This month's token and dollar spend for the organization, from the persisted ledger,
+    in total and grouped by agent, credential and member."""
     org_id, _, _ = _get_request_identity(request)
-    db_mgr = getattr(request.app.state, "db_manager", None)
     since = month_start()
-    summary = await _usage_ledger(request).summary(org_id, since=since)
-    cap = float(
-        (await effective_settings(db_mgr, org_id, "budgets")).get("monthly_budget_usd") or 0
-    )
-    funded = await _usage_ledger(request).spend_usd(org_id, since=since)
+    ledger = _usage_ledger(request)
+    summary = await ledger.summary(org_id, since=since)
     return {
         "tenant_org_id": org_id,
         "period_start": since,
         **summary,
-        "monthly_budget_cap_usd": cap,
-        "budget_used_percent": round(funded / cap * 100, 2) if cap > 0 else 0.0,
+        "by_agent": await ledger.grouped(org_id, since=since, by="agent"),
+        "by_credential": await ledger.grouped(org_id, since=since, by="credential"),
+        "by_member": await ledger.grouped(org_id, since=since, by="member"),
     }
-
-
-@router.put("/admin/budget")
-async def update_org_budget_cap(
-    body: dict[str, Any],
-    request: Request,
-) -> dict[str, Any]:
-    """Set the organization's monthly spend cap (shorthand for the ``budgets`` settings domain)."""
-    org_id, admin_user, _ = _require_admin(request)
-    try:
-        raw_cap = body.get("monthly_budget_cap_usd", body.get("budget_cap_usd"))
-        cap_usd = float(raw_cap if raw_cap is not None else "nan")
-    except (TypeError, ValueError) as err:
-        raise HTTPException(
-            status_code=422, detail="monthly_budget_cap_usd must be a number"
-        ) from err
-    if not math.isfinite(cap_usd) or cap_usd < 0:
-        raise HTTPException(
-            status_code=422, detail="The budget cap must be a non-negative number (0 = none)"
-        )
-
-    db_mgr = getattr(request.app.state, "db_manager", None)
-    current, locked = await load_org_config(db_mgr, org_id, "budgets")
-    await save_org_config(
-        db_mgr, org_id, "budgets", {**current, "monthly_budget_usd": cap_usd}, list(locked)
-    )
-    budget_service: BudgetService | None = getattr(request.app.state, "budget_service", None)
-    if budget_service is not None:
-        budget_service.forget(org_id)
-
-    await AuditService(db_mgr).record(
-        "settings_change",
-        org_id=org_id,
-        actor_user_id=admin_user,
-        result_summary=f"set monthly budget cap to {cap_usd} USD",
-        metadata={"monthly_budget_cap_usd": cap_usd},
-    )
-    return {"status": "ok", "tenant_org_id": org_id, "monthly_budget_cap_usd": cap_usd}
 
 
 @router.get("/settings/user/usage")
@@ -150,7 +101,7 @@ async def _resolve_session_active_context(
     traces: Sequence[Any] | None = None,
     events: Sequence[Any] | None = None,
 ) -> ActiveContextModel:
-    model_id = getattr(record, "selected_model", None) or FALLBACK_MODEL
+    model_id = getattr(record, "selected_model", None) or default_model()
     ctx_mgr = getattr(request.app.state, "context_manager", None) or ContextManager()
     models_cfg: dict[str, Any] = {}
     if db_mgr is not None:
@@ -163,6 +114,10 @@ async def _resolve_session_active_context(
         min(limit_info.tokens, target_tokens) if target_tokens > 0 else limit_info.tokens
     )
     reserve_tokens = min(16_384, effective_limit // 4)
+    prune = int(models_cfg.get("context_prune_percent") or 0) / 100 or ctx_mgr.tier2_threshold_ratio
+    compact = (
+        int(models_cfg.get("context_compact_percent") or 0) / 100 or ctx_mgr.tier3_threshold_ratio
+    )
 
     if isinstance(record.metadata, dict) and "active_context" in record.metadata:
         try:
@@ -179,8 +134,8 @@ async def _resolve_session_active_context(
         model_limit=limit_info.tokens,
         target_tokens=target_tokens,
         source=limit_info.source,
-        tier2_tokens=threshold(effective_limit, ctx_mgr.tier2_threshold_ratio, reserve_tokens),
-        tier3_tokens=threshold(effective_limit, ctx_mgr.tier3_threshold_ratio, reserve_tokens),
+        tier2_tokens=threshold(effective_limit, prune, reserve_tokens),
+        tier3_tokens=threshold(effective_limit, compact, reserve_tokens),
     )
 
 

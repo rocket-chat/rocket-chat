@@ -14,7 +14,7 @@ drill that proves those procedures work on this release. The drill is executable
 | :--- | :--- | :--- | :--- |
 | Tenant data (sessions, traces, memories, audit) | PostgreSQL 16 | Logical `pg_dump` + managed-DB PITR | Conversation history and governance trail lost for the window |
 | Attachment blobs | `ROCKET_ATTACHMENTS_DIR` volume / workspace PVC | Volume snapshot (cloud CSI) | Uploaded files unreadable; rows remain and point at missing bytes |
-| BYOK / user credentials | PostgreSQL, AES-256-GCM / Fernet encrypted | Follows the database | **Unrecoverable without the master key** — see §6 |
+| Model credentials / user credentials | PostgreSQL, AES-256-GCM / Fernet encrypted | Follows the database | **Unrecoverable without the master key** — see §6 |
 | Container images & Helm chart | GHCR (`ghcr.io/rocket-chat/...`) | Immutable tagged artifacts + SBOM | Redeploy the last known-good tag |
 | Kubernetes secrets | Cluster secret store / external vault | Vault replication / external-secrets | Reread from the vault; never only in-cluster |
 
@@ -151,7 +151,7 @@ uv run python scripts/dr_drill.py
 Secrets are the part of recovery that backups cannot fix. The full rotation procedure lives in
 [Security & Compliance](/administer/security); in the context of disaster recovery:
 
-* **`ENCRYPTION_MASTER_KEY`** decrypts tenant BYOK credentials. Losing it permanently loses every
+* **`ENCRYPTION_MASTER_KEY`** decrypts the stored model credentials (organization and member keys). Losing it permanently loses every
   encrypted credential — there is no recovery path. Restore it from the vault *before* restoring
   the database.
 * Rotating it is a **re-encryption migration**, not a config change: use
@@ -185,5 +185,5 @@ Before returning traffic to a restored environment:
 - [ ] A known tenant can read a session, its turn traces and its audit rows.
 - [ ] Cross-tenant reads return nothing (RLS still forced after restore).
 - [ ] `GET /v1/ready` returns `200`; `GET /metrics` scrapes.
-- [ ] A BYOK credential decrypts (proves the correct master key was restored).
+- [ ] A stored model credential decrypts (proves the correct master key was restored).
 - [ ] An existing attachment retrieves (database row and volume blob agree).

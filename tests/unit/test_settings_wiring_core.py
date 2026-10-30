@@ -6,13 +6,10 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from api.services.budgets import BudgetService
 from api.services.settings import save_org_config
-from api.services.usage import UsageLedger
 from api.turns.prompt import _organization_guidance
 from api.turns.shared import _turn_service
 
-from specifications.interfaces.llm import BudgetExceededError, ModelScope, UsageEvent
 from tests.turn_harness import run_turn
 
 
@@ -139,7 +136,7 @@ async def test_the_default_reasoning_effort_reaches_a_model_the_catalogue_does_n
     unset = (await _plan("wire_effort_unset", request_model=unknown)).policy.generation
 
     assert configured.reasoning_effort == "low"
-    assert unset.reasoning_effort is None, "left to the provider, as before"
+    assert unset.reasoning_effort == "medium", "the platform default applies to every model"
 
 
 @pytest.mark.setting("models.output_tokens")
@@ -171,8 +168,8 @@ async def test_output_tokens_setting_overrides_max_tokens() -> None:
 # --- routing ---------------------------------------------------------------------------
 
 
-@pytest.mark.setting("routing.mode")
-@pytest.mark.setting("routing.fast_model")
+@pytest.mark.setting("models.routing_mode")
+@pytest.mark.setting("models.fast_model")
 async def test_balanced_routing_sends_auxiliary_work_to_the_fast_model() -> None:
     org = "wire_balanced"
     await save_org_config(
@@ -185,7 +182,7 @@ async def test_balanced_routing_sends_auxiliary_work_to_the_fast_model() -> None
     assert router.model_for("react") == "platform/default"
 
 
-@pytest.mark.setting("routing.economy_model")
+@pytest.mark.setting("models.economy_model")
 async def test_economy_routing_uses_the_economy_model_for_everything() -> None:
     org = "wire_economy"
     await save_org_config(None, org, "routing", {"mode": "economy", "economy_model": "cheap/e"}, [])
@@ -193,81 +190,6 @@ async def test_economy_routing_uses_the_economy_model_for_everything() -> None:
     router = (await _plan(org)).model_router
 
     assert router.model_for("react") == router.model_for("suggest") == "cheap/e"
-
-
-# --- budgets ---------------------------------------------------------------------------
-
-
-def _scope(org: str, user: str = "u1", session: str | None = "s1") -> ModelScope:
-    return ModelScope(org_id=org, user_id=user, session_id=session)
-
-
-async def _spend(
-    ledger: UsageLedger, org: str, usd: float, user: str = "u1", session: str = "s1"
-) -> None:
-    await ledger.record(
-        UsageEvent(
-            org_id=org,
-            user_id=user,
-            session_id=session,
-            model="m",
-            prompt_tokens=1,
-            completion_tokens=1,
-            cost_usd=usd,
-        )
-    )
-
-
-@pytest.mark.setting("budgets.monthly_budget_usd")
-async def test_the_organization_monthly_cap_stops_spending_for_everyone() -> None:
-    org, ledger = "wire_org_cap", UsageLedger()
-    await save_org_config(None, org, "budgets", {"monthly_budget_usd": 10.0}, [])
-    budget = BudgetService(None, ledger)
-
-    await budget.check(_scope(org))
-    await _spend(ledger, org, 10.0, user="someone_else")
-
-    with pytest.raises(BudgetExceededError, match="Organization monthly"):
-        await budget.check(_scope(org))
-
-
-@pytest.mark.setting("budgets.member_monthly_budget_usd")
-async def test_a_member_cap_only_stops_that_member() -> None:
-    org, ledger = "wire_member_cap", UsageLedger()
-    await save_org_config(None, org, "budgets", {"member_monthly_budget_usd": 5.0}, [])
-    budget = BudgetService(None, ledger)
-    await _spend(ledger, org, 5.0, user="heavy")
-
-    with pytest.raises(BudgetExceededError, match="Your monthly"):
-        await budget.check(_scope(org, user="heavy"))
-    await budget.check(_scope(org, user="light"))
-
-
-@pytest.mark.setting("budgets.session_budget_usd")
-async def test_a_session_cap_only_stops_that_session() -> None:
-    org, ledger = "wire_session_cap", UsageLedger()
-    await save_org_config(None, org, "budgets", {"session_budget_usd": 2.0}, [])
-    budget = BudgetService(None, ledger)
-    await _spend(ledger, org, 2.5, session="expensive")
-
-    with pytest.raises(BudgetExceededError, match="Session"):
-        await budget.check(_scope(org, session="expensive"))
-    await budget.check(_scope(org, session="fresh"))
-
-
-@pytest.mark.setting("budgets.warn_at_percent")
-async def test_a_cap_close_to_its_limit_warns_before_it_stops() -> None:
-    org, ledger = "wire_warn", UsageLedger()
-    await save_org_config(
-        None, org, "budgets", {"monthly_budget_usd": 10.0, "warn_at_percent": 50}, []
-    )
-    budget = BudgetService(None, ledger)
-
-    assert (await budget.status(_scope(org))).warnings() == []
-    await _spend(ledger, org, 6.0)
-
-    (warning,) = (await budget.status(_scope(org))).warnings()
-    assert "60% used" in warning
 
 
 # --- sign-in ---------------------------------------------------------------------------

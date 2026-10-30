@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from pydantic import Field
 
 from agent_core.context import current_execution_ctx
+from agent_core.subagent_report import render_for_parent
 from specifications.interfaces.agent import WaitOutcome
 
 if TYPE_CHECKING:
@@ -20,22 +21,26 @@ def register(registry: ToolRegistry) -> None:
     @registry._tool(
         description=(
             "Wait durably for an event: CI of a pull request ('ci_status'), its review "
-            "('review'), a background process ('process_exit') or a delay ('time'). The turn ends "
+            "('review'), a background process ('process_exit'), a background subagent ('subagent') or "
+            "a delay ('time'). The turn ends "
             "'waiting' and a new turn wakes with the result; if the condition has already "
             "settled, the result says so and you continue at once."
         )
     )
     async def wait_for(
         target: Annotated[
-            Literal["ci_status", "review", "process_exit", "time"],
+            Literal["ci_status", "review", "process_exit", "subagent", "time"],
             Field(
-                description="The event category to wait for: ci_status, review, process_exit, or time."
+                description=(
+                    "The event category to wait for: ci_status, review, process_exit, "
+                    "subagent, or time."
+                )
             ),
         ],
         identifier: Annotated[
             str,
             Field(
-                description="Target identifier: 'owner/repo#123' for ci_status/review, process id for process_exit, or duration in seconds for time."
+                description="Target identifier: 'owner/repo#123' for ci_status/review, process id for process_exit, subagent id for subagent, or duration in seconds for time."
             ),
         ],
         timeout_seconds: Annotated[
@@ -56,6 +61,11 @@ def register(registry: ToolRegistry) -> None:
     ) -> str:
         ctx = current_execution_ctx.get()
         wait_cb = registry._turn_callback("wait_for")
+        runner = registry._subagent_runner
+        if target == "subagent" and runner is not None:
+            # A child that has already finished is a result to act on now, not a wait.
+            if (done := await runner.settled(identifier.strip())) is not None:
+                return render_for_parent(done)
         if wait_cb is None:
             outcome = WaitOutcome(
                 f"Wait scheduled for {target} ({identifier}) with timeout {timeout_seconds}s. "

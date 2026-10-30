@@ -13,6 +13,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from api.auth.access import _get_request_identity
+from api.auth.roles import can_write
 from api.db.session import DatabaseSessionManager
 from api.services.memory import MEMORY_SCOPES, MemoryRecord, MemoryService
 
@@ -99,10 +100,10 @@ async def list_memories(
 async def forget_memory(memory_id: str, request: Request) -> ForgetResponse:
     """Delete one memory the caller can see (the inspector's "forget" action)."""
     org_id, user_id, roles = _get_request_identity(request)
-    if "readonly" in roles:
+    if not can_write(roles):
         raise HTTPException(
             status_code=403,
-            detail="Forbidden: Read-only role cannot forget memories",
+            detail="Forbidden: viewers cannot forget memories",
         )
     service = _require_service(request)
     forgotten = await service.forget(org_id=org_id, user_id=user_id, memory_id=memory_id)

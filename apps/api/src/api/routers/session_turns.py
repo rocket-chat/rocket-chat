@@ -19,6 +19,7 @@ from api.models import (
     ApprovalRequestModel,
     UserTurnRequest,
 )
+from api.services.approval_rules import published_approval, remember_answered_approval
 from api.services.audit import (
     AuditService,
 )
@@ -186,6 +187,8 @@ async def submit_approval(
     _check_session_access(record, req_user, roles, require_write=True)
 
     orchestrator: AsyncReActOrchestrator = request.app.state.orchestrator
+    event_bus: EventBusProtocol | None = getattr(request.app.state, "event_bus", None)
+    published = published_approval(event_bus, session_id, action_id)
     try:
         await orchestrator.submit_human_approval(
             session_id=session_id,
@@ -194,6 +197,17 @@ async def submit_approval(
         )
     except KeyError as err:
         raise HTTPException(status_code=404, detail=str(err)) from err
+    remembered = None
+    if req.approved and req.remember is not None:
+        remembered = await remember_answered_approval(
+            db_mgr=getattr(request.app.state, "db_manager", None),
+            event_bus=event_bus,
+            payload=published,
+            scope=req.remember,
+            org_id=record.tenant_org_id,
+            session_id=session_id,
+            user_id=req_user,
+        )
 
     # Approval trail: who approved or denied, for which session.
     await AuditService(getattr(request.app.state, "db_manager", None)).record_approval_decision(
@@ -206,7 +220,12 @@ async def submit_approval(
         approved_by=req_user,
     )
 
-    return {"status": "recorded", "action_id": action_id, "approved": req.approved}
+    return {
+        "status": "recorded",
+        "action_id": action_id,
+        "approved": req.approved,
+        "remembered_rule_id": remembered.id if remembered else None,
+    }
 
 
 @router.delete("/sessions/{session_id}/turns")

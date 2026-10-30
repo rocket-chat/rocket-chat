@@ -27,7 +27,7 @@ function makeKey(uid: string, passphrase: string): string {
 
 async function setSigningMode(request: APIRequestContext, mode: string): Promise<void> {
   const saved = await request.put(`${API}/v1/admin/settings/github`, {
-    data: { config: { commit_signing_mode: mode } },
+    data: { config: { signing: mode } },
   });
   expect(saved.ok()).toBeTruthy();
 }
@@ -35,7 +35,7 @@ async function setSigningMode(request: APIRequestContext, mode: string): Promise
 test.describe("Commit signing", () => {
   test.afterEach(async ({ request }) => {
     await request.delete(`${API}/v1/user/git-signing`);
-    await setSigningMode(request, "github_app");
+    await setSigningMode(request, "github");
   });
 
   test("explains who signs the commits when the organization signs through GitHub", async ({ page }) => {
@@ -46,7 +46,7 @@ test.describe("Commit signing", () => {
   });
 
   test("a member imports a GPG key, sees what to upload to GitHub, and removes it", async ({ page, request }) => {
-    await setSigningMode(request, "gpg_key");
+    await setSigningMode(request, "member_gpg");
     const key = makeKey("E2E Signer <signer@example.com>", "pw");
 
     await page.goto("/settings/github");
@@ -65,8 +65,8 @@ test.describe("Commit signing", () => {
     await page.reload();
     await expect(page.getByTestId("git-signing-key")).toContainText("signer@example.com");
 
-    page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: /Remove key/ }).click();
+    await page.getByTestId("confirm-accept").click();
     await expect(page.getByTestId("git-signing-private-key")).toBeVisible();
   });
 });

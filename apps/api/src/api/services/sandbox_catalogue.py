@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, fields
 from typing import Any, ClassVar
 
 from config_engine.crypto import CredentialCipher
+from config_engine.sandbox_images import BROWSER_SANDBOX_IMAGE, POLYGLOT_SANDBOX_IMAGE
 from sandbox_driver.profiles import configured_profiles
 from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
@@ -172,6 +173,33 @@ def entry_environment(entry: SandboxEntry, cipher: CredentialCipher) -> dict[str
     }
 
 
+@dataclass(frozen=True)
+class _Seed:
+    name: str
+    image: str
+    is_default: bool
+    description: str
+    capabilities: tuple[str, ...] = ()
+
+
+# The variants every release ships next to the devbox, offered from the start.
+SHIPPED_VARIANTS: tuple[_Seed, ...] = (
+    _Seed(
+        "Polyglot",
+        POLYGLOT_SANDBOX_IMAGE,
+        False,
+        "The devbox plus Go, Rust and Java 21, for polyglot repositories and heavier builds.",
+    ),
+    _Seed(
+        "Browser",
+        BROWSER_SANDBOX_IMAGE,
+        False,
+        "The devbox plus a headless Chromium, so the agent can look at the pages it builds.",
+        ("browser",),
+    ),
+)
+
+
 class SandboxCatalogue:
     """Entries in PostgreSQL (tenant-scoped); a process-local dict without a database."""
 
@@ -324,22 +352,23 @@ class SandboxCatalogue:
         """Create the first entries from the settings that used to hold the image list."""
         config = await effective_settings(self._db_manager, org_id, "sandboxes")
         default_image = str(config["default_image"])
-        seeds = [("Devbox", default_image, True)]
+        seeds = [
+            _Seed("Devbox", default_image, True, "The platform's default development environment."),
+            *SHIPPED_VARIANTS,
+        ]
         for index, image in enumerate(config.get("allowed_images") or [], start=1):
             literal = str(image)
             if literal != default_image and "*" not in literal and _IMAGE.match(literal):
-                seeds.append((f"Image {index}", literal, False))
-        for name, image, is_default in seeds:
+                seeds.append(_Seed(f"Image {index}", literal, False, ""))
+        for seed in seeds:
             entry = SandboxEntry(
                 id=f"sbx_{uuid.uuid4().hex[:10]}",
                 org_id=org_id,
-                name=name,
-                image=image,
-                description=(
-                    "The platform's default development environment." if is_default else ""
-                ),
-                capabilities=[],
-                is_default=is_default,
+                name=seed.name,
+                image=seed.image,
+                description=seed.description,
+                capabilities=list(seed.capabilities),
+                is_default=seed.is_default,
                 created_at=int(time.time()),
             )
             try:

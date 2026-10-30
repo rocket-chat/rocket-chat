@@ -47,7 +47,7 @@ Clone octocat/Hello-World, add a short "Getting started" section to the README, 
 
 Press **Enter**. The conversation shows what the agent does as it goes: its reasoning, each command with its output, each edit as a diff. Open the right-hand panel to see the **Changes**, the **Files**, and the **Processes** it started.
 
-> **Your own repositories.** To work on private repositories, link your GitHub account in **Settings → Git & GitHub**, or have an administrator connect a GitHub App ([GitHub](/administer/github)).
+> **Your own repositories.** To work on private repositories, link your GitHub account in **Settings → Git identity**, or have an administrator connect a GitHub App ([GitHub](/administer/github)).
 
 ## 4. Stay in control
 
@@ -68,7 +68,7 @@ Reading files, searching and cloning never need approval. Questions and approval
 | :--- | :--- |
 | **Use my own repositories**: clone, push branches, open pull requests | [GitHub](/administer/github) |
 | **Bring it to Slack**: mention the bot in a thread and watch it work | [Connect Slack](/administer/slack) and [Slack](/use/slack) |
-| **Add my team**: sign in with the identity provider, roles, budgets | [SSO](/administer/sso) and [Organization settings](/administer/organization) |
+| **Add my team**: invitations, sign-in with the identity provider, roles, spend limits | [SSO](/administer/sso) and [Organization settings](/administer/organization) |
 | **Run it for real**: one server, or many people | [Install](/install/index) |
 | **Understand what I can do with it** | [Your first session](/use/index) and [How sessions work](/use/sessions) |
 
@@ -77,7 +77,7 @@ Reading files, searching and cloning never need approval. Questions and approval
 | Symptom | Check |
 | :--- | :--- |
 | A container is not `healthy` | `docker compose logs backend` shows why; the usual cause is a port already in use (3000, 8000 or 5432). |
-| The agent answers with a model error | The key was not passed to the backend: run `docker compose down`, export the key again in the same shell, and `docker compose up -d`. Or add your key in **Settings → My models & keys**. |
+| The agent answers with a model error | The key was not passed to the backend: run `docker compose down`, export the key again in the same shell, and `docker compose up -d`. Or add the key as an organization credential in **Settings → Organization → Models & credentials**. |
 | The agent cannot start its sandbox | The backend could not reach the Docker socket. Check that Docker is running and, on Linux, that `/var/run/docker.sock` exists. |
 | You want to start over | `docker compose down -v` removes the containers and the database volume. |
 

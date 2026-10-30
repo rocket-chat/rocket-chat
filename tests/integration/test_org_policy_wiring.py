@@ -17,7 +17,7 @@ from specifications.interfaces.git import SigningMode
 
 ORG = "policy_org"
 ADMIN = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "admin_user", "X-User-Role": "admin"}
-MEMBER = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "member_user", "X-User-Role": "developer"}
+MEMBER = {"X-Tenant-Org-Id": ORG, "X-Tenant-User-Id": "member_user", "X-User-Role": "member"}
 
 
 # --- git policy -> commit identity, trailers and PR credentials ------------------------
@@ -33,36 +33,34 @@ def _policy(**overrides: Any) -> GitPolicy:
     return GitPolicy(**{**base, **overrides})
 
 
-def test_co_authored_commits_as_the_bot_and_credits_the_member() -> None:
-    spec = commit_spec_for_policy("msg", None, None, _policy(authorship="co_authored"))
+def test_github_signing_commits_as_the_bot_and_credits_the_member() -> None:
+    spec = commit_spec_for_policy("msg", None, None, _policy(signing="github"))
     assert (spec.committer_name, spec.committer_email) == ("Bot", "bot@x.io")
     assert [(a.name, a.email) for a in spec.co_authors] == [("Alice", "alice@x.io")]
     assert spec.branch == ""  # stay on the checked-out branch
 
 
-def test_user_only_commits_as_the_member_without_trailers() -> None:
-    spec = commit_spec_for_policy("msg", "feat/x", None, _policy(authorship="user_only"))
+def test_member_gpg_commits_as_the_member_without_trailers() -> None:
+    spec = commit_spec_for_policy("msg", "feat/x", None, _policy(signing="member_gpg"))
     assert (spec.committer_name, spec.committer_email) == ("Alice", "alice@x.io")
     assert spec.co_authors == [] and spec.branch == "feat/x"
 
 
-def test_bot_only_commits_as_the_bot_without_trailers() -> None:
-    spec = commit_spec_for_policy("msg", None, None, _policy(authorship="bot_only"))
+def test_without_a_member_identity_the_bot_commits_without_trailers() -> None:
+    spec = commit_spec_for_policy("msg", None, None, _policy(user_name="", user_email=""))
     assert spec.committer_name == "Bot" and spec.co_authors == []
 
 
 @pytest.mark.parametrize(
     ("mode", "expected"),
     [
-        ("github_app", SigningMode.GITHUB_APP),
-        ("gpg_key", SigningMode.GPG_KEY),
+        ("github", SigningMode.GITHUB_APP),
+        ("member_gpg", SigningMode.GPG_KEY),
         ("none", SigningMode.NONE),
     ],
 )
 def test_signing_mode_follows_policy(mode: str, expected: SigningMode) -> None:
-    assert (
-        commit_spec_for_policy("m", None, None, _policy(signing_mode=mode)).signing_mode == expected
-    )
+    assert commit_spec_for_policy("m", None, None, _policy(signing=mode)).signing_mode == expected
 
 
 class _Engine:
@@ -86,11 +84,11 @@ class _Engine:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("pr_creation", "expected_token"), [("as_user", "member-token"), ("as_bot", None)]
+    ("publish_as", "expected_token"), [("member", "member-token"), ("bot", None)]
 )
-async def test_pr_credential_follows_policy(pr_creation: str, expected_token: str | None) -> None:
+async def test_pr_credential_follows_policy(publish_as: str, expected_token: str | None) -> None:
     engine = _Engine()
-    policy = _policy(pr_creation=pr_creation, user_token="member-token", default_branch="develop")
+    policy = _policy(publish_as=publish_as, user_token="member-token", default_branch="develop")
     await git_open_pr(None, "s", "t", "b", git_engine=engine, policy=policy)  # type: ignore[arg-type]
     assert engine.calls == [("develop", expected_token)]
 
@@ -117,7 +115,7 @@ async def test_turn_plan_applies_models_and_github_settings() -> None:
         ORG,
         "github",
         {
-            "commit_authorship_policy": "user_only",
+            "signing": "none",
             "default_branch": "develop",
             "bot_author_name": "Ops",
         },
@@ -137,31 +135,32 @@ async def test_turn_plan_applies_models_and_github_settings() -> None:
     generation, git = plan.policy.generation, plan.policy.git
     assert (generation.temperature, generation.max_tokens) == (0.7, 1234)
     assert generation.fallback_models == ("ok/model-a",)  # the forbidden one is dropped
-    assert (git.authorship, git.default_branch, git.bot_name) == ("user_only", "develop", "Ops")
+    assert (git.signing, git.default_branch, git.bot_name) == ("none", "develop", "Ops")
+    assert git.publish_as == "member"
     assert (git.user_name, git.user_email) == ("Alice", "a@x.io")
 
 
 @pytest.mark.asyncio
-async def test_persona_overrides_generation_and_sandbox_settings() -> None:
+async def test_persona_overrides_generation_and_sandbox_type() -> None:
     from api.models import AgentPersonaModel
     from api.services.personas import save_persona
+    from api.services.sandbox_catalogue import SandboxCatalogue
 
+    node = await SandboxCatalogue(None).create(ORG, name="Node", image="node:22")
     persona = AgentPersonaModel(
         id="p-tuned",
         name="Tuned",
         role_title="t",
         system_prompt="s",
         temperature=1.1,
-        sandbox_image="node:20-slim",
-        cpu_limit="1.5",
-        memory_limit="2Gi",
+        sandbox_id=node.id,
     )
     await save_persona(None, ORG, "u1", True, persona)
     plan = await _turn_service.plan_turn(
         db_mgr=None, org_id=ORG, user_id="u1", agent_id=persona.id, global_default_model="p/d"
     )
     assert plan.policy.generation.temperature == 1.1
-    assert (plan.sandbox_image, plan.cpu_limit, plan.memory_limit) == ("node:20-slim", "1.5", "2Gi")
+    assert plan.sandbox_id == node.id
 
 
 def test_image_policy() -> None:

@@ -11,6 +11,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
+from agent_core.subagent_events import CHILD_TOOL_COMPLETED, CHILD_TOOL_STARTED
+
+from api.services.approval_rules import allowed_scopes, offered_options
 from api.services.metrics import record_tool_call
 from api.services.queued_messages import QueuedMessageStore
 from api.services.session_support import _new_message_id
@@ -18,6 +21,7 @@ from api.services.turn_trace import record_running_tool_call
 from api.turns.attention import update_attention
 from api.turns.context import TurnContext
 from api.turns.gates import _forget_pending_decisions, _remember_pending_decision
+from api.turns.subagent_callbacks import child_step
 from specifications.interfaces.agent import AgentEvent, RunningTurnLive
 from specifications.interfaces.events import EventType, SessionEvent
 from specifications.interfaces.llm import ChatMessage
@@ -169,6 +173,8 @@ class TurnEventHandlers:
             "subagent_started": self._forward(EventType.SUBAGENT_STARTED),
             "subagent_progress": self._forward(EventType.SUBAGENT_PROGRESS),
             "subagent_completed": self._forward(EventType.SUBAGENT_COMPLETED),
+            CHILD_TOOL_STARTED: self._child_step,
+            CHILD_TOOL_COMPLETED: self._child_step,
             "context_compacted": self._context_compacted,
             "post_failure_synthesis": self._post_failure_synthesis,
             "user_steer": self._user_steer,
@@ -251,6 +257,11 @@ class TurnEventHandlers:
         return forward
 
     # -- handlers -----------------------------------------------------------------------
+
+    async def _child_step(self, event: AgentEvent) -> None:
+        """A subagent's own step: shown nested under the delegation, never one of the turn's."""
+        if (mapped := child_step(event)) is not None:
+            await self._publish(*mapped)
 
     async def _context_compacted(self, event: AgentEvent) -> None:
         self.ctx.trace.record_compaction(event.payload)
@@ -494,9 +505,15 @@ class TurnEventHandlers:
             decision=decision,
         )
         # `policy_decision` tells transports whether a human must answer or the
-        # organization's policy already did.
+        # organization's policy already did; `remember_options` how a "yes" may be remembered.
+        remember = offered_options(
+            await allowed_scopes(ctx.req.db_mgr, ctx.session.tenant_org_id),
+            event.payload,
+            decision,
+        )
         await self._publish(
-            EventType.APPROVAL_REQUIRED, {**event.payload, "policy_decision": decision}
+            EventType.APPROVAL_REQUIRED,
+            {**event.payload, "policy_decision": decision, "remember_options": remember},
         )
         if decision in ("auto_approve", "deny"):
             await self._answer_by_policy(event, decision, risk_level, action_type)
@@ -572,8 +589,10 @@ class TurnEventHandlers:
             self.ctx.state.first_token_at = None
         if event.payload.get("status") in ("completed", "waiting"):
             self._commit_step_text()
+        refusal = event.payload.pop("refusal", None)
         if event.payload.get("status") == "error":
             self.ctx.state.orchestrator_error = str(event.payload.get("error") or "The turn failed")
+            self.ctx.state.orchestrator_refusal = refusal
         if event.payload.get("status") == "waiting":
             self.ctx.state.is_waiting = True
         await self._publish(EventType.STATUS_CHANGED, event.payload)

@@ -58,6 +58,10 @@ class TemplateStore:
                 for r in (await session.execute(stmt)).scalars()
             ]
 
+    async def all(self, org_id: str) -> list[SessionTemplate]:
+        """Every template of the organization, personal ones included (platform use only)."""
+        return await self._all(org_id)
+
     async def visible_to(self, org_id: str, user_id: str) -> list[SessionTemplate]:
         """Organization-wide templates plus the caller's own, never another member's."""
         found = [t for t in await self._all(org_id) if t.user_id in (None, user_id)]
@@ -89,6 +93,15 @@ class TemplateStore:
                 return False
             await session.delete(row)
         return True
+
+
+def template_store(state: Any) -> TemplateStore:
+    """The application's template store (``app.state``), made on first use."""
+    store = getattr(state, "template_store", None)
+    if not isinstance(store, TemplateStore):
+        store = TemplateStore(getattr(state, "db_manager", None))
+        state.template_store = store
+    return store
 
 
 def as_session_request(template: SessionTemplate) -> dict[str, Any]:

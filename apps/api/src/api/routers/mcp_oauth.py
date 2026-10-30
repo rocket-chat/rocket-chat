@@ -17,6 +17,7 @@ from sqlalchemy import select
 from api.auth.access import _get_request_identity
 from api.auth.identity import is_production
 from api.auth.origin import mcp_oauth_callback_url, public_origin
+from api.auth.roles import can_write, is_admin
 from api.db.models import (
     McpServerEntityModel,
 )
@@ -65,9 +66,9 @@ def _may_authorize_mcp(
     account, whose tokens are kept per member and never shared.
     """
     if scope == "org" and member_mode:
-        return "readonly" not in roles
+        return can_write(roles)
     if scope == "org":
-        return "admin" in roles or "owner" in roles
+        return is_admin(roles)
     return owner_id == user_id
 
 

@@ -4,9 +4,11 @@ Settings used to be untyped ``dict[str, Any]`` defaults with no record of who ma
 key or which code reads it, which is how ~35 keys came to be editable in the UI while doing
 nothing. The registry is the single declaration of that contract:
 
-* ``scope`` says who may write the key - ``org`` (administrators, ``PUT /admin/settings``),
-  ``user`` (the member, ``PUT /settings``) or ``both`` (an organization default that a
-  member may override unless the key is locked).
+* ``policy`` says who decides the key (``config_engine.policy``): ``instance`` (the operator,
+  through the environment), ``org`` (administrators, ``PUT /admin/settings``), ``org_default``
+  (an organization default that members, sessions and presets may override unless the key is
+  locked) or ``member`` (the member, ``PUT /settings``). ``ceiling`` lets the levels below
+  only lower a number; ``env`` names the variables that hold the operator's value.
 * ``consumer`` names the repository file whose runtime code reads the key. A contract test
   fails if a key is declared without a consumer, if the consumer does not mention the key,
   or if runtime code reads an undeclared key.
@@ -16,19 +18,17 @@ nothing. The registry is the single declaration of that contract:
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
-# The devbox image (git, Python, Node, uv, gh, ripgrep, build tools; runs as an unprivileged
-# user). Operators point sandboxes at a mirror or their own registry with this variable.
-DEFAULT_SANDBOX_IMAGE = (
-    os.getenv("ROCKET_DEFAULT_SANDBOX_IMAGE") or "ghcr.io/rocket-chat/sandbox:latest"
-)
+from .environment import env_value
+from .model_defaults import PROVIDER_PREFERENCE
+from .policy import Policy
+from .sandbox_images import DEFAULT_SANDBOX_IMAGE
 
 Kind = Literal["bool", "int", "float", "str", "enum", "list", "dict"]
-Scope = Literal["org", "user", "both"]
+Writer = Literal["org", "member"]
 
 
 @dataclass(frozen=True)
@@ -38,7 +38,7 @@ class SettingSpec:
     key: str
     kind: Kind
     default: Any
-    scope: Scope
+    policy: Policy
     consumer: str
     description: str
     choices: tuple[str, ...] = ()
@@ -53,6 +53,14 @@ class SettingSpec:
     advanced: bool = False
     # Superseded: still honoured, hidden from forms unless set, and flagged in the reference.
     deprecated: bool = False
+    # Lower levels (members, sessions, agents) may lower this number, never raise it.
+    ceiling: bool = False
+    # Under ``org_default``: whether members may choose their own value, or only presets (a
+    # Slack bot overriding the organization's Slack policy) may.
+    member_override: bool = True
+    # Environment variables holding the operator's value: the whole value for ``instance``,
+    # the default under the organization's for any other policy.
+    env: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -73,16 +81,23 @@ class ValidationResult:
         return not self.errors
 
 
+# The shipped instruction skills (``api.services.starter_content``), all on by default.
+STARTER_SKILLS: tuple[str, ...] = (
+    "review-diff", "write-tests", "fix-ci-failure", "write-pr-description", "investigate-bug",
+    "upgrade-dependency",
+)  # fmt: skip
+
+
 def _spec(
     key: str,
     kind: Kind,
     default: Any,
-    scope: Scope,
+    policy: Policy,
     consumer: str,
     description: str,
     **extra: Any,
 ) -> SettingSpec:
-    return SettingSpec(key, kind, default, scope, consumer, description, **extra)
+    return SettingSpec(key, kind, default, policy, consumer, description, **extra)
 
 
 _PROVISIONING = "apps/api/src/api/turns/provisioning.py"
@@ -103,6 +118,16 @@ _GIT_SIGNING = "apps/api/src/api/services/git_signing.py"
 _BUDGETS = "apps/api/src/api/services/budgets.py"
 _TURN_CONTINUATION = "apps/api/src/api/turns/continuation.py"
 _DISPATCHER = "packages/agent-core/src/agent_core/dispatcher.py"
+_MODEL_CREDENTIALS = "apps/api/src/api/services/model_credentials.py"
+_TURN_RUNNER = "apps/api/src/api/turns/runner.py"
+_CAPABILITIES = "apps/api/src/api/auth/capabilities.py"
+_MODEL_DEFAULTS = "apps/api/src/api/services/model_defaults.py"
+_MEMORY = "apps/api/src/api/services/memory.py"
+
+# The roles a member can hold, highest first (``api.auth.capabilities``).
+ROLES = ("owner", "admin", "member", "viewer")
+# Read by the cockpit, which alerts the member; the API only stores the choice.
+_TURN_ATTENTION = "apps/web/src/lib/turn-attention.ts"
 
 _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
     "general": (
@@ -113,6 +138,17 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "org",
             _TURN_PROMPT,
             "Organization name given to the agent as context.",
+        ),
+        _spec(
+            "starter_skills",
+            "list",
+            list(STARTER_SKILLS),
+            "org",
+            "apps/api/src/api/services/skills_lookup.py",
+            "The shipped instruction skills members can use (review-diff, write-tests, "
+            "fix-ci-failure, write-pr-description, investigate-bug, upgrade-dependency). Remove "
+            "one to turn it off; a skill of the organization's with the same name replaces it.",
+            label="Starter skills",
         ),
         _spec(
             "session_privacy_default",
@@ -144,6 +180,8 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             label="Max steps per turn",
             minimum=0,
             maximum=500,
+            ceiling=True,
+            env=("AGENT_MAX_TURNS", "ROCKET_MAX_TURNS", "MAX_TURNS"),
         ),
         _spec(
             "output_offload_threshold",
@@ -155,6 +193,17 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "/workspace/.rocket/outputs with head and tail preserved in context.",
             minimum=500,
             maximum=100000,
+        ),
+        _spec(
+            "plan_critic",
+            "bool",
+            False,
+            "org",
+            _TURN,
+            "Before a person decides on a plan the agent proposes (exit_plan_mode), a 'reviewer' "
+            "subagent reads it and its notes are shown on the plan card and given to the agent. "
+            "Costs one subagent run per proposed plan.",
+            label="Review plans before approval",
         ),
         _spec(
             "sso_allowed_domains",
@@ -177,10 +226,35 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
         _spec(
             "default_model",
             "str",
-            "openrouter/deepseek/deepseek-v4.1-flash",
+            "",
             "org",
             _TURN_ROUTING,
-            "Organization default model (below the agent and the user's choice).",
+            "Organization default model (below the agent and the user's choice). Empty uses the "
+            "deployment's default (ROCKET_DEFAULT_MODEL), else the default model of the default "
+            "provider: Anthropic's when its key is present, then OpenRouter, OpenAI, Gemini, "
+            "DeepSeek.",
+        ),
+        _spec(
+            "default_provider",
+            "enum",
+            "",
+            "org",
+            _MODEL_DEFAULTS,
+            "Whose models are the defaults (default, fast, economy and frontier) when several "
+            "providers have a key. Empty picks Anthropic first, then OpenRouter, OpenAI, Gemini "
+            "and DeepSeek. An explicit default, fast, economy or frontier model still wins.",
+            choices=("", *PROVIDER_PREFERENCE),
+            label="Default provider",
+        ),
+        _spec(
+            "frontier_model",
+            "str",
+            "",
+            "org",
+            _MODEL_DEFAULTS,
+            "Model for the hardest work: agents set to the frontier tier (tier:frontier, such as "
+            "the built-in Architect). Empty uses the frontier model of the turn model's provider "
+            "(claude-opus-5-5 for Anthropic).",
         ),
         _spec(
             "context_windows",
@@ -221,7 +295,19 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             [],
             "org",
             _TURN,
-            "Ordered fail-over models used on transient provider errors (opt-in, allowlisted).",
+            "Ordered fail-over models used on transient provider errors (allowlisted). Empty "
+            "uses the same tier through another provider that has a key, when "
+            "automatic_fallbacks is on.",
+        ),
+        _spec(
+            "automatic_fallbacks",
+            "bool",
+            True,
+            "org",
+            _TURN,
+            "When fallback_models is empty, fail over to the same tier through another provider "
+            "that has a key (claude-sonnet-5-5 through OpenRouter when the Anthropic API errors, "
+            "for example).",
         ),
         _spec(
             "allowed_models",
@@ -253,25 +339,27 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "temperature",
             "float",
             0.2,
-            "org",
+            "org_default",
             _TURN,
-            "Default sampling temperature (an agent persona may override it). Ignored when "
-            "extended thinking is on for an Anthropic model: those requests take the provider's "
-            "own temperature.",
+            "Default sampling temperature for models that do not reason (an agent persona may "
+            "override it). Reasoning models get the provider's own temperature unless the "
+            "organization or the agent sets one explicitly (several reasoning APIs reject it), "
+            "and extended thinking on an Anthropic model always takes the provider's.",
             minimum=0,
             maximum=2,
         ),
         _spec(
             "default_reasoning_effort",
             "str",
-            "",
-            "org",
+            "medium",
+            "org_default",
             _TURN,
             "How much the model reasons before it acts when the agent does not choose: less is "
             "faster and cheaper, and keeps an agent from deliberating for minutes over a decision "
             "it could test. none turns reasoning off. An OpenRouter model that does not take the "
-            "level gets the nearest one it does. Empty leaves it to the provider (the platform "
-            "uses medium for the reasoning models it knows).",
+            "level gets the nearest one it does. The default (medium) applies to the reasoning "
+            "models the platform knows; a value set here is also sent to other models. Empty "
+            "leaves it to the provider.",
             choices=("", "none", "minimal", "low", "medium", "high", "xhigh", "max"),
         ),
         _spec(
@@ -290,12 +378,13 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
         _spec(
             "max_tokens",
             "int",
-            8192,
+            32_000,
             "org",
             _TURN,
-            "Maximum completion tokens per call for models that do not reason. A reasoning "
-            "model uses its catalogue ceiling, or the matching entry of output_tokens; an "
-            "agent's own limit wins over both.",
+            "Most completion tokens per call: each call asks for the smaller of this and the "
+            "model's own maximum output (16384 for a model the platform does not know). Reasoning "
+            "models spend output on thinking, so a low value cuts long patches. The matching "
+            "entry of output_tokens, then an agent's own limit, win over it.",
             minimum=1,
             maximum=200_000,
         ),
@@ -308,44 +397,109 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Maximum completion tokens per model name or pattern (e.g. {'*': 64000, 'claude*': 64000}), "
             "overriding the catalogue default ceiling.",
         ),
+        _spec(
+            "routing_mode",
+            "enum",
+            "balanced",
+            "org",
+            _TURN_ROUTING,
+            "frontier = one model for all work, balanced = the fast model for auxiliary work "
+            "(titles, suggestions, summaries), economy = the economy model everywhere.",
+            choices=("frontier", "balanced", "economy"),
+            label="Routing mode",
+        ),
+        _spec(
+            "fast_model",
+            "str",
+            "",
+            "org",
+            _MODEL_DEFAULTS,
+            "Model for auxiliary work (titles, suggestions, summaries) in balanced mode. Empty "
+            "uses the fast model of the turn model's provider (claude-haiku-5-5 for Anthropic), "
+            "or the turn model itself for a provider the platform has no tiers for.",
+        ),
+        _spec(
+            "economy_model",
+            "str",
+            "",
+            "org",
+            _MODEL_DEFAULTS,
+            "Model used for all work in economy mode (it replaces the default model everywhere "
+            "while the mode is economy). Empty uses the economy model of the turn model's "
+            "provider.",
+        ),
+        _spec(
+            "context_prune_percent",
+            "int",
+            70,
+            "org",
+            _TURN,
+            "Share of the working context at which old tool results are pruned to short receipts.",
+            minimum=30,
+            maximum=95,
+            label="Prune context at",
+        ),
+        _spec(
+            "context_compact_percent",
+            "int",
+            85,
+            "org",
+            _TURN,
+            "Share of the working context at which the conversation is compacted into a summary "
+            "(kept above the prune threshold).",
+            minimum=40,
+            maximum=98,
+            label="Compact context at",
+        ),
+        _spec(
+            "member_keys",
+            "enum",
+            "preferred",
+            "org",
+            _MODEL_CREDENTIALS,
+            "How members' own provider keys are used, for members allowed to bring their own "
+            "(the bring_own_keys capability): off = never, fallback = only for a provider the "
+            "organization has no key for, preferred = before the organization's key.",
+            choices=("off", "fallback", "preferred"),
+            label="Members' own keys",
+        ),
+        _spec(
+            "provider_allowlist",
+            "list",
+            [],
+            "org",
+            _TURN_RUNNER,
+            "Model providers that may receive organization data; empty allows all.",
+        ),
+        _spec(
+            "zero_retention",
+            "bool",
+            False,
+            "org",
+            _TURN_RUNNER,
+            "Ask providers not to retain prompts or completions. Enforced for OpenRouter models; "
+            "a call to a provider that cannot honour it is refused rather than sent.",
+        ),
+        _spec(
+            "region",
+            "str",
+            "",
+            "org",
+            _TURN_RUNNER,
+            "Pin inference to a provider region. Enforced for Vertex AI and Bedrock models; a "
+            "call to any other provider is refused rather than sent.",
+        ),
     ),
     "budgets": (
         _spec(
-            "monthly_budget_usd",
-            "float",
-            0.0,
-            "org",
-            _BUDGETS,
-            "Monthly spend cap for the whole organization in USD (0 = no cap). Spend on a "
-            "member's own provider key does not count. Reaching it stops new model calls.",
-            minimum=0,
-        ),
-        _spec(
-            "member_monthly_budget_usd",
-            "float",
-            0.0,
-            "org",
-            _BUDGETS,
-            "Monthly spend cap per member in USD (0 = no cap).",
-            minimum=0,
-        ),
-        _spec(
-            "session_budget_usd",
-            "float",
-            0.0,
-            "org",
-            _BUDGETS,
-            "Spend cap per session in USD (0 = no cap); keeps a runaway agent loop cheap.",
-            minimum=0,
-        ),
-        _spec(
             "max_turn_cost_usd",
             "float",
-            0.0,
+            15.0,
             "org",
             _TURN,
-            "Spend cap for one turn in USD (0 = no cap). The turn stops with an explanation "
-            "when it is reached; the session and its work are kept.",
+            "Spend cap for one turn in USD, its subagents included (0 = no cap). It stops a "
+            "runaway turn without limiting steps or time: the turn stops with an explanation "
+            "when it is reached, and the session and its work are kept.",
             minimum=0,
         ),
         _spec(
@@ -361,7 +515,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
         _spec(
             "goal_max_wall_time_minutes",
             "int",
-            0,
+            240,
             "org",
             _TURN_CONTINUATION,
             "Longest a long task may run across its automatic continuation turns, in minutes "
@@ -379,55 +533,6 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "turn reaches its step limit (0 disables continuation).",
             minimum=0,
             maximum=100,
-        ),
-        _spec(
-            "warn_at_percent",
-            "int",
-            80,
-            "org",
-            _BUDGETS,
-            "Warn the member in the session when a cap is this far used.",
-            minimum=1,
-            maximum=100,
-        ),
-        _spec(
-            "byok_policy",
-            "enum",
-            "user_keys",
-            "org",
-            "apps/api/src/api/services/model_credentials.py",
-            "Whose provider keys may be used: platform keys only, the organization's own key, "
-            "or members' own keys (falling back to the organization's, then the platform's).",
-            choices=("platform_only", "org_key", "user_keys"),
-        ),
-    ),
-    "routing": (
-        _spec(
-            "mode",
-            "enum",
-            "frontier",
-            "org",
-            "packages/config-engine/src/config_engine/cascading.py",
-            "frontier = one model for all work, balanced = cheap model for auxiliary work, "
-            "economy = cheapest model everywhere.",
-            choices=("frontier", "balanced", "economy"),
-        ),
-        _spec(
-            "fast_model",
-            "str",
-            "",
-            "org",
-            "packages/config-engine/src/config_engine/cascading.py",
-            "Model for auxiliary work (titles, suggestions, summaries) in balanced mode.",
-        ),
-        _spec(
-            "economy_model",
-            "str",
-            "",
-            "org",
-            "packages/config-engine/src/config_engine/cascading.py",
-            "Model used for all work in economy mode (it replaces the default model everywhere "
-            "while the mode is economy).",
         ),
     ),
     "sandboxes": (
@@ -466,7 +571,13 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             deprecated=True,
         ),
         _spec(
-            "cpu_limit", "float", 2.0, "org", _PROVISIONING, "CPU cores per sandbox.", minimum=0.1
+            "cpu_limit",
+            "float",
+            2.0,
+            "org",
+            _PROVISIONING,
+            "CPU cores per sandbox when its sandbox type sets none.",
+            minimum=0.1,
         ),
         _spec(
             "memory_limit",
@@ -474,7 +585,18 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "4Gi",
             "org",
             _PROVISIONING,
-            "Memory limit per sandbox (e.g. 4Gi).",
+            "Memory limit per sandbox (e.g. 4Gi) when its sandbox type sets none.",
+        ),
+        _spec(
+            "disk_size",
+            "str",
+            "30Gi",
+            "org",
+            _PROVISIONING,
+            "Workspace volume size per session (e.g. 30Gi) when its sandbox type sets none: "
+            "room for a monorepo, its dependencies and the language caches. Applies to "
+            "workspaces created afterwards (Kubernetes).",
+            label="Workspace disk",
         ),
         _spec(
             "allow_terminal",
@@ -542,35 +664,28 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
     ),
     "github": (
         _spec(
-            "commit_authorship_policy",
+            "publish_as",
             "enum",
-            "co_authored",
-            "both",
-            "apps/api/src/api/services/turn_service.py",
-            "co_authored = bot commits with the member as Co-authored-by, user_only = commits "
-            "as the member, bot_only = commits as the bot, authored_by_user_committed_by_bot = "
-            "member is git author and bot is committer (requires gpg_key or none signing).",
-            choices=("co_authored", "user_only", "bot_only", "authored_by_user_committed_by_bot"),
+            "member",
+            "org_default",
+            _TURN,
+            "Who publishes the agent's work: member = pull requests opened with the member's linked "
+            "GitHub account (the commits credit them as co-author), bot = the GitHub App opens them. "
+            "Choosing bot needs the publish_as_bot capability.",
+            choices=("member", "bot"),
+            label="Publish as",
         ),
         _spec(
-            "pr_creation_policy",
+            "signing",
             "enum",
-            "as_user",
+            "github",
             "org",
-            "apps/api/src/api/services/turn_service.py",
-            "Open pull requests with the member's token (as_user) or the GitHub App (as_bot).",
-            choices=("as_user", "as_bot"),
-        ),
-        _spec(
-            "commit_signing_mode",
-            "enum",
-            "github_app",
-            "org",
-            "apps/api/src/api/services/turn_service.py",
-            "github_app: commits are created through GitHub's API so GitHub signs them (verified, "
-            "made by the GitHub App); gpg_key: members who imported a GPG key and chose to "
-            "commit as themselves sign with it, everyone else gets github_app; none: unsigned.",
-            choices=("github_app", "gpg_key", "none"),
+            _TURN,
+            "github: commits are created through GitHub's API so GitHub signs them (verified, made "
+            "by the GitHub App); member_gpg: a member who imported a GPG key commits as themselves, "
+            "signed with it, and everyone else gets github; none: unsigned.",
+            choices=("github", "member_gpg", "none"),
+            label="Commit signing",
         ),
         _spec(
             "bot_author_name",
@@ -579,6 +694,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "org",
             "apps/api/src/api/services/turn_service.py",
             "Name of the bot identity used for bot commits.",
+            env=("GIT_BOT_NAME",),
         ),
         _spec(
             "bot_author_email",
@@ -587,6 +703,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "org",
             "apps/api/src/api/services/turn_service.py",
             "E-mail of the bot identity used for bot commits.",
+            env=("GIT_BOT_EMAIL",),
         ),
         _spec(
             "default_branch",
@@ -596,6 +713,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "apps/api/src/api/services/turn_service.py",
             "Base branch for pull requests when a repository's own default branch is not known "
             "(each cloned repository's own default branch is used first).",
+            env=("GIT_DEFAULT_BRANCH",),
         ),
         _spec(
             "app_token_permissions",
@@ -613,6 +731,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Permissions requested for the GitHub App token the sandbox receives. Always lowered to "
             "read: add reads such as actions, checks or statuses to let the agent follow CI; "
             "writing goes through git_push with a token that never enters the sandbox.",
+            env=("GITHUB_APP_DEFAULT_PERMISSIONS",),
         ),
         _spec(
             "app_token_target_repositories",
@@ -655,22 +774,13 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
     ),
     "slack": (
         _spec(
-            "default_agent_persona",
-            "str",
-            "",
-            "org",
-            "packages/slack-assistant/src/slack_assistant/policy.py",
-            "Agent persona used by Slack sessions that no bot or channel profile names; prefer "
-            "choosing the agent on the bot (Settings > Slack).",
-            deprecated=True,
-        ),
-        _spec(
             "allowed_channel_types",
             "list",
             ["public", "private", "im", "mpim"],
-            "org",
+            "org_default",
             "packages/slack-assistant/src/slack_assistant/policy.py",
             "Slack conversation types the assistant answers in.",
+            member_override=False,
         ),
         _spec(
             "auto_link_by_verified_email",
@@ -684,18 +794,20 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "dm_policy",
             "enum",
             "paired",
-            "org",
+            "org_default",
             "packages/slack-assistant/src/slack_assistant/policy.py",
             "Who the agent may direct-message.",
             choices=("none", "paired", "all"),
+            member_override=False,
         ),
         _spec(
             "outbound_channels",
             "list",
             [],
-            "org",
+            "org_default",
             "packages/slack-assistant/src/slack_assistant/policy.py",
             "Channel ids the agent may post or react in; empty limits it to the conversation it was invoked from.",
+            member_override=False,
         ),
         _spec(
             "web_base_url",
@@ -721,49 +833,55 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "live_progress",
             "bool",
             True,
-            "org",
+            "org_default",
             "packages/slack-assistant/src/slack_assistant/policy.py",
             "Stream each tool call into the reply as a step while a turn runs, then write the "
             "answer into the same message; off, the answer is posted when the turn ends.",
+            member_override=False,
         ),
         _spec(
             "long_output_to_file",
             "bool",
             True,
-            "org",
+            "org_default",
             "packages/slack-assistant/src/slack_assistant/policy.py",
             "Attach long answers and large diffs as Slack files instead of splitting them into "
             "many messages.",
+            member_override=False,
         ),
         _spec(
             "long_output_chars",
             "int",
             3500,
-            "org",
+            "org_default",
             "packages/slack-assistant/src/slack_assistant/policy.py",
             "Answers longer than this many characters are summarised in the thread and attached "
             "in full as a file.",
             minimum=500,
             maximum=20000,
+            member_override=False,
         ),
         _spec(
             "channel_profiles",
             "dict",
             {},
-            "org",
+            "org_default",
             "packages/slack-assistant/src/slack_assistant/policy.py",
             "Per-channel behaviour, keyed by channel id: {agent_persona, instructions, "
-            "allowed_tools, sandbox_image, response_mode}. A channel with a profile uses its "
-            "persona and house rules; allowed_tools narrows the organization's tool scope for "
-            "that channel; response_mode ('thread' or 'private') overrides the bot's.",
+            "allowed_tools, sandbox_image, response_mode, repository, branch}. A channel with a "
+            "profile uses its persona and house rules; allowed_tools narrows the organization's "
+            "tool scope for that channel; response_mode ('thread' or 'private') overrides the "
+            "bot's; repository and branch are stored for the channel's sessions.",
+            member_override=False,
         ),
         _spec(
             "allowed_tools",
             "list",
             ["*"],
-            "org",
+            "org_default",
             "packages/slack-assistant/src/slack_assistant/policy.py",
             "Tools the Slack path may use ('*' = every tool except SLACK_BLOCKED_TOOLS).",
+            member_override=False,
         ),
     ),
     "governance": (
@@ -776,16 +894,6 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Commands run in the sandbox around tool calls: {pre_tool: [{match, command}], "
             "post_tool: [...]}. A failing pre_tool command blocks the call (a policy gate); a "
             "failing post_tool command is reported to the agent. match is a tool-name pattern.",
-        ),
-        _spec(
-            "allow_bypass_permissions",
-            "bool",
-            False,
-            "org",
-            _TURN,
-            "Let members run sessions in bypass mode, where nothing waits for approval, not even "
-            "the irreversible actions that every other mode holds. A member or session that asks "
-            "for bypass while this is off runs in ask mode.",
         ),
         _spec(
             "auto_resume_turns",
@@ -805,6 +913,19 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Risk levels to auto-approve or deny: {auto_approve: [...], deny: [...]}.",
         ),
         _spec(
+            "remembered_approvals",
+            "enum",
+            "session_and_repository",
+            "org",
+            "apps/api/src/api/services/approval_rules.py",
+            "Whether members may answer an approval once for good: session_and_repository "
+            '("Allow for this session" and "Always for this command in this repository"), '
+            "session (only the first) or off. Never applies to irreversible actions, to risk "
+            "levels the approval policy denies or auto-approves, or while the permission mode is "
+            "locked. Switching it off stops existing rules from applying.",
+            choices=("session_and_repository", "session", "off"),
+        ),
+        _spec(
             "question_timeout_seconds",
             "int",
             None,
@@ -815,32 +936,6 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "its best judgement, stating the assumption. Empty waits until someone answers; set "
             "it for sessions nobody watches, such as ones driven through the API.",
             minimum=1,
-        ),
-        _spec(
-            "provider_allowlist",
-            "list",
-            [],
-            "org",
-            "apps/api/src/api/services/audit.py",
-            "Model providers that may receive organization data; empty allows all.",
-        ),
-        _spec(
-            "zero_retention",
-            "bool",
-            False,
-            "org",
-            "apps/api/src/api/services/audit.py",
-            "Ask providers not to retain prompts or completions. Enforced for OpenRouter models; "
-            "a call to a provider that cannot honour it is refused rather than sent.",
-        ),
-        _spec(
-            "region",
-            "str",
-            "",
-            "org",
-            "apps/api/src/api/services/audit.py",
-            "Pin inference to a provider region. Enforced for Vertex AI and Bedrock models; a "
-            "call to any other provider is refused rather than sent.",
         ),
         _spec(
             "egress_allowlist",
@@ -952,13 +1047,84 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "Half-life of a memory's ranking weight since last use.",
             minimum=1,
         ),
+        _spec(
+            "embedding_model",
+            "str",
+            "",
+            "org",
+            _MEMORY,
+            "Embedding model for semantic recall (1536 dimensions, called with the deployment's "
+            "key). Empty picks one by provider: OpenAI's text-embedding-3-small, else Gemini's "
+            "gemini-embedding-001. With neither key, recall falls back to keyword matching and "
+            "Setup health says so.",
+        ),
+    ),
+    "access": (
+        _spec(
+            "create_personal_agents",
+            "list",
+            ["owner", "admin", "member"],
+            "org",
+            _CAPABILITIES,
+            "Roles that may create personal agents.",
+            choices=ROLES,
+        ),
+        _spec(
+            "bring_own_keys",
+            "list",
+            ["owner", "admin", "member"],
+            "org",
+            _CAPABILITIES,
+            "Roles that may store their own model provider keys (used as Models > Members' "
+            "own keys says).",
+            choices=ROLES,
+        ),
+        _spec(
+            "use_bypass_mode",
+            "list",
+            [],
+            "org",
+            _CAPABILITIES,
+            "Roles that may run sessions in bypass mode, where nothing waits for approval, "
+            "not even the irreversible actions every other mode holds. Asking for bypass "
+            "without it runs in ask mode.",
+            choices=ROLES,
+        ),
+        _spec(
+            "register_mcp",
+            "list",
+            ["owner", "admin", "member"],
+            "org",
+            _CAPABILITIES,
+            "Roles that may register personal MCP servers (organization and command servers "
+            "stay administrator-only).",
+            choices=ROLES,
+        ),
+        _spec(
+            "publish_as_bot",
+            "list",
+            ["owner", "admin"],
+            "org",
+            _CAPABILITIES,
+            "Roles that may choose to publish as the GitHub App (Git > Publish as: bot).",
+            choices=ROLES,
+        ),
+        _spec(
+            "manage_spend_limits",
+            "list",
+            ["owner", "admin"],
+            "org",
+            _CAPABILITIES,
+            "Roles that may create and change spend limits.",
+            choices=ROLES,
+        ),
     ),
     "user_preferences": (
         _spec(
             "permission_mode",
             "enum",
             "auto",
-            "both",
+            "org_default",
             _TURN,
             "How much of the agent's work waits for a person: plan (read-only), ask (approve every "
             "edit, command and publish), auto_edit (approve commands and publish), auto (only "
@@ -971,7 +1137,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "full_name",
             "str",
             "",
-            "user",
+            "member",
             _GIT_IDENTITY,
             "Display name; the commit author name when no GitHub account is linked and no git "
             "name is set (a linked account's username is used otherwise).",
@@ -980,7 +1146,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "git_author_name",
             "str",
             "",
-            "user",
+            "member",
             _GIT_IDENTITY,
             "Commit author name; empty uses the linked GitHub account's username.",
         ),
@@ -988,26 +1154,16 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "git_author_email",
             "str",
             "",
-            "user",
+            "member",
             _GIT_IDENTITY,
             "Commit author e-mail; empty uses the linked GitHub account's primary e-mail, then its "
             "noreply address.",
         ),
         _spec(
-            "commit_as_me",
-            "bool",
-            False,
-            "both",
-            _GIT_SIGNING,
-            "Commit as yourself, signed with the GPG key you imported in Git & version control. "
-            "Applies only when the organization's commit signing mode is gpg_key; otherwise the "
-            "organization's authorship policy decides.",
-        ),
-        _spec(
             "git_branch_prefix",
             "str",
-            "feat/rocket-",
-            "both",
+            "rocket/",
+            "org_default",
             _TURN_PROMPT,
             "Prefix the agent uses for the branches it creates.",
         ),
@@ -1017,7 +1173,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             # Empty means "no preference". A concrete default would count as the member's own
             # choice and always outrank the organization default and the platform default.
             "",
-            "both",
+            "org_default",
             _TURN_ROUTING,
             "Preferred model (below the agent, above the organization default); empty uses the "
             "organization default.",
@@ -1026,10 +1182,30 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "suggest_next_questions",
             "bool",
             True,
-            "both",
+            "org_default",
             _TURN_FINALISE,
             "Suggest a probable next prompt after each turn.",
             label="Suggest next prompts",
+        ),
+        _spec(
+            "turn_notifications",
+            "bool",
+            False,
+            "member",
+            _TURN_ATTENTION,
+            "Show a browser notification when a turn ends, or waits for an approval or an answer, "
+            "while its tab is in the background. The browser asks for permission once.",
+            label="Browser notifications",
+        ),
+        _spec(
+            "notification_sound",
+            "bool",
+            False,
+            "member",
+            _TURN_ATTENTION,
+            "Play a short sound when a turn ends, or waits for an approval or an answer, while its "
+            "tab is in the background.",
+            label="Notification sound",
         ),
     ),
 }
@@ -1043,16 +1219,21 @@ _ADVANCED: dict[str, frozenset[str]] = {
             "context_target_tokens",
             "provider_preferences",
             "fallback_models",
+            "automatic_fallbacks",
+            "context_prune_percent",
+            "context_compact_percent",
             "custom_models",
             "output_tokens",
             "max_tokens",
             "reasoning_step_limit_tokens",
             "temperature",
+            "provider_allowlist",
+            "zero_retention",
+            "region",
         }
     ),
     "budgets": frozenset(
         {
-            "warn_at_percent",
             "goal_max_total_tokens",
             "goal_max_wall_time_minutes",
             "max_continuations",
@@ -1068,6 +1249,7 @@ _ADVANCED: dict[str, frozenset[str]] = {
             "run_repo_setup",
             "require_non_root",
             "max_running_sandboxes",
+            "disk_size",
         }
     ),
     "github": frozenset(
@@ -1108,19 +1290,17 @@ _ADVANCED: dict[str, frozenset[str]] = {
     "memory": frozenset(
         {"dedupe_similarity", "decay_half_life_days", "kind_allowlist", "scope_allowlist"}
     ),
-    "user_preferences": frozenset({"commit_as_me", "git_branch_prefix"}),
+    "user_preferences": frozenset({"git_branch_prefix"}),
 }
 _UNITS: dict[str, str] = {
     "max_turns": "steps",
     "output_offload_threshold": "characters",
     "context_target_tokens": "tokens",
     "max_tokens": "tokens",
+    "context_prune_percent": "percent",
+    "context_compact_percent": "percent",
     "reasoning_step_limit_tokens": "tokens",
-    "monthly_budget_usd": "USD",
-    "member_monthly_budget_usd": "USD",
-    "session_budget_usd": "USD",
     "max_turn_cost_usd": "USD",
-    "warn_at_percent": "%",
     "goal_max_total_tokens": "tokens",
     "goal_max_wall_time_minutes": "minutes",
     "workspace_release_days": "days",
@@ -1160,9 +1340,43 @@ def specs_for(domain: str) -> dict[str, SettingSpec]:
     return REGISTRY.get(domain, {})
 
 
-def writable_keys(domain: str, writer: Literal["org", "user"]) -> set[str]:
-    """The keys of ``domain`` that ``writer`` may set (a member-only key is not an org default)."""
-    return {key for key, spec in specs_for(domain).items() if spec.scope in (writer, "both")}
+_WRITERS: dict[Writer, tuple[Policy, ...]] = {
+    "org": ("org", "org_default"),
+    "member": ("org_default", "member"),
+}
+
+
+def writable_keys(domain: str, writer: Writer) -> set[str]:
+    """The keys of ``domain`` that ``writer`` may set (nobody writes an ``instance`` key)."""
+    return {key for key, spec in specs_for(domain).items() if _may_write(spec, writer)}
+
+
+def _may_write(spec: SettingSpec, writer: Writer) -> bool:
+    if writer == "member" and not spec.member_override:
+        return False
+    return spec.policy in _WRITERS[writer]
+
+
+def instance_values(domain: str) -> dict[str, Any]:
+    """The operator's values for ``domain`` from the environment, coerced; malformed ones are skipped."""
+    out: dict[str, Any] = {}
+    for key, spec in specs_for(domain).items():
+        raw = env_value(*spec.env) if spec.env else None
+        if raw is None or raw == "":
+            continue
+        try:
+            out[key] = _coerce(spec, _from_env(spec, raw))
+        except ValueError:
+            continue
+    return out
+
+
+def _from_env(spec: SettingSpec, raw: str) -> Any:
+    """An environment string as the spec's kind (``a:read,b:write`` for a mapping)."""
+    if spec.kind == "dict":
+        pairs = (item.split(":", 1) for item in raw.split(",") if ":" in item)
+        return {name.strip(): value.strip() for name, value in pairs}
+    return raw
 
 
 def system_defaults(domain: str) -> dict[str, Any]:
@@ -1214,10 +1428,15 @@ def _coerce_enum(spec: SettingSpec, value: Any) -> Any:
 
 def _coerce_list(spec: SettingSpec, value: Any) -> list[str]:
     if isinstance(value, str):
-        return [item.strip() for item in value.split(",") if item.strip()]
-    if isinstance(value, list) and all(isinstance(item, str) for item in value):
-        return [item.strip() for item in value if item.strip()]
-    raise ValueError("must be a list of text values")
+        items = [item.strip() for item in value.split(",") if item.strip()]
+    elif isinstance(value, list) and all(isinstance(item, str) for item in value):
+        items = [item.strip() for item in value if item.strip()]
+    else:
+        raise ValueError("must be a list of text values")
+    unknown = [item for item in items if spec.choices and item not in spec.choices]
+    if unknown:
+        raise ValueError(f"unknown values {unknown}; choose from: {', '.join(spec.choices)}")
+    return items
 
 
 def _coerce_dict(spec: SettingSpec, value: Any) -> dict[str, Any]:
@@ -1253,7 +1472,7 @@ def validate(
     domain: str,
     values: Mapping[str, Any],
     *,
-    writer: Literal["org", "user"],
+    writer: Writer,
 ) -> ValidationResult:
     """Validate ``values`` for ``domain`` as written by ``writer``.
 
@@ -1270,9 +1489,13 @@ def validate(
         if spec is None:
             result.errors.append(FieldError(key, "unknown setting"))
             continue
-        if spec.scope not in (writer, "both"):
-            owner = "an organization administrator" if spec.scope == "org" else "the member"
-            result.errors.append(FieldError(key, f"can only be set by {owner}"))
+        if not _may_write(spec, writer):
+            decider = (
+                _DECIDER["org"]
+                if writer == "member" and spec.policy == "org_default"
+                else _DECIDER[spec.policy]
+            )
+            result.errors.append(FieldError(key, f"can only be set by {decider}"))
             continue
         try:
             result.values[key] = _coerce(spec, raw)
@@ -1281,14 +1504,71 @@ def validate(
     return result
 
 
+_DECIDER: dict[Policy, str] = {
+    "instance": "the operator (an environment variable)",
+    "org": "an organization administrator",
+    "org_default": "an organization administrator or a member",
+    "member": "the member",
+}
+
+
 def validate_locked_keys(domain: str, locked_keys: list[str]) -> list[FieldError]:
-    """Locked keys must be declared and overridable by members (scope ``both``)."""
+    """Locked keys must be declared organization defaults (policy ``org_default``)."""
     specs = specs_for(domain)
     errors: list[FieldError] = []
     for key in locked_keys:
         spec = specs.get(key)
         if spec is None:
             errors.append(FieldError(key, "cannot lock an unknown setting"))
-        elif spec.scope != "both":
-            errors.append(FieldError(key, "only member-overridable settings can be locked"))
+        elif spec.policy != "org_default":
+            errors.append(FieldError(key, "only organization defaults can be locked"))
     return errors
+
+
+@dataclass(frozen=True)
+class LegacyKey:
+    """A key a release retired, still read (with a warning) from rows not migrated yet."""
+
+    domain: str
+    key: str
+    new_domain: str
+    new_key: str
+    translate: Callable[[Any], Any] = lambda value: value
+
+
+# Read for one release after the merge (a stored row the migration did not reach, or the
+# in-memory store), then removed: ``api.services.settings`` logs every use.
+LEGACY_KEYS: tuple[LegacyKey, ...] = (
+    LegacyKey("routing", "mode", "models", "routing_mode"),
+    LegacyKey("routing", "fast_model", "models", "fast_model"),
+    LegacyKey("routing", "economy_model", "models", "economy_model"),
+    LegacyKey("governance", "provider_allowlist", "models", "provider_allowlist"),
+    LegacyKey("governance", "zero_retention", "models", "zero_retention"),
+    LegacyKey("governance", "region", "models", "region"),
+    LegacyKey(
+        "budgets",
+        "byok_policy",
+        "models",
+        "member_keys",
+        lambda value: "preferred" if value == "user_keys" else "off",
+    ),
+    LegacyKey(
+        "github",
+        "pr_creation_policy",
+        "github",
+        "publish_as",
+        lambda value: "bot" if value == "as_bot" else "member",
+    ),
+    LegacyKey(
+        "github",
+        "commit_signing_mode",
+        "github",
+        "signing",
+        lambda value: {"github_app": "github", "gpg_key": "member_gpg"}.get(value, "none"),
+    ),
+)
+
+
+def legacy_keys_for(domain: str) -> tuple[LegacyKey, ...]:
+    """The retired keys whose value lands in ``domain``."""
+    return tuple(legacy for legacy in LEGACY_KEYS if legacy.new_domain == domain)

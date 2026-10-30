@@ -26,7 +26,7 @@ flowchart TD
 ```
 
 1. **Unified Backend Authentication (`apps/api`):** The FastAPI Control Plane manages the entire OAuth 2.0 and OIDC lifecycle (`/api/auth/*`), issues secure signed HTTP-only session cookies (`rocket_session`), and automatically persists user accounts in PostgreSQL.
-2. **Atomic Multi-Tenant Identity:** Users logging in via SSO or linking accounts are automatically provisioned with a matching `UserModel` and `OrganizationModel`, guaranteeing foreign key integrity for credentials, sessions, and sandboxes.
+2. **One identity, a membership per organization:** a person signing in through SSO is one account (keyed by the identity provider's issuer and subject), created at first sign-in, with a membership (and a role) in the organization the sign-in maps to. The organization is created if it does not exist yet. See [Several organizations](#several-organizations).
 3. **Frontend Integration (`apps/web`):** The Next.js frontend acts as a clean, lightweight client using the `useAuth()` hook to consume `/api/auth/me`.
 
 ---
@@ -43,7 +43,7 @@ Create an OpenID Connect application in your IdP console with the following sett
 | **Grant Types** | Authorization Code with PKCE |
 | **Redirect URI (Callback)** | `https://<your-rocket-domain>/api/auth/oidc/callback` |
 | **Scopes** | `openid`, `email`, `profile` |
-| **Token Claims (Custom)** | Add `org_id` and optional `roles` to ID/Access tokens |
+| **Token Claims (Custom)** | Add `org_id` to ID/Access tokens; `roles` only matters for bearer tokens sent to the API (see section 5); a signed-in member's role is their membership's, set in Rocket Chat |
 
 ---
 
@@ -105,11 +105,10 @@ DEV_AUTH_BYPASS="false"
 
 ### Step 3: Configure Domain Restriction in Organization Settings UI
 Administrators can enforce and adjust domain restrictions at runtime without redeploying:
-1. Navigate to **Settings** > **Organization** > **General & Compliance** (`/settings/org`).
-2. Locate the **SSO & Corporate Email Domain Allowlist** card.
-3. Toggle **Enforce Domain Matching**.
-4. Enter your permitted corporate email domains (e.g. `company.com, birota.io`).
-5. Click **Save Policies**. Any attempt to sign in with an email from an unlisted domain will be rejected by the NextAuth sign-in callback.
+1. Navigate to **Settings** > **Organization** > **General** (`/settings/org`).
+2. Enter your permitted corporate e-mail domains in `sso_allowed_domains` (e.g. `company.com, birota.io`).
+3. Turn on `sso_enforce_domain_match`.
+4. Click **Save changes**. Any attempt to sign in to this organization with an e-mail from an unlisted domain is then refused.
 
 ---
 
@@ -187,26 +186,30 @@ When users authenticate via OIDC, the backend inspects token claims:
 | `sub` | string | Yes | Unique user identifier in your IdP. |
 | `email` | string | Yes | Developer's corporate email address. |
 | `org_id` | string | Recommended | Organization / tenant ID. Defaults to `default_org` if omitted. |
-| `roles` | list | Optional | List of roles (e.g. `["developer", "admin"]`). |
+| `roles` | list | Optional | Roles for a bearer token (e.g. `["member"]` or `["admin"]`): the highest one applies, expanded like a stored role (`owner` also acts as `admin` and `member`). `developer` and `readonly` are read as `member` and `viewer`, and `guest` as `viewer`. A signed-in member's role comes from their membership in the organization instead (changed under **Settings → Organization → Members & roles**), re-read within 15 seconds, so a change applies without signing in again. |
 
 ### Admin Role Privileges
-Users carrying the `"admin"` role in their claims are authorized to:
-- Mutate organization-wide policies via `PUT /v1/admin/settings/{domain}`.
-- Lock settings keys to prevent user overrides.
-- Manage team-wide API credentials and quota caps.
+Administrators (`admin` or `owner`) may:
+- Change organization-wide settings via `PUT /v1/admin/settings/{domain}`, and lock organization defaults so members cannot change them.
+- Manage members, invitations and the capabilities each role holds.
+- Manage the organization's credentials, agents (and who may use them) and, with `manage_spend_limits`, the spend limits.
 
 ### Initial Administrator Bootstrapping
 When launching Rocket Chat for the first time, administrators can be bootstrapped seamlessly through two mechanisms:
 
 1. **Zero-Configuration First User Rule:**
-   If an organization has no members yet, the first person who signs in to it (via Google, GitHub, or OIDC) is automatically provisioned as its **Administrator** (`role="admin"` with roles `["admin", "owner", "developer"]`). Members of other organizations do not count.
+   If an organization has no members yet, the first person who signs in to it (via Google, GitHub, or OIDC) is automatically provisioned as its **Administrator** (a membership with role `admin`, acting as `admin` and `member`). Members of other organizations do not count.
 2. **Explicit Administrator Emails (`INITIAL_ADMIN_EMAIL` & `ADMIN_EMAILS`):**
    You can specify administrator emails via environment variables or Helm values:
    ```bash
    INITIAL_ADMIN_EMAIL="admin@company.com"
    ADMIN_EMAILS="lead@company.com, ops@company.com"
    ```
-   Any user signing in whose email matches `INITIAL_ADMIN_EMAIL` or is included in `ADMIN_EMAILS` is automatically granted the `"admin"` role, and their account in PostgreSQL is promoted if they were previously created as a standard developer.
+   Any user signing in whose email matches `INITIAL_ADMIN_EMAIL` or is included in `ADMIN_EMAILS` is automatically granted the `admin` role in the organization they sign in to, and their membership is promoted if they were previously a `member`.
+
+### Several organizations
+
+A person is one identity (keyed by the identity provider's issuer and subject, so a changed e-mail address still finds them) with a membership, and a role, in each organization they belong to. SSO creates a membership in the organization the sign-in maps to (`org_id` claim, `ROCKET_SSO_ORG_MODE`), and never moves anyone out of another: a member of two organizations switches between them from the organization menu (`POST /v1/auth/switch-org`, which checks the membership). Administrators can also invite people to their organization with a link for their e-mail address (**Settings → Organization → Members & roles**); see [Organization settings](/administer/organization).
 
 ---
 

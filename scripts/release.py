@@ -38,6 +38,10 @@ ROOT_PYPROJECT = ROOT_DIR / "pyproject.toml"
 WEB_PKG_JSON = ROOT_DIR / "apps" / "web" / "package.json"
 API_PYPROJECT = ROOT_DIR / "apps" / "api" / "pyproject.toml"
 API_MAIN_PY = ROOT_DIR / "apps" / "api" / "src" / "api" / "main.py"
+CONFIGURATION_MD = ROOT_DIR / "doc" / "install" / "configuration.md"
+SANDBOX_IMAGES_PY = (
+    ROOT_DIR / "packages" / "config-engine" / "src" / "config_engine" / "sandbox_images.py"
+)
 HELM_CHART_YAML = ROOT_DIR / "deploy" / "helm" / "platform" / "Chart.yaml"
 HELM_VALUES_YAML = ROOT_DIR / "deploy" / "helm" / "platform" / "values.yaml"
 PACKAGES_DIR = ROOT_DIR / "packages"
@@ -178,6 +182,25 @@ def update_file_versions(version: str) -> None:
         content = API_MAIN_PY.read_text(encoding="utf-8")
         content = re.sub(r'version="[^"]+"', f'version="{version}"', content)
         API_MAIN_PY.write_text(content, encoding="utf-8")
+
+    # The sandbox images a release ships are pinned to it (never ``:latest``).
+    if SANDBOX_IMAGES_PY.exists():
+        content = SANDBOX_IMAGES_PY.read_text(encoding="utf-8")
+        content = re.sub(
+            r'^SANDBOX_IMAGE_TAG = "[^"]+"',
+            f'SANDBOX_IMAGE_TAG = "{version}"',
+            content,
+            flags=re.MULTILINE,
+        )
+        SANDBOX_IMAGES_PY.write_text(content, encoding="utf-8")
+    if CONFIGURATION_MD.exists():
+        content = CONFIGURATION_MD.read_text(encoding="utf-8")
+        content = re.sub(
+            r"(ghcr\.io/rocket-chat/sandbox(?:-polyglot|-browser)?:)[0-9A-Za-z.-]+",
+            rf"\g<1>{version}",
+            content,
+        )
+        CONFIGURATION_MD.write_text(content, encoding="utf-8")
 
     # 7. packages/*/pyproject.toml
     if PACKAGES_DIR.exists():

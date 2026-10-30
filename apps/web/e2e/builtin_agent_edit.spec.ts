@@ -7,14 +7,15 @@ import { test, expect } from "@playwright/test";
 test("an administrator edits the built-in agent in place and resets it", async ({ page }) => {
   try {
     await page.goto("/settings/agents");
-    await page.getByText("General Software Engineer").first().click();
-    await expect(page.getByText("ID: persona-general")).toBeVisible();
+    await page.getByTestId("agent-item-persona-general").click();
+    await expect(page.getByTestId("agent-editor-title")).toHaveText("General Software Engineer");
+    await expect(page.getByTestId("agent-editor")).toContainText("persona-general");
 
     await page.getByLabel("Description").fill("Edited by the e2e administrator");
     const saved = page.waitForResponse(
       (res) => res.url().endsWith("/v1/agents") && res.request().method() === "POST"
     );
-    await page.getByRole("button", { name: /save persona/i }).click();
+    await page.getByTestId("agent-save").click();
     const body = await (await saved).json();
     expect(body.id).toBe("persona-general");
     expect(body.customized).toBe(true);
@@ -24,11 +25,12 @@ test("an administrator edits the built-in agent in place and resets it", async (
     );
     await page.reload();
     await refreshed;
-    await page.getByText("General Software Engineer").first().click();
+    await page.getByTestId("agent-item-persona-general").click();
     await expect(page.getByLabel("Description")).toHaveValue("Edited by the e2e administrator");
 
-    page.once("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: /reset to default/i }).click();
+    await expect(page.getByTestId("agent-editor")).toHaveCount(0);
+    await page.getByTestId("agent-item-persona-general").click();
     await expect(page.getByLabel("Description")).not.toHaveValue("Edited by the e2e administrator");
     await expect(page.getByRole("button", { name: /reset to default/i })).toHaveCount(0);
   } finally {

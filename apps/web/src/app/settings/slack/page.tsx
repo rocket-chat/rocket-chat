@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { useConfirm } from "../../../components/ui/ConfirmDialog";
 import {
   CheckCircle2,
   AlertCircle,
@@ -21,9 +22,9 @@ import {
   ScopeDivider,
   OrgScopeSection,
 } from "../../../components/settings/ScopedSettingsSection";
-import { useSession } from "../../../components/AuthProvider";
 import { BotEditor } from "./BotEditor";
 import { SlackBot } from "./types";
+import { useAccess } from "../../../lib/access";
 
 interface SlackStatusData {
   socket_mode_active: boolean;
@@ -152,10 +153,9 @@ function WorkspaceBindingPanel() {
 }
 
 export default function SlackSettingsPage() {
-  const { data: session } = useSession();
-  const roles = (session?.user as unknown as { roles?: string[] })?.roles || [];
+  const [confirm, confirmDialog] = useConfirm();
   // Bots are the organization's Slack apps: only administrators see or manage them.
-  const isAdmin = !session || roles.includes("admin") || roles.includes("owner");
+  const { isAdmin } = useAccess();
   const [testingSocket, setTestingSocket] = useState(false);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
@@ -245,7 +245,7 @@ export default function SlackSettingsPage() {
   };
 
   const handleDeleteBot = async (botId: string, botName: string) => {
-    if (!confirm(`Are you sure you want to delete Slack bot "${botName}"?`)) return;
+    if (!(await confirm({ title: `Delete the Slack bot “${botName}”?`, message: "It stops answering in Slack at once.", confirmLabel: "Delete", tone: "danger" }))) return;
     try {
       const res = await fetch(`/v1/admin/slack/bots/${botId}`, { method: "DELETE" });
       if (res.ok) {
@@ -280,6 +280,7 @@ export default function SlackSettingsPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
+      {confirmDialog}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
         <div>
           <h1 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2.5">
@@ -483,7 +484,6 @@ export default function SlackSettingsPage() {
             domain="slack"
             mode="org"
             title="Default organization policy"
-            selectOptions={{ default_agent_persona: agentPersonas }}
           />
         </div>
       </OrgScopeSection>

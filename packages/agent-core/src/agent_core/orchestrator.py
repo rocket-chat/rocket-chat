@@ -67,6 +67,9 @@ from agent_core.standing import (
     skills_missing_from,
 )
 from agent_core.step_status import describe_step
+from agent_core.subagent_report import render_for_parent
+from agent_core.subagent_roles import with_role_enum
+from agent_core.subagent_scope import gate_identity
 from agent_core.subagents import SubagentRunner
 from agent_core.summarizer import model_summarizer
 from agent_core.tool_loading import ALWAYS_LOADED, ESSENTIAL_TOOLS, catalogue, deferred_names
@@ -88,6 +91,7 @@ from specifications.interfaces.agent import (
     NO_STEP_LIMIT,
     AgentEvent,
     AgentOrchestratorProtocol,
+    ApprovalDetails,
     ApprovalRequest,
     ClusterRelayProtocol,
     FileDiff,
@@ -120,8 +124,8 @@ from specifications.interfaces.transcript import TranscriptStoreProtocol
 
 logger = logging.getLogger(__name__)
 
-
-DEFAULT_TEMPERATURE = 0.2
+# Their ``role`` parameter lists the turn's roles, so the model cannot name one that does not exist.
+_DELEGATION_TOOLS = frozenset({"delegate_subagent", "delegate_subagents_parallel"})
 
 
 class OrchestratorState(str, Enum):
@@ -178,7 +182,7 @@ class _StreamCollector:
         if chunk.error:
             if chunk.finish_reason == CONTEXT_WINDOW_EXCEEDED:
                 raise ContextWindowExceededError(chunk.error)
-            raise ModelExecutionError(chunk.error)
+            raise ModelExecutionError(chunk.error, chunk.refusal)
         if chunk.token_usage:
             self.reported_usage = chunk.token_usage
             self.reported_cost = chunk.cost_usd
@@ -423,7 +427,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         self,
         gateway: LLMGatewayProtocol,
         registry: ToolRegistry,
-        default_model: str = "openrouter/deepseek/deepseek-v4.1-flash",
+        default_model: str = "",
         max_turns: int = DEFAULT_MAX_TURNS,
         subagent_configs: dict[str, SubagentConfig] | None = None,
         transcript_store: TranscriptStoreProtocol | None = None,
@@ -689,7 +693,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 AgentEvent(
                     event_type="interactive_question",
                     session_id=session_id,
-                    payload=asdict(q_obj),
+                    payload={**asdict(q_obj), **_asker()},
                 )
             )
             await event_queue.put(
@@ -732,33 +736,25 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
 
         async def _on_subagent(role: str, task: str, context: str = "") -> str:
             sub_req = SubagentTaskRequest(role=role, task=task, context=context)
-            if model_router is not None:
-                sub_model = model_router.model_for(f"subagent:{role}")
-            else:
-                sub_model = parent_model or self.default_model
             sub_res = await self.subagent_runner.run(
                 request=sub_req,
                 session_id=session_id,
                 event_queue=event_queue,
-                default_model=sub_model,
+                default_model=parent_model or self.default_model,
             )
-            report_lines = [
-                f"[{sub_res.role.upper()} SUBAGENT REPORT]",
-                f"Task: {sub_res.task}",
-                f"Status: {sub_res.status} ({sub_res.turns_taken} turns, {sub_res.tool_calls_count} tools, {sub_res.duration_ms}ms)",
-            ]
-            if sub_res.branch:
-                report_lines.append(
-                    f"Branch: {sub_res.branch} (changes committed; run 'git merge --no-edit {sub_res.branch}' or 'git diff HEAD..{sub_res.branch}' to inspect/merge)"
-                )
-            if sub_res.changed_files:
-                report_lines.append(f"Changed files: {', '.join(sub_res.changed_files)}")
-            if sub_res.artefacts:
-                report_lines.append(f"Artefacts: {', '.join(sub_res.artefacts)}")
-            report_lines.append(f"\n{sub_res.summary}")
-            return "\n".join(report_lines)
+            return render_for_parent(sub_res)
 
-        async def _on_approval(action_type: str, description: str, risk_level: str) -> str:
+        def _asker() -> dict[str, str]:
+            """Which child raised a gate, when a subagent did (the card names it)."""
+            ctx = current_execution_ctx.get()
+            return gate_identity(ctx.subagent if ctx is not None else None)
+
+        async def _on_approval(
+            action_type: str,
+            description: str,
+            risk_level: str,
+            details: ApprovalDetails | None = None,
+        ) -> str:
             """Pause the turn until a human approves or denies a sensitive action."""
             action_id = f"ap_{uuid.uuid4().hex[:8]}"
             approval = ApprovalRequest(
@@ -766,6 +762,10 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 action_type=action_type,
                 command_or_path=description,
                 risk_level=risk_level,
+                tool=details.tool if details else "",
+                arguments=dict(details.arguments) if details else {},
+                diff=details.diff if details else "",
+                repository=details.repository if details else "",
             )
             wait_event = asyncio.Event()
             self.gates.register_approval(action_id, session_id, wait_event, approval)
@@ -775,7 +775,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 AgentEvent(
                     event_type="approval_required",
                     session_id=session_id,
-                    payload=asdict(approval),
+                    payload={**asdict(approval), **_asker()},
                 )
             )
             await event_queue.put(
@@ -878,6 +878,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         # Every model call this turn makes (ReAct steps, subagents, and the title/summary/
         # follow-up calls the caller makes afterwards) is attributed to, and budget-checked
         # for, this tenant, member and session.
+        attribution = exec_ctx.policy.attribution
         current_model_scope.set(
             ModelScope(
                 org_id=tenant_org_id,
@@ -886,6 +887,12 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 zero_retention=zero_retention,
                 region=region,
                 provider_preferences=exec_ctx.policy.generation.provider_preferences,
+                requester_user_id=attribution.requester_user_id,
+                agent_id=attribution.agent_id,
+                credential_bindings=attribution.credential_bindings,
+                strict_binding=attribution.strict_binding,
+                turn_id=attribution.turn_id,
+                call_role="react",
             )
         )
 
@@ -968,11 +975,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             tool_choice=tool_choice,
             thinking_budget_tokens=effective_budget,
             reasoning_effort=generation.reasoning_effort,
-            temperature=(
-                generation.temperature
-                if generation.temperature is not None
-                else DEFAULT_TEMPERATURE
-            ),
+            # None leaves the provider's own (GenerationParams: a reasoning model by default).
+            temperature=generation.temperature,
             max_tokens=generation.max_tokens,
             # Model data governance: every request this turn makes carries
             # the org's zero-retention/region requirement.
@@ -1371,7 +1375,11 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         """Every tool the turn may use, loaded or not."""
         ctx = current_execution_ctx.get()
         denied = ctx.denied_tools if ctx is not None else frozenset()
-        all_tools = [t for t in self._registry.get_tool_definitions() if t.name not in denied]
+        all_tools = [
+            with_role_enum(t, self.subagent_runner.roles()) if t.name in _DELEGATION_TOOLS else t
+            for t in self._registry.get_tool_definitions()
+            if t.name not in denied
+        ]
         if whitelisted_tools is None or "*" in whitelisted_tools:
             return all_tools
         listed = set(whitelisted_tools)
@@ -1758,10 +1766,10 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             "context_target_tokens": target_tokens,
             "context_source": limit_info.source,
             "context_tier2_tokens": threshold(
-                effective_limit, self.context_manager.tier2_threshold_ratio, reserve_tokens
+                effective_limit, self.context_manager.ratios()[0], reserve_tokens
             ),
             "context_tier3_tokens": threshold(
-                effective_limit, self.context_manager.tier3_threshold_ratio, reserve_tokens
+                effective_limit, self.context_manager.ratios()[1], reserve_tokens
             ),
             "context_tokens": (
                 measured if measured > 0 else request_tokens(run.react_model, run.conversation)
@@ -1784,6 +1792,9 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         }
         if run is not None and run.react_model:
             payload.update(self._context_status_payload(run))
+        if run is not None:
+            # The model call the turn is on, counted from 1, for the live progress line.
+            payload.setdefault("step", run.step + 1)
         await self._emit(run, "status", payload)
 
     async def _drive_turn(
@@ -1881,6 +1892,11 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
         run.compacted_for_overflow = False
         run.step_costs.append(reply.cost_usd)
         run.cumulative_cost_usd += reply.cost_usd
+        if run.exec_ctx is not None:
+            # Subagents spend during the parent's tool calls: their cost counts against the
+            # turn's cap like the parent's own steps.
+            run.exec_ctx.turn_spend.parent_usd += reply.cost_usd
+            run.cumulative_cost_usd += run.exec_ctx.turn_spend.take_unreported()
         cost_cap = run.exec_ctx.policy.max_turn_cost_usd if run.exec_ctx else None
         if cost_cap is not None and run.cumulative_cost_usd >= cost_cap:
             logger.warning(
@@ -2348,6 +2364,13 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             "error",
             f"Turn execution error: {err}",
             error=str(err),
+            # The platform's own refusal (a spend limit, a withdrawn credential) travels to the
+            # host, which reports it as such; the host never publishes this key.
+            **(
+                {"refusal": err.refusal}
+                if isinstance(err, ModelExecutionError) and err.refusal
+                else {}
+            ),
         )
         # A dead provider would fail the synthesis call too, so only other failures
         # (tool or protocol errors) attempt to salvage a partial answer.

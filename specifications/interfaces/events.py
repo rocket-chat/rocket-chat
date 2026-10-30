@@ -22,6 +22,7 @@ class EventType(str, Enum):
     DECISION_REQUIRED = "decision_required"  # Interactive decision card prompt
     DECISION_SUBMITTED = "decision_submitted"  # User response to decision card
     APPROVAL_REQUIRED = "approval_required"  # Human approval gate (plan execution, risky action)
+    APPROVAL_RULES_CHANGED = "approval_rules_changed"  # A remembered approval was saved or revoked
     LOG_CHUNK = "log_chunk"  # Raw ANSI execution log chunk
     SANDBOX_STATE = "sandbox_state"  # Running, hibernated, starting
     SESSION_UPDATED = "session_updated"  # Session metadata (title, etc.) updated
@@ -46,6 +47,11 @@ class EventType(str, Enum):
     WAIT_COMPLETED = "wait_completed"  # Wake trigger resumed waiting session
     ARTIFACT_CREATED = "artifact_created"  # Durable session deliverable created
     ARTIFACT_UPDATED = "artifact_updated"  # Durable session deliverable updated
+    BUDGET_WARNING = "budget_warning"  # A spend limit is nearly used
+    BUDGET_BLOCKED = "budget_blocked"  # A spend limit refused the turn's next model call
+    AGENT_ACCESS_DENIED = "agent_access_denied"  # The requester may not use the session's agent
+    PLAN_DECIDED = "plan_decided"  # A person approved or rejected a proposed plan on its card
+    GIT_PUBLISHED = "git_published"  # A person committed, pushed or opened a PR from the cockpit
     ERROR = "error"  # Unrecoverable or tool error
 
 

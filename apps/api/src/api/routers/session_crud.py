@@ -17,6 +17,7 @@ from git_engine.engine import GitEngine
 from pydantic import BaseModel
 
 from api.auth.access import _check_session_access, _get_request_identity, _require_admin
+from api.auth.roles import can_write, is_admin
 from api.models import (
     CreateSessionRequest,
     ResetSessionsResponse,
@@ -24,12 +25,14 @@ from api.models import (
     ShareSessionRequest,
     UpdateSessionRequest,
 )
+from api.services.agent_access import AgentAccessDenied, require_usable_agent
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.session_support import (
     _CLIENT_PATCHABLE_METADATA,
     _to_response,
     apply_sharing,
     slice_history_tail,
+    user_turns_in,
 )
 from api.services.settings import (
     effective_settings,
@@ -47,6 +50,8 @@ from specifications.interfaces.sandbox import (
     SandboxStatus,
 )
 from specifications.interfaces.session import (
+    SESSION_REASONING_EFFORT_KEY,
+    SESSION_REASONING_EFFORTS,
     SessionRecord,
     SessionSource,
     SessionStoreProtocol,
@@ -96,10 +101,8 @@ async def create_session(req: CreateSessionRequest, request: Request) -> Session
     driver: SandboxDriverProtocol | None = getattr(request.app.state, "sandbox_driver", None)
 
     req_org, req_user, roles = _get_request_identity(request)
-    if "readonly" in roles:
-        raise HTTPException(
-            status_code=403, detail="Forbidden: Read-only role cannot create sessions"
-        )
+    if not can_write(roles):
+        raise HTTPException(status_code=403, detail="Forbidden: viewers cannot create sessions")
 
     # Tenancy comes from the authenticated identity only; body fields are never trusted.
     effective_org = req_org
@@ -109,6 +112,7 @@ async def create_session(req: CreateSessionRequest, request: Request) -> Session
     # provenance, title provenance) is written by the server and would otherwise let a caller
     # enable server-only capabilities on its own session.
     metadata = {k: v for k, v in req.metadata.items() if k in _CLIENT_PATCHABLE_METADATA}
+    _check_reasoning_effort(metadata)
     if req.permission_mode is not None:
         if req.permission_mode not in PERMISSION_MODES:
             raise HTTPException(
@@ -122,6 +126,7 @@ async def create_session(req: CreateSessionRequest, request: Request) -> Session
             detail=f"permission_mode must be one of: {', '.join(PERMISSION_MODES)}",
         )
     if req.agent_id:
+        await _usable_agent(request, effective_org, req_user, roles, req.agent_id)
         metadata["agent_id"] = req.agent_id
     chosen_image = await _choose_sandbox(request, effective_org, req, metadata)
     # An explicit choice wins; otherwise the organization's privacy default applies.
@@ -238,6 +243,7 @@ async def get_session(
                 history_override=sliced,
                 has_older_history=True,
                 total_messages=total,
+                user_turns_before=user_turns_in(history[: total - len(sliced)]),
             )
     return _to_response(record, total_messages=total)
 
@@ -317,7 +323,8 @@ async def update_session(
         raise HTTPException(status_code=404, detail="Session not found")
     _check_session_access(record, req_user, roles, require_write=True)
 
-    _check_patch_rights(req, "admin" in roles or record.tenant_user_id == req_user)
+    _check_patch_rights(req, is_admin(roles) or record.tenant_user_id == req_user)
+    await _usable_agent(request, record.tenant_org_id, req_user, roles, req.agent_id)
     # Applied to the stored record under its row lock: a turn may be recording its answer or
     # its active repository at the same moment, and a whole-record write would erase them.
     updated = await store.mutate_session(
@@ -328,12 +335,23 @@ async def update_session(
     return _to_response(updated)
 
 
+def _check_reasoning_effort(metadata: dict[str, Any] | None) -> None:
+    """422 for a reasoning effort a session cannot hold; null clears the session's choice."""
+    effort = (metadata or {}).get(SESSION_REASONING_EFFORT_KEY)
+    if effort is not None and effort not in SESSION_REASONING_EFFORTS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"reasoning_effort must be one of: {', '.join(SESSION_REASONING_EFFORTS)}",
+        )
+
+
 def _check_patch_rights(req: UpdateSessionRequest, is_owner_or_admin: bool) -> None:
     if (req.is_shared is not None or req.collaborators is not None) and not is_owner_or_admin:
         raise HTTPException(
             status_code=403,
             detail="Forbidden: Only session owner or admin can configure sharing",
         )
+    _check_reasoning_effort(req.metadata)
     requested_mode = (req.metadata or {}).get("permission_mode")
     if requested_mode is None:
         return
@@ -348,6 +366,18 @@ def _check_patch_rights(req: UpdateSessionRequest, is_owner_or_admin: bool) -> N
             status_code=403,
             detail="Forbidden: Only the session owner or an admin can change the permission mode",
         )
+
+
+async def _usable_agent(
+    request: Request, org_id: str, user_id: str, roles: list[str], agent_id: str | None
+) -> None:
+    """403 for an agent the caller may not use (``agent_access``)."""
+    try:
+        await require_usable_agent(
+            getattr(request.app.state, "db_manager", None), org_id, user_id, roles, agent_id
+        )
+    except AgentAccessDenied as err:
+        raise HTTPException(status_code=403, detail=str(err)) from err
 
 
 def _apply_patch(record: SessionRecord, req: UpdateSessionRequest) -> None:
@@ -389,7 +419,7 @@ async def share_session(
         record = await store.get_session(session_id)
     if not record:
         raise HTTPException(status_code=404, detail="Session not found")
-    if "admin" not in roles and record.tenant_user_id != req_user:
+    if not is_admin(roles) and record.tenant_user_id != req_user:
         raise HTTPException(
             status_code=403,
             detail="Forbidden: Only session owner or admin can configure sharing",
@@ -421,7 +451,7 @@ async def delete_session(session_id: str, request: Request) -> dict[str, Any]:
     if not record:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    if "admin" not in roles and record.tenant_user_id != req_user:
+    if not is_admin(roles) and record.tenant_user_id != req_user:
         raise HTTPException(
             status_code=403,
             detail="Forbidden: Only session owner or admin can delete session",

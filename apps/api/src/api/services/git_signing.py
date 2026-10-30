@@ -40,9 +40,8 @@ logger = logging.getLogger(__name__)
 PROVIDER = "git_signing"
 GPG_TIMEOUT_SECONDS = 20.0
 MAX_KEY_BYTES = 64 * 1024
-COMMIT_AS_ME = "commit_as_me"
-SIGNED_MODE = "gpg_key"
-VERIFIED_FALLBACK_MODE = "github_app"
+SIGNED_MODE = "member_gpg"
+VERIFIED_FALLBACK_MODE = "github"
 
 
 class SigningKeyError(ValueError):
@@ -306,9 +305,7 @@ async def member_signing_for_turn(
     user_id: str,
     member_prefs: dict[str, Any],
 ) -> MemberSigning | None:
-    """The key to sign with, when the member stored one and chose to commit as themselves."""
-    if not member_prefs.get(COMMIT_AS_ME):
-        return None
+    """The key to sign with, when the member stored one (``github.signing: member_gpg``)."""
     credential = await get_user_credential(db_mgr, user_id, PROVIDER, org_id=org_id)
     if not (credential and credential.secret):
         return None
@@ -330,19 +327,18 @@ async def member_signing_for_turn(
 
 
 def effective_signing_policy(policy: GitPolicy, signing: MemberSigning | None) -> GitPolicy:
-    """What ``commit_signing_mode`` means for this member.
+    """What ``github.signing`` means for this member.
 
-    ``gpg_key``: a member who stored a key and chose to commit as themselves commits as
-    themselves, signed with it; everyone else falls back to GitHub-signed commits made through
-    the API, so they are verified either way. Other modes apply as they are.
+    ``member_gpg``: a member who stored a key commits as themselves, signed with it; everyone
+    else falls back to GitHub-signed commits made through the API, so they are verified either
+    way. Other modes apply as they are.
     """
-    if policy.signing_mode != SIGNED_MODE:
+    if policy.signing != SIGNED_MODE:
         return policy
     if signing is None:
-        return replace(policy, signing_mode=VERIFIED_FALLBACK_MODE)
+        return replace(policy, signing=VERIFIED_FALLBACK_MODE)
     return replace(
         policy,
-        authorship="user_only",
         user_email=signing.commit_email,
         signing_key_id=signing.fingerprint,
         signing_key=SigningKey(signing.fingerprint, signing.private_key, signing.passphrase),

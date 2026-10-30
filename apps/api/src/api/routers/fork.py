@@ -15,7 +15,7 @@ import uuid
 from typing import Any
 
 from agent_core.tools import git_tools
-from config_engine.registry import DEFAULT_SANDBOX_IMAGE
+from config_engine.sandbox_images import DEFAULT_SANDBOX_IMAGE
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 from sandbox_driver.seeding import seed_workspace_from

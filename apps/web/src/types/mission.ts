@@ -157,13 +157,26 @@ export interface DecisionQuestion {
   options: string[];
   is_multi_select: boolean;
   default_recommended_option?: string | null;
+  /** Set when a subagent asks: its role. */
+  subagent_role?: string;
 }
+
+/** How a "yes" may be remembered: for the session, or for the command in the repository. */
+export type ApprovalRememberScope = "session" | "repository";
 
 export interface ApprovalRequestInfo {
   action_id: string;
   action_type: string;
   description: string;
   risk_level: "low" | "medium" | "critical" | string;
+  /** The structured call behind the gate (bounded by the server). */
+  tool?: string;
+  arguments?: Record<string, unknown>;
+  diff?: string;
+  repository?: string;
+  remember_options?: ApprovalRememberScope[];
+  /** Set when a subagent needs the approval: its role. */
+  subagent_role?: string;
 }
 
 export interface SessionData {
@@ -202,6 +215,8 @@ export interface SessionData {
   suggested_followup?: string | null;
   has_older_history?: boolean;
   total_messages?: number;
+  /** Messages the person sent before the first one of ``conversation_history``. */
+  user_turns_before?: number;
   is_draft?: boolean;
   /** Sidebar ergonomics: pinned sessions float to the top, archived hide. */
   is_pinned?: boolean;
@@ -265,12 +280,41 @@ export interface ModelOption {
   description?: string;
 }
 
+/** One thing a subagent found (its report's `findings`). */
+export interface SubagentFinding {
+  file: string;
+  line: number | null;
+  severity: "critical" | "high" | "medium" | "low" | "info" | string;
+  evidence: string;
+}
+
+/** The structured result a subagent ends with (`SubagentReport` on the server). */
+export interface SubagentReport {
+  status: string;
+  summary: string;
+  findings: SubagentFinding[];
+  changes: { branch: string | null; diff_stat: string; files: string[] } | null;
+  open_questions: string[];
+  next_steps: string[];
+  data: Record<string, unknown> | null;
+}
+
+/** One of a subagent's own tool calls, nested under its card. */
+export interface SubagentStep {
+  id: string;
+  name: string;
+  arguments?: Record<string, unknown>;
+  status: "pending" | "success" | "error";
+  result?: string;
+  duration_ms?: number;
+}
+
 export interface SubagentExecutionData {
   subagentId: string;
   role: string;
   task: string;
-  status: "running" | "completed" | "error" | string;
-  turn?: number;
+  /** running, completed, partial, blocked, error (failed) or cancelled. */
+  status: "running" | "completed" | "partial" | "blocked" | "error" | "cancelled" | string;
   thought?: string;
   summary?: string;
   duration_ms?: number;
@@ -278,12 +322,41 @@ export interface SubagentExecutionData {
   cost?: number;
   changed_files?: string[];
   artefacts?: string[];
+  model?: string;
+  isolation?: string;
+  background?: boolean;
+  /** The parent's `delegate_subagent` call the child runs under. */
+  parentToolCallId?: string | null;
+  branch?: string | null;
+  report?: SubagentReport | null;
+  steps?: SubagentStep[];
 }
 
 /** Who answered a turn: the agent's name (empty for a raw model) and the model. */
 export interface TurnBinding {
   agentName: string;
   model: string;
+}
+
+export interface TurnErrorInfo {
+  message: string;
+  /** provider | budget | model | sandbox | access | internal (the server's `error_kind`). */
+  kind: string;
+  /** The instruction of the failed turn, to send again; null when it is not known. */
+  prompt: string | null;
+  /** The spend limit that refused the turn (`budget_blocked`). */
+  limit?: BudgetBlockedInfo;
+  /** The agent the person may not use (`agent_access_denied`). */
+  agent?: { id: string; name: string };
+}
+
+export interface BudgetBlockedInfo {
+  limit_id: string;
+  subject: string;
+  period: string;
+  spent: number;
+  amount: number;
+  resets_at: number | null;
 }
 
 export interface FlightLogEntry {
@@ -318,7 +391,38 @@ export interface FlightLogEntry {
   githubEvent?: GithubEventEntry;
   /** A deliverable saved where no call of this conversation shows it (a subagent's, for one). */
   artifact?: ArtifactItem;
+  /** The failure that ended a turn, with what is needed to retry it. */
+  turnError?: TurnErrorInfo;
+  /** A platform notice, kept as the event's fields so its card never parses `content` back. */
+  notice?: SystemNotice;
+  /** Position of the message in the stored conversation history (entries restored from it). */
+  historyIndex?: number;
 }
+
+/**
+ * What the platform tells the person in the conversation. `content` on the same entry stays a
+ * plain-text rendering of it (for search and copy); the card is drawn from these fields.
+ */
+export type SystemNotice =
+  | {
+      kind: "compaction";
+      compactedMessages: number;
+      tokensBefore: number;
+      tokensAfter: number;
+      summary: string;
+      /** The model's summary was unusable and the platform rebuilt it from the tool history. */
+      rebuilt: boolean;
+    }
+  | { kind: "continuation"; index: number; max: number; reason: string }
+  | { kind: "step_limit"; steps: number; reason: string }
+  | { kind: "alert"; text: string }
+  | { kind: "turn_failed"; message: string }
+  | { kind: "sandbox_failed"; message: string }
+  | { kind: "send_failed"; message: string }
+  | { kind: "turn_stopped" }
+  | { kind: "spend_warning"; label: string; spent: number; amount: number }
+  | { kind: "cost"; costUsd: number; totalTokens: number; turns: number; calls: number }
+  | { kind: "info"; text: string };
 
 export interface WaitEntry {
   waitId: string;
@@ -434,6 +538,10 @@ export interface McpServerConfig {
   oauth_scopes?: string[];
 }
 
+export type SubagentTier = "fast" | "default" | "frontier";
+export type SubagentIsolation = "none" | "worktree" | "sandbox";
+export type SubagentInherit = "agents_md" | "memory" | "checklist" | "skills";
+
 export interface SubagentConfig {
   id: string;
   name: string;
@@ -443,8 +551,22 @@ export interface SubagentConfig {
   model?: string | null;
   max_turns: number;
   whitelisted_tools: string[];
+  disallowed_tools?: string[];
   temperature: number;
   enabled: boolean;
+  /** Model tier when `model` is empty. */
+  tier?: SubagentTier;
+  reasoning_effort?: string | null;
+  /** Spend cap per run in USD (0: none). */
+  max_cost_usd?: number;
+  /** Wall-clock cap per run in seconds (0: none). */
+  max_wall_seconds?: number;
+  isolation?: SubagentIsolation;
+  /** Whether its approvals and questions reach the person (else they are refused). */
+  can_ask_user?: boolean;
+  inherit?: SubagentInherit[];
+  output_schema?: Record<string, unknown> | null;
+  source?: "builtin" | "org" | "repository";
   built_in?: boolean;
   customized?: boolean;
 }
@@ -494,13 +616,10 @@ export interface AgentPersonaConfig {
   /** Whether this agent persona is enabled for cockpit and missions. */
   enabled?: boolean;
   icon?: string;
-  sandbox_image?: string;
-  /** Sandbox type its sessions start in when their creator picks none; empty: the default. */
+  /** Sandbox type its sessions start in when their creator picks none; the type holds the
+   * image, CPU and memory. Empty: the organization's default. */
   sandbox_id?: string;
-  cpu_limit?: string;
-  memory_limit?: string;
   temperature?: number;
-  thinking_budget_tokens?: number;
   reasoning_effort?: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   /** Steps per turn for this agent; empty inherits the organization's limit, its ceiling. */
   max_turns?: number | null;
@@ -509,6 +628,15 @@ export interface AgentPersonaConfig {
   active_tools?: string[];
   /** Default permission mode for sessions created with this persona. */
   default_permission_mode?: PermissionMode | null;
+  /** The agent's own provider credentials (administrators bind organization agents). */
+  credential_bindings?: CredentialBinding[];
+  /** Refuse calls on any provider the agent has no binding for. */
+  strict_binding?: boolean;
+}
+
+export interface CredentialBinding {
+  provider: string;
+  credential_id: string;
 }
 
 

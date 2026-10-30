@@ -260,7 +260,7 @@ async def test_a_commit_in_a_subfolder_clone_is_published_from_that_clone(
     workspace: Workspace, turn: ExecutionContext
 ) -> None:
     clone = workspace.clone("widgets")
-    turn.policy = TurnPolicy(git=GitPolicy(signing_mode="none", user_token="gho_member"))
+    turn.policy = TurnPolicy(git=GitPolicy(signing="none", user_token="gho_member"))
     registry = ToolRegistry(driver=workspace.driver, session_id="s1")  # type: ignore[arg-type]
     engine = GitEngine(
         driver=workspace.driver,  # type: ignore[arg-type]

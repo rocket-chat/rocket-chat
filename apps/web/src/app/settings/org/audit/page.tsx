@@ -2,8 +2,8 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { ScrollText, AlertCircle, RefreshCw } from "lucide-react";
-import { useSession } from "../../../../components/AuthProvider";
 import { Field, Select } from "../../../../components/ui/Field";
+import { useAccess } from "../../../../lib/access";
 
 interface AuditEvent {
   id: string;
@@ -36,9 +36,7 @@ const EVENT_TYPES = [
 ];
 
 export default function AuditLogPage() {
-  const { data: session } = useSession();
-  const userRoles = (session?.user as unknown as { roles?: string[] })?.roles || [];
-  const isAdmin = !session || userRoles.includes("admin") || userRoles.includes("owner");
+  const { isAdmin } = useAccess();
 
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);

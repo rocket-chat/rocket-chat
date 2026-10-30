@@ -166,13 +166,19 @@ class SlackBot:
         Short, as a private session id also carries the channel, thread and requester."""
         return self.id.replace("-", "").replace("_", "")[:8]
 
+    def with_agent(self, policy: SlackOrgPolicy) -> SlackOrgPolicy:
+        """A policy already resolved with this bot's overrides, given the bot's agent."""
+        return replace(policy, default_agent_persona=self.agent_id or policy.default_agent_persona)
+
     def apply_to(self, org_policy: SlackOrgPolicy) -> SlackOrgPolicy:
-        """The organization's policy with this bot's overrides, agent and channel overrides."""
+        """The organization's policy with this bot's overrides, agent and channel overrides,
+        merged here when no policy resolver (which also honours locks) is wired."""
         overrides = {k: v for k, v in self.policy.items() if v not in (None, "", [], {})}
         merged = SlackOrgPolicy.from_settings({**_policy_as_settings(org_policy), **overrides})
         return replace(
             merged,
-            default_agent_persona=self.agent_id or merged.default_agent_persona,
+            # Not a setting (the bot's agent, or its routing decision): kept from the policy.
+            default_agent_persona=self.agent_id or org_policy.default_agent_persona,
             channel_profiles=_profiles(overrides.get("channel_profiles"))
             or org_policy.channel_profiles,
         )

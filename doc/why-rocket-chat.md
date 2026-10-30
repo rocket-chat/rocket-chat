@@ -41,7 +41,7 @@ Rocket Chat ships with a general software engineer, a backend specialist and a r
 
 ### 3. A team's platform, not a personal tool
 
-Sign in through your identity provider ([SSO](/administer/sso)), assign roles, share sessions so colleagues can read along and send messages, set budgets per person and per organization, and keep an [audit trail](/administer/security) with redaction and retention you control. All of it ships in the one open-source edition: there is no enterprise tier to buy to turn it on.
+Sign in through your identity provider ([SSO](/administer/sso)), invite people and assign roles (one person can belong to several organizations), decide who may use each agent, share sessions so colleagues can read along and send messages, set spend limits per organization, person, agent or Slack workspace, and keep an [audit trail](/administer/security) with redaction and retention you control. All of it ships in the one open-source edition: there is no enterprise tier to buy to turn it on.
 
 ### 4. You run it
 
@@ -62,7 +62,7 @@ Not a notification bot: your agents, in your channels.
 ### 6. GitHub, end to end, with signed commits
 
 * **Two layers of identity.** Your organization's GitHub App for the platform's own work, and each member's linked account so the agent acts as them where that matters. The sandbox holds neither credential: it clones through a read-only gateway.
-* **Publishing is a platform step.** Commits leave through `git_push` and `git_open_pr`, which apply your signing policy: **`github_app`** re-creates the commits through GitHub's API so they earn GitHub's **Verified** badge; **`gpg_key`** signs them with a member's own key, which is stored encrypted and never enters a sandbox; **`none`** pushes as is. `Co-authored-by` trailers are kept.
+* **Publishing is a platform step.** Commits leave through `git_push` and `git_open_pr`, which apply your signing policy: **`github`** re-creates the commits through GitHub's API so they earn GitHub's **Verified** badge; **`member_gpg`** signs them with a member's own key, which is stored encrypted and never enters a sandbox; **`none`** pushes as is. `Co-authored-by` trailers are kept.
 * **Pull requests, reviews and CI** are tools, not copy-paste: read diffs and review threads, reply and resolve, read a failed job's log, re-run a check, and follow a pull request through a long task so the agent wakes when CI finishes or a review arrives.
 * **Webhooks** can start work: label an issue and an agent reproduces it, fixes it on a branch and opens the pull request.
 

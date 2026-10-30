@@ -5,7 +5,6 @@ from collections.abc import Sequence
 from typing import Any
 
 from sandbox_driver.exceptions import SandboxError
-from sandbox_driver.utils import parse_memory_to_bytes
 
 from api.services.git_credentials import (
     inject_git_credentials_into_sandbox,
@@ -141,27 +140,7 @@ async def provision_session_sandbox(
         user_overrides=member_prefs,
         repo=_repo_slug(s_rec.git_repo if s_rec else None),
     )
-    sandbox_cfg = await effective_settings(db_mgr, t_org, "sandboxes")
-    catalogue = SandboxCatalogue(db_mgr)
-    chosen = await catalogue.chosen(
-        t_org,
-        session_sandbox_id=_session_metadata(s_rec).get("sandbox_id"),
-        session_image=s_rec.container_image if s_rec else None,
-        agent_sandbox_id=binding.sandbox_id,
-    )
-    image = (
-        (chosen.image if chosen else None)
-        or (s_rec.container_image if s_rec else None)
-        or binding.sandbox_image
-        or (await catalogue.default(t_org)).image
-    )
-    if not await catalogue.image_is_offered(
-        t_org, image, [str(p) for p in sandbox_cfg.get("allowed_images") or ()]
-    ):
-        raise ValueError(
-            f"Sandbox image '{image}' is not in the organization's sandbox catalogue. "
-            "An administrator can add it under Settings > Organization > Sandboxes."
-        )
+    image, sandbox_type, sandbox_cfg = await _sandbox_choice(db_mgr, t_org, s_rec, binding)
     await enforce_running_sandbox_quota(
         store,
         driver,
@@ -169,23 +148,16 @@ async def provision_session_sandbox(
         session_id=session_id,
         limit=int(sandbox_cfg.get("max_running_sandboxes") or 0),
     )
-    sandbox_type = chosen or await catalogue.resolve(t_org, image=image)
     await driver.ensure_workspace(
-        WorkspaceSpec(
-            session_id=session_id,
-            tenant_org_id=t_org,
-            tenant_user_id=t_user,
-            container_image=image,
-            # The agent's own sizing, else its sandbox type's, else the organization's.
-            resources=_resources(binding, sandbox_type, sandbox_cfg),
-            profile=sandbox_type.profile if sandbox_type else "",
-            # Data-egress governance (G5): carry the org's computed allowlist
-            # onto the workspace spec so the driver can enforce it.
-            egress_allowlist=list(egress_allowed_cidrs),
-            block_internal_subnets=block_internal_subnets,
-            require_non_root=bool(sandbox_cfg["require_non_root"]),
-            # Git reaches GitHub through the platform's gateway, whatever the egress policy.
-            platform_endpoints=[gateway_endpoint()],
+        _workspace_spec(
+            session_id,
+            t_org,
+            t_user,
+            image,
+            sandbox_type,
+            sandbox_cfg,
+            egress_allowed_cidrs,
+            block_internal_subnets,
         )
     )
     await _start_sandbox_or_report(driver, event_bus, session_id)
@@ -251,25 +223,109 @@ async def _expand_slash_command(
     return expand_skill(skill.body, invocation.arguments)
 
 
-def _resources(
-    binding: Any, sandbox_type: SandboxEntry | None, sandbox_cfg: dict[str, Any]
-) -> ResourceLimits:
-    """The sandbox's resources: the type's, else the organization's, which an agent may lower.
-
-    An agent is edited by members (a personal one by its owner), so its CPU and memory are a
-    request under the administrator's value, never a way above it.
-    """
+def _resources(sandbox_type: SandboxEntry | None, sandbox_cfg: dict[str, Any]) -> ResourceLimits:
+    """The sandbox's resources: its type's (set by administrators in the catalogue), else the
+    organization's. Agents set none of their own: they pick a type."""
     own = sandbox_type or SandboxEntry(id="", org_id="", name="", image="")
-    cpu_ceiling = float(own.cpu_limit or sandbox_cfg["cpu_limit"])
-    memory_ceiling = own.memory_limit or str(sandbox_cfg["memory_limit"])
-    cpu = min(float(binding.cpu_limit), cpu_ceiling) if binding.cpu_limit else cpu_ceiling
-    memory = memory_ceiling
-    if binding.memory_limit and parse_memory_to_bytes(binding.memory_limit) < parse_memory_to_bytes(
-        memory_ceiling
-    ):
-        memory = binding.memory_limit
+    cpu = float(own.cpu_limit or sandbox_cfg["cpu_limit"])
+    memory = own.memory_limit or str(sandbox_cfg["memory_limit"])
     return ResourceLimits(
         cpu_cores=cpu,
         memory_limit=memory,
-        disk_size=own.disk_size or ResourceLimits().disk_size,
+        disk_size=own.disk_size
+        or str(sandbox_cfg.get("disk_size") or "")
+        or ResourceLimits().disk_size,
     )
+
+
+async def _sandbox_choice(
+    db_mgr: Any, org_id: str, s_rec: SessionRecord | None, binding: Any
+) -> tuple[str, SandboxEntry | None, dict[str, Any]]:
+    """The session's image and sandbox type (refused when the catalogue does not offer it)."""
+    sandbox_cfg = await effective_settings(db_mgr, org_id, "sandboxes")
+    catalogue = SandboxCatalogue(db_mgr)
+    chosen = await catalogue.chosen(
+        org_id,
+        session_sandbox_id=_session_metadata(s_rec).get("sandbox_id"),
+        session_image=s_rec.container_image if s_rec else None,
+        agent_sandbox_id=binding.sandbox_id,
+    )
+    image = (
+        (chosen.image if chosen else None)
+        or (s_rec.container_image if s_rec else None)
+        or (await catalogue.default(org_id)).image
+    )
+    if not await catalogue.image_is_offered(
+        org_id, image, [str(p) for p in sandbox_cfg.get("allowed_images") or ()]
+    ):
+        raise ValueError(
+            f"Sandbox image '{image}' is not in the organization's sandbox catalogue. "
+            "An administrator can add it under Settings > Organization > Sandboxes."
+        )
+    return image, chosen or await catalogue.resolve(org_id, image=image), dict(sandbox_cfg)
+
+
+def _workspace_spec(
+    session_id: str,
+    org_id: str,
+    user_id: str,
+    image: str,
+    sandbox_type: SandboxEntry | None,
+    sandbox_cfg: dict[str, Any],
+    egress_allowed_cidrs: Sequence[str],
+    block_internal_subnets: bool,
+) -> WorkspaceSpec:
+    return WorkspaceSpec(
+        session_id=session_id,
+        tenant_org_id=org_id,
+        tenant_user_id=user_id,
+        container_image=image,
+        resources=_resources(sandbox_type, sandbox_cfg),
+        profile=sandbox_type.profile if sandbox_type else "",
+        # Data-egress governance (G5): carry the org's computed allowlist
+        # onto the workspace spec so the driver can enforce it.
+        egress_allowlist=list(egress_allowed_cidrs),
+        block_internal_subnets=block_internal_subnets,
+        require_non_root=bool(sandbox_cfg["require_non_root"]),
+        # Git reaches GitHub through the platform's gateway, whatever the egress policy.
+        platform_endpoints=[gateway_endpoint()],
+    )
+
+
+async def child_workspace_spec(
+    store: SessionStoreProtocol,
+    db_mgr: Any,
+    session_id: str,
+    child_id: str,
+    binding: Any,
+    egress_allowed_cidrs: Sequence[str],
+    block_internal_subnets: bool,
+) -> WorkspaceSpec:
+    """The workspace of a subagent's own sandbox: the session's image, resources and egress
+    rules, so isolating a child never loosens what its sandbox may reach."""
+    s_rec = await store.get_session(session_id)
+    if s_rec is None:
+        raise ValueError(f"no session {session_id}")
+    image, sandbox_type, sandbox_cfg = await _sandbox_choice(
+        db_mgr, s_rec.tenant_org_id, s_rec, binding
+    )
+    return _workspace_spec(
+        child_id,
+        s_rec.tenant_org_id,
+        s_rec.tenant_user_id,
+        image,
+        sandbox_type,
+        sandbox_cfg,
+        egress_allowed_cidrs,
+        block_internal_subnets,
+    )
+
+
+async def session_sandbox_resources(
+    db_mgr: Any, s_rec: SessionRecord, binding: Any
+) -> ResourceLimits:
+    """The CPU and memory the session's sandbox runs with."""
+    _, sandbox_type, sandbox_cfg = await _sandbox_choice(
+        db_mgr, s_rec.tenant_org_id, s_rec, binding
+    )
+    return _resources(sandbox_type, sandbox_cfg)

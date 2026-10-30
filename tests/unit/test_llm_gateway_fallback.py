@@ -160,8 +160,6 @@ async def test_cache_tokens_are_aggregated_in_ledger() -> None:
         cache_read_tokens=80,
         cache_creation_tokens=20,
     )
-    org_summary = gateway.get_org_usage_summary("org")
     user_summary = gateway.get_user_usage_summary("usr")
-    assert org_summary["cache_read_tokens"] == 80
-    assert org_summary["cache_creation_tokens"] == 20
     assert user_summary["cache_read_tokens"] == 80
+    assert gateway._usage_ledger[-1]["cache_creation_tokens"] == 20

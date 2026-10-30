@@ -589,49 +589,51 @@ async def test_an_empty_repository_receives_the_whole_branch_or_a_clear_refusal(
     assert result.commits == 1 and git(empty, "log", "--format=%s", "main") == "First commit"
 
 
-def test_the_co_authored_policy_credits_the_member_on_app_commits_only() -> None:
+def test_the_member_is_credited_on_app_commits_only() -> None:
     from agent_core.tools.git_tools import publish_spec_for_policy
 
     from specifications.interfaces.agent import GitPolicy
 
-    member = GitPolicy(
-        authorship="co_authored",
-        signing_mode="github_app",
-        user_name="Nathan",
-        user_email="nathan@x.test",
-    )
+    member = GitPolicy(signing="github", user_name="Nathan", user_email="nathan@x.test")
 
     assert publish_spec_for_policy(member).co_authors == (CoAuthor("Nathan", "nathan@x.test"),)
-    assert publish_spec_for_policy(replace(member, authorship="bot_only")).co_authors == ()
-    assert publish_spec_for_policy(replace(member, authorship="user_only")).co_authors == (), (
+    assert publish_spec_for_policy(replace(member, publish_as="bot")).co_authors == (
+        CoAuthor("Nathan", "nathan@x.test"),
+    ), "publishing through the App still credits the member who asked"
+    assert publish_spec_for_policy(replace(member, signing="member_gpg")).co_authors == (), (
         "the member's own commits need no credit"
     )
+    assert publish_spec_for_policy(replace(member, signing="none")).co_authors == ()
 
 
-def test_authored_by_user_committed_by_bot_policy() -> None:
+def test_member_gpg_commits_as_the_member_and_publishes_with_their_key() -> None:
     from agent_core.tools.git_tools import commit_spec_for_policy, publish_spec_for_policy
 
     from specifications.interfaces.agent import GitPolicy
 
     policy = GitPolicy(
-        authorship="authored_by_user_committed_by_bot",
-        signing_mode="gpg_key",
+        signing="member_gpg",
         user_name="Nathan",
         user_email="nathan@x.test",
         bot_name="Rocket Bot",
         bot_email="bot@x.test",
+        user_token="gho_member",
     )
     commit_spec = commit_spec_for_policy("feat: something", "", None, policy)
-    assert commit_spec.author_name == "Nathan"
-    assert commit_spec.author_email == "nathan@x.test"
-    assert commit_spec.committer_name == "Rocket Bot"
-    assert commit_spec.committer_email == "bot@x.test"
+    assert (commit_spec.committer_name, commit_spec.committer_email) == (
+        "Nathan",
+        "nathan@x.test",
+    )
+    assert commit_spec.co_authors == [] and commit_spec.signing_mode is SigningMode.GPG_KEY
 
     pub_spec = publish_spec_for_policy(policy)
-    assert pub_spec.signing_mode == SigningMode.GPG_KEY
+    assert pub_spec.signing_mode is SigningMode.GPG_KEY and pub_spec.token == "gho_member"
 
-    with pytest.raises(ValueError, match="GitHub App signing cannot set a custom author"):
-        publish_spec_for_policy(replace(policy, signing_mode="github_app"))
+    bot = commit_spec_for_policy("feat: something", "", None, replace(policy, signing="github"))
+    assert (bot.committer_name, bot.co_authors) == (
+        "Rocket Bot",
+        [CoAuthor("Nathan", "nathan@x.test")],
+    )
 
 
 async def test_a_publication_reports_the_new_head_to_the_session() -> None:

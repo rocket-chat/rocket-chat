@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 import uvicorn
-from api.services.model_credentials import CredentialResolver, ModelCredentialStore
+from api.services.model_credentials import CredentialResolver, ModelCredentialStore, NewCredential
 from api.services.settings import reset_memory_settings
 from llm_gateway.gateway import LiteLLMGateway
 from starlette.applications import Starlette
@@ -146,12 +146,15 @@ async def _ask(gateway: LiteLLMGateway, model: str) -> str:
 async def _gateway_for(provider: str, port: int, key: str = "not-needed") -> LiteLLMGateway:
     reset_memory_settings()
     store = ModelCredentialStore(None)
-    await store.put(
+    await store.create(
         ORG,
-        None,
-        provider,
-        key,
-        f"http://127.0.0.1:{port}" + ("/v1" if provider == "hosted_vllm" else ""),
+        NewCredential(
+            "org",
+            None,
+            provider,
+            key,
+            api_base=f"http://127.0.0.1:{port}" + ("/v1" if provider == "hosted_vllm" else ""),
+        ),
     )
     gateway = LiteLLMGateway()
     gateway.credential_resolver = CredentialResolver(None, store)

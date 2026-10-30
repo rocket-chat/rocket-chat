@@ -38,13 +38,13 @@ That stack uses throwaway secrets: it is for trying Rocket Chat on your own mach
 | :--- | :--- |
 | **A sandbox of its own, ready on arrival** | Each conversation runs in its own isolated, disposable environment built from an image *you* control: your toolchains, your variables, your repositories prepared. Scales with your cluster. [More below.](#every-conversation-gets-its-own-sandbox) |
 | **A team of agents, shaped to your work** | Built-in agents (a general engineer, a backend specialist, a security auditor), editable, or define your own: each with its own instructions, model, tools, skills, knowledge, step budget and sandbox. Agents delegate to parallel subagents. |
-| **A team's platform, not a personal tool** | Sign-in with your identity provider, roles, shared sessions, per-person and organization budgets, an audit trail. Included in the one open-source edition. |
+| **A team's platform, not a personal tool** | Sign-in with your identity provider, people in several organizations, roles and capabilities, invitations, who may use each agent, shared sessions, spend limits per organization, person, agent or Slack workspace, an audit trail. Included in the one open-source edition. |
 | **Yours to run** | Your servers, your cluster, your network. Code and prompts go only to the model you choose, or to none with a self-hosted one ([air-gapped installs](doc/install/air-gapped.md)). |
 | **Browser and Slack, both first-class** | Several Slack bots, each mapped to an agent; questions and approvals as buttons; work in the open or privately. Every Slack thread is also a session in the browser. |
 | **GitHub, end to end** | Pull requests, review threads, CI logs, PR following, webhooks, and **signed commits** (GitHub's Verified badge, or a member's own key that never enters the sandbox). |
 | **Your internal tools, safely** | MCP servers, remote or command-line (stdio). Command servers run on a dedicated locked-down runner, with install scripts and per-member credentials. |
 | **You decide how much to trust it** | From read-only *Plan* to *Ask* (approve every edit and command) to *Auto*, with checkpoints to rewind. Approvals wait as long as you need. |
-| **Any model** | Your own keys (members can bring theirs), routing by task, fallbacks, spend caps. No lock-in. |
+| **Any model** | Your own keys (several per provider, members can bring theirs, an agent can be bound to its own), routing by task, fallbacks, spend limits. No lock-in. |
 | **Built for long work** | A turn can run for hours: durable waits for CI and reviews, resume after a restart, parallel subagents. |
 
 [Why it exists and who it is for](doc/why-rocket-chat.md) · [How it compares with Claude Code, Codex, OpenCode, Cursor, GitHub Copilot's agent, Devin and OpenHands](doc/compare.md)
@@ -68,7 +68,7 @@ The agents come with a large toolset, so a new organization can do real work on 
 | **Code** | Read, search, edit and patch files; `grep`, `glob` and symbol search; run builds, tests, lint and type checks; a package manager. |
 | **Shell and processes** | A real shell in the sandbox; background servers and watchers with their logs; a live **Preview** of a running app; an interactive terminal. |
 | **Git** | Branches, commits with co-author trailers, diffs, checkpoints and rewind, multi-repository workspaces. |
-| **GitHub** | Pull requests (diffs, review threads, replies, merge), Actions runs and failed-job logs, issues, releases, code search, a watch on a pull request that wakes the agent when CI finishes or a review lands. Publishing with **signed commits**: `github_app` (GitHub-verified), `gpg_key` (a member's own key, stored encrypted, never in the sandbox) or unsigned. |
+| **GitHub** | Pull requests (diffs, review threads, replies, merge), Actions runs and failed-job logs, issues, releases, code search, a watch on a pull request that wakes the agent when CI finishes or a review lands. Publishing with **signed commits**: `github` (GitHub-verified), `member_gpg` (a member's own key, stored encrypted, never in the sandbox) or unsigned. |
 | **Slack** | Read the thread, channels and user groups; find people; link messages; post, message and react under your policy. Attachments are read; long answers and diffs are attached as files. |
 | **The web** | Fetch and search the web; a browser that opens the page the agent built and reports its text, console errors and failed requests. |
 | **Working like an engineer** | A task checklist the team can follow, durable waits (`wait_for` CI, a review, a process), long-term memory, knowledge-base search, plan mode, questions as decision cards. |
@@ -114,7 +114,7 @@ Anything you would hand to a capable engineer who has a terminal and a morning:
 | :--- | :--- |
 | [Install](doc/install/index.md) | Docker Compose, Kubernetes, local clusters, from source, air-gapped. |
 | [Use](doc/use/index.md) | Your first session, supervision, Slack, templates, schedules, skills. |
-| [Administer](doc/administer/index.md) | Sign-in, models and budgets, GitHub, Slack, sandboxes, security and audit. |
+| [Administer](doc/administer/index.md) | Sign-in, members and roles, models and credentials, spend limits, GitHub, Slack, sandboxes, security and audit. |
 | [Operate](doc/operate/index.md) | Helm values, hardening, backups, monitoring, troubleshooting. |
 | [API](doc/api/index.md) | REST and the live WebSocket protocol, to build on top of it. |
 

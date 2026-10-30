@@ -15,6 +15,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from api.auth.access import _require_admin
+from api.services.agent_access import AgentAccessDenied, require_usable_agent
 from api.services.slack_bot_setup import check_tokens, manifest
 from api.services.slack_bots import (
     SlackBotError,
@@ -227,6 +228,7 @@ async def create_bot(body: SlackBotCreateRequest, request: Request) -> SlackBotR
         raise HTTPException(status_code=400, detail=str(err)) from err
 
     await _claim_workspace(request, org_id, admin_id, identity)
+    await _bot_agents_serve_guests(request, org_id, admin_id, body.agent_id, body.policy)
     record = SlackBotRecord(
         id="",
         org_id=org_id,
@@ -291,6 +293,9 @@ async def update_bot(
             raise HTTPException(status_code=400, detail=str(err)) from err
         await _claim_workspace(request, org_id, admin_id, identity)
 
+    await _bot_agents_serve_guests(
+        request, org_id, admin_id, changes.get("agent_id"), changes.get("policy") or {}
+    )
     try:
         updated = await store.update(org_id, bot_id, changes, tokens=tokens, identity=identity)
     except SlackBotError as err:
@@ -395,3 +400,22 @@ async def get_bot_decisions(
         raise HTTPException(status_code=404, detail="Slack bot not found")
     db_mgr = getattr(request.app.state, "db_manager", None)
     return await list_route_decisions(db_mgr, org_id, bot_id, limit=limit)
+
+
+async def _bot_agents_serve_guests(
+    request: Request, org_id: str, admin_id: str, agent_id: str | None, policy: dict[str, Any]
+) -> None:
+    """A bot's agent, and each channel profile's, must be usable by Slack guests: the bot
+    answers people who have not paired, whose turns run as guests."""
+    profiles = policy.get("channel_profiles") if isinstance(policy, dict) else None
+    agents = [agent_id] + [
+        str(profile.get("agent_persona") or "")
+        for profile in (profiles or {}).values()
+        if isinstance(profile, dict)
+    ]
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    for candidate in dict.fromkeys(a for a in agents if a):
+        try:
+            await require_usable_agent(db_mgr, org_id, admin_id, None, candidate, for_guests=True)
+        except AgentAccessDenied as err:
+            raise HTTPException(status_code=422, detail=str(err)) from err

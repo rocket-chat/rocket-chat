@@ -23,6 +23,7 @@ from typing import Any
 from llm_gateway.pricing import estimate_cost_usd
 from specifications.interfaces.llm import (
     BudgetGuardProtocol,
+    CallRefusal,
     ChatMessage,
     CredentialResolverProtocol,
     LLMGatewayProtocol,
@@ -122,7 +123,6 @@ class DeterministicStubGateway(LLMGatewayProtocol):
         self._chunk_delay = chunk_delay_seconds
         self.call_count = 0
         self.usage_ledger: list[dict[str, object]] = []
-        self._budget_caps: dict[str, float] = {}
         # The same policy hooks as the real gateway, so budgets and the persisted ledger are
         # exercised end to end by suites that run on the stub.
         self.usage_sink: UsageSinkProtocol | None = None
@@ -171,9 +171,18 @@ class DeterministicStubGateway(LLMGatewayProtocol):
         scope = current_model_scope.get()
         if scope is not None and self.budget_guard is not None:
             try:
-                await self.budget_guard.check(scope)
+                reservation = await self.budget_guard.reserve(
+                    scope, estimate_usd=0.0, key_source="platform"
+                )
+                if reservation is not None:
+                    await self.budget_guard.settle(reservation, actual_usd=0.0)
             except Exception as err:
-                yield StreamChunk(is_finished=True, finish_reason="error", error=str(err))
+                yield StreamChunk(
+                    is_finished=True,
+                    finish_reason="error",
+                    error=str(err),
+                    refusal=CallRefusal.from_error(err),
+                )
                 return
         self.call_count += 1
         prompt = self._prompt_text(request.messages)
@@ -255,53 +264,9 @@ class DeterministicStubGateway(LLMGatewayProtocol):
             }
         )
 
-    def set_budget_cap(self, tenant_org_id: str, monthly_budget_usd: float) -> None:
-        """Accept budget caps for protocol parity with the real gateway."""
-        self._budget_caps[tenant_org_id] = monthly_budget_usd
-
     @staticmethod
     def _sum_tokens(entries: list[dict[str, object]], field: str) -> int:
         return sum(int(value) for entry in entries if isinstance(value := entry.get(field), int))
-
-    @staticmethod
-    def _by_model(entries: list[dict[str, object]]) -> dict[str, dict[str, object]]:
-        """Per-model token totals, in the same shape the real gateway returns."""
-        totals: dict[str, list[int]] = {}
-        for entry in entries:
-            model = str(entry.get("model", "unknown"))
-            prompt = entry.get("prompt_tokens")
-            completion = entry.get("completion_tokens")
-            bucket = totals.setdefault(model, [0, 0])
-            bucket[0] += prompt if isinstance(prompt, int) else 0
-            bucket[1] += completion if isinstance(completion, int) else 0
-        return {
-            model: {"prompt_tokens": values[0], "completion_tokens": values[1], "cost_usd": 0.0}
-            for model, values in totals.items()
-        }
-
-    def get_org_usage_summary(self, tenant_org_id: str) -> dict[str, object]:
-        """Aggregate the ledger for an organisation.
-
-        Mirrors ``LiteLLMGateway.get_org_usage_summary`` key-for-key: the API returns this
-        mapping straight to the client, so a stub with a different shape would let the
-        suite pass against a contract nothing serves.
-        """
-        entries = [e for e in self.usage_ledger if e.get("tenant_org_id") == tenant_org_id]
-        prompt_tokens = self._sum_tokens(entries, "prompt_tokens")
-        completion_tokens = self._sum_tokens(entries, "completion_tokens")
-        budget_cap = self._budget_caps.get(tenant_org_id, 250.0)
-        return {
-            "tenant_org_id": tenant_org_id,
-            "total_tokens": prompt_tokens + completion_tokens,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_cost_usd": 0.0,
-            "cache_read_tokens": self._sum_tokens(entries, "cache_read_tokens"),
-            "cache_creation_tokens": self._sum_tokens(entries, "cache_creation_tokens"),
-            "monthly_budget_cap_usd": budget_cap,
-            "budget_used_percent": 0.0,
-            "models": self._by_model(entries),
-        }
 
     def get_user_usage_summary(self, tenant_user_id: str) -> dict[str, object]:
         """Aggregate the ledger for a user (same shape as the real gateway)."""
