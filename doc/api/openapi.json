@@ -4682,6 +4682,51 @@
         "title": "PairRequest",
         "type": "object"
       },
+      "Participant": {
+        "properties": {
+          "guest_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guest Of"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "name"
+        ],
+        "title": "Participant",
+        "type": "object"
+      },
+      "ParticipantList": {
+        "properties": {
+          "participants": {
+            "items": {
+              "$ref": "#/components/schemas/Participant"
+            },
+            "title": "Participants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "participants"
+        ],
+        "title": "ParticipantList",
+        "type": "object"
+      },
       "PendingMessageResponse": {
         "properties": {
           "author_user_id": {
@@ -16789,6 +16834,49 @@
         "summary": "Get Session Messages",
         "tags": [
           "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/participants": {
+      "get": {
+        "description": "The authors of the session's messages with their names (a guest's name is its platform's\nplaceholder: the web app shows the name the platform gave with each message instead).",
+        "operationId": "session_participants_v1_sessions__session_id__participants_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParticipantList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Participants",
+        "tags": [
+          "Sessions"
         ]
       }
     },

@@ -30,16 +30,27 @@ test("a dropped live connection shows a banner and resumes when the network is b
   await expect(banner).toContainText("Reconnecting");
 
   // More attempts than the five the client used to give up after; each "online" retries at once.
+  // The event is sent on every poll: one sent while the client still settles the refused socket
+  // is (rightly) ignored, and the next backoff can then outlast the wait on a busy machine.
+  const wake = (event: string) => page.evaluate((name) => window.dispatchEvent(new Event(name)), event);
   for (let attempt = 0; attempt < 7; attempt++) {
     const before = sockets.length;
-    await page.evaluate(() => window.dispatchEvent(new Event("online")));
-    await expect.poll(() => sockets.length).toBeGreaterThan(before);
+    await expect
+      .poll(async () => {
+        await wake("online");
+        return sockets.length;
+      })
+      .toBeGreaterThan(before);
   }
   await expect(banner).toBeVisible();
 
   refusing = false;
   const before = sockets.length;
-  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect.poll(() => sockets.length).toBeGreaterThan(before);
+  await expect
+    .poll(async () => {
+      await wake("focus");
+      return sockets.length;
+    })
+    .toBeGreaterThan(before);
   await expect(banner).toHaveCount(0);
 });

@@ -58,8 +58,21 @@ def _check_session_access(
         record.metadata.get("collaborators", []) if isinstance(record.metadata, dict) else []
     )
     is_collab = user_id in collabs
-    if not (is_owner or is_shared or is_collab):
-        raise HTTPException(
-            status_code=403,
-            detail="Forbidden: You do not have permission to access this session",
-        )
+    if is_owner or is_shared or is_collab:
+        return
+    # A chat thread's session (a public Slack thread): every member of the organization may read
+    # it from its link, but it joins their list, and they may write in it, only once they take
+    # part in the thread (they are then a collaborator).
+    if has_link_access(record) and not require_write:
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Forbidden: You do not have permission to access this session",
+    )
+
+
+LINK_ACCESS_KEY = "link_access"
+
+
+def has_link_access(record: SessionRecord) -> bool:
+    return isinstance(record.metadata, dict) and bool(record.metadata.get(LINK_ACCESS_KEY))

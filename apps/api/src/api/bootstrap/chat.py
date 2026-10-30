@@ -62,8 +62,12 @@ class _Callbacks:
                 tenant_user_id=owner,
                 title=title,
                 source=SessionSource.CHAT,
-                is_shared=True,
-                metadata={**metadata, "title_source": "auto"},
+                # Like a public Slack thread: readable by the organization from its link.
+                metadata={
+                    **metadata,
+                    "title_source": "auto",
+                    "link_access": not metadata.get("chat_direct"),
+                },
             )
         )
 

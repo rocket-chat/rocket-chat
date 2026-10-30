@@ -1229,6 +1229,13 @@ class SlackAssistant(
         try:
             existing = await self.session_store.get_session(session_id)
             if existing is not None:
+                joining = [
+                    m for m in _participants(admitted) if m not in (existing.collaborators or [])
+                ]
+                if joining:
+                    await self.session_store.mutate_session(
+                        session_id, admitted.session_org_id, _with_participants(joining)
+                    )
                 if (existing.metadata or {}).get("slack_thread_ts") != thread_ts:
                     # A continued direct message: later turns no request waits on are posted
                     # in the newest thread.
@@ -1461,8 +1468,12 @@ def _new_session_record(
         title=title,
         source=SessionSource.SLACK,
         container_image=admitted.sandbox_image or None,
-        is_shared=not (admitted.is_dm or admitted.private),
+        # A public thread is not shared with everyone's list: members read it from its link
+        # (``link_access``), and it joins the list of those who take part.
+        is_shared=False,
+        collaborators=_participants(admitted),
         metadata={
+            "link_access": not (admitted.is_dm or admitted.private),
             "slack_channel_id": channel_id,
             "slack_thread_ts": thread_ts,
             "slack_user_id": slack_user_id,
@@ -1474,6 +1485,31 @@ def _new_session_record(
             "toolsets": ["slack"],
         },
     )
+
+
+def _participants(admitted: _Admitted) -> list[str]:
+    """The Rocket member behind a message in a public thread, to add to the session's
+    collaborators: a linked member of the thread's organization (not its owner, not a guest)."""
+    if (
+        admitted.is_dm
+        or admitted.private
+        or not admitted.linked
+        or admitted.rocket_org_id != admitted.session_org_id
+        or admitted.rocket_user_id == admitted.session_user_id
+    ):
+        return []
+    return [admitted.rocket_user_id]
+
+
+def _with_participants(members: list[str]) -> Callable[[SessionRecord], None]:
+    def join(record: SessionRecord) -> None:
+        known = record.metadata if isinstance(record.metadata, dict) else {}
+        current = list(record.collaborators or known.get("collaborators") or [])
+        merged = list(dict.fromkeys([*current, *members]))
+        record.collaborators = merged
+        record.metadata = {**known, "collaborators": merged}
+
+    return join
 
 
 def _repository_line(repository: str, branch: str) -> str:

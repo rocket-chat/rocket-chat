@@ -33,6 +33,9 @@ class _Platform:
     async def edit(self, conversation_id: str, message_id: str, text: str) -> None:
         self.edits.append(text)
 
+    def permalink(self, message: IncomingChatMessage) -> str | None:
+        return None
+
 
 def _message(text: str = "fix the build", user: str = "u1") -> IncomingChatMessage:
     return IncomingChatMessage("mattermost", "c1", "t1", "p1", user, "Ada", text)

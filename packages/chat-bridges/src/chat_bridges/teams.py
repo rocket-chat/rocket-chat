@@ -145,6 +145,11 @@ class TeamsPlatform:
         )
         return str(made.raise_for_status().json().get("id") or "")
 
+    def permalink(self, message: IncomingChatMessage) -> str | None:
+        # A Teams deep link needs the team and channel ids of a channel message, which a
+        # personal chat lacks: the thread is opened from Teams itself.
+        return None
+
     async def edit(self, conversation_id: str, message_id: str, text: str) -> None:
         url = f"{self._service(conversation_id)}/v3/conversations/{conversation_id}/activities/{message_id}"
         body = {"type": "message", "text": text, "textFormat": "markdown"}

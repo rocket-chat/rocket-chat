@@ -47,7 +47,7 @@ from api.services.session_support import (
 from api.services.session_updates import publish_session_update
 from api.services.settings import effective_settings, load_org_config
 from api.services.skills_in_effect import skill_texts_for
-from api.services.title import TITLE_SOURCE_AUTO
+from api.services.title import TITLE_SOURCE_AUTO, placeholder_title
 from api.services.tool_loading import guidance_read_of, loaded_tools_of, skills_read_of
 from api.services.turn_resume import RESUME_NOTICE
 from api.services.turn_trace import (
@@ -555,14 +555,9 @@ class TurnRunner:
             or RESUME_NOTICE in self.req.prompt
         ):
             return
-        words = self.req.prompt.strip().replace("\n", " ").split()
-        candidates = [w for w in words if len(w) > 1 and not w.startswith("/")][:5]
-        if not candidates:
+        title = placeholder_title(self.req.prompt)
+        if not title:
             return
-        title = " ".join(candidates)
-        title = title[0].upper() + title[1:]
-        if len(title) > 35:
-            title = title[:32] + "..."
         session.title = title
 
         def set_placeholder_title(record: SessionRecord) -> None:

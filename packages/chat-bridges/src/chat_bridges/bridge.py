@@ -123,6 +123,8 @@ class ChatBridge:
                 "chat_platform": message.platform,
                 "chat_conversation_id": message.conversation_id,
                 "chat_thread_id": message.thread_id,
+                "chat_permalink": self.platform.permalink(message) or "",
+                "chat_direct": message.direct,
                 "toolsets": [],
             },
         )

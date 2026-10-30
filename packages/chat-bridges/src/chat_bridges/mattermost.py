@@ -52,6 +52,9 @@ class MattermostPlatform:
         made = (await self._client.post("/posts", json=body)).raise_for_status().json()
         return str(made["id"])
 
+    def permalink(self, message: IncomingChatMessage) -> str | None:
+        return f"{self.url}/_redirect/pl/{message.thread_id}"
+
     async def edit(self, conversation_id: str, message_id: str, text: str) -> None:
         (
             await self._client.put(f"/posts/{message_id}/patch", json={"message": text})

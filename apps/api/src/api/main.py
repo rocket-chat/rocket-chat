@@ -58,6 +58,7 @@ from api.routers.repository_setups import router as repository_setups_router
 from api.routers.sandboxes import router as sandboxes_router
 from api.routers.session_crud import router as session_crud_router
 from api.routers.session_git import router as session_git_router
+from api.routers.session_participants import router as session_participants_router
 from api.routers.session_search import router as session_search_router
 from api.routers.session_turns import router as session_turns_router
 from api.routers.session_ws import router as session_ws_router
@@ -341,6 +342,7 @@ app.include_router(setup_health_router)
 app.include_router(automation_router)
 app.include_router(workspace_snapshots_router)
 app.include_router(chat_router)
+app.include_router(session_participants_router)
 app.include_router(feedback_router)
 app.include_router(session_git_router)
 app.include_router(plan_router)

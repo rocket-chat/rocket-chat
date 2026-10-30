@@ -614,7 +614,7 @@ class PostgresSessionStore(SessionStoreProtocol):
                 git_repo=record.git_repo,
                 git_branch=record.git_branch,
                 conversation_history=history_data,
-                metadata_json=record.metadata,
+                metadata_json=_with_sharing(record),
                 created_at=record.created_at,
                 updated_at=record.updated_at,
                 is_pinned=record.is_pinned,
@@ -654,7 +654,7 @@ class PostgresSessionStore(SessionStoreProtocol):
         model.conversation_history = [
             self._chat_message_to_dict(m) for m in record.conversation_history
         ]
-        model.metadata_json = record.metadata
+        model.metadata_json = _with_sharing(record)
         model.is_pinned = record.is_pinned
         model.is_archived = record.is_archived
         model.is_processing = record.is_processing
@@ -818,3 +818,18 @@ class PostgresSessionStore(SessionStoreProtocol):
             models = result.scalars().all()
             for m in models:
                 await session.delete(m)
+
+
+def _with_sharing(record: SessionRecord) -> dict[str, Any]:
+    """The record's metadata with its sharing, which this store reads from the metadata only.
+
+    A session created with ``is_shared=True`` on the record (Slack, triggers, chat platforms)
+    and nothing in its metadata used to be stored private, so only its owner and administrators
+    could open it. A writer that changes sharing sets both (``apply_sharing``); the record's
+    fields, loaded from the metadata, carry it otherwise.
+    """
+    metadata = dict(record.metadata) if isinstance(record.metadata, dict) else {}
+    metadata["is_shared"] = bool(record.is_shared or metadata.get("is_shared"))
+    collaborators = list(record.collaborators or metadata.get("collaborators") or [])
+    metadata["collaborators"] = list(dict.fromkeys(collaborators))
+    return metadata
