@@ -395,7 +395,12 @@ jobs:
             --kubeconfig-update-default=false --kubeconfig-switch-context=false \
             --k3s-arg "--disable=traefik@server:0" --wait --timeout 180s
           ./k3d kubeconfig get ci > "$RUNNER_TEMP/kubeconfig"
-          ./k3d image import rocket-chat-sandbox:dev -c ci
+          # Import a finished tarball rather than letting k3d stream its own save: the streamed
+          # import can end early ("unexpected EOF") while k3d still reports success.
+          docker save rocket-chat-sandbox:dev -o "$RUNNER_TEMP/sandbox.tar"
+          ./k3d image import "$RUNNER_TEMP/sandbox.tar" -c ci
+          docker exec k3d-ci-server-0 crictl images | grep -q 'rocket-chat-sandbox' \
+            || { echo "::error::rocket-chat-sandbox:dev is not in the k3d node"; exit 1; }
       - name: Run the live driver tests
         env:
           ROCKET_K8S_LIVE: "1"
