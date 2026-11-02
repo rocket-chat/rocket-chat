@@ -48,7 +48,15 @@ async def _provision(org: str, image: str | None = None, **binding: Any) -> Any:
         db_mgr=None,
         git_engine=None,
         session_id=f"session_{org}",
-        binding=SimpleNamespace(**{"sandbox_id": "", **binding}),
+        binding=SimpleNamespace(
+            **{
+                "sandbox_id": "",
+                "policy": SimpleNamespace(
+                    attribution=SimpleNamespace(requester_user_id=None, team_id=None)
+                ),
+                **binding,
+            }
+        ),
         egress_allowed_cidrs=[],
         block_internal_subnets=False,
         fallback_user="u1",
@@ -127,7 +135,9 @@ def _turn(org: str, driver: Any = None) -> Any:
             skill_ids=(),
             sandbox_id="",
             model_router=None,
-            policy=SimpleNamespace(attribution=SimpleNamespace(requester_user_id=None)),
+            policy=SimpleNamespace(
+                attribution=SimpleNamespace(requester_user_id=None, team_id=None)
+            ),
         ),
         governance=SimpleNamespace(
             egress=SimpleNamespace(allowed_cidrs=[], block_internal_subnets=False)
@@ -333,7 +343,15 @@ async def test_an_organization_at_its_running_sandbox_cap_cannot_start_another()
             db_mgr=None,
             git_engine=None,
             session_id="one_too_many",
-            binding=SimpleNamespace(sandbox_image="", sandbox_id="", cpu_limit="", memory_limit=""),
+            binding=SimpleNamespace(
+                sandbox_image="",
+                sandbox_id="",
+                cpu_limit="",
+                memory_limit="",
+                policy=SimpleNamespace(
+                    attribution=SimpleNamespace(requester_user_id=None, team_id=None)
+                ),
+            ),
             egress_allowed_cidrs=[],
             block_internal_subnets=False,
             fallback_user="u1",

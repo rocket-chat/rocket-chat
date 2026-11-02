@@ -12,6 +12,7 @@ import { useAuth } from "../../lib/auth-context";
 import { refreshTeams, useTeams, type Team } from "../../lib/teams";
 import { filterTeams, teamIdOf } from "../../lib/ownership";
 import { useOwnerFilter } from "../../lib/useOwnerFilter";
+import { TeamDefaultsPanel } from "./TeamDefaultsPanel";
 
 interface TeamMember {
   user_id: string;
@@ -355,6 +356,7 @@ const TeamDetail: React.FC<{ team: Team; onGone: () => void }> = ({ team, onGone
           )}
         </section>
       )}
+      <TeamDefaultsPanel team={team} />
       {dialog}
     </div>
   );

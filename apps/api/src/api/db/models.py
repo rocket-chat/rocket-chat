@@ -403,6 +403,29 @@ class ApprovalRuleModel(Base):
     last_used_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
 
+class TeamSettingModel(Base):
+    """A team's own defaults for one domain, used in its context (its agents' turns). Forced
+    RLS; only ``org_default`` keys, still held by the organization's locks and ceilings."""
+
+    __tablename__ = "team_settings"
+    __table_args__ = (UniqueConstraint("team_id", "domain", name="uq_team_settings_domain"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    team_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    domain: Mapped[str] = mapped_column(String(64), nullable=False)
+    config: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), default=dict
+    )
+    updated_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+
+
 class OrgSettingModel(Base):
     """Organization-level configuration defaults and lockouts for a domain."""
 
@@ -1353,6 +1376,8 @@ class SandboxCatalogueModel(Base):
     memory_limit: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     disk_size: Mapped[str] = mapped_column(String(16), nullable=False, default="")
     release_after_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # A team's own type (its members' sessions and its agents only); NULL: the organization's.
+    team_id: Mapped[str | None] = _team_owner_column()
     # [{name, value, secret}]; a secret's value is sealed with the credential cipher.
     env: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list

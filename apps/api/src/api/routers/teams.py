@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from config_engine import validate as validate_setting
+from config_engine.registry import specs_for, writable_keys
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
@@ -16,6 +18,12 @@ from api.auth.access import _get_request_identity
 from api.auth.access import _require_admin as require_admin
 from api.services.audit import AuditService
 from api.services.memberships import members
+from api.services.settings import (
+    load_org_config,
+    load_team_config,
+    resolve_settings,
+    save_team_config,
+)
 from api.services.teams import (
     Team,
     TeamError,
@@ -254,3 +262,79 @@ async def delete_team_member(team_id: str, user_id: str, request: Request) -> No
         "team.member_changed",
         {"team_id": team_id, "user_id": user_id, "role": None},
     )
+
+
+# -- a team's own defaults ------------------------------------------------------------------
+
+
+class TeamSettingsBody(BaseModel):
+    config: dict[str, Any] = Field(
+        default_factory=dict, description="The team's defaults; only organization defaults"
+    )
+
+
+class TeamSettingsView(BaseModel):
+    domain: str
+    # The team's own values.
+    config: dict[str, Any]
+    # The keys a team may set in this domain, minus those the organization locked.
+    writable: list[str]
+    locked_by_org: list[str]
+    # Every key's value in the team's context (before members' own choices) and its source.
+    effective: dict[str, Any]
+    provenance: dict[str, dict[str, Any]]
+
+
+async def _team_settings_view(
+    db_mgr: Any, org_id: str, team_id: str, domain: str
+) -> TeamSettingsView:
+    _, locked = await load_org_config(db_mgr, org_id, domain)
+    keys = writable_keys(domain, "team")
+    resolved = await resolve_settings(db_mgr, org_id, domain, team_id=team_id)
+    return TeamSettingsView(
+        domain=domain,
+        config=await load_team_config(db_mgr, org_id, team_id, domain),
+        writable=sorted(keys - set(locked)),
+        locked_by_org=sorted(keys & set(locked)),
+        effective=resolved.effective,
+        provenance={k: v.to_dict() for k, v in resolved.provenance.items()},
+    )
+
+
+@router.get("/teams/{team_id}/settings/{domain}", response_model=TeamSettingsView)
+async def get_team_settings(team_id: str, domain: str, request: Request) -> TeamSettingsView:
+    """The team's defaults for a domain, used in the turns of the team's agents (its
+    administrators). A member's own choice still wins; the organization's locks still hold."""
+    org_id, _, _ = await _managed_team(request, team_id)
+    if not specs_for(domain):
+        raise HTTPException(status_code=404, detail=f"Unknown settings domain '{domain}'.")
+    return await _team_settings_view(_database(request), org_id, team_id, domain)
+
+
+@router.put("/teams/{team_id}/settings/{domain}", response_model=TeamSettingsView)
+async def put_team_settings(
+    team_id: str, domain: str, body: TeamSettingsBody, request: Request
+) -> TeamSettingsView:
+    """Replace the team's defaults for a domain (organization defaults only, not a key the
+    organization locked)."""
+    org_id, viewer, _ = await _managed_team(request, team_id)
+    if not specs_for(domain):
+        raise HTTPException(status_code=404, detail=f"Unknown settings domain '{domain}'.")
+    db_mgr = _database(request)
+    checked = validate_setting(domain, body.config, writer="team")
+    _, locked = await load_org_config(db_mgr, org_id, domain)
+    errors = [
+        *(f"{e.key}: {e.message}" for e in checked.errors),
+        *(f"{key}: locked by the organization" for key in body.config if key in locked),
+    ]
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(errors))
+    await save_team_config(db_mgr, org_id, team_id, domain, checked.values)
+    await _audit(
+        request,
+        org_id,
+        viewer.user_id,
+        "settings_change",
+        {"team_id": team_id, "domain": domain, "keys": sorted(checked.values)},
+    )
+    return await _team_settings_view(db_mgr, org_id, team_id, domain)

@@ -13,6 +13,7 @@ from api.auth.identity import resolve_identity
 from api.auth.jwt_validator import JWTValidator
 from api.auth.roles import with_live_roles
 from api.services.metrics import record_auth_failure
+from api.services.teams import bind_caller_teams
 
 logger = logging.getLogger(__name__)
 
@@ -72,9 +73,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 content={"detail": "Authentication required"},
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        request.state.context = await with_live_roles(
-            context, getattr(request.app.state, "db_manager", None)
-        )
+        db_mgr = getattr(request.app.state, "db_manager", None)
+        request.state.context = await with_live_roles(context, db_mgr)
+        await bind_caller_teams(db_mgr, context.org_id, context.user_id)
         return cast(Response, await call_next(request))
 
 

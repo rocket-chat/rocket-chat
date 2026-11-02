@@ -40,8 +40,11 @@ interface FieldIssue {
 interface SchemaSettingsFormProps {
   /** Settings domain declared in the backend registry (e.g. "sandboxes"). */
   domain: string;
-  /** "org": administrators edit organization defaults. "user": a member edits personal overrides. */
-  mode: "org" | "user";
+  /** "org": administrators edit organization defaults. "user": a member edits personal overrides.
+   * "team": a team's administrators edit the defaults of the team's agents' turns (`team`). */
+  mode: "org" | "user" | "team";
+  /** With `mode="team"`: the team, and whether the person manages it. */
+  team?: { id: string; name: string; canManage: boolean };
   title: string;
   description?: string;
   /** Registry keys to leave out of this form (shown elsewhere). */
@@ -115,10 +118,12 @@ export function SchemaSettingsForm({
   selectOptions,
   controls,
   idScope,
+  team,
 }: SchemaSettingsFormProps) {
   const key = idScope ? `${idScope}-${domain}` : domain;
   const { isAdmin, loaded: accessLoaded } = useAccess();
-  const canEdit = mode === "user" || isAdmin;
+  const canEdit = mode === "user" || (mode === "team" ? !!team?.canManage : isAdmin);
+  const teamBase = team ? `/v1/teams/${encodeURIComponent(team.id)}/settings/${domain}` : "";
 
   const [schema, setSchema] = useState<FieldSchema[]>([]);
   const [values, setValues] = useState<FieldValues>({});
@@ -130,6 +135,9 @@ export function SchemaSettingsForm({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
   const [orgLocked, setOrgLocked] = useState<string[]>([]);
+  // Team mode: the keys a team may set (locked ones included, shown locked) and those it set.
+  const [teamKeys, setTeamKeys] = useState<string[]>([]);
+  const [teamConfig, setTeamConfig] = useState<FieldValues>({});
   // Where each value comes from (platform, operator, organization, the member's own).
   const [provenance, setProvenance] = useState<Record<string, Provenance>>({});
   const [issues, setIssues] = useState<FieldIssue[]>([]);
@@ -141,9 +149,11 @@ export function SchemaSettingsForm({
     // Organization forms also show operator values (read-only); member forms only what a
     // member may choose.
     const writable = schema.filter((f) =>
-      mode === "org"
-        ? f.policy !== "member"
-        : f.policy === "member" || (f.policy === "org_default" && f.member_override !== false),
+      mode === "team"
+        ? teamKeys.includes(f.key)
+        : mode === "org"
+          ? f.policy !== "member"
+          : f.policy === "member" || (f.policy === "org_default" && f.member_override !== false),
     );
     // A superseded setting only shows while it still holds a stored value.
     const visible = writable.filter(
@@ -151,7 +161,7 @@ export function SchemaSettingsForm({
     );
     if (!only) return visible;
     return only.map((key) => visible.find((f) => f.key === key)).filter((f): f is FieldSchema => !!f);
-  }, [schema, mode, exclude, only, initial]);
+  }, [schema, mode, exclude, only, initial, teamKeys]);
 
   const load = useCallback(async () => {
     try {
@@ -162,7 +172,23 @@ export function SchemaSettingsForm({
 
       const byKey = Object.fromEntries(allFields.map((f) => [f.key, f]));
       let source: FieldValues;
-      if (mode === "org" && isAdmin) {
+      if (mode === "team") {
+        const res = await fetch(teamBase);
+        if (!res.ok) throw new Error(`settings HTTP ${res.status}`);
+        const data = (await res.json()) as {
+          config: FieldValues;
+          writable: string[];
+          locked_by_org: string[];
+          effective: FieldValues;
+          provenance: Record<string, Provenance>;
+        };
+        // The team's own value where it set one, else what its agents' turns get today.
+        source = { ...(data.effective ?? {}), ...(data.config ?? {}) };
+        setTeamConfig(data.config ?? {});
+        setTeamKeys([...(data.writable ?? []), ...(data.locked_by_org ?? [])]);
+        setOrgLocked(data.locked_by_org ?? []);
+        setProvenance(data.provenance ?? {});
+      } else if (mode === "org" && isAdmin) {
         const res = await fetch(`/v1/admin/settings/${domain}`);
         if (!res.ok) throw new Error(`settings HTTP ${res.status}`);
         const data = await res.json();
@@ -189,7 +215,7 @@ export function SchemaSettingsForm({
     } catch (err) {
       setBanner({ kind: "error", text: err instanceof Error ? err.message : "Failed to load settings" });
     }
-  }, [domain, mode, isAdmin]);
+  }, [domain, mode, isAdmin, teamBase]);
 
   // Loading before the role is known reads the member view, then reloads as an administrator
   // and overwrites whatever was typed in between.
@@ -217,8 +243,11 @@ export function SchemaSettingsForm({
     for (const field of fields) {
       if (field.policy === "instance") continue;
       const edited = values[field.key];
-      if (mode === "user" && JSON.stringify(edited) === JSON.stringify(initial[field.key])) continue;
-      if (orgLocked.includes(field.key) && mode === "user") continue;
+      const unchanged = JSON.stringify(edited) === JSON.stringify(initial[field.key]);
+      if (mode === "user" && unchanged) continue;
+      // A team stores only what it sets: its earlier values and what was just changed.
+      if (mode === "team" && unchanged && !(field.key in teamConfig)) continue;
+      if (orgLocked.includes(field.key) && mode !== "org") continue;
       const parsed = fromEditable(field, edited);
       if (parsed.error) local.push({ key: field.key, message: parsed.error });
       payload[field.key] = parsed.value;
@@ -230,7 +259,13 @@ export function SchemaSettingsForm({
     }
     try {
       let res: Response;
-      if (mode === "org") {
+      if (mode === "team") {
+        res = await fetch(teamBase, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ config: payload }),
+        });
+      } else if (mode === "org") {
         // Keep keys this form does not render exactly as stored.
         const keep: Record<string, unknown> = {};
         for (const field of schema) {
@@ -254,7 +289,10 @@ export function SchemaSettingsForm({
       if (res.status === 422) {
         const body = await res.json();
         setIssues(Array.isArray(body.detail) ? body.detail : []);
-        setBanner({ kind: "error", text: "Some settings were rejected - see the highlighted fields." });
+        setBanner({
+          kind: "error",
+          text: typeof body.detail === "string" ? body.detail : "Some settings were rejected - see the highlighted fields.",
+        });
         return false;
       }
       if (!res.ok) throw new Error(`Request failed with HTTP ${res.status}`);
@@ -280,7 +318,14 @@ export function SchemaSettingsForm({
   useSettingsFormHandle({ id: key, title, changes, save, discard });
 
   const resetField = async (key: string) => {
-    const res = await fetch(`/v1/settings/${domain}/${encodeURIComponent(key)}`, { method: "DELETE" });
+    const res =
+      mode === "team"
+        ? await fetch(teamBase, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ config: Object.fromEntries(Object.entries(teamConfig).filter(([k]) => k !== key)) }),
+          })
+        : await fetch(`/v1/settings/${domain}/${encodeURIComponent(key)}`, { method: "DELETE" });
     if (res.ok) {
       setBanner({ kind: "ok", text: `${humanize(key)} follows the organization again.` });
       await load();
@@ -296,7 +341,7 @@ export function SchemaSettingsForm({
   };
 
   const renderControl = (field: FieldSchema) => {
-    const locked = (mode === "user" && orgLocked.includes(field.key)) || field.policy === "instance";
+    const locked = (mode !== "org" && orgLocked.includes(field.key)) || field.policy === "instance";
     // Until the stored values arrive the inputs show blanks, and the arrival would overwrite
     // anything typed into them, so they stay disabled until then.
     const disabled = !canEdit || locked || !loaded;
@@ -438,7 +483,7 @@ export function SchemaSettingsForm({
 
   const renderField = (field: FieldSchema) => {
     const issue = issueFor(field.key);
-    const memberLocked = mode === "user" && orgLocked.includes(field.key);
+    const memberLocked = mode !== "org" && orgLocked.includes(field.key);
     const modified = changedKeys.includes(field.key);
     const atDefault =
       mode === "org" && field.key in defaults && JSON.stringify(values[field.key]) === JSON.stringify(toEditable(field, defaults[field.key]));
@@ -476,7 +521,9 @@ export function SchemaSettingsForm({
               <span data-testid={`settings-inheritance-${key}-${field.key}`}>
                 <InheritanceBadge
                   provenance={provenance[field.key]}
-                  onReset={mode === "user" ? () => resetField(field.key) : undefined}
+                  onReset={
+                    mode === "user" || (mode === "team" && canEdit && field.key in teamConfig) ? () => resetField(field.key) : undefined
+                  }
                 />
               </span>
             )}
@@ -533,7 +580,11 @@ export function SchemaSettingsForm({
       {!canEdit && (
         <div className="flex items-center gap-2 rounded-xl border border-amber-800/40 bg-amber-950/30 p-3 text-xs text-amber-300">
           <Lock className="h-4 w-4 shrink-0" />
-          <span>Read-only: these organization policies require an Administrator or Owner role.</span>
+          <span>
+            {mode === "team"
+              ? "Read-only: the team's administrators set its defaults."
+              : "Read-only: these organization policies require an Administrator or Owner role."}
+          </span>
         </div>
       )}
 

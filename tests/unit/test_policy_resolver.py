@@ -156,3 +156,49 @@ def test_list_choices_are_validated() -> None:
     assert ok.ok
     bad = validate("access", {"bring_own_keys": ["superuser"]}, writer="org")
     assert not bad.ok
+
+
+TEAM = {"x": "team"}
+
+
+def _in_team(spec: Spec, **ctx: Any) -> Any:
+    return resolve(
+        spec, ResolveContext(org={"x": "org"}, team=TEAM, team_source="team:platform", **ctx)
+    )
+
+
+def test_a_teams_default_sits_between_the_organization_and_the_member() -> None:
+    resolved = _in_team(Spec())
+    assert (resolved.value, resolved.source) == ("team", "team:platform")
+    assert _in_team(Spec(), member={"x": "member"}).value == "member"
+    assert _in_team(Spec(), presets=(AGENT,)).value == "agent"
+
+
+def test_a_teams_default_bows_to_the_organizations_lock_and_policy() -> None:
+    locked = _in_team(Spec(), locked=frozenset({"x"}))
+    assert (locked.value, locked.locked_by) == ("org", "org")
+    assert _in_team(Spec(policy="org")).value == "org"
+    assert _in_team(Spec(policy="member")).value == "platform"
+
+
+def test_a_teams_default_stays_under_a_ceiling() -> None:
+    spec = Spec(key="n", default=100, ceiling=True)
+    ctx = ResolveContext(org={"n": 50}, team={"n": 80}, team_source="team:platform")
+    assert resolve(spec, ctx).value == 50
+    lower = ResolveContext(org={"n": 50}, team={"n": 20}, team_source="team:platform")
+    assert resolve(spec, lower).value == 20
+
+
+def test_a_team_writes_organization_defaults_only() -> None:
+    for domain in REGISTRY:
+        team_keys = writable_keys(domain, "team")
+        assert team_keys <= writable_keys(domain, "org")
+        assert all(REGISTRY[domain][key].policy == "org_default" for key in team_keys)
+    domain, key = next(
+        (domain, key)
+        for domain, specs in REGISTRY.items()
+        for key, spec in specs.items()
+        if spec.policy == "org"
+    )
+    refused = validate(domain, {key: REGISTRY[domain][key].default}, writer="team")
+    assert refused.errors and "organization administrator" in refused.errors[0].message

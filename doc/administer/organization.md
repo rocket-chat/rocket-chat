@@ -16,6 +16,7 @@ Every setting has a **policy**, and each field shows where its value comes from:
 | **Default** | The platform's default; nobody changed it. |
 | **Set by operator** | An environment variable of the deployment sets it (for example `AGENT_MAX_TURNS`, `GIT_BOT_NAME`). It is read-only in the product, or the default under your own value when the setting says *operator default*. |
 | **From organization** | Your organization's value. |
+| **From team "X"** | The team's default, in the turns of its agents (see [Teams](#teams)). |
 | **Yours** | A member's own value (with a reset button back to the organization's). |
 | **Locked by admin** | An organization default an administrator locked: members, sessions and agents keep the organization's value. |
 | **From agent "X"** / **From Slack bot "X"** | Chosen at session level, by the agent or the bot, within the organization's policy. |
@@ -67,6 +68,8 @@ A **team** is a group of the organization's members that owns things of its own:
 * **Deleting a team** is refused while it still owns something: the message says what, so it can be moved or deleted first.
 * **Agents.** A team's agent serves the team's members. An organization agent can also be granted to a team in its *Access* section. A team agent's credentials: the team's keys and members' keys shared with that agent, bound by the team's administrators; organization keys, bound by organization administrators only.
 * **Keys.** With the **Showing** filter on a team, *Models & keys* holds the **team's provider keys** (its administrators add, rotate and remove them). In the turns of the team's agents, the team's key is used before the organization's (a member's own key still comes first when your organization prefers members' keys); everywhere else the team's keys are never used.
+* **Defaults.** In **Members & teams → Teams**, a team's administrators set the team's own defaults for what members may choose themselves (permission mode, reasoning level, publishing identity, ...). They apply to the turns of the team's agents: a member's own choice still wins, and a setting the organization locked keeps the organization's value. Each value shows *From team X* when the team set it.
+* **Sandboxes.** With the **Showing** filter on a team, *Sandboxes* holds the team's own sandbox types (image, capabilities, variables and secrets, sizing). Only the team's members and agents can start one; a team's type is never the organization's default, takes no placement profile, and cannot ask for more CPU, memory or disk than the organization's sandbox settings.
 * **Spend.** A turn of a team's agent counts against the **team's** limits as well as the organization's. Organization administrators set limits on a team (*Spend & usage*, subject *Team*); a team's administrators add limits of their own on the team or its agents, which can only tighten what the organization set, and see the organization's limits on their team without being able to change them.
 * **In a session**, an agent sees the skills, MCP servers and knowledge bases of the organization, of the person's own teams, and their own. An organization administrator manages every team's objects but does not work with another team's in their own sessions.
 

@@ -176,3 +176,69 @@ async def test_an_organization_agent_is_granted_to_a_team_in_postgres() -> None:
         ] == [("team", team.id)]
     finally:
         await db.close()
+
+
+@needs_postgres
+async def test_a_teams_settings_and_sandbox_types_are_isolated_in_postgres() -> None:
+    from api.db.models import TeamSettingModel
+    from api.services.sandbox_catalogue import SandboxCatalogue
+    from api.services.settings import load_team_config, save_team_config
+
+    db = DatabaseSessionManager(TEST_DATABASE_URL)
+    try:
+        org_a, org_b = await two_orgs(db)
+        team = await create_team(db, org_a, "Platform", "", f"u_{org_a}")
+        await save_team_config(db, org_a, team.id, "user_preferences", {"permission_mode": "plan"})
+        assert await load_team_config(db, org_a, team.id, "user_preferences") == {
+            "permission_mode": "plan"
+        }
+        await assert_isolated(db, TeamSettingModel, org_a, org_b)
+        assert await load_team_config(db, org_b, team.id, "user_preferences") == {}
+        catalogue = SandboxCatalogue(db)
+        entry = await catalogue.create(org_a, name="Team box", image="img:1", team_id=team.id)
+        teams = frozenset({team.id})
+        assert await catalogue.resolve(org_a, sandbox_id=entry.id, teams=teams) is not None
+        assert await catalogue.resolve(org_a, sandbox_id=entry.id) is None
+        assert await catalogue.resolve(org_b, sandbox_id=entry.id, teams=teams) is None
+        try:
+            await delete_team(db, org_a, team.id)
+        except TeamError as err:
+            assert "sandboxes" in err.detail
+        else:
+            raise AssertionError("a team that owns a sandbox type was deleted")
+    finally:
+        await db.close()
+
+
+@needs_postgres
+async def test_the_session_list_shows_a_team_shared_session_to_its_members_in_postgres() -> None:
+    from api.db.store import PostgresSessionStore
+
+    from specifications.interfaces.session import SHARED_TEAMS_KEY, SessionRecord
+
+    db = DatabaseSessionManager(TEST_DATABASE_URL)
+    try:
+        org, _ = await two_orgs(db)
+        store = PostgresSessionStore(db)
+        session_id = new_id("sess")
+        await store.create_session(
+            SessionRecord(
+                session_id=session_id,
+                tenant_org_id=org,
+                tenant_user_id=f"u_{org}",
+                title="Plan",
+                metadata={SHARED_TEAMS_KEY: ["team_platform"]},
+            )
+        )
+
+        async def listed(teams: tuple[str, ...]) -> set[str]:
+            page = await store.list_sessions_page(
+                org, visible_to_user_id="someone_else", visible_to_teams=teams
+            )
+            return {record.session_id for record in page.records}
+
+        assert session_id in await listed(("team_platform", "team_other"))
+        assert session_id not in await listed(("team_other",))
+        assert session_id not in await listed(())
+    finally:
+        await db.close()

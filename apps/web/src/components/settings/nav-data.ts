@@ -68,7 +68,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/settings/org/models", label: "Models & keys", icon: Cpu, requiresAdmin: true, orTeamManager: true, owners: ["team", "org"] },
       { href: "/settings/user/keys", label: "My keys", icon: KeyRound, capability: "bring_own_keys", owners: ["me"] },
-      { href: "/settings/org/sandboxes", label: "Sandboxes", icon: Box, requiresAdmin: true, owners: ["org"] },
+      { href: "/settings/org/sandboxes", label: "Sandboxes", icon: Box, requiresAdmin: true, orTeamManager: true, owners: ["team", "org"] },
       { href: "/settings/org/git", label: "Git & GitHub", icon: GitPullRequest, requiresAdmin: true, owners: ["org"] },
       // Every member links their own Slack account here; the page hides bots and the workspace from non-administrators.
       { href: "/settings/slack", label: "Slack", icon: MessageSquare, owners: ["me", "org"] },

@@ -337,6 +337,118 @@ test.describe("a team's keys and limits", () => {
   });
 });
 
+test.describe("a team's defaults and sandboxes", () => {
+  test("a team sets a default for its agents' turns; a key the organization locked stays locked", async ({ page }) => {
+    // Lock one organization default for the length of the test, keeping every stored value.
+    const stored = (await (await page.request.get("/v1/admin/settings/user_preferences")).json()) as {
+      config: Record<string, unknown>;
+      locked_keys: string[];
+    };
+    const put = (locked: string[]) =>
+      page.request.put("/v1/admin/settings/user_preferences", { data: { config: stored.config, locked_keys: locked } });
+    expect((await put([...stored.locked_keys, "suggest_next_questions"])).status()).toBe(200);
+    try {
+      const team = await createTeam(page, "Defaults team");
+      const panel = page.getByTestId("team-defaults");
+      await expect(panel.getByTestId("team-defaults-domain")).toHaveValue("user_preferences");
+      const scope = `team-${team.id}-user_preferences`;
+
+      await panel.getByTestId(`settings-advanced-${scope}`).click();
+      const prefix = page.getByTestId(`settings-field-${scope}-git_branch_prefix`);
+      await expect(prefix).toBeEnabled();
+      await prefix.fill("platform/");
+      const saved = page.waitForResponse(
+        (res) => res.url().endsWith(`/v1/teams/${team.id}/settings/user_preferences`) && res.request().method() === "PUT",
+      );
+      await page.getByTestId("settings-save-all").click();
+      expect(((await (await saved).json()) as { config: Record<string, unknown> }).config).toEqual({ git_branch_prefix: "platform/" });
+      await expect(page.getByTestId(`settings-inheritance-${scope}-git_branch_prefix`)).toHaveText(`From team "${team.name}"`);
+
+      // Locked by the organization: shown, not editable.
+      await expect(page.getByTestId(`settings-field-${scope}-suggest_next_questions`)).toBeDisabled();
+      await expect(panel.locator(`#setting-${scope}-suggest_next_questions`)).toContainText("LOCKED BY ORG");
+
+      // Back to the organization's value.
+      await page.getByTestId(`settings-inheritance-${scope}-git_branch_prefix`).getByRole("button", { name: "Use the organization's value" }).click();
+      await expect(page.getByTestId(`settings-inheritance-${scope}-git_branch_prefix`)).not.toContainText("From team");
+    } finally {
+      await put(stored.locked_keys);
+    }
+  });
+
+  test("a team's sandbox types are added, edited and removed; a team agent may pick one", async ({ page }) => {
+    const team = await createTeam(page, "Sandbox team");
+    await page.goto(`/settings/org/sandboxes?owner=team:${team.id}`);
+    await expect(page.getByTestId("sandbox-catalogue")).toHaveCount(0);
+    const panel = page.getByTestId(`sandbox-catalogue-team-${team.id}`);
+    await panel.getByTestId("team-sandbox-add").click();
+    const name = `GPU box ${Date.now().toString(36)}`;
+    await panel.getByTestId("sandbox-name").fill(name);
+    await panel.getByTestId("sandbox-image").fill("registry.example.com/team/gpu:1");
+    const created = page.waitForResponse((res) => res.url().endsWith(`/v1/teams/${team.id}/sandboxes`) && res.request().method() === "POST");
+    await panel.getByTestId("sandbox-save").click();
+    const box = (await (await created).json()) as { id: string; team_id: string };
+    expect(box.team_id).toBe(team.id);
+
+    const row = panel.getByTestId("team-sandbox-row").filter({ hasText: name });
+    await expect(row.getByTestId("owner-badge")).toHaveText(team.name);
+    await expect(row.getByTestId("sandbox-make-default")).toHaveCount(0);
+    await row.getByTestId("sandbox-edit").click();
+    await panel.getByTestId("sandbox-cpu").fill("2");
+    const patched = page.waitForResponse((res) => res.url().endsWith(`/v1/teams/${team.id}/sandboxes/${box.id}`) && res.request().method() === "PATCH");
+    await panel.getByTestId("sandbox-save").click();
+    expect((await patched).status()).toBe(200);
+    await expect(panel.getByTestId("team-sandbox-row").filter({ hasText: name })).toContainText("2 CPU");
+
+    // The team's agent offers the team's type, named with its team.
+    const agent = await createTeamAgent(page, team.id);
+    await page.goto(`/settings/agents?owner=team:${team.id}`);
+    await page.getByTestId(`agent-item-${agent.id}`).click();
+    await page.getByTestId("agent-section-sandbox").click();
+    await page.getByTestId("agent-sandbox").selectOption(box.id);
+    await expect(page.getByTestId("agent-sandbox").locator("option:checked")).toHaveText(`${name} · ${team.name}`);
+    const saved = page.waitForResponse((res) => res.url().endsWith("/v1/agents") && res.request().method() === "POST");
+    await page.getByTestId("agent-save").click();
+    expect(((await (await saved).json()) as { sandbox_id: string }).sandbox_id).toBe(box.id);
+
+    // An organization agent is not offered it.
+    await page.goto("/settings/agents?owner=org");
+    await page.getByTestId("agent-item-persona-general").click();
+    await page.getByTestId("agent-section-sandbox").click();
+    await expect(page.getByTestId("agent-sandbox").locator(`option[value="${box.id}"]`)).toHaveCount(0);
+
+    // In the composer, a member of the team sees the type with its team's name (the test stack's
+    // API runs as the development identity, `dev_user`).
+    expect((await page.request.put(`/v1/teams/${team.id}/members/dev_user`, { data: { role: "member" } })).status()).toBe(200);
+    try {
+      await page.goto("/chat/draft");
+      await expect(page.getByTestId("sandbox-picker").locator(`option[value="${box.id}"]`)).toHaveText(`${name} · ${team.name}`);
+    } finally {
+      // The in-memory stack outlives the test: a membership left behind would leak into others.
+      await page.request.delete(`/v1/teams/${team.id}/members/dev_user`);
+    }
+
+    await page.goto(`/settings/org/sandboxes?owner=team:${team.id}`);
+    await page.getByTestId(`sandbox-catalogue-team-${team.id}`).getByRole("button", { name: `Remove ${name}` }).click();
+    await expect(page.getByTestId(`sandbox-catalogue-team-${team.id}`).getByText(name)).toHaveCount(0);
+  });
+
+  test("a team administrator's sandbox form has no placement profile and says the organization's sizes", async ({ page }) => {
+    const team = await createTeam(page, "Sizing team");
+    await page.route("**/v1/me/access", (route) =>
+      route.fulfill({ json: { org_id: "default_org", org_name: "Default organization", role: "member", roles: ["member"], capabilities: [] } }),
+    );
+    await page.route("**/v1/teams", (route) =>
+      route.fulfill({ json: { teams: [{ ...team, description: "", member_count: 1, my_role: "admin", can_manage: true }] } }),
+    );
+    await page.goto(`/settings/org/sandboxes?owner=team:${team.id}`);
+    const panel = page.getByTestId(`sandbox-catalogue-team-${team.id}`);
+    await panel.getByTestId("team-sandbox-add").click();
+    await expect(panel.getByTestId("sandbox-profile")).toHaveCount(0);
+    await expect(panel.getByText(/the organization's sandbox settings/).first()).toBeVisible();
+  });
+});
+
 for (const scheme of ["light", "dark"] as const) {
   test.describe(`teams pages, WCAG 2.1 AA (${scheme})`, () => {
     test.use({ colorScheme: scheme });
@@ -345,13 +457,23 @@ for (const scheme of ["light", "dark"] as const) {
       await expectNoBlockingViolations(page);
     });
 
-    test("a team's keys and limits have no serious or critical violations", async ({ page }) => {
+    test("a team's keys, limits and sandboxes have no serious or critical violations", async ({ page }) => {
       const team = await createTeam(page, `A11y keys ${scheme}`);
-      for (const path of [`/settings/org/models?owner=team:${team.id}`, `/settings/org/spend?owner=team:${team.id}`]) {
+      for (const [path, testId] of [
+        [`/settings/org/models?owner=team:${team.id}`, `credentials-panel-team-${team.id}`],
+        [`/settings/org/spend?owner=team:${team.id}`, `spend-limits-panel-team-${team.id}`],
+        [`/settings/org/sandboxes?owner=team:${team.id}`, `sandbox-catalogue-team-${team.id}`],
+      ] as const) {
         await page.goto(path);
-        await expect(page.getByTestId(path.includes("models") ? `credentials-panel-team-${team.id}` : `spend-limits-panel-team-${team.id}`)).toBeVisible();
+        await expect(page.getByTestId(testId)).toBeVisible();
         await expectNoBlockingViolations(page);
       }
+    });
+
+    test("a team's defaults have no serious or critical violations", async ({ page }) => {
+      await createTeam(page, `A11y defaults ${scheme}`);
+      await expect(page.getByTestId("team-defaults").locator("[data-testid^=settings-form-]")).toBeVisible();
+      await expectNoBlockingViolations(page);
     });
   });
 }

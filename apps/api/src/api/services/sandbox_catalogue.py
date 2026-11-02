@@ -26,6 +26,7 @@ from sqlalchemy.exc import IntegrityError
 from api.db.models import SandboxCatalogueModel
 from api.db.session import DatabaseSessionManager
 from api.services.settings import effective_settings
+from api.services.teams import note_memory_owned
 from specifications.interfaces.sandbox import (
     MAX_SESSION_ENV_VALUE_CHARS,
     MAX_SESSION_ENV_VARS,
@@ -77,6 +78,9 @@ class SandboxEntry:
     # Variables set for every command of the type's sessions: [{name, value, secret}], a
     # secret's value encrypted at rest and never shown again.
     env: list[dict[str, Any]] = field(default_factory=list)
+    # The team that owns the type; ``None``: the organization's. A team's type (and its
+    # secrets) serves the team's members and agents only, and is never the default.
+    team_id: str | None = None
 
     @property
     def capability_set(self) -> frozenset[str]:
@@ -213,26 +217,40 @@ class SandboxCatalogue:
             else None
         )
 
-    async def entries(self, org_id: str) -> list[SandboxEntry]:
-        """The organization's entries, seeded on first use; the default comes first."""
-        entries = await self._read(org_id)
-        if not entries:
-            entries = await self._seed(org_id)
-        return sorted(entries, key=lambda e: (not e.is_default, e.name.lower()))
+    async def entries(
+        self, org_id: str, *, teams: frozenset[str] | None = frozenset()
+    ) -> list[SandboxEntry]:
+        """The organization's entries, seeded on first use, and the entries of ``teams``
+        (``None``: every team's, for administrators and platform bookkeeping); the default
+        comes first.
+
+        A team's type is left out unless its team is named, so a type id alone never opens
+        a team's image and secrets to someone outside it."""
+        stored = await self._read(org_id)
+        if not any(e.team_id is None for e in stored):
+            stored = await self._seed(org_id)
+        visible = [e for e in stored if e.team_id is None or teams is None or e.team_id in teams]
+        return sorted(visible, key=lambda e: (not e.is_default, e.team_id or "", e.name.lower()))
 
     async def default(self, org_id: str) -> SandboxEntry:
         entries = await self.entries(org_id)
         return next((e for e in entries if e.is_default), entries[0])
 
     async def resolve(
-        self, org_id: str, *, sandbox_id: str | None = None, image: str | None = None
+        self,
+        org_id: str,
+        *,
+        sandbox_id: str | None = None,
+        image: str | None = None,
+        teams: frozenset[str] | None = frozenset(),
     ) -> SandboxEntry | None:
-        """The entry a session uses: by id, else by the image it names, else the default."""
-        entries = await self.entries(org_id)
+        """The entry a session uses: by id, else by the image it names, else the default.
+        A team's entry is found by id only, and only for ``teams`` that include it."""
+        entries = await self.entries(org_id, teams=teams)
         if sandbox_id:
             return next((e for e in entries if e.id == sandbox_id), None)
         if image:
-            return next((e for e in entries if e.image == image), None)
+            return next((e for e in entries if e.image == image and e.team_id is None), None)
         return next((e for e in entries if e.is_default), entries[0])
 
     async def chosen(
@@ -242,21 +260,23 @@ class SandboxCatalogue:
         session_sandbox_id: str | None,
         session_image: str | None,
         agent_sandbox_id: str,
+        teams: frozenset[str] = frozenset(),
     ) -> SandboxEntry | None:
         """The type chosen by name: the session's own, else its agent's.
 
         The session's creator (or the Slack channel that names an image) wins; the agent's
-        type is the default when they chose nothing. A type deleted since is no choice.
+        type is the default when they chose nothing. A type deleted since is no choice, nor
+        is a team's type outside ``teams`` (the turn's team and the requester's).
         """
         if session_sandbox_id:
-            return await self.resolve(org_id, sandbox_id=session_sandbox_id)
+            return await self.resolve(org_id, sandbox_id=session_sandbox_id, teams=teams)
         if agent_sandbox_id and not session_image:
-            return await self.resolve(org_id, sandbox_id=agent_sandbox_id)
+            return await self.resolve(org_id, sandbox_id=agent_sandbox_id, teams=teams)
         return None
 
     async def image_is_offered(self, org_id: str, image: str, legacy_patterns: list[str]) -> bool:
         """Whether ``image`` may be used: in the catalogue, or matching a legacy allowed pattern."""
-        if any(e.image == image for e in await self.entries(org_id)):
+        if any(e.image == image and e.team_id is None for e in await self.entries(org_id)):
             return True
         return any(fnmatch.fnmatchcase(image, pattern) for pattern in legacy_patterns)
 
@@ -270,11 +290,14 @@ class SandboxCatalogue:
         capabilities: list[str] | None = None,
         is_default: bool = False,
         env: list[dict[str, Any]] | None = None,
+        team_id: str | None = None,
         **runtime: Any,
     ) -> SandboxEntry:
         capabilities = sorted(set(capabilities or []))
         validate_entry(name, image, capabilities)
-        existing = await self.entries(org_id)
+        if team_id and is_default:
+            raise CatalogueError("A team's sandbox cannot be the organization's default.")
+        existing = await self.entries(org_id, teams=None)
         if len(existing) >= MAX_ENTRIES_PER_ORG:
             raise CatalogueError("This organization has reached its sandbox limit.")
         if any(e.name.lower() == name.strip().lower() for e in existing):
@@ -289,6 +312,7 @@ class SandboxCatalogue:
             is_default=False,
             created_at=int(time.time()),
             env=seal_env(env or [], [], CredentialCipher()),
+            team_id=team_id,
             **{k: v for k, v in runtime.items() if k in _RUNTIME_FIELDS},
         )
         validate_runtime(entry)
@@ -299,17 +323,20 @@ class SandboxCatalogue:
         return entry
 
     async def update(self, org_id: str, entry_id: str, **changes: Any) -> SandboxEntry:
-        entries = await self.entries(org_id)
+        entries = await self.entries(org_id, teams=None)
         entry = next((e for e in entries if e.id == entry_id), None)
         if entry is None:
             raise CatalogueError("No such sandbox.")
+        if entry.team_id and changes.get("is_default"):
+            raise CatalogueError("A team's sandbox cannot be the organization's default.")
         updated = SandboxEntry(
             **{
                 **vars(entry),
                 **{
                     k: v
                     for k, v in changes.items()
-                    if (v is not None or k in _INHERITING) and k not in ("is_default", "env")
+                    if (v is not None or k in _INHERITING)
+                    and k not in ("is_default", "env", "team_id")
                 },
             }
         )
@@ -336,11 +363,11 @@ class SandboxCatalogue:
                 await self._write(entry)
 
     async def delete(self, org_id: str, entry_id: str) -> None:
-        entries = await self.entries(org_id)
+        entries = await self.entries(org_id, teams=None)
         entry = next((e for e in entries if e.id == entry_id), None)
         if entry is None:
             raise CatalogueError("No such sandbox.")
-        if len(entries) == 1:
+        if entry.team_id is None and sum(1 for e in entries if e.team_id is None) == 1:
             raise CatalogueError("An organization needs at least one sandbox.")
         if entry.is_default:
             raise CatalogueError("Make another sandbox the default before removing this one.")
@@ -392,6 +419,8 @@ class SandboxCatalogue:
     async def _insert(self, entry: SandboxEntry) -> None:
         if self._db is None:
             self._MEMORY[entry.id] = entry
+            if entry.team_id:
+                note_memory_owned(entry.org_id, entry.team_id, "sandboxes", 1)
             return
         async with self._db.session(tenant_org_id=entry.org_id) as session:
             session.add(SandboxCatalogueModel(**{c: getattr(entry, c) for c in _COLUMNS}))
@@ -409,7 +438,9 @@ class SandboxCatalogue:
 
     async def _remove(self, org_id: str, entry_id: str) -> None:
         if self._db is None:
-            self._MEMORY.pop(entry_id, None)
+            removed = self._MEMORY.pop(entry_id, None)
+            if removed is not None and removed.team_id:
+                note_memory_owned(org_id, removed.team_id, "sandboxes", -1)
             return
         async with self._db.session(tenant_org_id=org_id) as session:
             await session.execute(

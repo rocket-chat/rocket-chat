@@ -2024,7 +2024,78 @@ Delete Sandbox
 
 ### `GET /v1/sandboxes`
 
-List Sandboxes
+The types the caller may pick: the organization's and their teams' (every team's for an
+administrator); the variables only of the types they manage.
+
+**Responses:** `200`
+
+### `POST /v1/teams/{team_id}/sandboxes`
+
+Offer a sandbox type to the team (its administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | yes |  |
+| image | string | yes |  |
+| description | string | no |  |
+| capabilities | list of string | no |  |
+| is_default | boolean | no |  |
+| profile | string | no |  |
+| cpu_limit | string | no |  |
+| memory_limit | string | no |  |
+| disk_size | string | no |  |
+| release_after_days | integer | no |  |
+| env | list of SandboxEnvVar | no |  |
+
+**Responses:** `200`
+
+### `PATCH /v1/teams/{team_id}/sandboxes/{sandbox_id}`
+
+Update Team Sandbox
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| sandbox_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | no |  |
+| image | string | no |  |
+| description | string | no |  |
+| capabilities | list of string | no |  |
+| is_default | boolean | no |  |
+| profile | string | no |  |
+| cpu_limit | string | no |  |
+| memory_limit | string | no |  |
+| disk_size | string | no |  |
+| release_after_days | integer | no |  |
+| env | list of SandboxEnvVar | no |  |
+
+**Responses:** `200`
+
+### `DELETE /v1/teams/{team_id}/sandboxes/{sandbox_id}`
+
+Delete Team Sandbox
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| sandbox_id | path | yes | string |
 
 **Responses:** `200`
 
@@ -2868,7 +2939,8 @@ Get Sharing
 
 ### `PUT /v1/sessions/{session_id}/sharing`
 
-Share with the whole organization and/or exactly the members with these emails.
+Share with the whole organization and/or exactly the members with these emails and the
+members of these teams.
 
 **Parameters**
 
@@ -2882,6 +2954,7 @@ Share with the whole organization and/or exactly the members with these emails.
 | :--- | :--- | :--- | :--- |
 | org_wide | boolean | no |  |
 | emails | list of string | no |  |
+| team_ids | list of string | no | Teams of the organization to share with |
 
 **Responses:** `200`
 
@@ -3391,6 +3464,40 @@ Remove someone from the team (its administrators), or leave it (oneself).
 | user_id | path | yes | string |
 
 **Responses:** `204`
+
+### `GET /v1/teams/{team_id}/settings/{domain}`
+
+The team's defaults for a domain, used in the turns of the team's agents (its
+administrators). A member's own choice still wins; the organization's locks still hold.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| domain | path | yes | string |
+
+**Responses:** `200`
+
+### `PUT /v1/teams/{team_id}/settings/{domain}`
+
+Replace the team's defaults for a domain (organization defaults only, not a key the
+organization locked).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| domain | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| config | object | no | The team's defaults; only organization defaults |
+
+**Responses:** `200`
 
 ## Templates
 

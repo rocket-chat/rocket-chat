@@ -50,7 +50,8 @@ class ResolvedSettings:
 
 
 class CascadingSettingsResolver:
-    """Resolves every key of a domain by its policy: platform -> instance -> org -> member -> presets."""
+    """Resolves every key of a domain by its policy: platform -> instance -> org -> team ->
+    member -> presets."""
 
     def __init__(self, custom_defaults: dict[str, dict[str, Any]] | None = None) -> None:
         self.defaults = {domain: dict(values) for domain, values in SYSTEM_DOMAIN_DEFAULTS.items()}
@@ -69,12 +70,16 @@ class CascadingSettingsResolver:
         locked_keys: list[str] | None = None,
         user_overrides: dict[str, Any] | None = None,
         presets: Sequence[Preset] = (),
+        team_config: dict[str, Any] | None = None,
+        team_source: str = "team",
     ) -> ResolvedSettings:
         """Each key of ``domain`` resolved by its policy, lock and ceiling."""
         ctx = ResolveContext(
             org=dict(org_config or {}),
             locked=frozenset(locked_keys or ()),
             member=dict(user_overrides or {}),
+            team=dict(team_config or {}),
+            team_source=team_source,
             presets=tuple(presets),
             instance=instance_values(domain),
         )

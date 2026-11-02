@@ -488,7 +488,14 @@ async def _validate_step_limit(db_mgr: Any, org_id: str, persona: AgentPersonaMo
 async def _validate_sandbox_type(db_mgr: Any, org_id: str, persona: AgentPersonaModel) -> None:
     if not persona.sandbox_id:
         return
-    if await SandboxCatalogue(db_mgr).resolve(org_id, sandbox_id=persona.sandbox_id) is None:
+    # A team's agent may start in its team's types; any other agent in the organization's.
+    teams = (
+        frozenset({persona.team_id}) if persona.scope == "team" and persona.team_id else frozenset()
+    )
+    found = await SandboxCatalogue(db_mgr).resolve(
+        org_id, sandbox_id=persona.sandbox_id, teams=teams
+    )
+    if found is None:
         raise PersonaError(422, "That sandbox type is not in the organization's catalogue.")
 
 

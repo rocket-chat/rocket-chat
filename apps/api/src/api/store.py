@@ -1,7 +1,7 @@
 """In-memory session repository implementing SessionStoreProtocol."""
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 
 from specifications.interfaces.session import (
@@ -10,18 +10,20 @@ from specifications.interfaces.session import (
     SessionRecord,
     SessionStoreProtocol,
     encode_session_cursor,
+    shared_teams_of,
 )
 
 
-def _is_visible_to(record: SessionRecord, user_id: str) -> bool:
-    """Non-admin access rule: owner, explicitly shared, or a listed collaborator."""
+def _is_visible_to(record: SessionRecord, user_id: str, teams: Sequence[str] = ()) -> bool:
+    """Non-admin access rule: owner, explicitly shared, a listed collaborator, or shared with
+    one of the person's teams."""
     if record.tenant_user_id == user_id:
         return True
     meta = record.metadata if isinstance(record.metadata, dict) else {}
     if record.is_shared or bool(meta.get("is_shared", False)):
         return True
     collaborators = record.collaborators or meta.get("collaborators", [])
-    return user_id in collaborators
+    return user_id in collaborators or bool(set(shared_teams_of(meta)) & set(teams))
 
 
 class InMemorySessionStore(SessionStoreProtocol):
@@ -92,6 +94,7 @@ class InMemorySessionStore(SessionStoreProtocol):
         query: str | None = None,
         limit: int = 50,
         cursor: SessionCursor | None = None,
+        visible_to_teams: Sequence[str] = (),
     ) -> SessionPage:
         """List one keyset page, newest ``(updated_at, session_id)`` first.
 
@@ -103,7 +106,9 @@ class InMemorySessionStore(SessionStoreProtocol):
         if tenant_user_id:
             matching = [s for s in matching if s.tenant_user_id == tenant_user_id]
         if visible_to_user_id is not None:
-            matching = [s for s in matching if _is_visible_to(s, visible_to_user_id)]
+            matching = [
+                s for s in matching if _is_visible_to(s, visible_to_user_id, visible_to_teams)
+            ]
         if not include_archived:
             matching = [s for s in matching if not s.is_archived]
         if query:

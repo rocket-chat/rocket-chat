@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { test, expect, type APIRequestContext } from "@playwright/test";
 
 const API = "http://localhost:8000";
@@ -44,6 +45,29 @@ test.describe("Sharing a session", () => {
     await gone.goto(url);
     await expect(gone.getByTestId("shared-unavailable")).toBeVisible();
     await afterRevoke.close();
+  });
+
+  test("the owner shares a session with a team, and the sharing view lists it", async ({ page, request }) => {
+    const team = await request.post(`${API}/v1/teams`, { data: { name: `Share team ${Date.now().toString(36)}` } });
+    expect(team.status()).toBe(201);
+    const { id: teamId, name: teamName } = (await team.json()) as { id: string; name: string };
+    const created = await request.post(`${API}/v1/sessions`, { data: { title: "Share With Team" } });
+    const sessionId: string = (await created.json()).session_id;
+
+    await page.goto(`/chat/${sessionId}`);
+    await page.getByTestId("share-trigger").click();
+    const dialog = page.getByTestId("share-dialog");
+    await dialog.getByTestId("share-teams").selectOption([teamId]);
+    const saved = page.waitForResponse((res) => res.url().endsWith(`/v1/sessions/${sessionId}/sharing`) && res.request().method() === "PUT");
+    await dialog.getByTestId("share-save").click();
+    const body = (await (await saved).json()) as { teams: { id: string; name: string }[] };
+    expect(body.teams).toEqual([{ id: teamId, name: teamName }]);
+    await expect(dialog.getByTestId("share-teams-current")).toContainText(teamName);
+    const results = await new AxeBuilder({ page }).include("[data-testid=share-dialog]").withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+    expect(results.violations.filter((v) => v.impact === "serious" || v.impact === "critical").map((v) => v.id)).toEqual([]);
+
+    const view = (await (await request.get(`${API}/v1/sessions/${sessionId}/sharing`)).json()) as { teams: { id: string }[] };
+    expect(view.teams.map((t) => t.id)).toEqual([teamId]);
   });
 
   test("opens over the whole viewport, not inside the header", async ({ page, request }) => {
