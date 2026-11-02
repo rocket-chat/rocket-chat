@@ -5,7 +5,7 @@ description: Members, roles and capabilities, model credentials, spend limits, a
 
 # Organization settings
 
-Open **Settings → Organization** (administrators only: these pages are hidden from other members). Each page shows a few main settings and folds the rest under *Advanced*; the complete list, with defaults and who decides each one, is the [settings reference](/administer/settings-reference).
+Organization pages live in **Settings** under *Resources* and *Governance*; they are shown to administrators only (*Members & teams* also to anyone in a team). The **Showing** filter at the top of the settings list narrows it to one owner: *Everything*, *Me*, a team, or *Organization* (see [Teams](#teams)). Each page shows a few main settings and folds the rest under *Advanced*; the complete list, with defaults and who decides each one, is the [settings reference](/administer/settings-reference).
 
 ## Who decides a setting
 
@@ -32,9 +32,9 @@ The **Organization** card at the top renames the organization (administrators an
 
 Organization name, how visible new sessions are by default (private to the creator, or shared with the organization), sign-in domains, steps per turn, and the defaults of members' personal settings (each one lockable).
 
-## Members & roles
+## Members & teams
 
-People can belong to several organizations and switch between them from the organization menu at the top of the sidebar. In **Members & roles**:
+People can belong to several organizations and switch between them from the organization menu at the top of the sidebar. **Settings → Members & teams** has two tabs, *Members* and [*Teams*](#teams). In *Members*:
 
 * **Roles**: `owner`, `admin`, `member` and `viewer`. A viewer can open what is shared with them but change nothing. Only an owner can make someone an owner, and the last administrator cannot be demoted. A role change applies to the person's open sessions within 15 seconds. (`developer` and `readonly` from earlier versions are read as `member` and `viewer`.)
 * **Invite people**: enter an e-mail address, a role (only an owner can invite an owner) and a lifetime (7 days by default, 30 at most), then copy the link, which is shown once, and send it to the person: Rocket Chat does not send e-mail. The link works once, only for that address. The person signs in with an account that has that address (with SSO, the first sign-in creates it), accepts, and the organization is added to theirs. Pending invitations are listed, and can be withdrawn, on the same page.
@@ -42,7 +42,7 @@ People can belong to several organizations and switch between them from the orga
 
 | Capability | Default | What it allows |
 | :--- | :--- | :--- |
-| `create_personal_agents` | admin, member | Agents of their own (*Settings → My agents*). |
+| `create_personal_agents` | admin, member | Agents of their own (*Settings → Agents*, owner *Me*). |
 | `bring_own_keys` | admin, member | Provider keys of their own (*Settings → My keys*). |
 | `register_mcp` | admin, member | Personal remote MCP servers. |
 | `publish_as_bot` | admin | Choosing to publish as the GitHub App. |
@@ -50,6 +50,25 @@ People can belong to several organizations and switch between them from the orga
 | `manage_spend_limits` | admin | Creating and changing spend limits. |
 
 With SSO, members are created at first sign-in in the organization the sign-in maps to (see [SSO](/administer/sso)). Someone who already belongs to another organization becomes a member of this one too; their role elsewhere never applies here.
+
+## Teams
+
+A **team** is a group of the organization's members that owns things of its own: agents, skills, MCP servers and knowledge bases. Every such object has one **owner**, shown as a pill on its card:
+
+| Owner | Who uses it | Who changes it |
+| :--- | :--- | :--- |
+| **You** (personal) | you | you (administrators may change or delete it, but never see it listed) |
+| **A team** | the team's members | the team's administrators, and the organization's |
+| **Organization** | every member (agents: per their *Access*) | organization administrators |
+
+* **Creating teams.** Organization administrators create, rename and delete teams in **Settings → Members & teams → Teams**, and add the first members.
+* **Running a team.** A team's **administrators** (team role *admin*) rename it, add members of the organization, make them administrators or members, remove them, and create and change everything the team owns, without being organization administrators. Anyone can leave a team. A *viewer* administers no team, whatever their team role.
+* **Moving.** The **Owner** field of an object's form moves it: from you to a team, from a team to the organization, and back. You need to manage the object where it is and where it goes (a team administrator moves their own agent into the team, an organization administrator moves a team's agent to the organization). The form says who will be able to use it after the move. Nobody but an administrator hands an object to another member.
+* **Deleting a team** is refused while it still owns something: the message says what, so it can be moved or deleted first.
+* **Agents.** A team's agent serves the team's members. An organization agent can also be granted to a team in its *Access* section. Its credentials: members' keys shared with that agent, bound by the team's administrators; organization keys, bound by organization administrators only.
+* **In a session**, an agent sees the skills, MCP servers and knowledge bases of the organization, of the person's own teams, and their own. An organization administrator manages every team's objects but does not work with another team's in their own sessions.
+
+Teams never span organizations: everything a team owns stays inside its organization. Team changes and moves are recorded in the [audit log](#audit).
 
 ## Models & credentials
 
@@ -77,7 +96,7 @@ Below the limits, **this month's spend** groups the organization's spend by agen
 
 ## Agents
 
-**Settings → Organization → Agents** lists the organization's agents and the **subagent roles** they delegate to, in one editor: identity and prompt, model and credentials, tools and knowledge, sandbox type, access (organization agents) and limits. **Export** saves an agent as `.rocket/agents/<id>.md` (front matter and the prompt, never credentials); **Import** reads one back.
+**Settings → Agents** lists every agent you can use, grouped by owner (yours, each team's, the organization's), and the organization's agents and the **subagent roles** they delegate to, in one editor: identity and prompt, model and credentials, tools and knowledge, sandbox type, access (organization agents) and limits. **Export** saves an agent as `.rocket/agents/<id>.md` (front matter and the prompt, never credentials); **Import** reads one back.
 
 * **Model & credentials**: the model, one **Reasoning** level (the thinking budget follows from it), and the agent's own **credentials**: a call on a bound provider uses the bound key. With **strict**, a call on any other provider is refused instead of billed elsewhere. Administrators bind organization agents (organization keys, or members' keys their owners shared with that agent); a personal agent binds its owner's keys only. If a bound key is deleted or no longer shared, the agent's next call fails with "credential withdrawn". For an administrator, the agent's model list includes the models of keys restricted to agents. A binding applies to calls on its own provider: `openrouter/anthropic/…` is an OpenRouter call, so an Anthropic key bound to the agent stays unused (the editor says so) until the agent's model is an `anthropic/…` one.
 * **Sandbox**: the sandbox type its sessions start in; the type holds the image, CPU and memory (see [Sandboxes](/administer/sandboxes)).
@@ -105,7 +124,7 @@ See [Sandboxes](/administer/sandboxes).
 
 ## Audit
 
-Approvals, tool calls, credential changes (organization and member keys: created, rotated, deleted, bound to an agent, unbound), settings changes, invitations, access changes and logins are recorded with the actor, the session and a redacted summary. Read them in **Settings → Organization → Audit log**, or at `GET /v1/admin/audit`; retention is a governance setting.
+Approvals, tool calls, credential changes (organization and member keys: created, rotated, deleted, bound to an agent, unbound), settings changes, invitations, access changes and logins are recorded with the actor, the session and a redacted summary. Read them in **Settings → Audit log**, or at `GET /v1/admin/audit`; retention is a governance setting.
 
 ## Starter content
 

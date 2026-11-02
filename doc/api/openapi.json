@@ -112,6 +112,7 @@
               "everyone",
               "member",
               "role",
+              "team",
               "guests"
             ],
             "title": "Principal Kind",
@@ -262,7 +263,7 @@
           },
           "scope": {
             "default": "org",
-            "description": "'org' or 'user'",
+            "description": "Owner: 'org', 'team' or 'user'",
             "title": "Scope",
             "type": "string"
           },
@@ -284,6 +285,18 @@
             "description": "Agent system prompt / instructions",
             "title": "System Prompt",
             "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owning team for team objects",
+            "title": "Team Id"
           },
           "temperature": {
             "anyOf": [
@@ -1021,6 +1034,22 @@
         "title": "BotTestResponse",
         "type": "object"
       },
+      "CandidateList": {
+        "properties": {
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/TeamMemberView"
+            },
+            "title": "Members",
+            "type": "array"
+          }
+        },
+        "required": [
+          "members"
+        ],
+        "title": "CandidateList",
+        "type": "object"
+      },
       "ChangePasswordRequest": {
         "properties": {
           "current_password": {
@@ -1541,6 +1570,17 @@
             "title": "Scope",
             "type": "string"
           },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
           "tools": {
             "items": {
               "$ref": "#/components/schemas/McpToolItem"
@@ -2010,7 +2050,7 @@
           },
           "scope": {
             "default": "org",
-            "description": "'org' or 'user'",
+            "description": "Owner: 'org', 'team' or 'user'",
             "title": "Scope",
             "type": "string"
           },
@@ -2019,6 +2059,18 @@
             "description": "Function signature",
             "title": "Signature",
             "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owning team for team objects",
+            "title": "Team Id"
           },
           "title": {
             "anyOf": [
@@ -2045,9 +2097,21 @@
           },
           "scope": {
             "default": "user",
-            "description": "'org' (administrators) or 'user'",
+            "description": "Owner: 'org', 'team' or 'user'",
             "title": "Scope",
             "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owning team for team objects",
+            "title": "Team Id"
           }
         },
         "required": [
@@ -2104,6 +2168,17 @@
             "default": "",
             "title": "Signature",
             "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
           },
           "title": {
             "default": "",
@@ -3167,9 +3242,21 @@
           },
           "scope": {
             "default": "org",
-            "description": "'org' or 'user'",
+            "description": "Owner: 'org', 'team' or 'user'",
             "title": "Scope",
             "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owning team for team objects",
+            "title": "Team Id"
           },
           "vector_index": {
             "default": "pgvector_hnsw_default",
@@ -3220,6 +3307,17 @@
             "title": "Scope",
             "type": "string"
           },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
           "updated_at": {
             "title": "Updated At",
             "type": "integer"
@@ -3251,6 +3349,62 @@
           "updated_at"
         ],
         "title": "KnowledgeBaseResponse",
+        "type": "object"
+      },
+      "KnowledgeBaseUpdateRequest": {
+        "description": "What an edit changes; a field left out keeps its value. Naming another owner moves it.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owner: 'org', 'team' or 'user'",
+            "title": "Scope"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owning team for team objects",
+            "title": "Team Id"
+          }
+        },
+        "title": "KnowledgeBaseUpdateRequest",
         "type": "object"
       },
       "KnowledgeDocumentCreateRequest": {
@@ -3888,6 +4042,17 @@
             "default": "connected",
             "title": "Status",
             "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
           },
           "tools": {
             "items": {
@@ -8103,6 +8268,181 @@
           "roles"
         ],
         "title": "SwitchOrgResponse",
+        "type": "object"
+      },
+      "TeamBody": {
+        "properties": {
+          "description": {
+            "default": "",
+            "maxLength": 255,
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "TeamBody",
+        "type": "object"
+      },
+      "TeamList": {
+        "properties": {
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/TeamView"
+            },
+            "title": "Teams",
+            "type": "array"
+          }
+        },
+        "required": [
+          "teams"
+        ],
+        "title": "TeamList",
+        "type": "object"
+      },
+      "TeamMemberBody": {
+        "properties": {
+          "role": {
+            "default": "member",
+            "description": "admin | member",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "title": "TeamMemberBody",
+        "type": "object"
+      },
+      "TeamMemberList": {
+        "properties": {
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/TeamMemberView"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "owned": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Owned",
+            "type": "object"
+          }
+        },
+        "required": [
+          "members"
+        ],
+        "title": "TeamMemberList",
+        "type": "object"
+      },
+      "TeamMemberView": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "name",
+          "role"
+        ],
+        "title": "TeamMemberView",
+        "type": "object"
+      },
+      "TeamPatch": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "TeamPatch",
+        "type": "object"
+      },
+      "TeamView": {
+        "properties": {
+          "can_manage": {
+            "default": false,
+            "title": "Can Manage",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "member_count": {
+            "title": "Member Count",
+            "type": "integer"
+          },
+          "my_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "My Role"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "member_count"
+        ],
+        "title": "TeamView",
         "type": "object"
       },
       "TemplateBody": {
@@ -12794,7 +13134,7 @@
         ]
       },
       "post": {
-        "description": "Create or update a custom agent persona, enforcing scope boundaries.\n\nA non-administrator who does not name a scope gets a personal persona. The returned\npersona carries the stored id, which can differ from the proposed one.",
+        "description": "Create or update a custom agent owned by the caller, one of their teams or the\norganization; changing the owner moves it (the caller manages both sides).\n\nA non-administrator who does not name a scope gets a personal persona. The returned\npersona carries the stored id, which can differ from the proposed one.",
         "operationId": "create_or_update_agent_v1_agents_post",
         "requestBody": {
           "content": {
@@ -13471,7 +13811,7 @@
     },
     "/v1/knowledge/bases": {
       "get": {
-        "description": "List all Knowledge Bases accessible to the organization and current user.",
+        "description": "The knowledge bases the caller may use: the organization's, their teams' and their own.",
         "operationId": "list_knowledge_bases_v1_knowledge_bases_get",
         "responses": {
           "200": {
@@ -13495,7 +13835,7 @@
         ]
       },
       "post": {
-        "description": "Create a new pgvector semantic knowledge base collection.",
+        "description": "Create a pgvector knowledge base owned by the caller, one of their teams or the\norganization.",
         "operationId": "create_knowledge_base_v1_knowledge_bases_post",
         "requestBody": {
           "content": {
@@ -13580,11 +13920,62 @@
         "tags": [
           "Sessions & Telemetry"
         ]
+      },
+      "patch": {
+        "description": "Rename a knowledge base or move it to another owner (whoever manages it, and for a move\nthe destination too).",
+        "operationId": "update_knowledge_base_v1_knowledge_bases__kb_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kb_id",
+            "required": true,
+            "schema": {
+              "title": "Kb Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeBaseUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeBaseResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Knowledge Base",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
       }
     },
     "/v1/knowledge/bases/{kb_id}/documents": {
       "post": {
-        "description": "Ingest, chunk, and embed a document into the Knowledge Base.",
+        "description": "Ingest, chunk, and embed a document into the Knowledge Base (whoever manages it).",
         "operationId": "ingest_knowledge_document_v1_knowledge_bases__kb_id__documents_post",
         "parameters": [
           {
@@ -13839,7 +14230,7 @@
     },
     "/v1/mcp/servers": {
       "get": {
-        "description": "List registered MCP servers scoped to tenant organization and current user.",
+        "description": "The MCP servers the caller may use: the organization's, their teams' and their own.",
         "operationId": "list_mcp_servers_v1_mcp_servers_get",
         "responses": {
           "200": {
@@ -13947,7 +14338,7 @@
     },
     "/v1/mcp/servers/{server_id}": {
       "delete": {
-        "description": "Delete a registered MCP server.",
+        "description": "Delete a registered MCP server (whoever may manage its owner).",
         "operationId": "delete_mcp_server_v1_mcp_servers__server_id__delete",
         "parameters": [
           {
@@ -18937,7 +19328,7 @@
     },
     "/v1/skills": {
       "get": {
-        "description": "List all custom skills registered for the organization and current user.",
+        "description": "The custom skills the caller may use: the organization's, their teams' and their own.",
         "operationId": "list_custom_skills_v1_skills_get",
         "responses": {
           "200": {
@@ -18961,7 +19352,7 @@
         ]
       },
       "post": {
-        "description": "Create or update a custom prompt skill with scoping.",
+        "description": "Create or update a custom prompt skill owned by the caller, one of their teams or the\norganization (moving it needs the right to manage it on both sides).",
         "operationId": "create_or_update_custom_skill_v1_skills_post",
         "requestBody": {
           "content": {
@@ -19071,7 +19462,7 @@
     },
     "/v1/skills/{skill_id}": {
       "delete": {
-        "description": "Delete a custom skill.",
+        "description": "Delete a custom skill (whoever may manage its owner).",
         "operationId": "delete_custom_skill_v1_skills__skill_id__delete",
         "parameters": [
           {
@@ -19392,6 +19783,364 @@
         "summary": "Update Subagent Config",
         "tags": [
           "Agents"
+        ]
+      }
+    },
+    "/v1/teams": {
+      "get": {
+        "description": "The organization's teams, with the caller's role in each.",
+        "operationId": "get_teams_v1_teams_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Teams",
+        "tags": [
+          "Teams"
+        ]
+      },
+      "post": {
+        "description": "Create a team (organization administrators only).",
+        "operationId": "post_team_v1_teams_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Team",
+        "tags": [
+          "Teams"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}": {
+      "delete": {
+        "description": "Delete a team that owns nothing (organization administrators only).",
+        "operationId": "remove_team_v1_teams__team_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Team",
+        "tags": [
+          "Teams"
+        ]
+      },
+      "patch": {
+        "description": "Rename a team or change its description (its administrators, or the organization's).",
+        "operationId": "patch_team_v1_teams__team_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Team",
+        "tags": [
+          "Teams"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/candidates": {
+      "get": {
+        "description": "Members of the organization a team administrator can add (not already in the team).",
+        "operationId": "get_candidates_v1_teams__team_id__candidates_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter by e-mail or name (substring).",
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by e-mail or name (substring).",
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CandidateList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Candidates",
+        "tags": [
+          "Teams"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/members": {
+      "get": {
+        "description": "Who is in the team, and what it owns (its members and administrators).",
+        "operationId": "get_team_members_v1_teams__team_id__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMemberList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Team Members",
+        "tags": [
+          "Teams"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/members/{user_id}": {
+      "delete": {
+        "description": "Remove someone from the team (its administrators), or leave it (oneself).",
+        "operationId": "delete_team_member_v1_teams__team_id__members__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Team Member",
+        "tags": [
+          "Teams"
+        ]
+      },
+      "put": {
+        "description": "Add a member of the organization to the team, or change their team role.",
+        "operationId": "put_team_member_v1_teams__team_id__members__user_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamMemberBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMemberView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Team Member",
+        "tags": [
+          "Teams"
         ]
       }
     },

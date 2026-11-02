@@ -10,10 +10,12 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db.models import KnowledgeBaseModel, KnowledgeChunkModel, KnowledgeDocumentModel
+from api.services.ownership import visible_clause
+from specifications.interfaces.ownership import Viewer
 
 logger = logging.getLogger(__name__)
 
@@ -265,17 +267,19 @@ async def search_knowledge(
     limit: int = 5,
     allowed_kb_ids: Sequence[str] = (),
     embedding_model: str = DEFAULT_EMBEDDING_MODEL,
+    team_ids: Sequence[str] = (),
 ) -> str:
     """Answer the agent's ``kb_search`` from the collections it may read.
 
-    The candidates are the organization's collections plus the member's own personal ones,
+    The candidates are the organization's collections, the member's teams' (``team_ids``) and
+    their own personal ones,
     narrowed to the bound persona's ``allowed_kb_ids`` when it has any. ``kb_ref`` selects one
     by id or (case-insensitive) name; an unknown or disallowed reference lists what is
     available instead of silently searching something else.
     """
     stmt = select(KnowledgeBaseModel).where(
         KnowledgeBaseModel.org_id == org_id,
-        or_(KnowledgeBaseModel.scope == "org", KnowledgeBaseModel.user_id == user_id),
+        visible_clause(KnowledgeBaseModel, Viewer(user_id=user_id, teams=frozenset(team_ids))),
     )
     if allowed_kb_ids:
         stmt = stmt.where(KnowledgeBaseModel.id.in_(list(allowed_kb_ids)))

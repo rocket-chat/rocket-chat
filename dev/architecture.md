@@ -38,7 +38,7 @@ Design choices that shape everything else:
 | `api/routers/` | One module per domain (sessions, turns, MCP, settings, skills, knowledge, agents, admin, workspace, preview, terminal, processes, sandboxes, webhooks, …). Routers validate, authorise and delegate; logic lives in `services/` and `turns/`. |
 | `api/turns/` | The turn engine (§4). |
 | `api/sockets/session_socket.py` | The session WebSocket (§5). |
-| `api/services/` | Domain services: settings resolution, memberships and invitations, agent access, model credentials, spend limits and usage, audit/redaction/retention, memory, knowledge (pgvector), MCP engine and OAuth, missions, quotas, attachments, code index, process tracker, sandbox catalogue, Slack link/pairing, git credentials, metrics. |
+| `api/services/` | Domain services: settings resolution, memberships and invitations, teams and object ownership (`teams.py`, `ownership.py`), agent access, model credentials, spend limits and usage, audit/redaction/retention, memory, knowledge (pgvector), MCP engine and OAuth, missions, quotas, attachments, code index, process tracker, sandbox catalogue, Slack link/pairing, git credentials, metrics. |
 | `api/auth/` | Identity resolution, roles and capabilities, session cookies, OIDC, local accounts, SSO policy, preview tokens. |
 | `api/db/` | SQLAlchemy models, the PostgreSQL stores, tenant-scoped session manager, schema check. Migrations live in `migrations/` (Alembic; the only thing that changes the schema). |
 | `packages/agent-core` | The agent: orchestrator, tool registry and tools, permission modes, subagents, context hygiene, transcript repair. |
@@ -48,7 +48,7 @@ Design choices that shape everything else:
 | `packages/git-engine` | Commits with co-author trailers and signing, PR creation, GitHub webhook verification and triggers. |
 | `packages/mcp-runner` | The MCP runner service (its own pod/image) and the client transport the API uses to reach it. |
 | `packages/slack-assistant` | The Slack assistant (§8). |
-| `specifications/interfaces/` | The contracts: `agent`, `events`, `event_payloads`, `llm`, `sandbox`, `session`, `transcript`, `git`, `mcp`. |
+| `specifications/interfaces/` | The contracts: `agent`, `events`, `event_payloads`, `llm`, `sandbox`, `session`, `transcript`, `git`, `mcp`, `ownership`. |
 | `apps/web` | The cockpit (§9) and its Playwright suite (`e2e/`). |
 | `deploy/` | Dockerfiles, Compose files, the Helm chart (`helm/platform`), Kind config. |
 | `doc/` | The user documentation site (Mintlify). `scripts/` holds the generators and checks. |
@@ -241,6 +241,7 @@ Playwright (`e2e/`) runs against the in-memory API and, in CI, against a migrate
 | An event | Add the `EventType`, a `TypedDict` in `event_payloads.py`, a handler in `turns/events.py`, the client handling, and the WebSocket documentation, in one change. |
 | A route | New router module; authorise with `_check_session_access` / identity helpers; Pydantic response model and docstring (they generate the API reference); register in `main.py`; add the route to the permission tests. |
 | A table | An Alembic migration (never `create_all`), `ENABLE` + `FORCE ROW LEVEL SECURITY` with an `org_id` policy, a model in `db/models.py`, and an RLS test. |
+| An object people own | `scope`, `user_id` and `team_id` (`_team_owner_column`, deletion restricted) on its table, its kind in `teams.OWNED_TABLES`; list with `ownership.visible_clause`, write through `ownership.owner_for_write`, check changes with `manageable`; tests for a team member, a team administrator, a non-member and a move. |
 | A subagent role | Add it to `agent_core/subagent_roles.DEFAULT_SUBAGENT_CONFIGS` (a `description` that says when to use it and when not, the narrowest tools, a tier, an isolation for a role that edits or runs commands, a prompt ending with the report format); it then appears in the roles index and the `role` enum. An organization adds roles in the agent editor, a repository in `.rocket/agents/<id>.md`. |
 | A default model | Add or update the provider's `ModelTiers` in `config_engine/model_defaults.py` and the model's window and price in `llm_gateway/model_facts.py` (the test fails otherwise). |
 | A start-up task | A method in `bootstrap/background.py` using `_run_periodically`, stopped by `BackgroundServices.stop`. |

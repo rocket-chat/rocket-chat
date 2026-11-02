@@ -25,7 +25,7 @@ Limits: 20 missions per member and 200 per organization.
 
 ## Triggers
 
-Administrators decide what starts work on its own under **Settings → Organization → Automation**. A trigger names:
+Administrators decide what starts work on its own under **Settings → Automation**. A trigger names:
 
 - **when**: a GitHub or GitLab issue that gets a label, a comment that addresses the agent (`@rocketchat`, `/agent`, `/fix`), a pull or merge request opened or updated, a review comment, a failed workflow run or pipeline; a Jira or Linear issue; a schedule (cron, UTC); or a call to `POST /v1/triggers/{id}/run`;
 - **which ones**: repository patterns (`acme/*`), labels and branches;

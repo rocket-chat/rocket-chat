@@ -12,17 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `orchestrator`:
 - `sandboxes`:
-- `api`:
+- `api`: **Teams** inside an organization (`/v1/teams`, `teams` and `team_memberships` with forced row-level security, migration `061_teams`). Organization administrators create and delete teams; a team's administrators rename it and manage its members (`admin` or `member`). Agents, skills, MCP servers and knowledge bases can be owned by a team (`scope: "team"`, `team_id`): its members use them, its administrators change them. Re-saving an object with another owner moves it, which needs the right to manage both owners; a team that still owns objects cannot be deleted. Organization agents can be granted to a team. Team changes and moves are audited (`team.*`).
 - `web`:
 - `settings`:
 - `git`:
 - `helm`:
 
 ### Changed
+- `api`: Ownership of agents, skills, MCP servers and knowledge bases goes through one contract (`specifications/interfaces/ownership.py`) and one helper (`services/ownership.py`). An administrator's edit of a member's personal agent, skill or MCP server keeps the member as owner (it used to make the object the administrator's).
 
 ### Fixed
 
 ### Security
+- `api`: A member could change an organization skill by saving it under its id, add documents to any knowledge base of the organization, and query another member's personal knowledge base. Each now requires the right to manage (or, for a query, to use) the object.
 
 ## [0.8.0] - 2026-10-30
 

@@ -16,7 +16,7 @@ export const OAuthFields: React.FC<{ form: McpServerFormState }> = ({ form }) =>
           ? "This server signs you in with your account, but its provider does not let applications register themselves: create an OAuth app there and enter it under Advanced."
           : "This server signs you in with your account. Nothing to set up: save it and sign in in the tab that opens."}
       </p>
-      {form.scope === "org" && (
+      {form.shared && (
         <fieldset className="space-y-1.5">
           <legend className="mb-1 text-xs font-medium text-neutral-600 dark:text-neutral-300">Who signs in</legend>
           <label className="flex items-center gap-2 text-xs text-foreground">

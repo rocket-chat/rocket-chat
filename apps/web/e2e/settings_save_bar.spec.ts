@@ -63,18 +63,24 @@ test.describe("Settings: one save bar, search and grouped fields", () => {
     await expect(page.getByTestId("settings-field-budgets-max_turn_cost_usd")).toBeVisible();
   });
 
-  test("the navigation is grouped by who a page is for", async ({ page }) => {
+  test("the navigation is grouped by topic", async ({ page }) => {
     await page.goto("/settings/user/profile");
-    for (const group of ["Personal", "Integrations", "Organization"]) {
+    for (const group of ["Build", "Resources", "Governance", "You"]) {
       await expect(page.getByRole("navigation", { name: group })).toBeVisible();
     }
-    const personal = page.getByRole("navigation", { name: "Personal" });
-    for (const name of ["Profile", "Preferences", "My keys", "My agents"]) {
-      await expect(personal.getByRole("link", { name, exact: true })).toBeVisible();
+    const build = page.getByRole("navigation", { name: "Build" });
+    for (const name of ["Agents", "Skills", "MCP servers", "Knowledge bases"]) {
+      await expect(build.getByRole("link", { name, exact: true })).toBeVisible();
     }
-    const organization = page.getByRole("navigation", { name: "Organization" });
-    for (const name of ["Members & roles", "Models & credentials", "Spend", "Agents", "Git & GitHub"]) {
-      await expect(organization.getByRole("link", { name: new RegExp(`^${name}`) })).toBeVisible();
+    const you = page.getByRole("navigation", { name: "You" });
+    for (const name of ["Profile", "Preferences", "Git identity", "API tokens"]) {
+      await expect(you.getByRole("link", { name, exact: true })).toBeVisible();
     }
+    const governance = page.getByRole("navigation", { name: "Governance" });
+    for (const name of ["Members & teams", "Spend & usage", "Automation", "Audit log"]) {
+      await expect(governance.getByRole("link", { name: new RegExp(`^${name}`) })).toBeVisible();
+    }
+    // One Agents page: personal agents are no longer a page of their own.
+    await expect(page.getByRole("link", { name: "My agents", exact: true })).toHaveCount(0);
   });
 });

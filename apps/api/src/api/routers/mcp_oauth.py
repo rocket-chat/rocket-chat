@@ -17,7 +17,7 @@ from sqlalchemy import select
 from api.auth.access import _get_request_identity
 from api.auth.identity import is_production
 from api.auth.origin import mcp_oauth_callback_url, public_origin
-from api.auth.roles import can_write, is_admin
+from api.auth.roles import can_write
 from api.db.models import (
     McpServerEntityModel,
 )
@@ -46,30 +46,35 @@ from api.services.mcp_turn import (
     _member_token_store,
     _probe_timestamp,
 )
+from api.services.ownership import owner_of
+from api.services.teams import viewer_for
+from specifications.interfaces.ownership import (
+    Owner,
+    Viewer,
+    can_manage,
+    can_see,
+    is_shared,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["MCP"])
 
 
 def _may_authorize_mcp(
-    scope: str,
-    owner_id: str | None,
-    user_id: str,
-    roles: list[str],
-    member_mode: bool = False,
+    owner: Owner, viewer: Viewer, roles: list[str], member_mode: bool = False
 ) -> bool:
     """Who may connect an account to a server.
 
     The token becomes that server's credential for everyone who can use it, so an organization
-    server is authorized by administrators only, and a personal one by its owner. An
-    organization server in member mode is the exception: every member connects their own
-    account, whose tokens are kept per member and never shared.
+    or team server is authorized by those who manage it only, and a personal one by its owner.
+    A shared server in member mode is the exception: everyone who can use it connects their
+    own account, whose tokens are kept per member and never shared.
     """
-    if scope == "org" and member_mode:
-        return can_write(roles)
-    if scope == "org":
-        return is_admin(roles)
-    return owner_id == user_id
+    if is_shared(owner.scope) and member_mode:
+        return can_write(roles) and can_see(viewer, owner)
+    if is_shared(owner.scope):
+        return can_manage(viewer, owner)
+    return owner.user_id == viewer.user_id
 
 
 async def _build_mcp_authorization_url(server_id: str, request: Request) -> OAuthAuthorization:
@@ -79,7 +84,7 @@ async def _build_mcp_authorization_url(server_id: str, request: Request) -> OAut
 
     db_mgr = getattr(request.app.state, "db_manager", None)
     auth_config: dict[str, Any] = {}
-    scope, owner_id = "org", None
+    owner = Owner("org")
 
     if db_mgr:
         async with db_mgr.session(tenant_org_id=org_id) as session:
@@ -93,18 +98,19 @@ async def _build_mcp_authorization_url(server_id: str, request: Request) -> OAut
             if entity:
                 auth_config = dict(entity.encrypted_auth or {})
                 auth_config["endpoint_or_command"] = entity.endpoint_or_command
-                scope, owner_id = entity.scope, entity.user_id
+                owner = owner_of(entity)
     else:
         rec = _mcp_servers_store.get(server_id)
         if rec and rec.get("org_id") == org_id:
             auth_config = dict(rec.get("encrypted_auth") or {})
             auth_config["endpoint_or_command"] = rec.get("endpoint_or_command", "")
-            scope, owner_id = rec.get("scope", "org"), rec.get("user_id")
+            owner = owner_of(rec)
 
     if not auth_config:
         raise HTTPException(status_code=404, detail="MCP server not found")
-    member_mode = scope == "org" and is_member_mode(auth_config)
-    if not _may_authorize_mcp(scope, owner_id, user_id, roles, member_mode):
+    member_mode = is_shared(owner.scope) and is_member_mode(auth_config)
+    viewer = await viewer_for(db_mgr, org_id, user_id, roles)
+    if not _may_authorize_mcp(owner, viewer, roles, member_mode):
         raise HTTPException(
             status_code=403, detail="You are not allowed to connect an account to this server."
         )
@@ -227,11 +233,14 @@ async def _finish_member_oauth(
     code: str,
     state_data: dict[str, Any],
 ) -> None:
-    """Store the returning member's own tokens for an organization server (member mode)."""
-    auth_dict, scope = await _load_mcp_auth(request, org_id, server_id)
-    if scope != "org" or not is_member_mode(auth_dict):
+    """Store the returning member's own tokens for a shared server (member mode)."""
+    auth_dict, owner = await _load_mcp_auth(request, org_id, server_id)
+    if not is_shared(owner.scope) or not is_member_mode(auth_dict):
         raise PermissionError("This server is not in per-member mode.")
-    if not _may_authorize_mcp(scope, None, user_id, roles, member_mode=True):
+    viewer = await viewer_for(
+        getattr(request.app.state, "db_manager", None), org_id, user_id, roles
+    )
+    if not _may_authorize_mcp(owner, viewer, roles, member_mode=True):
         raise PermissionError("You may not connect an account to this server.")
     secret = (
         _cipher.decrypt(auth_dict["oauth_client_secret"])
@@ -277,7 +286,8 @@ async def mcp_oauth_callback(
                 entity = res.scalar_one_or_none()
                 if entity is None:
                     raise LookupError("MCP server not found")
-                if not _may_authorize_mcp(entity.scope, entity.user_id, user_id, roles):
+                viewer = await viewer_for(db_mgr, org_id, user_id, roles)
+                if not _may_authorize_mcp(owner_of(entity), viewer, roles):
                     raise PermissionError("You may not connect an account to this server.")
                 auth_dict = dict(entity.encrypted_auth or {})
                 secret = (
@@ -303,9 +313,8 @@ async def mcp_oauth_callback(
             record = _mcp_servers_store.get(server_id)
             if record is None or record.get("org_id") != org_id:
                 raise LookupError("MCP server not found")
-            if not _may_authorize_mcp(
-                record.get("scope", "org"), record.get("user_id"), user_id, roles
-            ):
+            viewer = await viewer_for(db_mgr, org_id, user_id, roles)
+            if not _may_authorize_mcp(owner_of(record), viewer, roles):
                 raise PermissionError("You may not connect an account to this server.")
             auth_dict = dict(record.get("encrypted_auth") or {})
             secret = (

@@ -1,3 +1,4 @@
+import type { OwnerScope } from "../lib/ownership";
 export type EventType =
   | "token"
   | "reasoning_token"
@@ -503,8 +504,9 @@ export interface McpServerConfig {
   name: string;
   transport: "stdio" | "http" | "sse" | "streamable_http" | "websocket";
   endpoint_or_command: string;
-  scope?: "org" | "user";
+  scope?: OwnerScope;
   user_id?: string | null;
+  team_id?: string | null;
   built_in?: boolean;
   org_id?: string | null;
   guidance?: string;
@@ -577,8 +579,9 @@ export interface CustomSkillConfig {
   title: string;
   description: string;
   body: string;
-  scope?: "org" | "user";
+  scope?: OwnerScope;
   user_id?: string | null;
+  team_id?: string | null;
   org_id?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -588,8 +591,9 @@ export interface KnowledgeBaseConfig {
   id: string;
   name: string;
   description?: string;
-  scope?: "org" | "user";
+  scope?: OwnerScope;
   user_id?: string | null;
+  team_id?: string | null;
   org_id?: string | null;
   vector_index?: string;
   documents_count?: number;
@@ -607,8 +611,9 @@ export interface AgentPersonaConfig {
   whitelisted_tools?: string[];
   skill_ids?: string[];
   knowledge_base_ids?: string[];
-  scope?: "org" | "user";
+  scope?: OwnerScope;
   user_id?: string | null;
+  team_id?: string | null;
   org_id?: string | null;
   built_in?: boolean;
   /** A built-in agent whose organization edit is in effect. */

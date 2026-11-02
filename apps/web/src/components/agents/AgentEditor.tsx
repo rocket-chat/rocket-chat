@@ -96,7 +96,7 @@ export const AgentEditor: React.FC<AgentEditorProps> = ({ canEdit, isAdmin, stor
             {draft.name}
           </h2>
           <span className="text-[10px] text-muted-foreground">
-            {draft.kind === "subagent" ? "Subagent role" : draft.scope === "user" ? "Personal agent" : "Organization agent"} · {draft.id}
+            {draft.kind === "subagent" ? "Subagent role" : draft.scope === "user" ? "Personal agent" : draft.scope === "team" ? "Team agent" : "Organization agent"} · {draft.id}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">

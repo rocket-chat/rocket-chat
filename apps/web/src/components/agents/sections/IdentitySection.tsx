@@ -5,6 +5,10 @@ import { AlertTriangle, Edit3, Eye } from "lucide-react";
 import { Field, Input, Select } from "../../ui/Field";
 import { MarkdownRenderer } from "../../MarkdownRenderer";
 import { usePersonaLint } from "../../../lib/usePersonaLint";
+import { hasCapability, useAccess } from "../../../lib/access";
+import { useTeams } from "../../../lib/teams";
+import { creatableOwners, ownerFields, ownerKey } from "../../../lib/ownership";
+import { OwnerSelect } from "../../settings/Owner";
 import type { SectionProps } from "./types";
 
 const ICONS = ["bot", "server", "shield", "bug", "book", "search-check", "compass"];
@@ -13,8 +17,20 @@ const ICONS = ["bot", "server", "shield", "bug", "book", "search-check", "compas
 export const IdentitySection: React.FC<SectionProps> = ({ draft, patch, canEdit }) => {
   const [preview, setPreview] = useState(false);
   const warnings = usePersonaLint(draft.system_prompt);
+  const access = useAccess();
+  const { teams } = useTeams();
+  const owners = creatableOwners(access, teams, hasCapability(access, "create_personal_agents"));
   return (
     <div className="space-y-4">
+      {draft.kind === "agent" && !draft.built_in && (
+        <OwnerSelect
+          testId="agent-owner"
+          value={ownerKey(draft)}
+          options={owners}
+          disabled={!canEdit}
+          onChange={(key) => patch({ ...ownerFields(key), user_id: null })}
+        />
+      )}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Name">
           {(control) => (

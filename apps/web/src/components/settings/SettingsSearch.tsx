@@ -24,16 +24,16 @@ interface Result {
 
 // The page a domain's settings are edited on (member-scoped keys live on the personal pages).
 const DOMAIN_PAGE: Record<string, { href: string; where: string }> = {
-  general: { href: "/settings/org", where: "General" },
-  models: { href: "/settings/org/models", where: "Models & credentials" },
-  budgets: { href: "/settings/org/spend", where: "Spend" },
+  general: { href: "/settings/org", where: "Organization" },
+  models: { href: "/settings/org/models", where: "Models & keys" },
+  budgets: { href: "/settings/org/spend", where: "Spend & usage" },
   governance: { href: "/settings/org/governance", where: "Security & data" },
   memory: { href: "/settings/org/governance", where: "Security & data" },
   sandboxes: { href: "/settings/org/sandboxes", where: "Sandboxes" },
   github: { href: "/settings/org/git", where: "Git & GitHub" },
   mcp: { href: "/settings/mcp", where: "MCP servers" },
   slack: { href: "/settings/slack", where: "Slack" },
-  access: { href: "/settings/org/users", where: "Members & roles" },
+  access: { href: "/settings/members", where: "Members & teams" },
   user_preferences: { href: "/settings/user/preferences", where: "Preferences" },
 };
 

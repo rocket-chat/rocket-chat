@@ -108,6 +108,53 @@ class MembershipModel(Base):
     )
 
 
+class TeamModel(Base):
+    """A group of an organization's members that owns objects of its own. Forced RLS."""
+
+    __tablename__ = "teams"
+    __table_args__ = (UniqueConstraint("org_id", "name", name="uq_teams_org_name"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+
+
+class TeamMembershipModel(Base):
+    """A member's role (``admin`` or ``member``) in one team of their organization. Forced RLS."""
+
+    __tablename__ = "team_memberships"
+    __table_args__ = (UniqueConstraint("team_id", "user_id", name="uq_team_memberships"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    team_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("teams.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False, default="member")
+    created_at: Mapped[int] = mapped_column(
+        BigInteger, default=lambda: int(time.time()), nullable=False
+    )
+
+
+def _team_owner_column() -> Mapped[str | None]:
+    # RESTRICT: a team that still owns objects cannot be deleted; they are moved or deleted first.
+    return mapped_column(
+        String(64), ForeignKey("teams.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+
+
 class OrgInviteModel(Base):
     """A link that makes its holder a member of an organization, until it expires or is used."""
 
@@ -440,6 +487,7 @@ class KnowledgeBaseModel(Base):
         String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     scope: Mapped[str] = mapped_column(String(20), default="org", nullable=False, index=True)
+    team_id: Mapped[str | None] = _team_owner_column()
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
     vector_index: Mapped[str] = mapped_column(String(100), default="pgvector_hnsw_default")
@@ -537,6 +585,7 @@ class CustomSkillModel(Base):
         String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     scope: Mapped[str] = mapped_column(String(20), default="org", nullable=False, index=True)
+    team_id: Mapped[str | None] = _team_owner_column()
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
     body: Mapped[str] = mapped_column(Text, default="", nullable=False)
@@ -565,6 +614,7 @@ class McpServerEntityModel(Base):
         String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     scope: Mapped[str] = mapped_column(String(20), default="org", nullable=False, index=True)
+    team_id: Mapped[str | None] = _team_owner_column()
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")
     transport: Mapped[str] = mapped_column(String(50), default="stdio")
@@ -621,6 +671,7 @@ class AgentPersonaEntityModel(Base):
         String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
     scope: Mapped[str] = mapped_column(String(20), default="org", nullable=False, index=True)
+    team_id: Mapped[str | None] = _team_owner_column()
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     role_title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="")

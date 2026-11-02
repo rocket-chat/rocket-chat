@@ -64,7 +64,7 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     await expect(page.getByText("Settings Console").first()).toBeVisible();
 
     // Navigate to Custom Agents page
-    await page.getByRole("navigation", { name: "Organization" }).getByRole("link", { name: /^Agents/ }).click();
+    await page.getByRole("navigation", { name: "Build" }).getByRole("link", { name: /^Agents/ }).click();
     await expect(page).toHaveURL(/\/settings\/agents/);
     await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
     await page.getByTestId("agent-item-persona-general").click();

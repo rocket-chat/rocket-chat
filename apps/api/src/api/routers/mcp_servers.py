@@ -12,12 +12,11 @@ from fastapi import (
     Request,
 )
 from mcp_runner.protocol import is_valid_env_name
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
 from api.auth.access import _get_request_identity
 from api.auth.capabilities import Capability, has_capability
 from api.auth.origin import mcp_oauth_callback_url, public_origin
-from api.auth.roles import is_admin as holds_admin
 from api.db.models import (
     McpServerEntityModel,
 )
@@ -55,9 +54,21 @@ from api.services.mcp_turn import (
     _member_token_store,
     _probe_timestamp,
 )
+from api.services.ownership import (
+    OwnershipError,
+    manageable,
+    owner_columns,
+    owner_for_write,
+    owner_of,
+    request_viewer,
+    visible,
+    visible_clause,
+)
 from api.services.settings import (
     effective_settings,
 )
+from api.services.teams import note_memory_owned
+from specifications.interfaces.ownership import Owner, Viewer, is_shared
 
 logger = logging.getLogger(__name__)
 # The server's own text is shown to the administrator in full; the guidance field takes less.
@@ -94,6 +105,7 @@ def _format_mcp_response(s: Any) -> McpServerResponseModel:
         s_last_probed = s.last_probed
         s_scope = s.scope
         s_user_id = s.user_id
+        s_team_id = s.team_id
     else:
         tools_data = s.get("tools", [])
         encrypted_auth = s.get("encrypted_auth", {})
@@ -122,6 +134,7 @@ def _format_mcp_response(s: Any) -> McpServerResponseModel:
         s_last_probed = s.get("last_probed", "Just now")
         s_scope = s.get("scope", "org")
         s_user_id = s.get("user_id")
+        s_team_id = s.get("team_id")
 
     tool_items = [
         McpToolItem(
@@ -168,6 +181,7 @@ def _format_mcp_response(s: Any) -> McpServerResponseModel:
         auth_type=s_auth_type,
         scope=s_scope,
         user_id=s_user_id,
+        team_id=s_team_id,
         is_builtin=s_builtin,
         status=s_status,
         tools_count=len(tool_items),
@@ -192,15 +206,16 @@ def _format_mcp_response(s: Any) -> McpServerResponseModel:
 
 @router.get("/mcp/servers", response_model=list[McpServerResponseModel])
 async def list_mcp_servers(request: Request) -> list[McpServerResponseModel]:
-    """List registered MCP servers scoped to tenant organization and current user."""
-    org_id, user_id, _ = _get_request_identity(request)
+    """The MCP servers the caller may use: the organization's, their teams' and their own."""
+    org_id, viewer = await request_viewer(request)
+    user_id = viewer.user_id
     db_mgr = getattr(request.app.state, "db_manager", None)
 
     if db_mgr:
         async with db_mgr.session() as session:
             stmt = select(McpServerEntityModel).where(
                 McpServerEntityModel.org_id == org_id,
-                or_(McpServerEntityModel.scope == "org", McpServerEntityModel.user_id == user_id),
+                visible_clause(McpServerEntityModel, viewer),
             )
             res = await session.execute(stmt)
             views = [_format_mcp_response(s) for s in res.scalars().all()]
@@ -208,11 +223,7 @@ async def list_mcp_servers(request: Request) -> list[McpServerResponseModel]:
         views = [
             _format_mcp_response(s)
             for s in _mcp_servers_store.values()
-            if s.get("is_builtin")
-            or (
-                s.get("org_id") == org_id
-                and (s.get("scope") == "org" or s.get("user_id") == user_id)
-            )
+            if s.get("is_builtin") or (s.get("org_id") == org_id and visible(s, viewer))
         ]
     return await _with_member_connection_status(request, org_id, user_id, views)
 
@@ -245,7 +256,9 @@ async def mcp_runner_status(request: Request) -> McpRunnerStatus:
 
 
 async def _org_server_auth(request: Request, org_id: str, server_id: str) -> dict[str, Any]:
-    """The stored auth block of an organization server the caller can see, or 404."""
+    """The stored auth block of a shared (organization or team) server the caller can use,
+    or 404."""
+    _, viewer = await request_viewer(request)
     db_mgr = getattr(request.app.state, "db_manager", None)
     if db_mgr:
         async with db_mgr.session(tenant_org_id=org_id) as session:
@@ -254,15 +267,19 @@ async def _org_server_auth(request: Request, org_id: str, server_id: str) -> dic
                     select(McpServerEntityModel).where(
                         McpServerEntityModel.id == server_id,
                         McpServerEntityModel.org_id == org_id,
-                        McpServerEntityModel.scope == "org",
+                        McpServerEntityModel.scope.in_(("org", "team")),
                     )
                 )
             ).scalar_one_or_none()
-        auth = dict(entity.encrypted_auth or {}) if entity else None
+        found = entity is not None and visible(entity, viewer)
+        auth = dict(entity.encrypted_auth or {}) if entity is not None and found else None
     else:
         record = _mcp_servers_store.get(server_id)
         found = (
-            record is not None and record.get("org_id") == org_id and record.get("scope") == "org"
+            record is not None
+            and record.get("org_id") == org_id
+            and is_shared(str(record.get("scope", "org")))
+            and visible(record, viewer)
         )
         auth = dict((record or {}).get("encrypted_auth") or {}) if found else None
     if auth is None:
@@ -317,12 +334,12 @@ async def validate_mcp_server(
     request: Request,
 ) -> ValidateMcpServerResponse:
     """Validate MCP connection and probe tools prior to saving."""
-    org_id, user_id, roles = _get_request_identity(request)
-    is_admin = holds_admin(roles)
+    org_id, viewer = await request_viewer(request)
+    is_admin = viewer.is_org_admin
 
     if req.id:
         try:
-            stored = await _stored_server_for_update(request, org_id, user_id, is_admin, req.id)
+            stored = await _stored_server_for_update(request, org_id, viewer, req.id)
         except HTTPException as err:
             return ValidateMcpServerResponse(
                 valid=False, status="error", tools=[], error=str(err.detail)
@@ -414,7 +431,7 @@ async def _enforce_mcp_policy(
     """Apply the org's MCP policy (allowed transports, per-member server cap) or raise 400/403."""
     db_mgr = getattr(request.app.state, "db_manager", None)
     policy = await effective_settings(db_mgr, org_id, "mcp")
-    key = "allowed_transports" if scope == "org" else "user_allowed_transports"
+    key = "user_allowed_transports" if scope == "user" else "allowed_transports"
     allowed = {_canonical_transport(t) for t in policy.get(key) or []}
     if _canonical_transport(transport) not in allowed:
         raise HTTPException(
@@ -495,15 +512,10 @@ def _check_stdio_environment(transport: str, auth: McpAuthInput) -> None:
 
 
 def _authorise_registration(req: CreateMcpServerRequest, is_admin: bool) -> None:
-    """Only administrators register organization-wide or stdio servers."""
-    if req.scope == "org" and not is_admin:
-        if "scope" not in req.model_fields_set:
-            req.scope = "user"
-        else:
-            raise HTTPException(
-                status_code=403,
-                detail="Only Organization Administrators can register organization-wide MCP servers.",
-            )
+    """Only administrators register stdio servers; who owns the server is checked with its
+    owner (``owner_for_write``). A member who names no owner registers a personal server."""
+    if req.scope == "org" and not is_admin and "scope" not in req.model_fields_set:
+        req.scope = "user"
 
     if req.transport == "stdio" and not is_admin:
         raise HTTPException(
@@ -525,10 +537,10 @@ def _encrypted_auth_payload(req: CreateMcpServerRequest) -> dict[str, Any]:
         "oauth_scopes": auth.oauth_scopes,
     }
     if auth.oauth_mode == "member":
-        if req.scope != "org" or auth.auth_type not in ("oauth", "oauth2"):
+        if not is_shared(req.scope) or auth.auth_type not in ("oauth", "oauth2"):
             raise HTTPException(
                 status_code=422,
-                detail="Per-member accounts apply to organization servers that use OAuth.",
+                detail="Per-member accounts apply to organization or team servers that use OAuth.",
             )
         payload["oauth_mode"] = "member"
 
@@ -553,7 +565,7 @@ def _encrypted_auth_payload(req: CreateMcpServerRequest) -> dict[str, Any]:
 
 
 async def _stored_server_for_update(
-    request: Request, org_id: str, user_id: str, is_admin: bool, server_id: str
+    request: Request, org_id: str, viewer: Viewer, server_id: str
 ) -> dict[str, Any] | None:
     """The stored record being replaced (``None`` for a new server), after the access check.
 
@@ -573,20 +585,17 @@ async def _stored_server_for_update(
             ).scalar_one_or_none()
         if entity is None:
             return None
-        _assert_may_modify(entity, user_id, is_admin)
+        _assert_may_modify(entity, viewer)
         return {
             "endpoint_or_command": entity.endpoint_or_command,
             "transport": entity.transport,
             "encrypted_auth": dict(entity.encrypted_auth or {}),
+            **owner_columns(owner_of(entity)),
         }
     record = _mcp_servers_store.get(server_id)
     if record is None or record.get("org_id") != org_id:
         return None
-    if not is_admin and (
-        record.get("scope") == "org"
-        or (record.get("scope") == "user" and record.get("user_id") != user_id)
-    ):
-        raise HTTPException(status_code=403, detail="Forbidden")
+    _assert_may_modify(record, viewer)
     return record
 
 
@@ -743,10 +752,8 @@ def _differs(supplied: str | None, stored: str | None) -> bool:
     return bool(supplied) and supplied != stored
 
 
-def _assert_may_modify(entity: McpServerEntityModel, user_id: str, is_admin: bool) -> None:
-    if is_admin:
-        return
-    if entity.scope == "org" or (entity.scope == "user" and entity.user_id != user_id):
+def _assert_may_modify(server: McpServerEntityModel | dict[str, Any], viewer: Viewer) -> None:
+    if not manageable(server, viewer):
         raise HTTPException(status_code=403, detail="Forbidden")
 
 
@@ -756,7 +763,7 @@ def _update_entity(
     auth_dict: dict[str, Any],
     tools: list[dict[str, Any]],
     status: str,
-    target_user_id: str | None,
+    owner: Owner,
     keep_oauth_tokens: bool = True,
 ) -> None:
     entity.name = req.name
@@ -775,8 +782,8 @@ def _update_entity(
     entity.tools = tools
     entity.status = status
     entity.last_probed = _probe_timestamp()
-    entity.scope = req.scope
-    entity.user_id = target_user_id
+    for column, value in owner_columns(owner).items():
+        setattr(entity, column, value)
     entity.updated_at = int(time.time())
 
 
@@ -787,14 +794,13 @@ def _new_entity(
     auth_dict: dict[str, Any],
     tools: list[dict[str, Any]],
     status: str,
-    target_user_id: str | None,
+    owner: Owner,
 ) -> McpServerEntityModel:
     now = int(time.time())
     return McpServerEntityModel(
         id=server_id,
         org_id=org_id,
-        user_id=target_user_id,
-        scope=req.scope,
+        **owner_columns(owner),
         name=req.name,
         description=req.description,
         transport=req.transport,
@@ -818,9 +824,10 @@ async def register_or_update_mcp_server(
 ) -> McpServerResponseModel:
     """Register or update an MCP server, securely encrypting secrets with AES-256-GCM."""
     org_id, user_id, roles = _get_request_identity(request)
-    is_admin = holds_admin(roles)
+    _, viewer = await request_viewer(request)
+    is_admin = viewer.is_org_admin
     _authorise_registration(req, is_admin)
-    if req.scope == "user" and not await has_capability(
+    if req.scope != "org" and not await has_capability(
         getattr(request.app.state, "db_manager", None), org_id, roles, Capability.REGISTER_MCP
     ):
         raise HTTPException(
@@ -829,16 +836,28 @@ async def register_or_update_mcp_server(
         )
     stored = None
     if req.id:
-        stored = await _stored_server_for_update(request, org_id, user_id, is_admin, req.id)
+        stored = await _stored_server_for_update(request, org_id, viewer, req.id)
         if stored is not None:
             _keep_stored_secrets(req, stored)
+    try:
+        owner = await owner_for_write(
+            getattr(request.app.state, "db_manager", None),
+            org_id,
+            viewer,
+            scope=req.scope,
+            team_id=req.team_id,
+            current=owner_of(stored) if stored is not None else None,
+            what="MCP servers",
+        )
+    except OwnershipError as err:
+        raise err.as_http() from err
+    req.scope, req.team_id = owner.scope, owner.team_id
     reconnected = _connection_changed(req, stored)
     for header in req.auth.headers:
         header.value = header.value or ""
     _check_stdio_environment(req.transport, req.auth)
 
     server_id = req.id or f"mcp-{uuid.uuid4().hex[:8]}"
-    target_user_id = user_id if req.scope == "user" else None
     await _enforce_mcp_policy(request, org_id, user_id, req.scope, req.transport, req.id)
 
     auth_dict = _encrypted_auth_payload(req)
@@ -855,7 +874,7 @@ async def register_or_update_mcp_server(
     db_mgr = getattr(request.app.state, "db_manager", None)
     if not db_mgr:
         response = _format_mcp_response(
-            _store_in_memory(server_id, org_id, req, auth_dict, tools, status, target_user_id)
+            _store_in_memory(server_id, org_id, req, auth_dict, tools, status, owner)
         )
         if reconnected:
             await _member_token_store(request).delete_for_server(org_id, server_id)
@@ -873,18 +892,18 @@ async def register_or_update_mcp_server(
         )
         entity = result.scalar_one_or_none()
         if entity:
-            _assert_may_modify(entity, user_id, is_admin)
+            _assert_may_modify(entity, viewer)
             _update_entity(
                 entity,
                 req,
                 auth_dict,
                 tools,
                 status,
-                target_user_id,
+                owner,
                 keep_oauth_tokens=not reconnected,
             )
         else:
-            entity = _new_entity(server_id, org_id, req, auth_dict, tools, status, target_user_id)
+            entity = _new_entity(server_id, org_id, req, auth_dict, tools, status, owner)
             session.add(entity)
         await session.commit()
         response = _format_mcp_response(entity)
@@ -901,9 +920,14 @@ def _store_in_memory(
     auth_dict: dict[str, Any],
     tools: list[dict[str, Any]],
     status: str,
-    target_user_id: str | None,
+    owner: Owner,
 ) -> dict[str, Any]:
     """The no-database fallback used by tests and single-process development."""
+    previous = _mcp_servers_store.get(server_id) or {}
+    if previous.get("team_id"):
+        note_memory_owned(org_id, previous["team_id"], "mcp_servers", -1)
+    if owner.team_id:
+        note_memory_owned(org_id, owner.team_id, "mcp_servers", 1)
     record: dict[str, Any] = {
         "id": server_id,
         "org_id": org_id,
@@ -914,8 +938,7 @@ def _store_in_memory(
         "guidance": req.guidance,
         "auth_type": req.auth.auth_type,
         "encrypted_auth": auth_dict,
-        "scope": req.scope,
-        "user_id": target_user_id,
+        **owner_columns(owner),
         "is_builtin": False,
         "status": status,
         "last_probed": _probe_timestamp(),
@@ -927,9 +950,8 @@ def _store_in_memory(
 
 @router.delete("/mcp/servers/{server_id}")
 async def delete_mcp_server(server_id: str, request: Request) -> dict[str, bool]:
-    """Delete a registered MCP server."""
-    org_id, user_id, roles = _get_request_identity(request)
-    is_admin = holds_admin(roles)
+    """Delete a registered MCP server (whoever may manage its owner)."""
+    org_id, viewer = await request_viewer(request)
     db_mgr = getattr(request.app.state, "db_manager", None)
 
     if db_mgr:
@@ -944,17 +966,18 @@ async def delete_mcp_server(server_id: str, request: Request) -> dict[str, bool]
                 raise HTTPException(status_code=404, detail="MCP server not found")
             if entity.is_builtin:
                 raise HTTPException(status_code=400, detail="Cannot delete built-in MCP server")
-            if entity.scope == "org" and not is_admin:
-                raise HTTPException(status_code=403, detail="Forbidden")
-            if entity.scope == "user" and entity.user_id != user_id and not is_admin:
-                raise HTTPException(status_code=403, detail="Forbidden")
+            _assert_may_modify(entity, viewer)
 
             await session.delete(entity)
             await session.commit()
             _mcp_servers_store.pop(server_id, None)
             return {"deleted": True}
 
-    if server_id in _mcp_servers_store:
+    record = _mcp_servers_store.get(server_id)
+    if record is not None and record.get("org_id") == org_id:
+        _assert_may_modify(record, viewer)
+        if record.get("team_id"):
+            note_memory_owned(org_id, record["team_id"], "mcp_servers", -1)
         del _mcp_servers_store[server_id]
         return {"deleted": True}
     raise HTTPException(status_code=404, detail="MCP server not found")

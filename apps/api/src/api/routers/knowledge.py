@@ -11,10 +11,10 @@ from fastapi import (
     Request,
 )
 from pydantic import BaseModel, Field
-from sqlalchemy import or_, select
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.access import _get_request_identity
-from api.auth.roles import is_admin as holds_admin
 from api.db.models import (
     KnowledgeBaseModel,
     KnowledgeDocumentModel,
@@ -22,6 +22,7 @@ from api.db.models import (
 from api.models import (
     KnowledgeBaseCreateRequest,
     KnowledgeBaseResponse,
+    KnowledgeBaseUpdateRequest,
     KnowledgeDocumentCreateRequest,
     KnowledgeDocumentResponse,
     KnowledgeQueryRequest,
@@ -45,7 +46,19 @@ from api.services.knowledge_import import (
     pdf_from_base64,
 )
 from api.services.memory import configured_embedding_model
+from api.services.ownership import (
+    OwnershipError,
+    manageable,
+    owner_columns,
+    owner_for_write,
+    owner_of,
+    request_viewer,
+    visible,
+    visible_clause,
+)
 from api.services.settings import effective_settings
+from api.services.teams import note_memory_owned
+from specifications.interfaces.ownership import Owner, Viewer
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Sessions & Telemetry"])
@@ -76,61 +89,90 @@ async def _embedding_model(db_mgr: Any, org_id: str) -> str:
     return configured_embedding_model(await effective_settings(db_mgr, org_id, "memory"))
 
 
+def _base_response(kb: Any, documents_count: int) -> KnowledgeBaseResponse:
+    """A stored knowledge base (a row or an in-memory record) as the API reports it."""
+
+    def field(name: str, default: Any = None) -> Any:
+        value = kb.get(name) if isinstance(kb, dict) else getattr(kb, name, None)
+        return default if value is None else value
+
+    return KnowledgeBaseResponse(
+        id=field("id"),
+        name=field("name"),
+        description=field("description", ""),
+        scope=field("scope", "org"),
+        user_id=field("user_id"),
+        team_id=field("team_id"),
+        vector_index=field("vector_index"),
+        embedding_model=field("embedding_model"),
+        hybrid_search=field("hybrid_search", True),
+        documents_count=documents_count,
+        created_at=field("created_at", 0),
+        updated_at=field("updated_at", field("created_at", 0)),
+    )
+
+
+def _memory_bases(org_id: str, viewer: Viewer) -> list[dict[str, Any]]:
+    # The development store's sample collection has no organization: every one sees it.
+    return [
+        k
+        for k in _kb_fallback_store.values()
+        if k.get("org_id", org_id) == org_id and visible(k, viewer)
+    ]
+
+
+async def _readable_base(
+    session: AsyncSession, org_id: str, kb_id: str, viewer: Viewer, *, to_change: bool
+) -> KnowledgeBaseModel:
+    """The knowledge base, when the caller may read it (404 otherwise) and, ``to_change``,
+    manage it (403)."""
+    kb = (
+        await session.execute(
+            select(KnowledgeBaseModel).where(
+                KnowledgeBaseModel.id == kb_id, KnowledgeBaseModel.org_id == org_id
+            )
+        )
+    ).scalar_one_or_none()
+    if kb is None or not (visible(kb, viewer) or manageable(kb, viewer)):
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    if to_change and not manageable(kb, viewer):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return kb
+
+
+def _readable_memory_base(
+    org_id: str, kb_id: str, viewer: Viewer, *, to_change: bool
+) -> dict[str, Any]:
+    kb = _kb_fallback_store.get(kb_id)
+    if kb is None or kb.get("org_id", org_id) != org_id or not visible(kb, viewer):
+        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    if to_change and not manageable(kb, viewer):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return kb
+
+
 @router.get("/knowledge/bases", response_model=list[KnowledgeBaseResponse])
 async def list_knowledge_bases(request: Request) -> list[KnowledgeBaseResponse]:
-    """List all Knowledge Bases accessible to the organization and current user."""
-    org_id, user_id, _ = _get_request_identity(request)
+    """The knowledge bases the caller may use: the organization's, their teams' and their own."""
+    org_id, viewer = await request_viewer(request)
     db_mgr = getattr(request.app.state, "db_manager", None)
 
     if db_mgr:
         async with db_mgr.session() as session:
             stmt = select(KnowledgeBaseModel).where(
-                KnowledgeBaseModel.org_id == org_id,
-                or_(KnowledgeBaseModel.scope == "org", KnowledgeBaseModel.user_id == user_id),
+                KnowledgeBaseModel.org_id == org_id, visible_clause(KnowledgeBaseModel, viewer)
             )
-            res = await session.execute(stmt)
-            bases = res.scalars().all()
+            bases = (await session.execute(stmt)).scalars().all()
             result: list[KnowledgeBaseResponse] = []
             for b in bases:
                 cnt_stmt = select(KnowledgeDocumentModel).where(
                     KnowledgeDocumentModel.kb_id == b.id
                 )
-                cnt_res = await session.execute(cnt_stmt)
-                doc_count = len(cnt_res.scalars().all())
-                result.append(
-                    KnowledgeBaseResponse(
-                        id=b.id,
-                        name=b.name,
-                        description=b.description,
-                        scope=b.scope,
-                        user_id=b.user_id,
-                        vector_index=b.vector_index,
-                        embedding_model=b.embedding_model,
-                        hybrid_search=b.hybrid_search,
-                        documents_count=doc_count,
-                        created_at=b.created_at,
-                        updated_at=b.updated_at,
-                    )
-                )
+                doc_count = len((await session.execute(cnt_stmt)).scalars().all())
+                result.append(_base_response(b, doc_count))
             return result
 
-    # In-memory store
-    return [
-        KnowledgeBaseResponse(
-            id=k["id"],
-            name=k["name"],
-            description=k["description"],
-            scope=k.get("scope", "org"),
-            user_id=k.get("user_id"),
-            vector_index=k["vector_index"],
-            embedding_model=k["embedding_model"],
-            hybrid_search=k["hybrid_search"],
-            documents_count=len(k.get("documents", {})),
-            created_at=k["created_at"],
-            updated_at=k["updated_at"],
-        )
-        for k in _kb_fallback_store.values()
-    ]
+    return [_base_response(k, len(k.get("documents", {}))) for k in _memory_bases(org_id, viewer)]
 
 
 @router.post("/knowledge/bases", response_model=KnowledgeBaseResponse)
@@ -138,18 +180,22 @@ async def create_knowledge_base(
     req: KnowledgeBaseCreateRequest,
     request: Request,
 ) -> KnowledgeBaseResponse:
-    """Create a new pgvector semantic knowledge base collection."""
-    org_id, user_id, roles = _get_request_identity(request)
-    is_admin = holds_admin(roles)
-
-    if req.scope == "org" and not is_admin:
-        raise HTTPException(
-            status_code=403,
-            detail="Only Organization Administrators can create organization-wide knowledge bases.",
-        )
-
-    target_user_id = user_id if req.scope == "user" else None
+    """Create a pgvector knowledge base owned by the caller, one of their teams or the
+    organization."""
+    org_id, viewer = await request_viewer(request)
     db_mgr = getattr(request.app.state, "db_manager", None)
+    try:
+        owner = await owner_for_write(
+            db_mgr,
+            org_id,
+            viewer,
+            scope=req.scope,
+            team_id=req.team_id,
+            current=None,
+            what="knowledge bases",
+        )
+    except OwnershipError as err:
+        raise err.as_http() from err
     kb_id = f"kb-{uuid.uuid4().hex[:8]}"
     now = int(time.time())
 
@@ -158,8 +204,6 @@ async def create_knowledge_base(
             kb = KnowledgeBaseModel(
                 id=kb_id,
                 org_id=org_id,
-                user_id=target_user_id,
-                scope=req.scope,
                 name=req.name,
                 description=req.description,
                 vector_index=req.vector_index,
@@ -167,81 +211,114 @@ async def create_knowledge_base(
                 hybrid_search=req.hybrid_search,
                 created_at=now,
                 updated_at=now,
+                **owner_columns(owner),
             )
             session.add(kb)
             await session.commit()
-            return KnowledgeBaseResponse(
-                id=kb.id,
-                name=kb.name,
-                description=kb.description,
-                scope=kb.scope,
-                user_id=kb.user_id,
-                vector_index=kb.vector_index,
-                embedding_model=kb.embedding_model,
-                hybrid_search=kb.hybrid_search,
-                documents_count=0,
-                created_at=kb.created_at,
-                updated_at=kb.updated_at,
-            )
+            return _base_response(kb, 0)
 
     rec: dict[str, Any] = {
         "id": kb_id,
+        "org_id": org_id,
         "name": req.name,
         "description": req.description,
-        "scope": req.scope,
-        "user_id": target_user_id,
         "vector_index": req.vector_index,
         "embedding_model": req.embedding_model,
         "hybrid_search": req.hybrid_search,
         "documents": {},
         "created_at": now,
         "updated_at": now,
+        **owner_columns(owner),
     }
     _kb_fallback_store[kb_id] = rec
-    return KnowledgeBaseResponse(
-        id=kb_id,
-        name=req.name,
-        description=req.description,
-        scope=req.scope,
-        user_id=target_user_id,
-        vector_index=req.vector_index,
-        embedding_model=req.embedding_model,
-        hybrid_search=req.hybrid_search,
-        documents_count=0,
-        created_at=now,
-        updated_at=now,
-    )
+    if owner.team_id:
+        note_memory_owned(org_id, owner.team_id, "knowledge_bases", 1)
+    return _base_response(rec, 0)
+
+
+async def _moved_owner(
+    request: Request, org_id: str, viewer: Viewer, req: KnowledgeBaseUpdateRequest, kb: Any
+) -> Owner:
+    current = owner_of(kb)
+    try:
+        return await owner_for_write(
+            getattr(request.app.state, "db_manager", None),
+            org_id,
+            viewer,
+            scope=req.scope or current.scope,
+            team_id=req.team_id if req.scope else current.team_id,
+            current=current,
+            what="knowledge bases",
+        )
+    except OwnershipError as err:
+        raise err.as_http() from err
+
+
+@router.patch("/knowledge/bases/{kb_id}", response_model=KnowledgeBaseResponse)
+async def update_knowledge_base(
+    kb_id: str, req: KnowledgeBaseUpdateRequest, request: Request
+) -> KnowledgeBaseResponse:
+    """Rename a knowledge base or move it to another owner (whoever manages it, and for a move
+    the destination too)."""
+    org_id, viewer = await request_viewer(request)
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    now = int(time.time())
+
+    if db_mgr:
+        async with db_mgr.session() as session:
+            kb = await _readable_base(session, org_id, kb_id, viewer, to_change=True)
+            owner = await _moved_owner(request, org_id, viewer, req, kb)
+            if req.name is not None:
+                kb.name = req.name
+            if req.description is not None:
+                kb.description = req.description
+            for column, value in owner_columns(owner).items():
+                setattr(kb, column, value)
+            kb.updated_at = now
+            count = len(
+                (
+                    await session.execute(
+                        select(KnowledgeDocumentModel).where(KnowledgeDocumentModel.kb_id == kb_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            await session.commit()
+            return _base_response(kb, count)
+
+    record = _readable_memory_base(org_id, kb_id, viewer, to_change=True)
+    owner = await _moved_owner(request, org_id, viewer, req, record)
+    if record.get("team_id"):
+        note_memory_owned(org_id, record["team_id"], "knowledge_bases", -1)
+    if owner.team_id:
+        note_memory_owned(org_id, owner.team_id, "knowledge_bases", 1)
+    if req.name is not None:
+        record["name"] = req.name
+    if req.description is not None:
+        record["description"] = req.description
+    record.update(owner_columns(owner), updated_at=now)
+    return _base_response(record, len(record.get("documents", {})))
 
 
 @router.delete("/knowledge/bases/{kb_id}")
 async def delete_knowledge_base(kb_id: str, request: Request) -> dict[str, bool]:
     """Delete a Knowledge Base collection and cascade delete documents and chunks."""
-    org_id, user_id, roles = _get_request_identity(request)
-    is_admin = holds_admin(roles)
+    org_id, viewer = await request_viewer(request)
     db_mgr = getattr(request.app.state, "db_manager", None)
 
     if db_mgr:
         async with db_mgr.session() as session:
-            stmt = select(KnowledgeBaseModel).where(
-                KnowledgeBaseModel.id == kb_id, KnowledgeBaseModel.org_id == org_id
-            )
-            res = await session.execute(stmt)
-            kb = res.scalar_one_or_none()
-            if not kb:
-                raise HTTPException(status_code=404, detail="Knowledge base not found")
-            if kb.scope == "org" and not is_admin:
-                raise HTTPException(status_code=403, detail="Forbidden")
-            if kb.scope == "user" and kb.user_id != user_id and not is_admin:
-                raise HTTPException(status_code=403, detail="Forbidden")
-
+            kb = await _readable_base(session, org_id, kb_id, viewer, to_change=True)
             await session.delete(kb)
             await session.commit()
             return {"deleted": True}
 
-    if kb_id in _kb_fallback_store:
-        del _kb_fallback_store[kb_id]
-        return {"deleted": True}
-    raise HTTPException(status_code=404, detail="Knowledge base not found")
+    record = _readable_memory_base(org_id, kb_id, viewer, to_change=True)
+    if record.get("team_id"):
+        note_memory_owned(org_id, record["team_id"], "knowledge_bases", -1)
+    del _kb_fallback_store[kb_id]
+    return {"deleted": True}
 
 
 @router.post("/knowledge/bases/{kb_id}/documents", response_model=KnowledgeDocumentResponse)
@@ -250,18 +327,13 @@ async def ingest_knowledge_document(
     req: KnowledgeDocumentCreateRequest,
     request: Request,
 ) -> KnowledgeDocumentResponse:
-    """Ingest, chunk, and embed a document into the Knowledge Base."""
-    org_id, _, _ = _get_request_identity(request)
+    """Ingest, chunk, and embed a document into the Knowledge Base (whoever manages it)."""
+    org_id, viewer = await request_viewer(request)
     db_mgr = getattr(request.app.state, "db_manager", None)
 
     if db_mgr:
         async with db_mgr.session() as session:
-            kb_stmt = select(KnowledgeBaseModel).where(
-                KnowledgeBaseModel.id == kb_id, KnowledgeBaseModel.org_id == org_id
-            )
-            kb_res = await session.execute(kb_stmt)
-            if not kb_res.scalar_one_or_none():
-                raise HTTPException(status_code=404, detail="Knowledge base not found")
+            await _readable_base(session, org_id, kb_id, viewer, to_change=True)
 
             try:
                 doc = await ingest_document(
@@ -286,8 +358,7 @@ async def ingest_knowledge_document(
             )
 
     # In-memory fallback
-    if kb_id not in _kb_fallback_store:
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    _readable_memory_base(org_id, kb_id, viewer, to_change=True)
     if len(req.content) > max_document_chars():
         raise HTTPException(
             status_code=413,
@@ -358,9 +429,12 @@ async def import_knowledge(
 ) -> KnowledgeImportResponse:
     """Import documents from a web page, a documentation site, a PDF or a repository's docs."""
     org_id, user_id, _ = _get_request_identity(request)
+    _, viewer = await request_viewer(request)
     db_mgr = getattr(request.app.state, "db_manager", None)
     if db_mgr is None:
         raise HTTPException(status_code=503, detail="Imports need the database")
+    async with db_mgr.session() as session:
+        await _readable_base(session, org_id, kb_id, viewer, to_change=True)
     try:
         documents = await _imported(req, request, org_id, user_id)
     except KnowledgeImportError as err:
@@ -368,13 +442,6 @@ async def import_knowledge(
     model = await _embedding_model(db_mgr, org_id)
     created: list[KnowledgeDocumentResponse] = []
     async with db_mgr.session() as session:
-        kb = await session.execute(
-            select(KnowledgeBaseModel).where(
-                KnowledgeBaseModel.id == kb_id, KnowledgeBaseModel.org_id == org_id
-            )
-        )
-        if not kb.scalar_one_or_none():
-            raise HTTPException(status_code=404, detail="Knowledge base not found")
         for document in documents:
             try:
                 doc = await ingest_document(
@@ -409,11 +476,12 @@ async def query_knowledge_collection(
     request: Request,
 ) -> KnowledgeQueryResponse:
     """Execute cosine similarity search against pgvector chunks."""
-    org_id, _, _ = _get_request_identity(request)
+    org_id, viewer = await request_viewer(request)
     db_mgr = getattr(request.app.state, "db_manager", None)
 
     if db_mgr:
         async with db_mgr.session() as session:
+            await _readable_base(session, org_id, kb_id, viewer, to_change=False)
             chunks = await query_knowledge_base(
                 session=session,
                 kb_id=kb_id,
@@ -437,8 +505,7 @@ async def query_knowledge_collection(
             )
 
     # In-memory fallback search
-    if kb_id not in _kb_fallback_store:
-        raise HTTPException(status_code=404, detail="Knowledge base not found")
+    _readable_memory_base(org_id, kb_id, viewer, to_change=False)
     results: list[KnowledgeQueryResultItem] = []
     for d in _kb_fallback_store[kb_id]["documents"].values():
         results.append(

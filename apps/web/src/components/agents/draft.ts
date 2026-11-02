@@ -7,6 +7,7 @@ import type {
   SubagentIsolation,
   SubagentTier,
 } from "../../types/mission";
+import type { OwnerScope } from "../../lib/ownership";
 
 /** What only a subagent role has: its tier, tree, budgets and what it inherits. */
 export interface SubagentFields {
@@ -59,8 +60,9 @@ export interface AgentDraft {
   enabled: boolean;
   built_in: boolean;
   customized: boolean;
-  scope: "org" | "user";
+  scope: OwnerScope;
   user_id: string | null;
+  team_id: string | null;
   /** Set for a subagent role. */
   subagent?: SubagentFields;
 }
@@ -89,8 +91,9 @@ export function fromAgent(agent: AgentPersonaConfig): AgentDraft {
     enabled: agent.enabled !== false,
     built_in: !!agent.built_in,
     customized: !!agent.customized,
-    scope: agent.scope === "user" || agent.user_id ? "user" : "org",
+    scope: agent.user_id ? "user" : (agent.scope ?? "org"),
     user_id: agent.user_id ?? null,
+    team_id: agent.team_id ?? null,
   };
 }
 
@@ -118,6 +121,7 @@ export function toAgent(draft: AgentDraft): AgentPersonaConfig {
     built_in: draft.built_in,
     scope: draft.scope,
     user_id: draft.user_id,
+    team_id: draft.team_id,
   };
 }
 
@@ -191,7 +195,7 @@ export function toSubagent(draft: AgentDraft): SubagentConfig {
   };
 }
 
-export function blankDraft(kind: AgentKind, scope: "org" | "user"): AgentDraft {
+export function blankDraft(kind: AgentKind, scope: OwnerScope, teamId: string | null = null): AgentDraft {
   const id = kind === "subagent" ? `role_${Date.now().toString(36)}` : `persona-${Date.now().toString(36)}`;
   return {
     ...fromAgent({
@@ -203,6 +207,7 @@ export function blankDraft(kind: AgentKind, scope: "org" | "user"): AgentDraft {
       model: "",
       whitelisted_tools: kind === "subagent" ? ["file_read", "grep_search", "glob_files"] : ["*"],
       scope,
+      team_id: teamId,
     }),
     kind,
     ...(kind === "subagent" ? { subagent: { ...DEFAULT_SUBAGENT_FIELDS } } : {}),

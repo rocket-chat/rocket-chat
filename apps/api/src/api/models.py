@@ -33,8 +33,9 @@ class AgentPersonaModel(BaseModel):
     knowledge_base_ids: list[str] = Field(
         default_factory=list, description="Attached knowledge base IDs"
     )
-    scope: str = Field(default="org", description="'org' or 'user'")
+    scope: str = Field(default="org", description="Owner: 'org', 'team' or 'user'")
     user_id: str | None = Field(default=None, description="Owner user ID for personal agents")
+    team_id: str | None = Field(default=None, description="Owning team for team objects")
     built_in: bool = Field(
         default=False,
         description="Shipped with the platform; an administrator can edit it for the organization",
@@ -394,6 +395,7 @@ class McpServerResponseModel(BaseModel):
     auth_type: str = "none"
     scope: str = "org"
     user_id: str | None = None
+    team_id: str | None = None
     is_builtin: bool = False
     status: str = "connected"
     tools_count: int = 0
@@ -455,6 +457,7 @@ class CreateMcpServerRequest(BaseModel):
         ),
     )
     scope: str = "org"
+    team_id: str | None = None
     auth: McpAuthInput = Field(default_factory=McpAuthInput)
     tools: list[McpToolItem] = Field(default_factory=list)
 
@@ -585,12 +588,22 @@ class GitSigningStatus(BaseModel):
 class KnowledgeBaseCreateRequest(BaseModel):
     name: str = Field(..., description="Collection name")
     description: str = Field(default="", description="Collection description")
-    scope: str = Field(default="org", description="'org' or 'user'")
+    scope: str = Field(default="org", description="Owner: 'org', 'team' or 'user'")
+    team_id: str | None = Field(default=None, description="Owning team for team objects")
     vector_index: str = Field(default="pgvector_hnsw_default", description="Index name")
     embedding_model: str = Field(
         default="text-embedding-3-small (1536d)", description="Embedding model identifier"
     )
     hybrid_search: bool = Field(default=True, description="Enable hybrid BM25/vector search")
+
+
+class KnowledgeBaseUpdateRequest(BaseModel):
+    """What an edit changes; a field left out keeps its value. Naming another owner moves it."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=4000)
+    scope: str | None = Field(default=None, description="Owner: 'org', 'team' or 'user'")
+    team_id: str | None = Field(default=None, description="Owning team for team objects")
 
 
 class KnowledgeBaseResponse(BaseModel):
@@ -599,6 +612,7 @@ class KnowledgeBaseResponse(BaseModel):
     description: str
     scope: str = "org"
     user_id: str | None = None
+    team_id: str | None = None
     vector_index: str
     embedding_model: str
     hybrid_search: bool
@@ -651,7 +665,8 @@ class CustomSkillCreateRequest(BaseModel):
     body: str | None = Field(default=None, description="Prompt instructions and guidelines")
     code: str | None = Field(default=None, description="Legacy code fallback")
     signature: str = Field(default="", description="Function signature")
-    scope: str = Field(default="org", description="'org' or 'user'")
+    scope: str = Field(default="org", description="Owner: 'org', 'team' or 'user'")
+    team_id: str | None = Field(default=None, description="Owning team for team objects")
     is_active: bool = Field(default=True, description="Whether skill is active")
 
     @model_validator(mode="after")
@@ -663,7 +678,8 @@ class CustomSkillCreateRequest(BaseModel):
 
 class CustomSkillImportRequest(BaseModel):
     markdown: str = Field(..., description="Contents of a SKILL.md file")
-    scope: str = Field(default="user", description="'org' (administrators) or 'user'")
+    scope: str = Field(default="user", description="Owner: 'org', 'team' or 'user'")
+    team_id: str | None = Field(default=None, description="Owning team for team objects")
 
 
 class CustomSkillResponse(BaseModel):
@@ -674,6 +690,7 @@ class CustomSkillResponse(BaseModel):
     body: str = ""
     scope: str = "org"
     user_id: str | None = None
+    team_id: str | None = None
     runtime: str = "text"
     is_active: bool = True
     signature: str = ""
