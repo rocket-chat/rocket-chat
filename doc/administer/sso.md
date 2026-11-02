@@ -186,7 +186,7 @@ When users authenticate via OIDC, the backend inspects token claims:
 | `sub` | string | Yes | Unique user identifier in your IdP. |
 | `email` | string | Yes | Developer's corporate email address. |
 | `org_id` | string | Recommended | Organization / tenant ID. Defaults to `default_org` if omitted. |
-| `roles` | list | Optional | Roles for a bearer token (e.g. `["member"]` or `["admin"]`): the highest one applies, expanded like a stored role (`owner` also acts as `admin` and `member`). `developer` and `readonly` are read as `member` and `viewer`, and `guest` as `viewer`. A signed-in member's role comes from their membership in the organization instead (changed under **Settings → Organization → Members & roles**), re-read within 15 seconds, so a change applies without signing in again. |
+| `roles` | list | Optional | Roles for a bearer token (e.g. `["member"]` or `["admin"]`): the highest one applies, expanded like a stored role (`owner` also acts as `admin` and `member`). `developer` and `readonly` are read as `member` and `viewer`, and `guest` as `viewer`. A signed-in member's role comes from their membership in the organization instead (changed under **Settings → Members & teams**), re-read within 15 seconds, so a change applies without signing in again. |
 
 ### Admin Role Privileges
 Administrators (`admin` or `owner`) may:
@@ -209,7 +209,7 @@ When launching Rocket Chat for the first time, administrators can be bootstrappe
 
 ### Several organizations
 
-A person is one identity (keyed by the identity provider's issuer and subject, so a changed e-mail address still finds them) with a membership, and a role, in each organization they belong to. SSO creates a membership in the organization the sign-in maps to (`org_id` claim, `ROCKET_SSO_ORG_MODE`), and never moves anyone out of another: a member of two organizations switches between them from the organization menu (`POST /v1/auth/switch-org`, which checks the membership). Administrators can also invite people to their organization with a link for their e-mail address (**Settings → Organization → Members & roles**); see [Organization settings](/administer/organization).
+A person is one identity (keyed by the identity provider's issuer and subject, so a changed e-mail address still finds them) with a membership, and a role, in each organization they belong to. SSO creates a membership in the organization the sign-in maps to (`org_id` claim, `ROCKET_SSO_ORG_MODE`), and never moves anyone out of another: a member of two organizations switches between them from the organization menu (`POST /v1/auth/switch-org`, which checks the membership). Administrators can also invite people to their organization with a link for their e-mail address (**Settings → Members & teams**); see [Organization settings](/administer/organization).
 
 ---
 

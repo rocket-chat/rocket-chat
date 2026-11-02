@@ -26,6 +26,8 @@ async def test_queued_messages_are_isolated_in_postgres() -> None:
     db = DatabaseSessionManager(TEST_DATABASE_URL)
     org_a, org_b = (f"org_{uuid.uuid4().hex[:12]}" for _ in range(2))
     session_id = f"sess_{uuid.uuid4().hex[:12]}"
+    # Message ids are global primary keys: a fixed one collides with other tests' rows.
+    message_id = f"msg_{uuid.uuid4().hex[:12]}"
     now = int(time.time())
     for org in (org_a, org_b):
         async with db.session(tenant_org_id=org) as s:
@@ -41,11 +43,11 @@ async def test_queued_messages_are_isolated_in_postgres() -> None:
         )
     store = QueuedMessageStore(db)
 
-    await store.add(org_a, session_id, "m1", "secret plan", "queue", f"u_{org_a}")
+    await store.add(org_a, session_id, message_id, "secret plan", "queue", f"u_{org_a}")
 
     assert await store.pending(org_b, session_id) == []
     assert await store.claim_for_next_turn(org_b, session_id) == []
-    assert not await store.cancel(org_b, session_id, "m1")
+    assert not await store.cancel(org_b, session_id, message_id)
     async with db.session(tenant_org_id=org_b) as s:
         assert (await s.execute(select(SessionQueuedMessageModel))).scalars().all() == []
-    assert [m.id for m in await store.claim_for_next_turn(org_a, session_id)] == ["m1"]
+    assert [m.id for m in await store.claim_for_next_turn(org_a, session_id)] == [message_id]

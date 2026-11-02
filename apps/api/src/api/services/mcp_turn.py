@@ -10,7 +10,7 @@ from config_engine.crypto import CredentialCipher
 from fastapi import (
     Request,
 )
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
 from api.db.models import (
     McpServerEntityModel,
@@ -25,9 +25,12 @@ from api.services.mcp_member_tokens import McpMemberTokenStore, is_member_mode
 from api.services.mcp_runner import connect_stdio, runner_config
 from api.services.mcp_runtime import McpToolProvider, auth_headers
 from api.services.mcp_runtime import build_targets as build_mcp_targets
+from api.services.ownership import owner_of, visible, visible_clause
 from api.services.settings import (
     effective_settings,
 )
+from api.services.teams import member_viewer
+from specifications.interfaces.ownership import Owner, is_shared
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +86,7 @@ async def _rows_with_member_tokens(
                 "id": f"{row_id}:{user_id}",
                 "name": _row_value(row, "name"),
                 "transport": _row_value(row, "transport"),
-                "scope": "org",
+                "scope": _row_value(row, "scope") or "org",
                 "endpoint_or_command": _row_value(row, "endpoint_or_command"),
                 "guidance": _row_value(row, "guidance") or "",
                 "is_builtin": False,
@@ -110,7 +113,7 @@ async def _rows_with_member_env(
     resolved: list[Any] = []
     for row in rows:
         auth = _row_auth(row)
-        if not overridable_names(auth) or _row_value(row, "scope") != "org":
+        if not overridable_names(auth) or not is_shared(str(_row_value(row, "scope") or "org")):
             resolved.append(row)
             continue
         row_id = str(_row_value(row, "id"))
@@ -123,7 +126,7 @@ async def _rows_with_member_env(
                 "id": f"{row_id}:{user_id}" if own else row_id,
                 "name": _row_value(row, "name"),
                 "transport": _row_value(row, "transport"),
-                "scope": "org",
+                "scope": _row_value(row, "scope") or "org",
                 "endpoint_or_command": _row_value(row, "endpoint_or_command"),
                 "guidance": _row_value(row, "guidance") or "",
                 "is_builtin": False,
@@ -184,14 +187,14 @@ def _usable_rows(rows: list[Any], needs_sign_in: list[str]) -> list[Any]:
 
 
 async def _load_rows(db_mgr: Any, org_id: str, user_id: str, needs_sign_in: list[str]) -> list[Any]:
-    """The org's servers and the member's own, with expiring accounts refreshed."""
+    """The org's servers, the member's teams' and their own, with expiring accounts refreshed."""
+    viewer = await member_viewer(db_mgr, org_id, user_id)
     if db_mgr is None:
         return _usable_rows(
             [
                 s
                 for s in _mcp_servers_store.values()
-                if s.get("org_id") == org_id
-                and (s.get("scope") == "org" or s.get("user_id") == user_id)
+                if s.get("org_id") == org_id and visible(s, viewer)
             ],
             needs_sign_in,
         )
@@ -199,10 +202,7 @@ async def _load_rows(db_mgr: Any, org_id: str, user_id: str, needs_sign_in: list
         result = await session.execute(
             select(McpServerEntityModel).where(
                 McpServerEntityModel.org_id == org_id,
-                or_(
-                    McpServerEntityModel.scope == "org",
-                    McpServerEntityModel.user_id == user_id,
-                ),
+                visible_clause(McpServerEntityModel, viewer),
             )
         )
         rows = list(result.scalars().all())
@@ -336,7 +336,7 @@ def _member_token_store(request: Request) -> McpMemberTokenStore:
 
 async def _load_mcp_auth(
     request: Request, org_id: str, server_id: str
-) -> tuple[dict[str, Any], str]:
+) -> tuple[dict[str, Any], Owner]:
     db_mgr = getattr(request.app.state, "db_manager", None)
     if db_mgr:
         async with db_mgr.session(tenant_org_id=org_id) as session:
@@ -350,8 +350,8 @@ async def _load_mcp_auth(
             ).scalar_one_or_none()
             if entity is None:
                 raise LookupError("MCP server not found")
-            return dict(entity.encrypted_auth or {}), str(entity.scope)
+            return dict(entity.encrypted_auth or {}), owner_of(entity)
     record = _mcp_servers_store.get(server_id)
     if record is None or record.get("org_id") != org_id:
         raise LookupError("MCP server not found")
-    return dict(record.get("encrypted_auth") or {}), str(record.get("scope", "org"))
+    return dict(record.get("encrypted_auth") or {}), owner_of(record)

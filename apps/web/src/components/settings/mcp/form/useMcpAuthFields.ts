@@ -64,7 +64,7 @@ function initialEnv(editing?: McpServerConfig): EnvRow[] {
 }
 
 /** The credentials part of the MCP server form: remote sign-in, headers, or a command's variables. */
-export function useMcpAuthFields(editing: McpServerConfig | undefined, formScope: "user" | "org") {
+export function useMcpAuthFields(editing: McpServerConfig | undefined, shared: boolean) {
   const [authType, setAuthType] = useState<string>(initialAuthType(editing));
   const [apiKey, setApiKey] = useState("");
   const [headerName, setHeaderName] = useState(editing?.header_name || "Authorization");
@@ -109,7 +109,7 @@ export function useMcpAuthFields(editing: McpServerConfig | undefined, formScope
           oauth_client_id: oauth.clientId.trim() || undefined,
           oauth_client_secret: oauth.clientSecret.trim() || undefined,
           oauth_scopes: oauth.scopes.split(" ").filter(Boolean),
-          oauth_mode: formScope === "org" ? oauth.mode : "org",
+          oauth_mode: shared ? oauth.mode : "org",
         }
       : {}),
   });

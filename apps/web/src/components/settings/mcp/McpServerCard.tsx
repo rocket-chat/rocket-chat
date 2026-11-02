@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { OwnerBadge } from "../Owner";
 import {
   ChevronDown,
   ChevronRight,
@@ -88,6 +89,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
               <span className="text-xs font-semibold text-foreground truncate">
                 {server.name}
               </span>
+              <OwnerBadge owned={server} />
               <span className="px-1.5 py-0.2 rounded-lg text-[9px] bg-surface border border-border text-neutral-400">
                 {server.transport}
               </span>
@@ -191,7 +193,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
             <div data-testid="command-details" className="space-y-1.5 text-xs text-neutral-600 dark:text-neutral-300">
               <p>
                 Command server: started on the MCP runner for each turn that uses it and stopped when the turn ends.
-                {server.scope === "org" && (server.overridable_env?.length ?? 0) > 0 &&
+                {(server.scope === "org" || server.scope === "team") && (server.overridable_env?.length ?? 0) > 0 &&
                   ` Members can set their own ${server.overridable_env?.join(", ")}.`}
               </p>
               {runner && !runner.available && (
@@ -206,7 +208,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
               )}
             </div>
           )}
-          {server.transport === "stdio" && server.scope === "org" && (server.overridable_env?.length ?? 0) > 0 && (
+          {server.transport === "stdio" && (server.scope === "org" || server.scope === "team") && (server.overridable_env?.length ?? 0) > 0 && (
             <McpMemberEnv serverId={server.id} onChanged={onMemberEnvChanged} />
           )}
           {server.guidance && (

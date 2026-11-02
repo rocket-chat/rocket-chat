@@ -7,6 +7,8 @@ const PAGES = [
   "/settings",
   "/settings/mcp",
   "/settings/agents",
+  "/settings/members",
+  "/settings/agents?owner=me",
   "/settings/skills",
   "/settings/knowledge",
   "/settings/slack",

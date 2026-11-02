@@ -7,6 +7,13 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   transpilePackages: ["@monaco-editor/react"],
   devIndicators: false,
+  // Pages retired when the settings were reorganized by owner; old links and bookmarks still land.
+  async redirects() {
+    return [
+      { source: "/settings/user/agents", destination: "/settings/agents?owner=me", permanent: false },
+      { source: "/settings/org/users", destination: "/settings/members", permanent: false },
+    ];
+  },
   async rewrites() {
     const backendUrl = process.env.BACKEND_INTERNAL_URL || "http://127.0.0.1:8000";
     return [

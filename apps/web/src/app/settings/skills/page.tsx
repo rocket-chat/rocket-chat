@@ -23,13 +23,16 @@ import {
   UserScopeSection,
   ScopeDivider,
   OrgScopeSection,
+  TeamScopeSection,
 } from "../../../components/settings/ScopedSettingsSection";
-import { useAccess } from "../../../lib/access";
 import { StarterSkillsPanel } from "../../../components/settings/StarterSkillsPanel";
+import { OwnerBadge, OwnerSelect, useMoveConfirmation } from "../../../components/settings/Owner";
+import { useOwnedSections } from "../../../lib/useOwnedSections";
+import { ownerFields, ownerKey, ownerLabel, type OwnerKey } from "../../../lib/ownership";
 
 export default function SkillsSettingsPage() {
   const [confirm, confirmDialog] = useConfirm();
-  const { isAdmin } = useAccess();
+  const [confirmMove, moveDialog] = useMoveConfirmation();
 
   const [skills, setSkills] = useState<CustomSkillConfig[]>([]);
   const [expandedSkillId, setExpandedSkillId] = useState<string | null>(null);
@@ -39,7 +42,8 @@ export default function SkillsSettingsPage() {
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
   // The form is above the lists: opened from a row far down the page it would be out of sight.
   const formRef = useRef<HTMLDivElement>(null);
-  const [formScope, setFormScope] = useState<"user" | "org">("user");
+  const [formOwner, setFormOwner] = useState<OwnerKey>("me");
+  const [storedOwner, setStoredOwner] = useState<OwnerKey | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [body, setBody] = useState("");
@@ -75,12 +79,15 @@ export default function SkillsSettingsPage() {
     formRef.current?.querySelector<HTMLInputElement>('input:not([type="file"])')?.focus({ preventScroll: true });
   }, [showAddForm, editingSkillId]);
 
-  const userSkills = skills.filter((s) => s.scope === "user" || !s.scope || s.user_id != null);
-  const orgSkills = skills.filter((s) => s.scope === "org" && s.user_id == null);
+  const sections = useOwnedSections(skills);
+  const { access, teams } = sections;
+  const isAdmin = access.isAdmin;
+  const formScopeLabel = formOwner === "org" ? "organization" : formOwner === "me" ? "personal" : `team ${ownerLabel(formOwner, teams)}`;
 
-  const handleOpenAddForm = (scope: "user" | "org") => {
+  const handleOpenAddForm = (owner: OwnerKey) => {
     setEditingSkillId(null);
-    setFormScope(scope);
+    setStoredOwner(null);
+    setFormOwner(owner);
     setTitle("");
     setDescription("");
     setBody("");
@@ -89,7 +96,8 @@ export default function SkillsSettingsPage() {
 
   const handleOpenEditForm = (skill: CustomSkillConfig) => {
     setEditingSkillId(skill.id);
-    setFormScope((skill.scope as "user" | "org") || "user");
+    setFormOwner(ownerKey(skill));
+    setStoredOwner(ownerKey(skill));
     setTitle(skill.title || skill.name || "");
     setDescription(skill.description || "");
     setBody(skill.body || "");
@@ -103,12 +111,13 @@ export default function SkillsSettingsPage() {
       return;
     }
 
+    if (storedOwner && !(await confirmMove(title.trim(), storedOwner, formOwner))) return;
     try {
       const payload: Record<string, unknown> = {
         title: title.trim(),
         description: description.trim() || undefined,
         body: body.trim(),
-        scope: formScope,
+        ...ownerFields(formOwner),
       };
       if (editingSkillId) {
         payload.id = editingSkillId;
@@ -135,8 +144,8 @@ export default function SkillsSettingsPage() {
       setEditingSkillId(null);
       setSuccessBanner(
         editingSkillId
-          ? `Updated skill '${created.title || created.name}' (${formScope} scope)`
-          : `Created skill '${created.title || created.name}' (${formScope} scope)`,
+          ? `Updated skill '${created.title || created.name}' (${formScopeLabel})`
+          : `Created skill '${created.title || created.name}' (${formScopeLabel})`,
       );
       setTimeout(() => setSuccessBanner(null), 4000);
     } catch (err: unknown) {
@@ -152,7 +161,7 @@ export default function SkillsSettingsPage() {
       const res = await fetch("/v1/skills/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ markdown: await file.text(), scope: formScope }),
+        body: JSON.stringify({ markdown: await file.text(), ...ownerFields(formOwner) }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -161,7 +170,7 @@ export default function SkillsSettingsPage() {
       const created: CustomSkillConfig = await res.json();
       setSkills((prev) => [...prev.filter((s) => s.id !== created.id), created]);
       setShowAddForm(false);
-      setSuccessBanner(`Imported skill '${created.title || created.name}' (${formScope} scope)`);
+      setSuccessBanner(`Imported skill '${created.title || created.name}' (${formScopeLabel})`);
       setTimeout(() => setSuccessBanner(null), 4000);
     } catch (err: unknown) {
       setErrorBanner(err instanceof Error ? err.message : "Failed to import SKILL.md");
@@ -208,9 +217,7 @@ export default function SkillsSettingsPage() {
                 <span className="text-xs font-semibold text-foreground truncate">
                   {skillTitle}
                 </span>
-                <span className="px-1.5 py-0.2 rounded-lg text-[9px] bg-surface border border-border text-neutral-400">
-                  {skill.scope || "user"}
-                </span>
+                <OwnerBadge owned={skill} />
               </div>
               {skill.description && (
                 <p className="text-[11px] text-muted-foreground truncate mt-0.5">
@@ -269,6 +276,7 @@ export default function SkillsSettingsPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
       {confirmDialog}
+      {moveDialog}
       {/* Header */}
       <PageHeader
         title="Skills &amp; tools"
@@ -305,7 +313,7 @@ export default function SkillsSettingsPage() {
                 {editingSkillId ? "EDIT SKILL" : "CREATE NEW SKILL"}
               </span>
               <span className="px-1.5 py-0.5 rounded-lg text-[9px] bg-brand/10 text-brand border border-brand/20">
-                {formScope === "org" ? "Organization Scope" : "Personal Scope"}
+                {formOwner === "org" ? "Organization Scope" : formOwner === "me" ? "Personal Scope" : `Team · ${ownerLabel(formOwner, teams)}`}
               </span>
             </div>
             <button
@@ -330,6 +338,8 @@ onClick={() => { setShowAddForm(false); setEditingSkillId(null); }}
               className="text-[11px]"
             />
           </label>
+
+          <OwnerSelect testId="skill-owner" value={formOwner} options={sections.creatable} onChange={setFormOwner} />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Skill Title *">
@@ -374,58 +384,75 @@ onClick={() => { setShowAddForm(false); setEditingSkillId(null); }}
         </div>
       )}
 
-      {/* TIER 1: USER-SPECIFIC SKILLS */}
-      <UserScopeSection
-        title="Personal Skills"
-        description="Private instructions, conventions, and procedures you created. Attach them to your custom agents."
-        action={
-          <Button size="sm" variant="secondary" onClick={() => handleOpenAddForm("user")}>
+      {sections.mine && (
+        <UserScopeSection
+          title="Personal Skills"
+          description="Private instructions, conventions, and procedures you created. Attach them to your custom agents."
+          action={
+            <Button size="sm" variant="secondary" onClick={() => handleOpenAddForm("me")}>
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              New skill
+            </Button>
+          }
+        >
+          {sections.mine.length > 0 ? (
+            <div className="space-y-2.5">{sections.mine.map((s) => renderSkillCard(s, true))}</div>
+          ) : (
+            <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-2">
+              <Code2 className="w-6 h-6 mx-auto text-neutral-500" />
+              <p className="text-xs text-muted-foreground">You haven&apos;t created any personal skills yet.</p>
+            </div>
+          )}
+        </UserScopeSection>
+      )}
+
+      {sections.teamSections.map((section) => (
+        <React.Fragment key={section.key}>
+          <ScopeDivider label={`Team ${section.team.name}`} />
+          <TeamScopeSection
+            title={`Team · ${section.team.name}`}
+            description="Skills the team's members use; its administrators manage them."
+            canManage={section.canManage}
+            action={
+              <Button size="sm" variant="secondary" data-testid={`new-team-skill-${section.team.id}`} onClick={() => handleOpenAddForm(section.key)}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                New skill
+                New team skill
               </Button>
-        }
-      >
-        {userSkills.length > 0 ? (
-          <div className="space-y-2.5">
-            {userSkills.map((s) => renderSkillCard(s, true))}
-          </div>
-        ) : (
-          <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-2">
-            <Code2 className="w-6 h-6 mx-auto text-neutral-500" />
-            <p className="text-xs text-muted-foreground">
-              You haven&apos;t created any personal skills yet.
-            </p>
-          </div>
-        )}
-      </UserScopeSection>
+            }
+          >
+            {section.items.length > 0 ? (
+              <div className="space-y-2.5">{section.items.map((s) => renderSkillCard(s, section.canManage))}</div>
+            ) : (
+              <p className="text-xs text-muted-foreground">The team has no skill yet.</p>
+            )}
+          </TeamScopeSection>
+        </React.Fragment>
+      ))}
 
-      {/* VISUAL SEPARATOR */}
-      <ScopeDivider label="Organization Scope" />
-
-      {/* TIER 2: ORGANIZATION-WIDE SKILLS */}
-      <OrgScopeSection
-        title="Organization Skills"
-        description="Shared engineering guidelines, compliance standards, and procedures available to all workspace members."
-        action={
-          <Button size="sm" variant="secondary" onClick={() => handleOpenAddForm("org")}>
+      {sections.org && (
+        <>
+          {(sections.mine || sections.teamSections.length > 0) && <ScopeDivider label="Organization Scope" />}
+          <OrgScopeSection
+            title="Organization Skills"
+            description="Shared engineering guidelines, compliance standards, and procedures available to all workspace members."
+            action={
+              <Button size="sm" variant="secondary" onClick={() => handleOpenAddForm("org")}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                 New org skill
               </Button>
-        }
-      >
-        {orgSkills.length > 0 ? (
-          <div className="space-y-2.5">
-            {orgSkills.map((s) => renderSkillCard(s, isAdmin))}
-          </div>
-        ) : (
-          <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-2">
-            <ShieldCheck className="w-6 h-6 mx-auto text-neutral-500" />
-            <p className="text-xs text-muted-foreground">
-              No organization-wide skills defined.
-            </p>
-          </div>
-        )}
-      </OrgScopeSection>
+            }
+          >
+            {sections.org.length > 0 ? (
+              <div className="space-y-2.5">{sections.org.map((s) => renderSkillCard(s, isAdmin))}</div>
+            ) : (
+              <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-2">
+                <ShieldCheck className="w-6 h-6 mx-auto text-neutral-500" />
+                <p className="text-xs text-muted-foreground">No organization-wide skills defined.</p>
+              </div>
+            )}
+          </OrgScopeSection>
+        </>
+      )}
     </div>
   );
 }

@@ -18,6 +18,7 @@ import type {
   WaitEntry,
   WaitStartedPayload,
 } from "../../types/mission";
+import type { OwnerFilter } from "../ownership";
 
 export type InspectorPreference = "open" | "closed" | null;
 
@@ -313,10 +314,17 @@ export interface LayoutSlice {
   adjustRunningProcesses: (delta: number) => void;
 }
 
+/** The settings' owner filter (``?owner=``): every owner, or only yours, a team's or the organization's. */
+export interface SettingsSlice {
+  settingsOwner: OwnerFilter;
+  setSettingsOwner: (owner: OwnerFilter) => void;
+}
+
 export type InspectorTab = "changes" | "git" | "files" | "processes" | "subagents" | "artifacts" | "preview";
 
 export type MissionStore = SessionsSlice &
   AgentsSlice &
   StreamSlice &
   ComposerSlice &
-  LayoutSlice;
+  LayoutSlice &
+  SettingsSlice;

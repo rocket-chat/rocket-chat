@@ -56,7 +56,7 @@ docker build -t registry.example.com/platform/sandbox-go:1 -f Dockerfile.sandbox
 docker push registry.example.com/platform/sandbox-go:1
 ```
 
-Then **Settings → Organization → Sandboxes → Add sandbox**, with a name, the image and a description members will recognise. See [Sandboxes](/administer/sandboxes) for the fields. Keep these rules in mind:
+Then **Settings → Sandboxes → Add sandbox**, with a name, the image and a description members will recognise. See [Sandboxes](/administer/sandboxes) for the fields. Keep these rules in mind:
 
 * **Run as non-root** if your organization requires it (*Require non-root* in the sandbox settings): the image must set a non-root `USER`.
 * **Private registry?** On Kubernetes, name your pull secrets under `sandbox.imagePullSecrets` in the Helm values.
@@ -76,7 +76,7 @@ Tick **Secret** for a credential: it is stored encrypted, never shown again, and
 Right after the agent clones a repository, Rocket Chat can prepare it once, in its folder, before the agent's first command:
 
 * the repository's own **`.rocket/setup.sh`** (or the `onCreateCommand` and `postCreateCommand` of its `.devcontainer/devcontainer.json`), or
-* **Repository setups** you define under *Settings → Organization → Sandboxes*, for a repository you cannot change or a monorepo whose services each need their own preparation. Each names a repository (`owner/name` or a pattern such as `acme/*`), a folder, and the commands.
+* **Repository setups** you define under *Settings → Sandboxes*, for a repository you cannot change or a monorepo whose services each need their own preparation. Each names a repository (`owner/name` or a pattern such as `acme/*`), a folder, and the commands.
 
 ```bash
 npm ci

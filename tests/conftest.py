@@ -275,12 +275,15 @@ def _reset_process_local_personas() -> Iterator[None]:
     """Development-mode personas live in process memory; isolate tests from each other."""
     from api.services.personas import reset_memory_personas
     from api.services.subagents import reset_memory_subagents
+    from api.services.teams import reset_memory_teams
 
     reset_memory_personas()
     reset_memory_subagents()
+    reset_memory_teams()
     yield
     reset_memory_personas()
     reset_memory_subagents()
+    reset_memory_teams()
 
 
 @pytest.fixture

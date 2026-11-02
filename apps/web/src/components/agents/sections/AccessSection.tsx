@@ -2,18 +2,21 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { Field, Select } from "../../ui/Field";
+import { useTeams } from "../../../lib/teams";
 import type { SectionProps } from "./types";
 
 interface Grant {
-  principal_kind: "everyone" | "member" | "role" | "guests";
+  principal_kind: "everyone" | "member" | "role" | "team" | "guests";
   principal_id: string;
 }
 
 type Mode = "everyone" | "only";
 
-/** Who may use an organization agent: everyone (the default), or only some people and roles,
- * and whether guests (Slack, guest tokens) may. Saved on its own, at once. */
+/** Who may use an organization agent: everyone (the default), or only some people, roles and
+ * teams, and whether guests (Slack, guest tokens) may. Saved on its own, at once. */
 export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin }) => {
+  const { teams } = useTeams();
+  const [teamIds, setTeamIds] = useState<string[]>([]);
   const [grants, setGrants] = useState<Grant[]>([]);
   const [mode, setMode] = useState<Mode>("everyone");
   const [guests, setGuests] = useState(false);
@@ -27,11 +30,12 @@ export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin }) => {
     const body = (await res.json()) as { grants: Grant[] };
     const list = body.grants ?? [];
     setGrants(list);
-    const named = list.filter((g) => g.principal_kind === "member" || g.principal_kind === "role");
+    const named = list.filter((g) => g.principal_kind === "member" || g.principal_kind === "role" || g.principal_kind === "team");
     setMode(list.length === 0 || list.some((g) => g.principal_kind === "everyone") || named.length === 0 ? "everyone" : "only");
     setGuests(list.some((g) => g.principal_kind === "guests"));
     setPeople(list.filter((g) => g.principal_kind === "member").map((g) => g.principal_id).join("\n"));
     setRoles(list.filter((g) => g.principal_kind === "role").map((g) => g.principal_id));
+    setTeamIds(list.filter((g) => g.principal_kind === "team").map((g) => g.principal_id));
   }, [draft.id]);
 
   useEffect(() => {
@@ -48,6 +52,7 @@ export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin }) => {
         .filter(Boolean)
         .forEach((id) => next.push({ principal_kind: "member", principal_id: id }));
       roles.forEach((role) => next.push({ principal_kind: "role", principal_id: role }));
+      teamIds.forEach((team) => next.push({ principal_kind: "team", principal_id: team }));
     }
     if (guests) next.push({ principal_kind: "guests", principal_id: "" });
     const res = await fetch(`/v1/agents/${encodeURIComponent(draft.id)}/access`, {
@@ -72,7 +77,7 @@ export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin }) => {
         </label>
         <label className="flex items-center gap-2 text-xs">
           <input type="radio" name="access-mode" data-testid="agent-access-only" checked={mode === "only"} onChange={() => setMode("only")} />
-          Only these people and roles (administrators always may)
+          Only these people, roles and teams (administrators always may)
         </label>
       </fieldset>
       {mode === "only" && (
@@ -102,6 +107,25 @@ export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin }) => {
               </Select>
             )}
           </Field>
+          {teams.length > 0 && (
+            <Field label="Teams">
+              {(control) => (
+                <Select
+                  {...control}
+                  multiple
+                  data-testid="agent-access-teams"
+                  value={teamIds}
+                  onChange={(e) => setTeamIds(Array.from(e.target.selectedOptions).map((o) => o.value))}
+                >
+                  {teams.map((team) => (
+                    <option key={team.id} value={team.id}>
+                      {team.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          )}
         </div>
       )}
       <label className="flex items-center gap-2 text-xs text-foreground">

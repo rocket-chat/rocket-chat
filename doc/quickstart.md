@@ -77,7 +77,7 @@ Reading files, searching and cloning never need approval. Questions and approval
 | Symptom | Check |
 | :--- | :--- |
 | A container is not `healthy` | `docker compose logs backend` shows why; the usual cause is a port already in use (3000, 8000 or 5432). |
-| The agent answers with a model error | The key was not passed to the backend: run `docker compose down`, export the key again in the same shell, and `docker compose up -d`. Or add the key as an organization credential in **Settings → Organization → Models & credentials**. |
+| The agent answers with a model error | The key was not passed to the backend: run `docker compose down`, export the key again in the same shell, and `docker compose up -d`. Or add the key as an organization credential in **Settings → Models & keys**. |
 | The agent cannot start its sandbox | The backend could not reach the Docker socket. Check that Docker is running and, on Linux, that `/var/run/docker.sock` exists. |
 | You want to start over | `docker compose down -v` removes the containers and the database volume. |
 

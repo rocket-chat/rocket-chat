@@ -97,7 +97,8 @@ and the caller's own. Administrators also see disabled organization agents.
 
 ### `POST /v1/agents`
 
-Create or update a custom agent persona, enforcing scope boundaries.
+Create or update a custom agent owned by the caller, one of their teams or the
+organization; changing the owner moves it (the caller manages both sides).
 
 A non-administrator who does not name a scope gets a personal persona. The returned
 persona carries the stored id, which can differ from the proposed one.
@@ -115,8 +116,9 @@ persona carries the stored id, which can differ from the proposed one.
 | whitelisted_tools | list of string | no | List of allowed tool names |
 | skill_ids | list of string | no | Attached custom skill IDs |
 | knowledge_base_ids | list of string | no | Attached knowledge base IDs |
-| scope | string | no | 'org' or 'user' |
+| scope | string | no | Owner: 'org', 'team' or 'user' |
 | user_id | string | no | Owner user ID for personal agents |
+| team_id | string | no | Owning team for team objects |
 | built_in | boolean | no | Shipped with the platform; an administrator can edit it for the organization |
 | customized | boolean | no | A built-in agent whose organization edit is in effect (it can be reset) |
 | enabled | boolean | no | Whether this agent persona is enabled and selectable in the cockpit/sessions |
@@ -1186,7 +1188,7 @@ Whether command (stdio) MCP servers can run on this installation (the MCP runner
 
 ### `GET /v1/mcp/servers`
 
-List registered MCP servers scoped to tenant organization and current user.
+The MCP servers the caller may use: the organization's, their teams' and their own.
 
 **Responses:** `200`
 
@@ -1205,6 +1207,7 @@ Register or update an MCP server, securely encrypting secrets with AES-256-GCM.
 | endpoint_or_command | string | yes |  |
 | guidance | string | no | Usage guidance for the agent, in markdown. The first line says when to use the server and is always in the agent's instructions; the rest is given once the agent uses the server. Empty costs nothing. |
 | scope | string | no |  |
+| team_id | string | no |  |
 | auth | McpAuthInput | no |  |
 | tools | list of McpToolItem | no |  |
 
@@ -1228,7 +1231,7 @@ Validate MCP connection and probe tools prior to saving.
 
 ### `DELETE /v1/mcp/servers/{server_id}`
 
-Delete a registered MCP server.
+Delete a registered MCP server (whoever may manage its owner).
 
 **Parameters**
 
@@ -2058,13 +2061,14 @@ Replace the organization's defaults and locked keys for a domain (admin only).
 
 ### `GET /v1/knowledge/bases`
 
-List all Knowledge Bases accessible to the organization and current user.
+The knowledge bases the caller may use: the organization's, their teams' and their own.
 
 **Responses:** `200`
 
 ### `POST /v1/knowledge/bases`
 
-Create a new pgvector semantic knowledge base collection.
+Create a pgvector knowledge base owned by the caller, one of their teams or the
+organization.
 
 **Request body**
 
@@ -2072,10 +2076,33 @@ Create a new pgvector semantic knowledge base collection.
 | :--- | :--- | :--- | :--- |
 | name | string | yes | Collection name |
 | description | string | no | Collection description |
-| scope | string | no | 'org' or 'user' |
+| scope | string | no | Owner: 'org', 'team' or 'user' |
+| team_id | string | no | Owning team for team objects |
 | vector_index | string | no | Index name |
 | embedding_model | string | no | Embedding model identifier |
 | hybrid_search | boolean | no | Enable hybrid BM25/vector search |
+
+**Responses:** `200`
+
+### `PATCH /v1/knowledge/bases/{kb_id}`
+
+Rename a knowledge base or move it to another owner (whoever manages it, and for a move
+the destination too).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| kb_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | no |  |
+| description | string | no |  |
+| scope | string | no | Owner: 'org', 'team' or 'user' |
+| team_id | string | no | Owning team for team objects |
 
 **Responses:** `200`
 
@@ -2093,7 +2120,7 @@ Delete a Knowledge Base collection and cascade delete documents and chunks.
 
 ### `POST /v1/knowledge/bases/{kb_id}/documents`
 
-Ingest, chunk, and embed a document into the Knowledge Base.
+Ingest, chunk, and embed a document into the Knowledge Base (whoever manages it).
 
 **Parameters**
 
@@ -2549,13 +2576,14 @@ including its later changes.
 
 ### `GET /v1/skills`
 
-List all custom skills registered for the organization and current user.
+The custom skills the caller may use: the organization's, their teams' and their own.
 
 **Responses:** `200`
 
 ### `POST /v1/skills`
 
-Create or update a custom prompt skill with scoping.
+Create or update a custom prompt skill owned by the caller, one of their teams or the
+organization (moving it needs the right to manage it on both sides).
 
 **Request body**
 
@@ -2568,7 +2596,8 @@ Create or update a custom prompt skill with scoping.
 | body | string | no | Prompt instructions and guidelines |
 | code | string | no | Legacy code fallback |
 | signature | string | no | Function signature |
-| scope | string | no | 'org' or 'user' |
+| scope | string | no | Owner: 'org', 'team' or 'user' |
+| team_id | string | no | Owning team for team objects |
 | is_active | boolean | no | Whether skill is active |
 
 **Responses:** `200`
@@ -2582,7 +2611,8 @@ Create or update a prompt skill from a ``SKILL.md`` document (front matter + bod
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | markdown | string | yes | Contents of a SKILL.md file |
-| scope | string | no | 'org' (administrators) or 'user' |
+| scope | string | no | Owner: 'org', 'team' or 'user' |
+| team_id | string | no | Owning team for team objects |
 
 **Responses:** `200`
 
@@ -2595,7 +2625,7 @@ The shipped instruction skills and whether the organization offers each
 
 ### `DELETE /v1/skills/{skill_id}`
 
-Delete a custom skill.
+Delete a custom skill (whoever may manage its owner).
 
 **Parameters**
 
@@ -3070,6 +3100,115 @@ Get detailed transcript and messages for a delegated subagent
 The running release, or `dev` for a build that is not a tagged release.
 
 **Responses:** `200`
+
+## Teams
+
+### `GET /v1/teams`
+
+The organization's teams, with the caller's role in each.
+
+**Responses:** `200`
+
+### `POST /v1/teams`
+
+Create a team (organization administrators only).
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | yes |  |
+| description | string | no |  |
+
+**Responses:** `201`
+
+### `PATCH /v1/teams/{team_id}`
+
+Rename a team or change its description (its administrators, or the organization's).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | no |  |
+| description | string | no |  |
+
+**Responses:** `200`
+
+### `DELETE /v1/teams/{team_id}`
+
+Delete a team that owns nothing (organization administrators only).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Responses:** `204`
+
+### `GET /v1/teams/{team_id}/candidates`
+
+Members of the organization a team administrator can add (not already in the team).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| q | query | no | string |
+
+**Responses:** `200`
+
+### `GET /v1/teams/{team_id}/members`
+
+Who is in the team, and what it owns (its members and administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Responses:** `200`
+
+### `PUT /v1/teams/{team_id}/members/{user_id}`
+
+Add a member of the organization to the team, or change their team role.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| user_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| role | string | no | admin \| member |
+
+**Responses:** `200`
+
+### `DELETE /v1/teams/{team_id}/members/{user_id}`
+
+Remove someone from the team (its administrators), or leave it (oneself).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| user_id | path | yes | string |
+
+**Responses:** `204`
 
 ## Templates
 

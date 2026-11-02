@@ -45,6 +45,7 @@ from api.services.session_updates import publish_session_update
 from api.services.settings import effective_settings
 from api.services.skills import test_skill_execution
 from api.services.skills_lookup import _find_visible_skill
+from api.services.teams import teams_of
 from api.services.tool_loading import (
     remember_guidance_read,
     remember_loaded,
@@ -821,6 +822,7 @@ async def build_turn_callbacks(
         if not db_mgr:
             return f"No knowledge base entries matched '{query}'."
         memory_settings = await effective_settings(db_mgr, session.tenant_org_id, "memory")
+        teams = await teams_of(db_mgr, session.tenant_org_id, session.tenant_user_id)
         async with db_mgr.session(tenant_org_id=session.tenant_org_id) as db_session:
             return await search_knowledge(
                 db_session,
@@ -831,6 +833,7 @@ async def build_turn_callbacks(
                 limit=limit,
                 allowed_kb_ids=binding.knowledge_base_ids,
                 embedding_model=configured_embedding_model(memory_settings),
+                team_ids=tuple(teams),
             )
 
     async def execute_skill(skill_name: str, args: dict[str, Any]) -> str | SkillInstructions:

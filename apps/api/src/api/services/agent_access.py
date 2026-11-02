@@ -2,6 +2,7 @@
 
 * A disabled agent is usable by nobody.
 * A personal agent is usable by its owner only.
+* A team's agent is usable by the team's members (and the organization's administrators).
 * An organization agent with no grants is usable by every member, guests excluded (the
   behaviour before grants existed). With grants, by the people, roles or "everyone" they name,
   and by guests (Slack guests, guest API tokens) only through a ``guests`` grant.
@@ -22,10 +23,12 @@ from typing import Any, Literal, Protocol
 from sqlalchemy import delete, select, update
 
 from api.auth.api_tokens import GUEST_ID_PREFIX
-from api.auth.roles import GUEST, canonical_role, is_admin, roles_for
+from api.auth.roles import GUEST, can_write, canonical_role, is_admin, roles_for
 from api.db.models import AgentGrantModel, ScheduledMissionModel
 from api.services.memberships import role_in
 from api.services.session_templates import SessionTemplate
+from api.services.teams import teams_of
+from specifications.interfaces.ownership import Viewer
 
 
 class UsableAgent(Protocol):
@@ -39,10 +42,12 @@ class UsableAgent(Protocol):
     def scope(self) -> str: ...
     @property
     def user_id(self) -> str | None: ...
+    @property
+    def team_id(self) -> str | None: ...
 
 
-PrincipalKind = Literal["everyone", "member", "role", "guests"]
-PRINCIPAL_KINDS: tuple[PrincipalKind, ...] = ("everyone", "member", "role", "guests")
+PrincipalKind = Literal["everyone", "member", "role", "team", "guests"]
+PRINCIPAL_KINDS: tuple[PrincipalKind, ...] = ("everyone", "member", "role", "team", "guests")
 SLACK_GUEST_PREFIX = "slack:"
 
 
@@ -68,6 +73,23 @@ class Principal:
 
     user_id: str
     roles: tuple[str, ...]
+    # The person's teams in the organization, with their role in each.
+    teams: tuple[tuple[str, str], ...] = ()
+
+    @property
+    def team_ids(self) -> frozenset[str]:
+        return frozenset(team_id for team_id, _ in self.teams)
+
+    @property
+    def viewer(self) -> Viewer:
+        """The person as ownership checks see them (a read-only role administers no team)."""
+        writer = can_write(list(self.roles)) and not self.is_guest
+        return Viewer(
+            user_id=self.user_id,
+            is_org_admin=self.is_admin,
+            teams=frozenset() if self.is_guest else self.team_ids,
+            admin_teams=frozenset(t for t, role in self.teams if role == "admin" and writer),
+        )
 
     @property
     def is_guest(self) -> bool:
@@ -111,16 +133,18 @@ def reset_memory_grants() -> None:
 async def principal_for(
     db_mgr: Any, org_id: str, user_id: str, roles: list[str] | None = None
 ) -> Principal:
-    """The person, with the roles a request already proved or their stored role."""
-    if roles is not None:
-        return Principal(user_id, tuple(roles))
+    """The person, with the roles a request already proved or their stored role, and their
+    teams."""
     if user_id.startswith((SLACK_GUEST_PREFIX, GUEST_ID_PREFIX)):
-        return Principal(user_id, (GUEST,))
+        return Principal(user_id, tuple(roles) if roles is not None else (GUEST,))
+    teams = tuple(sorted((await teams_of(db_mgr, org_id, user_id)).items()))
+    if roles is not None:
+        return Principal(user_id, tuple(roles), teams)
     if not _has_database(db_mgr):
-        return Principal(user_id, tuple(roles_for("member")))
+        return Principal(user_id, tuple(roles_for("member")), teams)
     async with db_mgr.session(tenant_org_id=org_id) as session:
         role = await role_in(session, user_id, org_id)
-    return Principal(user_id, tuple(roles_for(role)) if role else ())
+    return Principal(user_id, tuple(roles_for(role)) if role else (), teams)
 
 
 def _kind(value: str) -> PrincipalKind:
@@ -162,7 +186,9 @@ async def set_grants(
     """Replace the agent's grants (an empty list restores "every member")."""
     now = int(time.time())
     unique = list(
-        dict.fromkeys((kind, pid if kind in ("member", "role") else "") for kind, pid in grants)
+        dict.fromkeys(
+            (kind, pid if kind in ("member", "role", "team") else "") for kind, pid in grants
+        )
     )
     made = [
         Grant(f"agr_{uuid.uuid4().hex[:16]}", agent_id, kind, pid, created_by, now)
@@ -206,6 +232,8 @@ def _granted(principal: Principal, grants: list[Grant]) -> bool:
             return True
         if grant.principal_kind == "role" and canonical_role(grant.principal_id) == principal.role:
             return True
+        if grant.principal_kind == "team" and grant.principal_id in principal.team_ids:
+            return True
     return False
 
 
@@ -219,6 +247,8 @@ async def may_use(
         return agent.user_id == principal.user_id
     if principal.is_admin:
         return True
+    if agent.scope == "team":
+        return not principal.is_guest and agent.team_id in principal.team_ids
     return _granted(principal, await grants_for(db_mgr, org_id, str(agent.id)))
 
 

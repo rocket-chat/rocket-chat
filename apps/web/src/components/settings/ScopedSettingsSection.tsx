@@ -96,3 +96,26 @@ export const OrgScopeSection: React.FC<OrgScopeSectionProps> = ({
     </section>
   );
 };
+
+interface TeamScopeSectionProps extends ScopedSectionProps {
+  /** Whether the person administers the team (or the organization): they change its objects. */
+  canManage: boolean;
+}
+
+/** A team's objects: its members use them, its administrators (and the organization's) change them. */
+export const TeamScopeSection: React.FC<TeamScopeSectionProps> = ({ title, description, action, canManage, children, className = "" }) => (
+  <section className={`space-y-4 ${className}`} data-testid="team-scope-section">
+    <SectionHeader
+      title={title}
+      description={description}
+      badge={
+        <Badge className="whitespace-nowrap">
+          <Lock className="h-2.5 w-2.5" aria-hidden="true" />
+          {canManage ? "Team admins · team members" : "Read-only"}
+        </Badge>
+      }
+      action={canManage ? action : undefined}
+    />
+    <div>{children}</div>
+  </section>
+);

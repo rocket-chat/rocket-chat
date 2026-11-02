@@ -158,7 +158,7 @@ A channel can have its own persona, house rules, tool scope and sandbox image. I
 }
 ```
 
-`allowed_tools` can only narrow what the organization allows. `sandbox_image` must be an image the organization permits (**Settings → Organization → Sandboxes**). Direct messages never use a channel profile.
+`allowed_tools` can only narrow what the organization allows. `sandbox_image` must be an image the organization permits (**Settings → Sandboxes**). Direct messages never use a channel profile.
 
 ### Who owns Slack sessions
 
@@ -167,13 +167,13 @@ A direct message from a linked Slack user belongs to that member. Everything els
 * `slack:<team>:<user>` for an unlinked Slack user's direct messages;
 * `slack:<team>` for shared channel threads.
 
-Guests have the `viewer` role, no password and no linked accounts, so they cannot sign in. They appear in **Settings → Organization → Members & roles**. They can use only the agents whose **Access** allows guests. When a Slack user links their account, their guest's sessions move to them. Sessions are never created for a user that does not exist: a turn whose session is missing fails instead.
+Guests have the `viewer` role, no password and no linked accounts, so they cannot sign in. They appear in **Settings → Members & teams**. They can use only the agents whose **Access** allows guests. When a Slack user links their account, their guest's sessions move to them. Sessions are never created for a user that does not exist: a turn whose session is missing fails instead.
 
 ### Safety limits (deployment-wide)
 
 Environment variables bound what an unlinked Slack user can cost or break: `SLACK_USER_TURNS_PER_MINUTE`, `SLACK_CHANNEL_TURNS_PER_MINUTE`, `SLACK_MAX_ATTACHMENTS_PER_TURN`, `SLACK_MAX_CONSECUTIVE_FAILURES` / `SLACK_FAILURE_COOLDOWN_SECONDS` (a circuit breaker), `SLACK_ALLOWED_TOOLS` / `SLACK_BLOCKED_TOOLS` (by default `git_revert`, `git_open_pr` and `git_push` are blocked on the unauthenticated path: shared channel threads and Slack users who have not linked their account. A linked member's DM or private request runs with their own account and the same tools as the web app, unless the organization turns on `restrict_linked_members`), and `SLACK_HEALTH_CHECK_SECONDS` (below). The settings reference lists every key.
 
-What a Slack workspace's guests may spend (unlinked Slack users and shared channel threads) is a **spend limit** on the subject *Slack workspace* (**Settings → Organization → Spend**), like any other limit; a linked member's requests count against that member's limits instead. When it is used up, the bot answers "Workspace budget reached" before any turn starts, so the refused request costs nothing.
+What a Slack workspace's guests may spend (unlinked Slack users and shared channel threads) is a **spend limit** on the subject *Slack workspace* (**Settings → Spend & usage**), like any other limit; a linked member's requests count against that member's limits instead. When it is used up, the bot answers "Workspace budget reached" before any turn starts, so the refused request costs nothing.
 
 ---
 
