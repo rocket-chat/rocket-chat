@@ -893,6 +893,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 agent_id=attribution.agent_id,
                 credential_bindings=attribution.credential_bindings,
                 strict_binding=attribution.strict_binding,
+                team_id=attribution.team_id,
                 turn_id=attribution.turn_id,
                 call_role="react",
             )

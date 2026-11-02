@@ -330,6 +330,13 @@ async def get_persona(
     return persona
 
 
+async def agent_owner(db_mgr: Any, org_id: str, persona_id: str | None) -> Owner | None:
+    """The owner of an organization or team agent, whoever asks (platform bookkeeping: which
+    team's limits count it). A member's personal agent is nobody else's business: ``None``."""
+    found = await _find_persona(db_mgr, org_id, Viewer(user_id="", is_org_admin=True), persona_id)
+    return owner_of(found) if found is not None else None
+
+
 async def _find_persona(
     db_mgr: Any, org_id: str, viewer: Viewer, persona_id: str | None
 ) -> AgentPersonaModel | None:
@@ -514,8 +521,9 @@ async def _validate_bindings(
 
     * an organization agent: administrators, with organization credentials or member
       credentials whose owner shared them with this agent;
-    * a team's agent: its managers, with member credentials whose owner shared them with this
-      agent, and organization credentials only when an organization administrator binds them;
+    * a team's agent: its managers, with the team's credentials, member credentials whose owner
+      shared them with this agent, and organization credentials only when an organization
+      administrator binds them;
     * a personal agent: its owner, with their own credentials only;
     * never a member credential while ``models.member_keys`` is ``off``.
 
@@ -548,6 +556,9 @@ async def _validate_bindings(
                 )
             if not shared_agent and found.owner_user_id != user_id:
                 raise PersonaError(403, "A personal agent can only use its owner's credentials.")
+        elif found.owner_kind == "team":
+            if persona.scope != "team" or found.team_id != persona.team_id:
+                raise PersonaError(403, "A team's credential serves that team's agents only.")
         elif not shared_agent:
             raise PersonaError(403, "A personal agent cannot use organization credentials.")
         elif not is_admin and (binding.provider, binding.credential_id) not in kept:

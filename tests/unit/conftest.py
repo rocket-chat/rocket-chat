@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
+from api.bootstrap.core import _bind_spend_tracking
 from api.main import app
 from api.services.github_watches import GithubWatchStore
 from api.services.missions import MissionStore
@@ -27,4 +28,7 @@ def client() -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         app.state.db_manager = None
         app.state.mission_store = MissionStore(None)
+        # Keys, spend limits and usage too: with a test database configured the app starts on
+        # it, and a key or limit written there would name an organization that exists only here.
+        _bind_spend_tracking(app, app.state.llm_gateway, None)
         yield test_client

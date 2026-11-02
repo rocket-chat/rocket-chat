@@ -1,8 +1,9 @@
 """Model provider credentials of the organization and of each member.
 
-Every change (create, rotate, update, delete) is audited for organization *and* member
+Every change (create, rotate, update, delete) is audited for organization, team *and* member
 credentials, with the fingerprint, never the secret. A member credential can be shared with
-organization agents only by its owner; administrators then bind it to those agents.
+organization or team agents only by its owner; whoever manages the agent then binds it. A
+team's credentials are managed by the team's administrators (and the organization's).
 """
 
 import logging
@@ -25,7 +26,11 @@ from api.services.model_credentials import (
     NewCredential,
     StoredCredential,
 )
+from api.services.ownership import owner_of, request_viewer
+from api.services.personas import RESERVED_IDS, get_persona
 from api.services.settings import effective_settings
+from api.services.teams import get_team
+from specifications.interfaces.ownership import Owner, Viewer, can_manage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Model credentials"])
@@ -36,8 +41,9 @@ class CredentialView(BaseModel):
     label: str
     provider: str
     kind: str
-    owner: Literal["org", "user"]
+    owner: Literal["org", "team", "user"]
     owner_user_id: str | None = None
+    team_id: str | None = None
     fingerprint: str = Field(..., description="A preview of the key, never the key itself")
     api_base: str | None = None
     default_for_provider: bool
@@ -107,6 +113,7 @@ def _view(item: StoredCredential) -> CredentialView:
         kind=item.kind,
         owner=item.owner,
         owner_user_id=item.owner_user_id,
+        team_id=item.team_id,
         fingerprint=item.fingerprint,
         api_base=item.api_base,
         default_for_provider=item.default_for_provider,
@@ -129,6 +136,7 @@ async def _audit(
             "credential_id": item.id,
             "provider": item.provider,
             "owner": item.owner,
+            "team_id": item.team_id,
             "fingerprint": item.fingerprint,
         },
     )
@@ -368,3 +376,156 @@ async def delete_org_credential(credential_id: str, request: Request) -> dict[st
     if removed is not None:
         await _audit(request, org_id, admin_id, "removed an organization credential", removed)
     return {"deleted": removed is not None}
+
+
+# -- a team's credentials -----------------------------------------------------------------
+
+
+async def _team_manager(request: Request, team_id: str) -> tuple[str, Viewer]:
+    """The organization and caller, when the caller manages ``team_id`` (403/404 otherwise)."""
+    org_id, viewer = await request_viewer(request)
+    if await get_team(getattr(request.app.state, "db_manager", None), org_id, team_id) is None:
+        raise HTTPException(status_code=404, detail="Team not found.")
+    if not can_manage(viewer, Owner("team", team_id=team_id)):
+        raise HTTPException(status_code=403, detail="Only the team's administrators can do this.")
+    return org_id, viewer
+
+
+async def _team_key(
+    request: Request, org_id: str, team_id: str, credential_id: str
+) -> StoredCredential:
+    found = await credential_store(request).get(org_id, credential_id)
+    if found is None or found.owner_kind != "team" or found.team_id != team_id:
+        raise HTTPException(status_code=404, detail="Credential not found")
+    return found
+
+
+def _endpoint_owner(viewer: Viewer) -> str:
+    """Whose rule an ``api_base`` follows: only organization administrators name internal
+    endpoints, so a team administrator's key points at public ones, like a member's."""
+    return "org" if viewer.is_org_admin else "team"
+
+
+@router.get("/teams/{team_id}/credentials", response_model=list[CredentialView])
+async def list_team_credentials(team_id: str, request: Request) -> list[CredentialView]:
+    """The team's provider keys (fingerprints only; its administrators)."""
+    org_id, _ = await _team_manager(request, team_id)
+    found = await credential_store(request).list(org_id, owner_kind="team", team_id=team_id)
+    return [_view(c) for c in found]
+
+
+@router.post("/teams/{team_id}/credentials", response_model=CredentialView)
+async def create_team_credential(
+    team_id: str, body: CreateCredentialRequest, request: Request
+) -> CredentialView:
+    """Add a team key: the team's agents use it before the organization's."""
+    org_id, viewer = await _team_manager(request, team_id)
+    await _validate_api_base(body.api_base, _endpoint_owner(viewer))
+    created = await credential_store(request).create(
+        org_id,
+        NewCredential(
+            owner_kind="team",
+            owner_user_id=None,
+            team_id=team_id,
+            provider=body.provider,
+            api_key=body.api_key,
+            label=body.label,
+            api_base=body.api_base,
+            default_for_provider=body.default_for_provider,
+            restricted_to_agents=body.restricted_to_agents,
+        ),
+    )
+    await _audit(request, org_id, viewer.user_id, f"added a team {body.provider} key", created)
+    return _view(created)
+
+
+@router.patch("/teams/{team_id}/credentials/{credential_id}", response_model=CredentialView)
+async def update_team_credential(
+    team_id: str, credential_id: str, body: UpdateCredentialRequest, request: Request
+) -> CredentialView:
+    org_id, viewer = await _team_manager(request, team_id)
+    await _team_key(request, org_id, team_id, credential_id)
+    if body.shared_with_org_agents is not None:
+        raise HTTPException(
+            status_code=422, detail="Team credentials are bound on the agent instead."
+        )
+    await _validate_api_base(body.api_base, _endpoint_owner(viewer))
+    updated = await credential_store(request).update(
+        org_id,
+        credential_id,
+        CredentialChanges(
+            label=body.label,
+            api_base=body.api_base,
+            clear_api_base=body.clear_api_base,
+            default_for_provider=body.default_for_provider,
+            restricted_to_agents=body.restricted_to_agents,
+        ),
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Credential not found")
+    await _audit(request, org_id, viewer.user_id, "updated a team credential", updated)
+    return _view(updated)
+
+
+@router.post("/teams/{team_id}/credentials/{credential_id}/rotate", response_model=CredentialView)
+async def rotate_team_credential(
+    team_id: str, credential_id: str, body: RotateCredentialRequest, request: Request
+) -> CredentialView:
+    org_id, viewer = await _team_manager(request, team_id)
+    await _team_key(request, org_id, team_id, credential_id)
+    rotated = await credential_store(request).rotate(org_id, credential_id, body.api_key)
+    if rotated is None:
+        raise HTTPException(status_code=404, detail="Credential not found")
+    await _audit(request, org_id, viewer.user_id, "rotated a team credential", rotated)
+    return _view(rotated)
+
+
+@router.delete("/teams/{team_id}/credentials/{credential_id}")
+async def delete_team_credential(
+    team_id: str, credential_id: str, request: Request
+) -> dict[str, bool]:
+    """Remove a team key; agents bound to it fail with "credential withdrawn"."""
+    org_id, viewer = await _team_manager(request, team_id)
+    await _team_key(request, org_id, team_id, credential_id)
+    removed = await credential_store(request).delete(org_id, credential_id)
+    if removed is not None:
+        await _audit(request, org_id, viewer.user_id, "removed a team credential", removed)
+    return {"deleted": removed is not None}
+
+
+# -- what an agent may be bound to -------------------------------------------------------
+
+
+@router.get("/agents/{agent_id}/bindable-credentials", response_model=list[CredentialView])
+async def bindable_credentials(agent_id: str, request: Request) -> list[CredentialView]:
+    """The keys the caller may bind on this agent (fingerprints only), by the agent's owner:
+
+    * personal agent: its owner's own keys;
+    * team agent: the team's keys, members' keys shared with this agent, and, for an
+      organization administrator, the organization's;
+    * organization agent: the organization's keys and members' keys shared with this agent
+      (administrators).
+    """
+    org_id, viewer = await request_viewer(request)
+    _, _, roles = _get_request_identity(request)
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    agent = await get_persona(
+        db_mgr, org_id, viewer.user_id, agent_id, roles=roles, enforce_access=False
+    )
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    owner = owner_of(agent) if agent.id not in RESERVED_IDS else Owner("org")
+    if not can_manage(viewer, owner):
+        raise HTTPException(status_code=403, detail="You cannot change this agent.")
+    everything = await credential_store(request).list(org_id)
+    return [_view(c) for c in everything if _bindable(c, agent.id, owner, viewer)]
+
+
+def _bindable(item: StoredCredential, agent_id: str, owner: Owner, viewer: Viewer) -> bool:
+    if owner.scope == "user":
+        return item.owner_kind == "member" and item.owner_user_id == owner.user_id
+    if item.owner_kind == "member":
+        return agent_id in item.shared_with_org_agents
+    if item.owner_kind == "team":
+        return owner.scope == "team" and item.team_id == owner.team_id
+    return viewer.is_org_admin

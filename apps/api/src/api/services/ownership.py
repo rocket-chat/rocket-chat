@@ -54,6 +54,11 @@ def owner_of(record: Any) -> Owner:
     return Owner("org")
 
 
+def team_of(record: Any) -> str | None:
+    """The team that owns ``record`` (an agent: its turns run in that team's context)."""
+    return owner_of(record).team_id if record is not None else None
+
+
 def owner_columns(owner: Owner) -> dict[str, Any]:
     """The stored columns of ``owner``."""
     return {"scope": owner.scope, "user_id": owner.user_id, "team_id": owner.team_id}

@@ -235,6 +235,8 @@ class ProviderCredentialModel(Base):
     owner_user_id: Mapped[str | None] = mapped_column(
         String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    # ``owner_kind="team"``: the team whose agents and turns use it.
+    team_id: Mapped[str | None] = _team_owner_column()
     provider: Mapped[str] = mapped_column(String(50), nullable=False)
     # ``api_key`` today; ``oauth`` and ``subscription`` logins fit the same row later.
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default="api_key")
@@ -1598,6 +1600,11 @@ class SpendLimitModel(Base):
     warn_at_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=80)
     # A default-for-each row marked as a ceiling: an explicit row may only lower it.
     is_ceiling: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # The team that owns the limit (its administrators manage it); NULL: the organization's.
+    # It goes with its team.
+    team_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("teams.id", ondelete="CASCADE"), nullable=True, index=True
+    )
     created_by: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     created_at: Mapped[int] = mapped_column(
         BigInteger, default=lambda: int(time.time()), nullable=False

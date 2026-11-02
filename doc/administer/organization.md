@@ -65,7 +65,9 @@ A **team** is a group of the organization's members that owns things of its own:
 * **Running a team.** A team's **administrators** (team role *admin*) rename it, add members of the organization, make them administrators or members, remove them, and create and change everything the team owns, without being organization administrators. Anyone can leave a team. A *viewer* administers no team, whatever their team role.
 * **Moving.** The **Owner** field of an object's form moves it: from you to a team, from a team to the organization, and back. You need to manage the object where it is and where it goes (a team administrator moves their own agent into the team, an organization administrator moves a team's agent to the organization). The form says who will be able to use it after the move. Nobody but an administrator hands an object to another member.
 * **Deleting a team** is refused while it still owns something: the message says what, so it can be moved or deleted first.
-* **Agents.** A team's agent serves the team's members. An organization agent can also be granted to a team in its *Access* section. Its credentials: members' keys shared with that agent, bound by the team's administrators; organization keys, bound by organization administrators only.
+* **Agents.** A team's agent serves the team's members. An organization agent can also be granted to a team in its *Access* section. A team agent's credentials: the team's keys and members' keys shared with that agent, bound by the team's administrators; organization keys, bound by organization administrators only.
+* **Keys.** With the **Showing** filter on a team, *Models & keys* holds the **team's provider keys** (its administrators add, rotate and remove them). In the turns of the team's agents, the team's key is used before the organization's (a member's own key still comes first when your organization prefers members' keys); everywhere else the team's keys are never used.
+* **Spend.** A turn of a team's agent counts against the **team's** limits as well as the organization's. Organization administrators set limits on a team (*Spend & usage*, subject *Team*); a team's administrators add limits of their own on the team or its agents, which can only tighten what the organization set, and see the organization's limits on their team without being able to change them.
 * **In a session**, an agent sees the skills, MCP servers and knowledge bases of the organization, of the person's own teams, and their own. An organization administrator manages every team's objects but does not work with another team's in their own sessions.
 
 Teams never span organizations: everything a team owns stays inside its organization. Team changes and moves are recorded in the [audit log](#audit).
@@ -84,7 +86,7 @@ Spend is what the provider billed when it reports it (OpenRouter does, for every
 
 **Spend limits** cap what is spent, by subject and period:
 
-* subjects: the organization; each member (or one member); an agent; an agent for each member (or for one); a Slack workspace;
+* subjects: the organization; a team (the turns of its agents); each member (or one member); an agent; an agent for each member (or for one); a Slack workspace;
 * periods: per day, week or month (UTC), rolling 24 hours or 7 days, per session, per turn;
 * modes: **block** refuses the model call that would cross the limit, before anything is bought; **warn** tells the member in the session when the limit is nearly used (at its warning percentage).
 

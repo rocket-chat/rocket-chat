@@ -116,3 +116,63 @@ async def test_a_team_object_is_visible_to_its_members_only_and_pins_the_team() 
             raise AssertionError("a team that owns an agent was deleted")
     finally:
         await db.close()
+
+
+@needs_postgres
+async def test_a_team_key_is_the_teams_and_its_limits_go_with_it() -> None:
+    from api.db.models import SpendLimitModel
+    from api.services.model_credentials import ModelCredentialStore, NewCredential
+
+    db = DatabaseSessionManager(TEST_DATABASE_URL)
+    try:
+        org, other = await two_orgs(db)
+        team = await create_team(db, org, "Platform", "", f"u_{org}")
+        store = ModelCredentialStore(db)
+        key = await store.create(
+            org,
+            NewCredential("team", None, "anthropic", "sk-team-pg-0001", "Team", team_id=team.id),
+        )
+        found = await store.default_for(org, "anthropic", owner_user_id=None, team_id=team.id)
+        assert found is not None and found.id == key.id and found.team_id == team.id
+        assert await store.default_for(org, "anthropic", owner_user_id=None) is None
+        assert await store.get(other, key.id) is None
+        await add_row(
+            db,
+            org,
+            SpendLimitModel(
+                id=new_id("lim"), org_id=org, subject_kind="team", subject_id=team.id,
+                period="month", amount_usd=5.0, mode="block", created_by="x", team_id=team.id,
+            ),
+        )  # fmt: skip
+        try:
+            await delete_team(db, org, team.id)
+        except TeamError as err:
+            assert err.status_code == 409 and "credentials" in err.detail
+        else:
+            raise AssertionError("a team that owns a key was deleted")
+        await store.delete(org, key.id)
+        await delete_team(db, org, team.id)
+        async with db.session(tenant_org_id=org) as session:
+            left = await session.execute(
+                select(SpendLimitModel).where(SpendLimitModel.subject_id == team.id)
+            )
+            assert left.scalars().all() == []
+    finally:
+        await db.close()
+
+
+@needs_postgres
+async def test_an_organization_agent_is_granted_to_a_team_in_postgres() -> None:
+    from api.services.agent_access import grants_for, set_grants
+
+    db = DatabaseSessionManager(TEST_DATABASE_URL)
+    try:
+        org, _ = await two_orgs(db)
+        team = await create_team(db, org, "Platform", "", f"u_{org}")
+        agent_id = new_id("agent")
+        await set_grants(db, org, agent_id, [("team", team.id)], f"u_{org}")
+        assert [
+            (g.principal_kind, g.principal_id) for g in await grants_for(db, org, agent_id)
+        ] == [("team", team.id)]
+    finally:
+        await db.close()

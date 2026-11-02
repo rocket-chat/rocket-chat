@@ -6,6 +6,8 @@ import { CredentialsPanel } from "../../../../components/settings/CredentialsPan
 import type { CustomControl } from "../../../../components/settings/SchemaSettingsForm";
 import { SettingsPage } from "../../../../components/settings/SettingsPage";
 import { ModelPicker } from "../../../../components/ui/ModelPicker";
+import { NotManaged } from "../../../../components/settings/NotManaged";
+import { useManagedScopes } from "../../../../lib/useOwnedSections";
 
 function modelControl(inheritLabel: string) {
   return function ModelControl({ id, value, disabled, onChange }: CustomControl) {
@@ -29,20 +31,28 @@ const MODEL_CONTROLS = {
 };
 
 export default function Page() {
+  const { access, showOrg, teams, unmanaged } = useManagedScopes();
   return (
     <SettingsPage
-      section="Organization"
-      title="Models & credentials"
-      description="The keys the organization pays for, which models members may use, fail-over and routing."
+      section="Resources"
+      title="Models & keys"
+      description="The keys the organization and its teams pay for, which models members may use, fail-over and routing."
     >
-      <CredentialsPanel mode="org" />
-      <SchemaSettingsForm
-        domain="models"
-        mode="org"
-        title="Model policy"
-        description="Allow and deny lists apply to every model choice, including fail-over and routing tiers."
-        controls={MODEL_CONTROLS}
-      />
+      {unmanaged && <NotManaged team={unmanaged} what="keys" />}
+      {showOrg && <CredentialsPanel mode="org" />}
+      {teams.map((team) => (
+        <CredentialsPanel key={team.id} mode="team" team={team} />
+      ))}
+      {showOrg && (
+        <SchemaSettingsForm
+          domain="models"
+          mode="org"
+          title="Model policy"
+          description="Allow and deny lists apply to every model choice, including fail-over and routing tiers."
+          controls={MODEL_CONTROLS}
+        />
+      )}
+      {access.loaded && !showOrg && teams.length === 0 && !unmanaged && <NotManaged team={null} what="keys" />}
     </SettingsPage>
   );
 }

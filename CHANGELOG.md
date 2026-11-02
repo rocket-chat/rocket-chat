@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `orchestrator`:
 - `sandboxes`:
 - `api`: **Teams** inside an organization (`/v1/teams`, `teams` and `team_memberships` with forced row-level security, migration `061_teams`). Organization administrators create and delete teams; a team's administrators rename it and manage its members (`admin` or `member`). Agents, skills, MCP servers and knowledge bases can be owned by a team (`scope: "team"`, `team_id`): its members use them, its administrators change them. Re-saving an object with another owner moves it, which needs the right to manage both owners; a team that still owns objects cannot be deleted. Organization agents can be granted to a team. Team changes and moves are audited (`team.*`).
+- `api`: A team's agent runs in its **team's context** (`ModelScope.team_id`, `ModelAttribution.team_id`). Teams own **provider keys** (`/v1/teams/{id}/credentials`): in their agents' turns the team's key pays before the organization's (after the member's own under `member_keys: preferred`), and a team's key binds to that team's agents only. Teams are a **spend limit subject** (`subject_kind: "team"`, counting the calls made in the team's context), and a team's administrators add limits the team owns on the team and its agents (`/v1/teams/{id}/spend-limits`): every limit applies, so theirs only tighten the organization's. `GET /v1/agents/{id}/bindable-credentials` lists the keys the caller may bind on an agent. Migration `062_team_keys_and_limits`.
 - `web`:
 - `settings`:
 - `git`:

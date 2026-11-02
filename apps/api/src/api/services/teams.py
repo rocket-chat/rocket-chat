@@ -13,7 +13,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
 from api.auth.roles import can_write, is_admin
@@ -22,6 +22,8 @@ from api.db.models import (
     CustomSkillModel,
     KnowledgeBaseModel,
     McpServerEntityModel,
+    ProviderCredentialModel,
+    SpendLimitModel,
     TeamMembershipModel,
     TeamModel,
     UserModel,
@@ -36,6 +38,7 @@ OWNED_TABLES: dict[str, Any] = {
     "skills": CustomSkillModel,
     "mcp_servers": McpServerEntityModel,
     "knowledge_bases": KnowledgeBaseModel,
+    "credentials": ProviderCredentialModel,
 }
 
 
@@ -221,6 +224,15 @@ async def delete_team(db_mgr: Any, org_id: str, team_id: str) -> None:
         _memory_members.get(org_id, {}).pop(team_id, None)
         return
     async with db_mgr.session(tenant_org_id=org_id) as session:
+        # The team's own limits go with it (foreign key); the organization's limits on the team
+        # would count nothing any more.
+        await session.execute(
+            delete(SpendLimitModel).where(
+                SpendLimitModel.org_id == org_id,
+                SpendLimitModel.subject_kind == "team",
+                SpendLimitModel.subject_id == team_id,
+            )
+        )
         row = await session.get(TeamModel, team_id)
         if row is not None and row.org_id == org_id:
             await session.delete(row)

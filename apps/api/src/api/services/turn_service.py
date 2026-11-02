@@ -27,6 +27,7 @@ from api.services.github_installations import installations_for_org
 from api.services.model_catalogue import default_catalogue
 from api.services.model_defaults import organization_providers
 from api.services.openrouter_efforts import ReasoningSupport, map_effort, openrouter_efforts
+from api.services.ownership import team_of
 from api.services.settings import (
     DeclaredSettings,
     effective_settings,
@@ -434,6 +435,7 @@ class TurnService:
                 ),
                 strict_binding=bool(getattr(agent, "strict_binding", False)),
                 turn_id=turn_id,
+                team_id=team_of(agent),
             ),
         )
         return AgentBinding(

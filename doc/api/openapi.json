@@ -1916,6 +1916,7 @@
           "owner": {
             "enum": [
               "org",
+              "team",
               "user"
             ],
             "title": "Owner",
@@ -1946,6 +1947,17 @@
             },
             "title": "Shared With Org Agents",
             "type": "array"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
           },
           "updated_at": {
             "title": "Updated At",
@@ -7569,6 +7581,7 @@
           "subject_kind": {
             "enum": [
               "org",
+              "team",
               "member",
               "agent",
               "agent_member",
@@ -7732,6 +7745,17 @@
           "subject_kind": {
             "title": "Subject Kind",
             "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
           },
           "updated_at": {
             "title": "Updated At",
@@ -13235,6 +13259,53 @@
         "summary": "Lint Agent Prompt",
         "tags": [
           "Agents"
+        ]
+      }
+    },
+    "/v1/agents/{agent_id}/bindable-credentials": {
+      "get": {
+        "description": "The keys the caller may bind on this agent (fingerprints only), by the agent's owner:\n\n* personal agent: its owner's own keys;\n* team agent: the team's keys, members' keys shared with this agent, and, for an\n  organization administrator, the organization's;\n* organization agent: the organization's keys and members' keys shared with this agent\n  (administrators).",
+        "operationId": "bindable_credentials_v1_agents__agent_id__bindable_credentials_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CredentialView"
+                  },
+                  "title": "Response Bindable Credentials V1 Agents  Agent Id  Bindable Credentials Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Bindable Credentials",
+        "tags": [
+          "Model credentials"
         ]
       }
     },
@@ -19996,6 +20067,280 @@
         ]
       }
     },
+    "/v1/teams/{team_id}/credentials": {
+      "get": {
+        "description": "The team's provider keys (fingerprints only; its administrators).",
+        "operationId": "list_team_credentials_v1_teams__team_id__credentials_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CredentialView"
+                  },
+                  "title": "Response List Team Credentials V1 Teams  Team Id  Credentials Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Team Credentials",
+        "tags": [
+          "Model credentials"
+        ]
+      },
+      "post": {
+        "description": "Add a team key: the team's agents use it before the organization's.",
+        "operationId": "create_team_credential_v1_teams__team_id__credentials_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCredentialRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Team Credential",
+        "tags": [
+          "Model credentials"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/credentials/{credential_id}": {
+      "delete": {
+        "description": "Remove a team key; agents bound to it fail with \"credential withdrawn\".",
+        "operationId": "delete_team_credential_v1_teams__team_id__credentials__credential_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Delete Team Credential V1 Teams  Team Id  Credentials  Credential Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Team Credential",
+        "tags": [
+          "Model credentials"
+        ]
+      },
+      "patch": {
+        "operationId": "update_team_credential_v1_teams__team_id__credentials__credential_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCredentialRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Team Credential",
+        "tags": [
+          "Model credentials"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/credentials/{credential_id}/rotate": {
+      "post": {
+        "operationId": "rotate_team_credential_v1_teams__team_id__credentials__credential_id__rotate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateCredentialRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rotate Team Credential",
+        "tags": [
+          "Model credentials"
+        ]
+      }
+    },
     "/v1/teams/{team_id}/members": {
       "get": {
         "description": "Who is in the team, and what it owns (its members and administrators).",
@@ -20141,6 +20486,218 @@
         "summary": "Put Team Member",
         "tags": [
           "Teams"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/spend-limits": {
+      "get": {
+        "description": "The limits that count the team's spend (the organization's and its own), with what\neach has used (the team's administrators).",
+        "operationId": "list_team_spend_limits_v1_teams__team_id__spend_limits_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SpendLimitView"
+                  },
+                  "title": "Response List Team Spend Limits V1 Teams  Team Id  Spend Limits Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Team Spend Limits",
+        "tags": [
+          "Spend limits"
+        ]
+      },
+      "post": {
+        "description": "Add a limit the team owns, on the team or one of its agents.",
+        "operationId": "create_team_spend_limit_v1_teams__team_id__spend_limits_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpendLimitRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpendLimitView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Team Spend Limit",
+        "tags": [
+          "Spend limits"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/spend-limits/{limit_id}": {
+      "delete": {
+        "operationId": "delete_team_spend_limit_v1_teams__team_id__spend_limits__limit_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "limit_id",
+            "required": true,
+            "schema": {
+              "title": "Limit Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Delete Team Spend Limit V1 Teams  Team Id  Spend Limits  Limit Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Team Spend Limit",
+        "tags": [
+          "Spend limits"
+        ]
+      },
+      "patch": {
+        "operationId": "update_team_spend_limit_v1_teams__team_id__spend_limits__limit_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "limit_id",
+            "required": true,
+            "schema": {
+              "title": "Limit Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SpendLimitUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpendLimitView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Team Spend Limit",
+        "tags": [
+          "Spend limits"
         ]
       }
     },
