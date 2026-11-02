@@ -5,7 +5,9 @@ Every setting declares a ``policy``:
 * ``instance`` - the operator sets it in the environment; nobody changes it in the product.
 * ``org`` - administrators decide; members, sessions and agents do not.
 * ``org_default`` - administrators set the default; members, sessions and presets may choose
-  another value unless an administrator locks the key.
+  another value unless an administrator locks the key. In a team's context (the turns of a
+  team's agents) the team's administrators may set a default of their own, under the member's
+  choice and above the organization's, held by the same locks and ceilings.
 * ``member`` - each member's own choice.
 
 Agents, Slack bots and channel profiles are *presets*: they offer candidate values at session
@@ -28,8 +30,8 @@ from .exceptions import PolicyViolationError
 Policy = Literal["instance", "org", "org_default", "member"]
 LockedBy = Literal["org", "instance"]
 
-# Where a resolved value came from: "platform", "instance", "org", "member", "session",
-# "agent:<id>", "slack_bot:<id>", "channel:<id>".
+# Where a resolved value came from: "platform", "instance", "org", "team:<id>", "member",
+# "session", "agent:<id>", "slack_bot:<id>", "channel:<id>".
 Source = str
 
 # Values that mean "no limit" for a ceiling: they never cap the levels below.
@@ -66,6 +68,9 @@ class ResolveContext:
     org: Mapping[str, Any] = field(default_factory=dict)
     locked: frozenset[str] = frozenset()
     member: Mapping[str, Any] = field(default_factory=dict)
+    # The team's defaults in a team's context, and their source ("team:<id>").
+    team: Mapping[str, Any] = field(default_factory=dict)
+    team_source: Source = "team"
     # Highest priority first; the session's own choice is a preset with source "session".
     presets: tuple[Preset, ...] = ()
     # Operator values from the environment, already coerced, by key.
@@ -155,6 +160,8 @@ def _lower_candidates(spec: _Spec, ctx: ResolveContext) -> list[tuple[Source, An
     ]
     if spec.member_override and _present(ctx.member, spec.key):
         candidates.append(("member", ctx.member[spec.key]))
+    if spec.policy == "org_default" and _present(ctx.team, spec.key):
+        candidates.append((ctx.team_source, ctx.team[spec.key]))
     return candidates
 
 

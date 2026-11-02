@@ -7,6 +7,8 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Field } from "../ui/Field";
 import { SandboxEnvEditor, envPayload, rowsOf, type SandboxEnvRow, type SandboxEnvVar } from "./SandboxEnvEditor";
+import { OwnerBadge } from "./Owner";
+import { useAccess } from "../../lib/access";
 
 interface Sandbox {
   id: string;
@@ -20,8 +22,10 @@ interface Sandbox {
   memory_limit: string;
   disk_size: string;
   release_after_days: number | null;
-  /** Only returned to administrators. */
+  /** Only returned to those who manage the entry. */
   env?: SandboxEnvVar[];
+  /** A team's entry: its members' sessions and its agents may use it. */
+  team_id?: string | null;
 }
 
 interface Profile {
@@ -94,12 +98,16 @@ interface SandboxFormProps {
   initial: FormValues;
   browserHelp: string;
   profiles: Profile[];
+  /** Placement profiles are the operator's: only organization administrators choose one. */
+  canChooseProfile: boolean;
+  /** The organization's sandbox sizes, which a team's entry may not exceed (shown as a hint). */
+  sizingCeiling?: Record<"cpu" | "memory" | "disk", string>;
   onSubmit: (values: FormValues) => Promise<void>;
   onCancel: () => void;
 }
 
 /** The fields of one sandbox entry; used to add a new entry and to edit an existing one. */
-const SandboxForm: React.FC<SandboxFormProps> = ({ initial, browserHelp, profiles, onSubmit, onCancel }) => {
+const SandboxForm: React.FC<SandboxFormProps> = ({ initial, browserHelp, profiles, canChooseProfile, sizingCeiling, onSubmit, onCancel }) => {
   const [form, setForm] = useState(initial);
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
@@ -163,6 +171,7 @@ const SandboxForm: React.FC<SandboxFormProps> = ({ initial, browserHelp, profile
       </label>
       <fieldset className="md:col-span-2 grid gap-3 md:grid-cols-2 rounded-lg border border-surface-border p-3">
         <legend className="px-1 text-xs font-medium text-foreground">Runtime</legend>
+        {canChooseProfile && (
         <Field
           label="Placement profile"
           hint={
@@ -188,6 +197,7 @@ const SandboxForm: React.FC<SandboxFormProps> = ({ initial, browserHelp, profile
             </select>
           )}
         </Field>
+        )}
         <Field label="Release the workspace after (days)" hint="Idle days before the volume is deleted; 0 keeps it. Empty: organization default.">
           {(control) => (
             <input
@@ -210,7 +220,15 @@ const SandboxForm: React.FC<SandboxFormProps> = ({ initial, browserHelp, profile
             ["disk", "Workspace disk", "e.g. 50Gi"],
           ] as const
         ).map(([key, label, example]) => (
-          <Field key={key} label={label} hint={`${example}. Empty: organization default; an agent's own wins.`}>
+          <Field
+            key={key}
+            label={label}
+            hint={
+              sizingCeiling
+                ? `${example}. At most ${sizingCeiling[key] || "the organization's size"} (the organization's sandbox settings). Empty: organization default.`
+                : `${example}. Empty: organization default; an agent's own wins.`
+            }
+          >
             {(control) => (
               <input
                 {...control}
@@ -238,21 +256,38 @@ const SandboxForm: React.FC<SandboxFormProps> = ({ initial, browserHelp, profile
 };
 
 /**
- * The sandboxes an organization offers. Each is an image plus what it can do; ticking a
+ * The sandboxes an organization offers (no ``team``), or a team's own (``team``: its members'
+ * sessions and its agents may pick them). Each is an image plus what it can do; ticking a
  * capability is a promise that the image has what the tool needs, so the box says what that is.
  */
-export const SandboxCataloguePanel: React.FC = () => {
+export const SandboxCataloguePanel: React.FC<{ team?: { id: string; name: string } }> = ({ team }) => {
+  const { isAdmin } = useAccess();
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | "new" | null>(null);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [ceiling, setCeiling] = useState<Record<"cpu" | "memory" | "disk", string> | undefined>(undefined);
+  const base = team ? `/v1/teams/${encodeURIComponent(team.id)}/sandboxes` : "/v1/admin/sandboxes";
 
   useEffect(() => {
+    if (!isAdmin) return;
     fetch("/v1/admin/sandboxes/profiles")
       .then((res) => (res.ok ? res.json() : []))
       .then(setProfiles)
       .catch(() => setProfiles([]));
-  }, []);
+  }, [isAdmin]);
+
+  // A team's entry may not be bigger than the organization's sandbox sizes.
+  useEffect(() => {
+    if (!team) return;
+    fetch("/v1/settings/sandboxes")
+      .then((res) => (res.ok ? res.json() : { effective: {} }))
+      .then((body: { effective?: Record<string, unknown> }) => {
+        const value = (key: string) => (body.effective?.[key] ? String(body.effective[key]) : "");
+        setCeiling({ cpu: value("cpu_limit"), memory: value("memory_limit"), disk: value("disk_size") });
+      })
+      .catch(() => setCeiling(undefined));
+  }, [team]);
 
   const load = useCallback(async () => {
     const res = await fetch("/v1/sandboxes");
@@ -281,18 +316,21 @@ export const SandboxCataloguePanel: React.FC = () => {
 
   if (!catalogue) return <p className="text-xs text-neutral-500">Loading sandboxes…</p>;
   const browserHelp = catalogue.capabilities.browser ?? "";
+  const entries = catalogue.sandboxes.filter((box) => (team ? box.team_id === team.id : !box.team_id));
+  const formProps = { browserHelp, profiles, canChooseProfile: isAdmin, sizingCeiling: ceiling };
 
   return (
-    <section data-testid="sandbox-catalogue" className="space-y-4">
+    <section data-testid={team ? `sandbox-catalogue-team-${team.id}` : "sandbox-catalogue"} className="space-y-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-foreground">Sandboxes members can choose</h2>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-            Each entry is a container image. New sessions start from the default unless the member
-            picks another in the composer.
+          <h2 className="text-sm font-semibold text-foreground">{team ? `Team sandboxes · ${team.name}` : "Sandboxes members can choose"}</h2>
+          <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1">
+            {team
+              ? "Images only the team's members and agents may start; the organization's default stays the default."
+              : "Each entry is a container image. New sessions start from the default unless the member picks another in the composer."}
           </p>
         </div>
-        <Button size="sm" variant="primary" data-testid="sandbox-add" onClick={() => setEditing(editing === "new" ? null : "new")}>
+        <Button size="sm" variant="primary" data-testid={team ? "team-sandbox-add" : "sandbox-add"} onClick={() => setEditing(editing === "new" ? null : "new")}>
           <Plus className="w-3.5 h-3.5" />
           Add sandbox
         </Button>
@@ -308,27 +346,26 @@ export const SandboxCataloguePanel: React.FC = () => {
         <Card className="p-4">
           <SandboxForm
             initial={EMPTY_FORM}
-            browserHelp={browserHelp}
-            profiles={profiles}
+            {...formProps}
             onCancel={() => setEditing(null)}
             onSubmit={async (values) => {
-              if (await send("/v1/admin/sandboxes", "POST", toPayload(values))) setEditing(null);
+              if (await send(base, "POST", toPayload(values))) setEditing(null);
             }}
           />
         </Card>
       )}
 
       <div className="space-y-2">
-        {catalogue.sandboxes.map((box) => (
-          <Card key={box.id} className="p-4" data-testid="sandbox-row">
+        {entries.length === 0 && <p className="text-xs text-neutral-600 dark:text-neutral-400">No sandbox yet.</p>}
+        {entries.map((box) => (
+          <Card key={box.id} className="p-4" data-testid={team ? "team-sandbox-row" : "sandbox-row"}>
             {editing === box.id ? (
               <SandboxForm
                 initial={formOf(box)}
-                browserHelp={browserHelp}
-                profiles={profiles}
+                {...formProps}
                 onCancel={() => setEditing(null)}
                 onSubmit={async (values) => {
-                  if (await send(`/v1/admin/sandboxes/${box.id}`, "PATCH", toPayload(values))) {
+                  if (await send(`${base}/${box.id}`, "PATCH", toPayload(values))) {
                     setEditing(null);
                   }
                 }}
@@ -338,6 +375,7 @@ export const SandboxCataloguePanel: React.FC = () => {
               <div className="min-w-0 space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-sm font-semibold text-foreground">{box.name}</h3>
+                  {team && <OwnerBadge owned={{ scope: "team", team_id: box.team_id ?? null }} />}
                   {box.is_default && <Badge tone="brand">Default</Badge>}
                   {box.capabilities.map((c) => (
                     <Badge key={c} tone="info">
@@ -379,6 +417,8 @@ export const SandboxCataloguePanel: React.FC = () => {
                 </Button>
                 {!box.is_default && (
                   <>
+                    {/* The organization's default is the organization's: a team's entry is never it. */}
+                    {!team && (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -387,12 +427,13 @@ export const SandboxCataloguePanel: React.FC = () => {
                     >
                       Make default
                     </Button>
+                    )}
                     <Button
                       size="sm"
                       variant="ghost"
                       aria-label={`Remove ${box.name}`}
                       data-testid="sandbox-remove"
-                      onClick={() => send(`/v1/admin/sandboxes/${box.id}`, "DELETE")}
+                      onClick={() => send(`${base}/${box.id}`, "DELETE")}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </Button>

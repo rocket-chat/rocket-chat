@@ -6,7 +6,7 @@ Defines the structure of sessions stored in PostgreSQL.
 import base64
 import time
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
@@ -54,6 +54,15 @@ class SessionRecord:
 # for one turn; "none" switches reasoning off. A turn's own choice wins over the session's.
 SESSION_REASONING_EFFORTS: tuple[str, ...] = ("none", "minimal", "low", "medium", "high")
 SESSION_REASONING_EFFORT_KEY = "reasoning_effort"
+# The teams a session is shared with (session metadata, a list of team ids): their members open
+# and write in it like collaborators, for as long as they are in the team.
+SHARED_TEAMS_KEY = "shared_teams"
+
+
+def shared_teams_of(metadata: object) -> tuple[str, ...]:
+    """The teams a session's metadata shares it with."""
+    raw = metadata.get(SHARED_TEAMS_KEY) if isinstance(metadata, dict) else None
+    return tuple(str(team) for team in raw) if isinstance(raw, list) else ()
 
 
 def session_reasoning_effort(metadata: dict[str, Any] | None) -> str | None:
@@ -176,11 +185,13 @@ class SessionStoreProtocol(ABC):
         query: str | None = None,
         limit: int = 50,
         cursor: SessionCursor | None = None,
+        visible_to_teams: Sequence[str] = (),
     ) -> SessionPage:
         """Lists one keyset page of sessions, newest ``(updated_at, session_id)`` first.
 
-        ``visible_to_user_id`` applies the non-admin access rule (owner, shared, or
-        collaborator); ``tenant_user_id`` is an exact owner filter an admin may request.
+        ``visible_to_user_id`` applies the non-admin access rule (owner, shared, collaborator,
+        or shared with one of ``visible_to_teams``, the person's teams); ``tenant_user_id`` is
+        an exact owner filter an admin may request.
         ``query`` is a case-insensitive substring match on the title.
         """
         pass

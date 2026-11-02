@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import { Check, Copy, Globe, Link2Off, Users, X } from "lucide-react";
 import { Button } from "./ui/Button";
 import { Field, Select, Textarea } from "./ui/Field";
+import { Badge } from "./ui/Badge";
+import { useTeams } from "../lib/teams";
 
 interface Member {
   user_id: string;
@@ -15,6 +17,8 @@ interface Member {
 interface Sharing {
   org_wide: boolean;
   members: Member[];
+  /** Teams whose members open and write in it while they are in the team. */
+  teams?: { id: string; name: string }[];
   unknown_emails: string[];
   public_links_enabled: boolean;
   public_link: { url: string; expires_at: number } | null;
@@ -30,7 +34,8 @@ async function failure(res: Response): Promise<string> {
   return typeof body.detail === "string" ? body.detail : `HTTP ${res.status}`;
 }
 
-/** Who can open a session: members by email, the whole organization, and/or a read-only public link. */
+/** Who can open a session: members by email, teams, the whole organization, and/or a read-only
+ * public link. */
 export const ShareDialog: React.FC<ShareDialogProps> = ({
   sessionId,
   onClose,
@@ -38,6 +43,8 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
   const [sharing, setSharing] = useState<Sharing | null>(null);
   const [emails, setEmails] = useState("");
   const [orgWide, setOrgWide] = useState(false);
+  const [teamIds, setTeamIds] = useState<string[]>([]);
+  const { teams } = useTeams();
   const [days, setDays] = useState("7");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,6 +57,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
   const adopt = useCallback((next: Sharing) => {
     setSharing(next);
     setOrgWide(next.org_wide);
+    setTeamIds((next.teams ?? []).map((t) => t.id));
     setEmails(next.members.map((m) => m.email).join("\n"));
   }, []);
 
@@ -101,7 +109,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
       fetch(`/v1/sessions/${sessionId}/sharing`, {
         method: "PUT",
         headers: JSON_HEADERS,
-        body: JSON.stringify({ org_wide: orgWide, emails: [emails] }),
+        body: JSON.stringify({ org_wide: orgWide, emails: [emails], team_ids: teamIds }),
       }),
     );
     if (!next) return;
@@ -196,6 +204,34 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
                 />
               )}
             </Field>
+            {teams.length > 0 && (
+              <Field label="Teams" hint="Their members can read the session and send messages in it while they are in the team.">
+                {(control) => (
+                  <Select
+                    {...control}
+                    multiple
+                    data-testid="share-teams"
+                    value={teamIds}
+                    disabled={!sharing}
+                    onChange={(event) => setTeamIds(Array.from(event.target.selectedOptions).map((o) => o.value))}
+                  >
+                    {teams.map((team) => (
+                      <option key={team.id} value={team.id}>
+                        {team.name}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            )}
+            {(sharing?.teams?.length ?? 0) > 0 && (
+              <p data-testid="share-teams-current" className="flex flex-wrap items-center gap-1 text-xs text-neutral-600 dark:text-neutral-400">
+                Shared with
+                {sharing?.teams?.map((team) => (
+                  <Badge key={team.id}>{team.name}</Badge>
+                ))}
+              </p>
+            )}
             <label className="flex items-center gap-2 text-sm text-foreground">
               <input
                 type="checkbox"

@@ -26,6 +26,7 @@ from api.models import (
     UpdateSessionRequest,
 )
 from api.services.agent_access import AgentAccessDenied, require_usable_agent
+from api.services.ownership import request_viewer
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.session_support import (
     _CLIENT_PATCHABLE_METADATA,
@@ -76,7 +77,8 @@ async def _choose_sandbox(
     db_mgr = getattr(request.app.state, "db_manager", None)
     catalogue = SandboxCatalogue(db_mgr)
     if req.sandbox_id:
-        entry = await catalogue.resolve(org_id, sandbox_id=req.sandbox_id)
+        _, viewer = await request_viewer(request)
+        entry = await catalogue.resolve(org_id, sandbox_id=req.sandbox_id, teams=viewer.teams)
         if entry is None:
             raise HTTPException(status_code=422, detail="That sandbox is not in the catalogue.")
         metadata["sandbox_id"] = entry.id

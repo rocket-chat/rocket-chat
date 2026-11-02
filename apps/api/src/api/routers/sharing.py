@@ -1,4 +1,5 @@
-"""Sharing a session: with named members, with the whole organization, or by a public link.
+"""Sharing a session: with named members, with teams, with the whole organization, or by a
+public link.
 
 Owners and admins manage sharing. A public link is a signed, expiring, revocable, read-only
 capability (``/shared/<token>`` in the cockpit); an administrator can switch the feature off
@@ -33,7 +34,13 @@ from api.services.sharing import (
     public_link_of,
     public_transcript,
 )
-from specifications.interfaces.session import SessionRecord, SessionStoreProtocol
+from api.services.teams import list_teams
+from specifications.interfaces.session import (
+    SHARED_TEAMS_KEY,
+    SessionRecord,
+    SessionStoreProtocol,
+    shared_teams_of,
+)
 
 router = APIRouter(prefix="/v1", tags=["Sharing"])
 
@@ -41,6 +48,11 @@ router = APIRouter(prefix="/v1", tags=["Sharing"])
 class MemberView(BaseModel):
     user_id: str
     email: str
+    name: str
+
+
+class TeamRef(BaseModel):
+    id: str
     name: str
 
 
@@ -52,6 +64,9 @@ class PublicLinkView(BaseModel):
 class SharingView(BaseModel):
     org_wide: bool = Field(..., description="Every member of the organization can open it")
     members: list[MemberView] = Field(default_factory=list)
+    teams: list[TeamRef] = Field(
+        default_factory=list, description="Teams whose members can open and write in it"
+    )
     unknown_emails: list[str] = Field(
         default_factory=list, description="Addresses that are not members of the organization"
     )
@@ -64,6 +79,9 @@ class SharingView(BaseModel):
 class UpdateSharingRequest(BaseModel):
     org_wide: bool = False
     emails: list[str] = Field(default_factory=list, max_length=100)
+    team_ids: list[str] = Field(
+        default_factory=list, max_length=50, description="Teams of the organization to share with"
+    )
 
 
 class CreateLinkRequest(BaseModel):
@@ -129,9 +147,18 @@ async def _view(
         getattr(request.app.state, "db_manager", None), org_id, list(record.collaborators)
     )
     link = public_link_of(record)
+    names = {
+        t.id: t.name
+        for t in await list_teams(getattr(request.app.state, "db_manager", None), org_id)
+    }
     return SharingView(
         org_wide=record.is_shared,
         members=[MemberView(user_id=m.user_id, email=m.email, name=m.name) for m in members],
+        teams=[
+            TeamRef(id=team_id, name=names[team_id])
+            for team_id in shared_teams_of(record.metadata)
+            if team_id in names
+        ],
         unknown_emails=unknown or [],
         public_links_enabled=await _links_enabled(request, org_id),
         public_link=PublicLinkView(url=link["url"], expires_at=link["expires_at"])
@@ -160,8 +187,16 @@ async def get_sharing(session_id: str, request: Request) -> SharingView:
 async def update_sharing(
     session_id: str, body: UpdateSharingRequest, request: Request
 ) -> SharingView:
-    """Share with the whole organization and/or exactly the members with these emails."""
+    """Share with the whole organization and/or exactly the members with these emails and the
+    members of these teams."""
     store, record, org_id, user_id = await _owned_session(request, session_id)
+    known_teams = {
+        t.id for t in await list_teams(getattr(request.app.state, "db_manager", None), org_id)
+    }
+    unknown_teams = [t for t in body.team_ids if t not in known_teams]
+    if unknown_teams:
+        raise HTTPException(status_code=422, detail=f"Unknown teams: {', '.join(unknown_teams)}")
+    team_ids = list(dict.fromkeys(body.team_ids))
     emails = parse_emails(body.emails)
     found: list[Member] = await members_by_email(
         getattr(request.app.state, "db_manager", None), org_id, emails
@@ -176,6 +211,7 @@ async def update_sharing(
             **target.metadata,
             "is_shared": body.org_wide,
             "collaborators": collaborators,
+            SHARED_TEAMS_KEY: team_ids,
         }
 
     updated = await store.mutate_session(session_id, org_id, apply) or record

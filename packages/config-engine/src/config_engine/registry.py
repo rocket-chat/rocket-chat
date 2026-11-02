@@ -28,7 +28,8 @@ from .policy import Policy
 from .sandbox_images import DEFAULT_SANDBOX_IMAGE
 
 Kind = Literal["bool", "int", "float", "str", "enum", "list", "dict"]
-Writer = Literal["org", "member"]
+# ``team``: a team's administrators, who set defaults for their team's agents' turns.
+Writer = Literal["org", "team", "member"]
 
 
 @dataclass(frozen=True)
@@ -1398,6 +1399,7 @@ def specs_for(domain: str) -> dict[str, SettingSpec]:
 
 _WRITERS: dict[Writer, tuple[Policy, ...]] = {
     "org": ("org", "org_default"),
+    "team": ("org_default",),
     "member": ("org_default", "member"),
 }
 
@@ -1548,7 +1550,7 @@ def validate(
         if not _may_write(spec, writer):
             decider = (
                 _DECIDER["org"]
-                if writer == "member" and spec.policy == "org_default"
+                if writer in ("member", "team") and spec.policy == "org_default"
                 else _DECIDER[spec.policy]
             )
             result.errors.append(FieldError(key, f"can only be set by {decider}"))

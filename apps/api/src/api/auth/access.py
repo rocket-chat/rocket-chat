@@ -7,10 +7,12 @@ from fastapi import (
     Request,
 )
 
+from api.auth.context import caller_teams
 from api.auth.identity import resolve_identity
 from api.auth.roles import can_write, is_admin
 from specifications.interfaces.session import (
     SessionRecord,
+    shared_teams_of,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +61,9 @@ def _check_session_access(
     )
     is_collab = user_id in collabs
     if is_owner or is_shared or is_collab:
+        return
+    # Shared with a team: its members, for as long as they are in it (bound per request).
+    if set(shared_teams_of(record.metadata)) & caller_teams(user_id):
         return
     # A chat thread's session (a public Slack thread): every member of the organization may read
     # it from its link, but it joins their list, and they may write in it, only once they take

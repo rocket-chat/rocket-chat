@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError
 
+from api.auth.context import current_caller_teams
 from api.auth.roles import can_write, is_admin
 from api.db.models import (
     AgentPersonaEntityModel,
@@ -23,6 +24,7 @@ from api.db.models import (
     KnowledgeBaseModel,
     McpServerEntityModel,
     ProviderCredentialModel,
+    SandboxCatalogueModel,
     SpendLimitModel,
     TeamMembershipModel,
     TeamModel,
@@ -39,6 +41,7 @@ OWNED_TABLES: dict[str, Any] = {
     "mcp_servers": McpServerEntityModel,
     "knowledge_bases": KnowledgeBaseModel,
     "credentials": ProviderCredentialModel,
+    "sandboxes": SandboxCatalogueModel,
 }
 
 
@@ -353,3 +356,18 @@ async def member_viewer(db_mgr: Any, org_id: str, user_id: str) -> Viewer:
     """The person as a turn sees them: the objects of their own teams, never the administrator's
     view of every team (which serves managing them, not working with them)."""
     return Viewer(user_id=user_id, teams=frozenset(await teams_of(db_mgr, org_id, user_id)))
+
+
+async def turn_teams(
+    db_mgr: Any, org_id: str, requester_id: str | None, team_id: str | None
+) -> frozenset[str]:
+    """The teams whose objects a turn may use: its agent's team and the requester's own."""
+    own = await teams_of(db_mgr, org_id, requester_id) if requester_id else {}
+    return frozenset(own) | ({team_id} if team_id else frozenset())
+
+
+async def bind_caller_teams(db_mgr: Any, org_id: str, user_id: str) -> frozenset[str]:
+    """Bind the caller's teams for this request or socket (``current_caller_teams``)."""
+    teams = frozenset(await teams_of(db_mgr, org_id, user_id))
+    current_caller_teams.set((user_id, teams))
+    return teams

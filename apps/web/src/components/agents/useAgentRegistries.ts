@@ -17,6 +17,8 @@ export interface SandboxType {
   id: string;
   name: string;
   is_default: boolean;
+  /** A team's type, which only the team's own agents may use. */
+  team_id?: string | null;
 }
 
 export interface AgentRegistries {

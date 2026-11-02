@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { Box } from "lucide-react";
 import { useMissionStore } from "../lib/store";
+import { useTeams } from "../lib/teams";
 
 interface Sandbox {
   id: string;
@@ -10,6 +11,8 @@ interface Sandbox {
   description: string;
   capabilities: string[];
   is_default: boolean;
+  /** A team's type: only the team's members start sessions in it. */
+  team_id?: string | null;
 }
 
 /**
@@ -24,7 +27,11 @@ export const SandboxPicker: React.FC<{ disabled?: boolean; bare?: boolean }> = (
   const agentSandboxId = useMissionStore((s) =>
     s.inferenceMode === "agent" ? s.activeAgent?.sandbox_id || "" : ""
   );
-  const [sandboxes, setSandboxes] = useState<Sandbox[]>([]);
+  const [listed, setSandboxes] = useState<Sandbox[]>([]);
+  const { teams } = useTeams();
+  // An administrator is listed every team's types, but only a team's members may start one.
+  const sandboxes = listed.filter((box) => !box.team_id || teams.some((t) => t.id === box.team_id && t.my_role !== null));
+  const teamName = (box: Sandbox) => teams.find((t) => t.id === box.team_id)?.name;
 
   useEffect(() => {
     let cancelled = false;
@@ -70,7 +77,7 @@ export const SandboxPicker: React.FC<{ disabled?: boolean; bare?: boolean }> = (
         <option value="">{agentSandbox ? `Agent's: ${agentSandbox.name}` : "Default"}</option>
         {sandboxes.map((box) => (
           <option key={box.id} value={box.id}>
-            {box.name}
+            {box.team_id ? `${box.name} · ${teamName(box) ?? "team"}` : box.name}
           </option>
         ))}
       </select>

@@ -6117,7 +6117,7 @@
             "type": "string"
           },
           "env": {
-            "description": "Variables set for every command (administrators only; secrets masked)",
+            "description": "Variables set for every command (those who manage it only; secrets masked)",
             "items": {
               "$ref": "#/components/schemas/SandboxEnvVar"
             },
@@ -6163,6 +6163,18 @@
             ],
             "description": "Days an idle session keeps its workspace; empty inherits",
             "title": "Release After Days"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The team that owns it; empty: organization",
+            "title": "Team Id"
           }
         },
         "required": [
@@ -6937,6 +6949,14 @@
             "description": "The organization allows public links (general.public_session_links)",
             "title": "Public Links Enabled",
             "type": "boolean"
+          },
+          "teams": {
+            "description": "Teams whose members can open and write in it",
+            "items": {
+              "$ref": "#/components/schemas/TeamRef"
+            },
+            "title": "Teams",
+            "type": "array"
           },
           "unknown_emails": {
             "description": "Addresses that are not members of the organization",
@@ -8425,6 +8445,86 @@
         "title": "TeamPatch",
         "type": "object"
       },
+      "TeamRef": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "TeamRef",
+        "type": "object"
+      },
+      "TeamSettingsBody": {
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "description": "The team's defaults; only organization defaults",
+            "title": "Config",
+            "type": "object"
+          }
+        },
+        "title": "TeamSettingsBody",
+        "type": "object"
+      },
+      "TeamSettingsView": {
+        "properties": {
+          "config": {
+            "additionalProperties": true,
+            "title": "Config",
+            "type": "object"
+          },
+          "domain": {
+            "title": "Domain",
+            "type": "string"
+          },
+          "effective": {
+            "additionalProperties": true,
+            "title": "Effective",
+            "type": "object"
+          },
+          "locked_by_org": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Locked By Org",
+            "type": "array"
+          },
+          "provenance": {
+            "additionalProperties": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Provenance",
+            "type": "object"
+          },
+          "writable": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Writable",
+            "type": "array"
+          }
+        },
+        "required": [
+          "domain",
+          "config",
+          "writable",
+          "locked_by_org",
+          "effective",
+          "provenance"
+        ],
+        "title": "TeamSettingsView",
+        "type": "object"
+      },
       "TeamView": {
         "properties": {
           "can_manage": {
@@ -9818,6 +9918,15 @@
             "default": false,
             "title": "Org Wide",
             "type": "boolean"
+          },
+          "team_ids": {
+            "description": "Teams of the organization to share with",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Team Ids",
+            "type": "array"
           }
         },
         "title": "UpdateSharingRequest",
@@ -15334,6 +15443,7 @@
     },
     "/v1/sandboxes": {
       "get": {
+        "description": "The types the caller may pick: the organization's and their teams' (every team's for an\nadministrator); the variables only of the types they manage.",
         "operationId": "list_sandboxes_v1_sandboxes_get",
         "responses": {
           "200": {
@@ -18071,7 +18181,7 @@
         ]
       },
       "put": {
-        "description": "Share with the whole organization and/or exactly the members with these emails.",
+        "description": "Share with the whole organization and/or exactly the members with these emails and the\nmembers of these teams.",
         "operationId": "update_sharing_v1_sessions__session_id__sharing_put",
         "parameters": [
           {
@@ -20484,6 +20594,285 @@
           }
         },
         "summary": "Put Team Member",
+        "tags": [
+          "Teams"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/sandboxes": {
+      "post": {
+        "description": "Offer a sandbox type to the team (its administrators).",
+        "operationId": "create_team_sandbox_v1_teams__team_id__sandboxes_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SandboxBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Team Sandbox",
+        "tags": [
+          "Sandboxes"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/sandboxes/{sandbox_id}": {
+      "delete": {
+        "operationId": "delete_team_sandbox_v1_teams__team_id__sandboxes__sandbox_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sandbox_id",
+            "required": true,
+            "schema": {
+              "title": "Sandbox Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Delete Team Sandbox V1 Teams  Team Id  Sandboxes  Sandbox Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Team Sandbox",
+        "tags": [
+          "Sandboxes"
+        ]
+      },
+      "patch": {
+        "operationId": "update_team_sandbox_v1_teams__team_id__sandboxes__sandbox_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sandbox_id",
+            "required": true,
+            "schema": {
+              "title": "Sandbox Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SandboxPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Team Sandbox",
+        "tags": [
+          "Sandboxes"
+        ]
+      }
+    },
+    "/v1/teams/{team_id}/settings/{domain}": {
+      "get": {
+        "description": "The team's defaults for a domain, used in the turns of the team's agents (its\nadministrators). A member's own choice still wins; the organization's locks still hold.",
+        "operationId": "get_team_settings_v1_teams__team_id__settings__domain__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamSettingsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Team Settings",
+        "tags": [
+          "Teams"
+        ]
+      },
+      "put": {
+        "description": "Replace the team's defaults for a domain (organization defaults only, not a key the\norganization locked).",
+        "operationId": "put_team_settings_v1_teams__team_id__settings__domain__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "title": "Domain",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamSettingsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamSettingsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Team Settings",
         "tags": [
           "Teams"
         ]
