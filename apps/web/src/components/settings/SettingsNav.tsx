@@ -150,7 +150,8 @@ export const SettingsNav: React.FC = () => {
 export function visible(item: NavItem, access: Access, teams: Team[] = []): boolean {
   if (!access.loaded) return !item.requiresAdmin && !item.capability;
   const teamMember = item.orTeamMember && teams.some((t) => t.my_role !== null);
-  if (item.requiresAdmin && !access.isAdmin && !teamMember) return false;
+  const teamManager = item.orTeamManager && access.canWrite && teams.some((t) => t.can_manage);
+  if (item.requiresAdmin && !access.isAdmin && !teamMember && !teamManager) return false;
   return !item.capability || hasCapability(access, item.capability);
 }
 

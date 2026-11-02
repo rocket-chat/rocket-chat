@@ -1510,6 +1510,115 @@ Rotate Org Credential
 
 **Responses:** `200`
 
+### `GET /v1/agents/{agent_id}/bindable-credentials`
+
+The keys the caller may bind on this agent (fingerprints only), by the agent's owner:
+
+* personal agent: its owner's own keys;
+* team agent: the team's keys, members' keys shared with this agent, and, for an
+  organization administrator, the organization's;
+* organization agent: the organization's keys and members' keys shared with this agent
+  (administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| agent_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/teams/{team_id}/credentials`
+
+The team's provider keys (fingerprints only; its administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/teams/{team_id}/credentials`
+
+Add a team key: the team's agents use it before the organization's.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| provider | string | yes |  |
+| api_key | string | yes | The provider API key |
+| label | string | no |  |
+| api_base | string | no | Endpoint for self-hosted or proxied providers (Ollama, vLLM, ...) |
+| default_for_provider | boolean | no |  |
+| restricted_to_agents | boolean | no | Skip it in the default chain: only the agents bound to it use it (admins) |
+
+**Responses:** `200`
+
+### `PATCH /v1/teams/{team_id}/credentials/{credential_id}`
+
+Update Team Credential
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| credential_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| label | string | no |  |
+| api_base | string | no |  |
+| clear_api_base | boolean | no |  |
+| default_for_provider | boolean | no |  |
+| restricted_to_agents | boolean | no |  |
+| shared_with_org_agents | list of string | no | Organization agents that may use this member credential |
+
+**Responses:** `200`
+
+### `DELETE /v1/teams/{team_id}/credentials/{credential_id}`
+
+Remove a team key; agents bound to it fail with "credential withdrawn".
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| credential_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/teams/{team_id}/credentials/{credential_id}/rotate`
+
+Rotate Team Credential
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| credential_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| api_key | string | yes |  |
+
+**Responses:** `200`
+
 ### `GET /v1/user/credentials`
 
 The signed-in member's own provider credentials (fingerprints only).
@@ -3009,7 +3118,7 @@ Add a spend limit (needs ``manage_spend_limits``).
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| subject_kind | `org` / `member` / `agent` / `agent_member` / `slack_workspace` | yes |  |
+| subject_kind | `org` / `team` / `member` / `agent` / `agent_member` / `slack_workspace` | yes |  |
 | subject_id | string | no |  |
 | member_id | string | no |  |
 | period | `day` / `week` / `month` / `rolling_24h` / `rolling_7d` / `session` / `turn` | yes |  |
@@ -3063,6 +3172,79 @@ What the caller has left under the limits of this session (the header chip).
 | :--- | :--- | :--- | :--- |
 | session_id | path | yes | string |
 | agent_id | query | no | string |
+
+**Responses:** `200`
+
+### `GET /v1/teams/{team_id}/spend-limits`
+
+The limits that count the team's spend (the organization's and its own), with what
+each has used (the team's administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/teams/{team_id}/spend-limits`
+
+Add a limit the team owns, on the team or one of its agents.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| subject_kind | `org` / `team` / `member` / `agent` / `agent_member` / `slack_workspace` | yes |  |
+| subject_id | string | no |  |
+| member_id | string | no |  |
+| period | `day` / `week` / `month` / `rolling_24h` / `rolling_7d` / `session` / `turn` | yes |  |
+| amount_usd | number | yes |  |
+| mode | `warn` / `block` | no |  |
+| warn_at_percent | integer | no |  |
+| is_ceiling | boolean | no |  |
+
+**Responses:** `200`
+
+### `PATCH /v1/teams/{team_id}/spend-limits/{limit_id}`
+
+Update Team Spend Limit
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| limit_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| amount_usd | number | no |  |
+| mode | `warn` / `block` | no |  |
+| warn_at_percent | integer | no |  |
+| is_ceiling | boolean | no |  |
+
+**Responses:** `200`
+
+### `DELETE /v1/teams/{team_id}/spend-limits/{limit_id}`
+
+Delete Team Spend Limit
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| limit_id | path | yes | string |
 
 **Responses:** `200`
 

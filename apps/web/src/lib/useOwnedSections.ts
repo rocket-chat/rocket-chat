@@ -3,7 +3,7 @@
 import { useAccess, type Access } from "./access";
 import { useTeams, type Team } from "./teams";
 import { useOwnerFilter } from "./useOwnerFilter";
-import { creatableOwners, defaultOwner, filterTeams, ownerKey, type Owned, type OwnerFilter, type OwnerKey } from "./ownership";
+import { creatableOwners, defaultOwner, filterTeams, ownerKey, teamIdOf, type Owned, type OwnerFilter, type OwnerKey } from "./ownership";
 
 export interface TeamSection<T> {
   team: Team;
@@ -51,4 +51,29 @@ export function useOwnedSections<T extends Owned>(items: T[], personal = true): 
     creatable,
     startOwner: defaultOwner(filter, creatable),
   };
+}
+
+export interface ManagedScopes {
+  access: Access;
+  /** Whether the organization's own part of the page is shown (administrators). */
+  showOrg: boolean;
+  /** The teams whose part is shown: the one the filter names, or every team the person manages. */
+  teams: Team[];
+  /** The team the filter names when the person does not manage it (the page says so). */
+  unmanaged: Team | null;
+}
+
+/** For pages an organization configures and teams configure their own part of (keys, limits):
+ * which parts the owner filter shows to this person. */
+export function useManagedScopes(): ManagedScopes {
+  const access = useAccess();
+  const { teams } = useTeams();
+  const [filter] = useOwnerFilter();
+  const managed = access.canWrite ? teams.filter((t) => t.can_manage) : [];
+  const named = teamIdOf(filter);
+  if (named) {
+    const team = managed.find((t) => t.id === named);
+    return { access, showOrg: false, teams: team ? [team] : [], unmanaged: team ? null : (teams.find((t) => t.id === named) ?? null) };
+  }
+  return { access, showOrg: access.isAdmin, teams: filter === "org" ? [] : managed, unmanaged: null };
 }

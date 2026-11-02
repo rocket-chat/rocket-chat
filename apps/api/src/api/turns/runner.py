@@ -662,6 +662,7 @@ class TurnRunner:
                     session_id=self.req.session_id,
                     requester_user_id=attribution.requester_user_id,
                     agent_id=attribution.agent_id,
+                    team_id=attribution.team_id,
                     turn_id=attribution.turn_id,
                 )
             )

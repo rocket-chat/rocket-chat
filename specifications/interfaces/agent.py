@@ -924,6 +924,8 @@ class ModelAttribution:
     credential_bindings: tuple[CredentialBinding, ...] = ()
     strict_binding: bool = False
     turn_id: str | None = None
+    # The team that owns the turn's agent: its keys, settings and spend limits apply.
+    team_id: str | None = None
 
 
 @dataclass(frozen=True)

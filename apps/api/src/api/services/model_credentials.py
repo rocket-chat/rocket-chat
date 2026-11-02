@@ -1,7 +1,7 @@
 """Model provider credentials with an identity, and the rule that picks one for a call.
 
-Each credential belongs to the organization or to one member, has a label, and may be the
-default for its provider. An organization may hold several for one provider: a *restricted*
+Each credential belongs to the organization, to one of its teams or to one member, has a
+label, and may be the default for its provider. An organization may hold several for one provider: a *restricted*
 credential is skipped by the default chain and used only by the agents bound to it, so an
 expensive key backs one task-specific agent and nothing else.
 
@@ -14,7 +14,9 @@ Resolution for one call (``CredentialResolver.resolve``):
 3. Otherwise the default chain, skipping restricted credentials, ordered by the
    organization's ``models.member_keys``: ``preferred`` (the member's, then the
    organization's), ``fallback`` (the organization's, then the member's) or ``off``. A member
-   key is used only while the member's role holds ``bring_own_keys``.
+   key is used only while the member's role holds ``bring_own_keys``. In a team's context (the
+   turn's agent belongs to a team) the team's key stands just before the organization's: the
+   team pays before the organization does.
 4. Nothing found: the platform's key from the environment (``None``).
 
 Secrets are sealed at rest; only a fingerprint is ever shown or logged.
@@ -34,6 +36,7 @@ from sqlalchemy import select
 
 from api.db.models import ProviderCredentialModel
 from api.services.settings import effective_settings
+from api.services.teams import note_memory_owned
 from specifications.interfaces.llm import (
     BYOKCredentials,
     CredentialRefusedError,
@@ -43,7 +46,7 @@ from specifications.interfaces.llm import (
 
 KEY_CACHE_TTL_SECONDS = 10.0
 
-OwnerKind = Literal["org", "member"]
+OwnerKind = Literal["org", "team", "member"]
 MEMBER_KEY_MODES = ("off", "fallback", "preferred")
 
 
@@ -73,11 +76,12 @@ class StoredCredential:
     shared_with_org_agents: tuple[str, ...]
     created_at: int
     updated_at: int
+    team_id: str | None = None
 
     @property
-    def owner(self) -> Literal["org", "user"]:
-        """``org`` or ``user`` (the name the cockpit has always shown)."""
-        return "org" if self.owner_kind == "org" else "user"
+    def owner(self) -> Literal["org", "team", "user"]:
+        """``org``, ``team`` or ``user`` (the name the cockpit has always shown)."""
+        return "user" if self.owner_kind == "member" else self.owner_kind
 
 
 @dataclass
@@ -112,6 +116,13 @@ class NewCredential:
     restricted_to_agents: bool = False
     kind: str = "api_key"
     shared_with_org_agents: tuple[str, ...] = field(default_factory=tuple)
+    team_id: str | None = None
+
+
+def _owner_kind(value: str) -> OwnerKind:
+    if value == "member":
+        return "member"
+    return "team" if value == "team" else "org"
 
 
 def _stored(row: ProviderCredentialModel) -> StoredCredential:
@@ -119,8 +130,9 @@ def _stored(row: ProviderCredentialModel) -> StoredCredential:
         id=row.id,
         org_id=row.org_id,
         label=row.label or "",
-        owner_kind="member" if row.owner_kind == "member" else "org",
+        owner_kind=_owner_kind(row.owner_kind),
         owner_user_id=row.owner_user_id,
+        team_id=row.team_id,
         provider=row.provider,
         kind=row.kind or "api_key",
         fingerprint=row.key_fingerprint,
@@ -172,6 +184,7 @@ class ModelCredentialStore:
             label=new.label.strip() or new.provider,
             owner_kind=new.owner_kind,
             owner_user_id=new.owner_user_id if new.owner_kind == "member" else None,
+            team_id=new.team_id if new.owner_kind == "team" else None,
             provider=new.provider,
             kind=new.kind,
             fingerprint=CredentialCipher.fingerprint(new.api_key),
@@ -187,6 +200,8 @@ class ModelCredentialStore:
             await self._clear_default(org_id, stored)
         if self._db is None:
             self._memory[stored.id] = _Row(stored, encrypted)
+            if stored.team_id:
+                note_memory_owned(org_id, stored.team_id, "credentials", 1)
             return stored
         async with self._db.session(tenant_org_id=org_id) as session:
             session.add(
@@ -196,6 +211,7 @@ class ModelCredentialStore:
                     label=stored.label,
                     owner_kind=stored.owner_kind,
                     owner_user_id=stored.owner_user_id,
+                    team_id=stored.team_id,
                     provider=stored.provider,
                     kind=stored.kind,
                     encrypted_secret=encrypted,
@@ -213,7 +229,10 @@ class ModelCredentialStore:
     async def _clear_default(self, org_id: str, keep: StoredCredential) -> None:
         """One default per owner and provider: a new default replaces the previous one."""
         for other in await self.list(
-            org_id, owner_user_id=keep.owner_user_id, owner_kind=keep.owner_kind
+            org_id,
+            owner_user_id=keep.owner_user_id,
+            owner_kind=keep.owner_kind,
+            team_id=keep.team_id,
         ):
             if (
                 other.provider == keep.provider
@@ -236,11 +255,15 @@ class ModelCredentialStore:
         *,
         owner_user_id: str | None = None,
         owner_kind: OwnerKind | None = None,
+        team_id: str | None = None,
     ) -> list[StoredCredential]:
-        """Credentials of the organization (``owner_kind="org"``), of one member, or all."""
+        """Credentials of the organization (``owner_kind="org"``), of a team, of one member,
+        or all."""
 
         def wanted(item: StoredCredential) -> bool:
             if owner_kind is not None and item.owner_kind != owner_kind:
+                return False
+            if team_id is not None and item.team_id != team_id:
                 return False
             return owner_user_id is None or item.owner_user_id == owner_user_id
 
@@ -314,6 +337,8 @@ class ModelCredentialStore:
             if row is None or row.stored.org_id != org_id:
                 return None
             del self._memory[credential_id]
+            if row.stored.team_id:
+                note_memory_owned(org_id, row.stored.team_id, "credentials", -1)
             return row.stored
         async with self._db.session(tenant_org_id=org_id) as session:
             found = await session.get(ProviderCredentialModel, credential_id)
@@ -354,14 +379,22 @@ class ModelCredentialStore:
         return credentials
 
     async def default_for(
-        self, org_id: str, provider: str, *, owner_user_id: str | None
+        self,
+        org_id: str,
+        provider: str,
+        *,
+        owner_user_id: str | None,
+        team_id: str | None = None,
     ) -> StoredCredential | None:
         """The unrestricted credential the default chain uses for ``provider``: the owner's
-        marked default, else their newest (``owner_user_id=None``: the organization's)."""
-        kind: OwnerKind = "member" if owner_user_id else "org"
+        marked default, else their newest (a member's, else a team's, else the
+        organization's)."""
+        kind: OwnerKind = "member" if owner_user_id else ("team" if team_id else "org")
         candidates = [
             item
-            for item in await self.list(org_id, owner_user_id=owner_user_id, owner_kind=kind)
+            for item in await self.list(
+                org_id, owner_user_id=owner_user_id, owner_kind=kind, team_id=team_id
+            )
             if item.provider == provider and not item.restricted_to_agents
         ]
         if not candidates:
@@ -411,6 +444,9 @@ class CredentialResolver:
             own = stored.owner_user_id == scope.member_id
             if member_keys == "off" or not (shared or own):
                 stored = None
+        # A team's key serves that team's agents only: one moved out of the team loses it.
+        if stored is not None and stored.owner_kind == "team" and stored.team_id != scope.team_id:
+            stored = None
         secret = await self._store.secret(scope.org_id, credential_id) if stored else None
         if stored is None or secret is None:
             raise CredentialRefusedError(
@@ -433,6 +469,14 @@ class CredentialResolver:
         return ResolvedCredentials(secret, "user", stored.id) if stored and secret else None
 
     async def _org_key(self, scope: ModelScope, provider: str) -> ResolvedCredentials | None:
+        """The team's key in a team's context, else the organization's."""
+        if scope.team_id:
+            team = await self._store.default_for(
+                scope.org_id, provider, owner_user_id=None, team_id=scope.team_id
+            )
+            secret = await self._store.secret(scope.org_id, team.id) if team else None
+            if team and secret:
+                return ResolvedCredentials(secret, "team", team.id)
         stored = await self._store.default_for(scope.org_id, provider, owner_user_id=None)
         secret = await self._store.secret(scope.org_id, stored.id) if stored else None
         return ResolvedCredentials(secret, "org", stored.id) if stored and secret else None

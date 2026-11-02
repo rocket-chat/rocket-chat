@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AlertCircle, KeyRound, RefreshCw, Share2, Star, Trash2 } from "lucide-react";
 import { Field, Input, Select } from "../ui/Field";
+import { OwnerBadge } from "./Owner";
 
 /** A stored credential as the API shows it: a fingerprint, never the secret. */
 export interface Credential {
@@ -10,8 +11,10 @@ export interface Credential {
   label: string;
   provider: string;
   kind: string;
-  owner: "org" | "user";
+  owner: "org" | "team" | "user";
   owner_user_id: string | null;
+  /** The owning team of a team key. */
+  team_id?: string | null;
   fingerprint: string;
   api_base: string | null;
   default_for_provider: boolean;
@@ -40,13 +43,37 @@ async function errorOf(res: Response, fallback: string): Promise<string> {
   return typeof body.detail === "string" ? body.detail : fallback;
 }
 
+/** A credential as an owned object, for its owner pill. */
+export function credentialOwner(credential: Credential): { scope: string; team_id: string | null; user_id: string | null } {
+  return {
+    scope: credential.owner,
+    team_id: credential.team_id ?? null,
+    user_id: credential.owner === "user" ? credential.owner_user_id : null,
+  };
+}
+
+interface CredentialsPanelProps {
+  mode: "user" | "org" | "team";
+  /** With ``mode="team"``: the team whose keys these are. */
+  team?: { id: string; name: string };
+}
+
 /**
- * Provider credentials, each with a label: the organization's (``mode="org"``), which may be
- * restricted to the agents bound to them, or the member's own (``mode="user"``), which only
- * their owner may share with organization agents. Secrets are write-only.
+ * Provider credentials, each with a label: the organization's (``mode="org"``) or a team's
+ * (``mode="team"``, used by the team's agents before the organization's), which may be restricted
+ * to the agents bound to them, or the member's own (``mode="user"``), which only their owner may
+ * share with organization agents. Secrets are write-only.
  */
-export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
-  const base = mode === "user" ? "/v1/user/credentials" : "/v1/admin/credentials";
+export function CredentialsPanel({ mode, team }: CredentialsPanelProps) {
+  const base =
+    mode === "user"
+      ? "/v1/user/credentials"
+      : mode === "team" && team
+        ? `/v1/teams/${encodeURIComponent(team.id)}/credentials`
+        : "/v1/admin/credentials";
+  // Several team panels can share a page: their test ids carry the team.
+  const suffix = mode === "team" && team ? `team-${team.id}` : mode;
+  const sharedKeys = mode !== "user";
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [shared, setShared] = useState<Credential[]>([]);
   const [platform, setPlatform] = useState<PlatformKey[]>([]);
@@ -74,7 +101,7 @@ export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
     if (mode === "org") {
       const keys = await fetch("/v1/admin/credentials/platform");
       if (keys.ok) setPlatform(await keys.json());
-    } else {
+    } else if (mode === "user") {
       const list = await fetch("/v1/agents");
       if (list.ok) {
         const all = (await list.json()) as OrgAgent[];
@@ -98,8 +125,8 @@ export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
         api_key: apiKey,
         label,
         api_base: apiBase || null,
-        restricted_to_agents: mode === "org" && restricted,
-        default_for_provider: !(mode === "org" && restricted),
+        restricted_to_agents: sharedKeys && restricted,
+        default_for_provider: !(sharedKeys && restricted),
       }),
     });
     if (!res.ok) {
@@ -150,16 +177,18 @@ export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
   };
 
   return (
-    <section className="space-y-4" data-testid={`credentials-panel-${mode}`}>
+    <section className="space-y-4" data-testid={`credentials-panel-${suffix}`}>
       <div>
         <h2 className="flex items-center gap-2 font-display text-base font-semibold text-foreground">
           <KeyRound className="h-4 w-4 text-brand" aria-hidden="true" />
-          {mode === "org" ? "Organization credentials" : "My provider keys"}
+          {mode === "org" ? "Organization credentials" : mode === "team" ? `Team keys · ${team?.name ?? ""}` : "My provider keys"}
         </h2>
         <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
           {mode === "org"
             ? "Keys the organization pays for. A restricted key serves only the agents bound to it (Agents > Model & credentials)."
-            : "Keys you pay for, used for your own calls as the organization allows. Share one with an organization agent so an administrator can bind it."}
+            : mode === "team"
+              ? "Keys the team pays for: its agents use them before the organization's. A restricted key serves only the team agents bound to it."
+              : "Keys you pay for, used for your own calls as the organization allows. Share one with an organization agent so an administrator can bind it."}
         </p>
       </div>
 
@@ -169,7 +198,7 @@ export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
         </p>
       )}
 
-      <ProviderSignIn owner={mode === "org" ? "org" : "member"} onError={setError} />
+      {mode !== "team" && <ProviderSignIn owner={mode === "org" ? "org" : "member"} onError={setError} />}
 
       <ul className="divide-y divide-surface-border rounded-xl border border-surface-border bg-surface-card">
         {credentials.length === 0 && platform.length === 0 && (
@@ -186,6 +215,7 @@ export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
           <li key={credential.id} className="space-y-2 px-4 py-3 text-xs" data-testid={`credential-${credential.id}`}>
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-foreground">{credential.label}</span>
+              {mode !== "user" && <OwnerBadge owned={credentialOwner(credential)} />}
               <span className="rounded border border-surface-border px-1.5 py-0.5 text-[10px] text-neutral-500">
                 {credential.provider}
               </span>
@@ -211,7 +241,7 @@ export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
                     Make default
                   </button>
                 )}
-                {mode === "org" && (
+                {sharedKeys && (
                   <button
                     type="button"
                     onClick={() =>
@@ -303,7 +333,7 @@ export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
       <form
         onSubmit={create}
         className="grid gap-3 rounded-xl border border-surface-border bg-surface-card p-4 sm:grid-cols-2"
-        data-testid={`credential-form-${mode}`}
+        data-testid={`credential-form-${suffix}`}
       >
         <Field label="Provider">
           {(control) => (
@@ -329,15 +359,18 @@ export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
               required
               minLength={8}
               value={apiKey}
-              data-testid={`credential-key-${mode}`}
+              data-testid={`credential-key-${suffix}`}
               onChange={(e) => setApiKey(e.target.value)}
             />
           )}
         </Field>
-        <Field label="Base URL (optional)" hint="A self-hosted or proxied endpoint">
+        <Field
+          label="Base URL (optional)"
+          hint={mode === "team" ? "A public endpoint; only organization administrators may use a private address" : "A self-hosted or proxied endpoint"}
+        >
           {(control) => <Input {...control} value={apiBase} onChange={(e) => setApiBase(e.target.value)} />}
         </Field>
-        {mode === "org" && (
+        {sharedKeys && (
           <label className="flex items-center gap-2 text-xs text-foreground sm:col-span-2">
             <input type="checkbox" checked={restricted} onChange={(e) => setRestricted(e.target.checked)} />
             Only for the agents I bind it to (skipped for everything else)
@@ -346,7 +379,7 @@ export function CredentialsPanel({ mode }: { mode: "user" | "org" }) {
         <div className="sm:col-span-2">
           <button
             type="submit"
-            data-testid={`credential-save-${mode}`}
+            data-testid={`credential-save-${suffix}`}
             className="rounded-lg bg-brand px-4 py-2 text-xs font-semibold text-white hover:bg-brand-hover"
           >
             Add key

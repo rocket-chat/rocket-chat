@@ -32,6 +32,8 @@ export interface NavItem {
   requiresAdmin?: boolean;
   /** With `requiresAdmin`: also shown to a member of at least one team. */
   orTeamMember?: boolean;
+  /** With `requiresAdmin`: also shown to someone who manages at least one team. */
+  orTeamManager?: boolean;
   /** Shown only when the member's role holds this capability. */
   capability?: Capability;
   /** The owners whose objects or settings the page holds (absent: it follows no owner). */
@@ -64,7 +66,7 @@ export const NAV_SECTIONS: NavSection[] = [
     title: "Resources",
     hint: "What they run on",
     items: [
-      { href: "/settings/org/models", label: "Models & keys", icon: Cpu, requiresAdmin: true, owners: ["org"] },
+      { href: "/settings/org/models", label: "Models & keys", icon: Cpu, requiresAdmin: true, orTeamManager: true, owners: ["team", "org"] },
       { href: "/settings/user/keys", label: "My keys", icon: KeyRound, capability: "bring_own_keys", owners: ["me"] },
       { href: "/settings/org/sandboxes", label: "Sandboxes", icon: Box, requiresAdmin: true, owners: ["org"] },
       { href: "/settings/org/git", label: "Git & GitHub", icon: GitPullRequest, requiresAdmin: true, owners: ["org"] },
@@ -78,7 +80,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/settings/org", label: "Organization", icon: Building2, requiresAdmin: true, owners: ["org"] },
       { href: "/settings/members", label: "Members & teams", icon: Users, requiresAdmin: true, orTeamMember: true, owners: ["team", "org"] },
-      { href: "/settings/org/spend", label: "Spend & usage", icon: Coins, requiresAdmin: true, owners: ["org"] },
+      { href: "/settings/org/spend", label: "Spend & usage", icon: Coins, requiresAdmin: true, orTeamManager: true, owners: ["team", "org"] },
       { href: "/settings/user/usage", label: "My usage", icon: Coins, owners: ["me"] },
       { href: "/settings/org/automation", label: "Automation", icon: Workflow, requiresAdmin: true, owners: ["org"] },
       { href: "/settings/org/governance", label: "Security & data", icon: ShieldCheck, requiresAdmin: true, owners: ["org"] },
