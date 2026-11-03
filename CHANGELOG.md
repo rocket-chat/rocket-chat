@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `slack`: A message with a file (an image, a log) sent to a bot was ignored: Slack sends it as a `file_share` message, which was dropped with system messages, so neither the file nor the words with it reached the agent.
+- `web`: Attaching an image for a model that cannot read images says so in the composer before sending. `GET /v1/models` gives each model's `accepts_images` when it is known.
 - `llm-gateway`: Images were withheld from models that can see them, replaced by a note that the model cannot read images: whether a model reads images came from a fixed list (it stopped at the Claude 4 family, the default model included, and had no DeepSeek) and LiteLLM's table, which misses new models such as DeepSeek V4.1 Flash. It now comes from the provider's own catalogue first (OpenRouter's `input_modalities`, `ModelSpec.accepts_images`), then LiteLLM, then the list.
 - `api`: A session's context gauge could read over 100% (and its token figure wrong) between turns when the turn ran on another model than the session's selection, such as its agent's larger-window model: the figure was checked against the selection's window. The figure saved at the end of a turn now records its model and is read against that model's window.
 - `web`: The "left this month" spend chip now follows a running turn's spend instead of changing only when the turn starts or ends.
