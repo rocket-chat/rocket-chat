@@ -7,13 +7,18 @@ test("a dropped live connection shows a banner and resumes when the network is b
   const sockets: WebSocketRoute[] = [];
   const live: WebSocketRoute[] = [];
   let refusing = false;
+  let framesFromServer = 0;
   await page.routeWebSocket(/\/v1\/sessions\/[^/]+\/ws/, (ws) => {
     if (refusing) {
       void ws.close({ code: 1011, reason: "unavailable" });
       sockets.push(ws);
       return;
     }
-    ws.connectToServer();
+    const server = ws.connectToServer();
+    server.onMessage((message) => {
+      framesFromServer++;
+      ws.send(message);
+    });
     sockets.push(ws);
     live.push(ws);
   });
@@ -21,7 +26,9 @@ test("a dropped live connection shows a banner and resumes when the network is b
   const created = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title: "Reconnect" } });
   const sessionId = (await created.json()).session_id as string;
   await page.goto(`/chat/${sessionId}`);
-  await expect.poll(() => sockets.length, { message: "the session socket opens" }).toBeGreaterThan(0);
+  // A routed socket is not yet an open one, and the banner only follows a connection the page
+  // has seen: dropping it sooner (slowest on PostgreSQL) would never show the banner.
+  await expect.poll(() => framesFromServer, { message: "the session socket delivers its snapshot" }).toBeGreaterThan(0);
   const banner = page.getByTestId("connection-banner");
   await expect(banner).toHaveCount(0);
 
