@@ -91,6 +91,7 @@ def child_step(event: AgentEvent) -> tuple[EventType, dict[str, Any]] | None:
             "result": payload.get("result", ""),
             "status": payload.get("status", "completed"),
             "duration_ms": payload.get("duration_ms", 0),
+            **({"cwd": str(payload["cwd"])} if payload.get("cwd") else {}),
         }
     return None
 

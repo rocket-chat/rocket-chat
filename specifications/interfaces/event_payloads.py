@@ -92,6 +92,8 @@ class ToolCompletedPayload(TypedDict):
     duration_ms: NotRequired[int | float]
     redacted: NotRequired[int]
     created_at: NotRequired[int]
+    # The folder a command ran in, as the tool resolved it (the call's arguments may name none).
+    cwd: NotRequired[str]
     subagent_id: NotRequired[str]
     parent_tool_call_id: NotRequired[str | None]
 

@@ -14,6 +14,7 @@ from agent_core.tools import git_tools, tier2, verification, workspace_changes
 from agent_core.tools import images as image_tools
 from agent_core.tools import package_manager as package_manager_tools
 from agent_core.tools.builtin.files import emit_file_diff
+from agent_core.tools.live_output import current_live_output
 from agent_core.tools.shell_intent import shell_intents, should_tip, tip_for
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 
@@ -160,6 +161,8 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
         await registry._ensure_sandbox(session_id)
         workdir = workspace_path(cwd) if cwd.strip() else await registry.shell_dir(session_id)
         command, workdir = fold_leading_cd(command, workdir)
+        if live := current_live_output.get():
+            live.workdir = workdir
         if (seconds := long_sleep_in(command)) is not None:
             return LONG_SLEEP_REFUSAL.format(seconds=seconds)
         await _maybe_auto_checkpoint(driver, session_id, command, workdir)

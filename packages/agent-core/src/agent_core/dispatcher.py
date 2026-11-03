@@ -312,6 +312,8 @@ class ToolDispatcher:
         }
         if redacted_count:
             payload["redacted"] = redacted_count
+        if live.workdir:
+            payload["cwd"] = live.workdir
 
         await event_queue.put(
             AgentEvent(

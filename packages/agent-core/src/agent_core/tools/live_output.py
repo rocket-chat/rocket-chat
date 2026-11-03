@@ -42,6 +42,9 @@ class LiveOutput:
         self._streamed = 0
         self._stopped = False
         self._last_flush = clock()
+        # The folder the command ran in, as the tool resolved it: the call's arguments often
+        # name none (the session's shell folder is used), so only the tool knows it.
+        self.workdir: str | None = None
 
     def feed(self, chunk: str) -> None:
         """Take a chunk of output as the driver produces it."""
