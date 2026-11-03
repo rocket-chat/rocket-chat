@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api`: `/v1/admin/triggers` and `POST /v1/triggers/{id}/run` are gone: what starts work on its own is a mission (`/v1/missions`, `POST /v1/missions/{id}/run`). Settings → Automation keeps the outbound webhooks. The old mission fields (`prompt`, `cron`, `timezone`, `slack_channel`) are a mission's `instructions`, a `schedule` trigger and a `chat` delivery; mission templates became presets.
 
 ### Fixed
+- `api`: A session's context gauge could read over 100% (and its token figure wrong) between turns when the turn ran on another model than the session's selection, such as its agent's larger-window model: the figure was checked against the selection's window. The figure saved at the end of a turn now records its model and is read against that model's window.
+- `web`: The "left this month" spend chip now follows a running turn's spend instead of changing only when the turn starts or ends.
+- `web`: The session's cost by model names the provider when the same model was used through two (for example Claude through OpenRouter and from Anthropic).
 - `web`: A command's step now says which folder it ran in even when the agent named none (the session's shell folder was used): `tool_completed` reports the folder the server used as `cwd`, and the step keeps it after a reload.
 - `web`: A value typed into a settings form just after it opened could snap back to the stored one before you saved: a superseded load of the form overwrote it. Only the form's latest load is applied now.
 - `web`: A turn that needed you right after a conversation opened could raise no notification: the alert came before your notification preference was read. It is now announced once the preference arrives, if it still applies and the tab is still in the background.
