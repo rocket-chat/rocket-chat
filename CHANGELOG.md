@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api`: `/v1/admin/triggers` and `POST /v1/triggers/{id}/run` are gone: what starts work on its own is a mission (`/v1/missions`, `POST /v1/missions/{id}/run`). Settings → Automation keeps the outbound webhooks. The old mission fields (`prompt`, `cron`, `timezone`, `slack_channel`) are a mission's `instructions`, a `schedule` trigger and a `chat` delivery; mission templates became presets.
 
 ### Fixed
+- `web`: A value typed into a settings form just after it opened could snap back to the stored one before you saved: a superseded load of the form overwrote it. Only the form's latest load is applied now.
 - `web`: A turn that needed you right after a conversation opened could raise no notification: the alert came before your notification preference was read. It is now announced once the preference arrives, if it still applies and the tab is still in the background.
 
 ### Security
