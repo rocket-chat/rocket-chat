@@ -106,6 +106,7 @@ export interface RunningTurnData {
     redacted?: number;
     seq?: number;
     created_at?: number;
+    cwd?: string;
     /** The reasoning that led to this call (on the first call of its step). */
     reasoning?: string;
     /** Step intent text emitted immediately before this tool call. */
@@ -252,6 +253,8 @@ export interface ToolCallData {
   reasoning?: string;
   /** Step intent text emitted immediately before this tool call. */
   preface?: string;
+  /** The folder a command ran in, as the server resolved it (the arguments may name none). */
+  cwd?: string;
 }
 
 /**
@@ -308,6 +311,8 @@ export interface SubagentStep {
   status: "pending" | "success" | "error";
   result?: string;
   duration_ms?: number;
+  /** The folder a command ran in, as the server resolved it (the arguments may name none). */
+  cwd?: string;
 }
 
 export interface SubagentExecutionData {

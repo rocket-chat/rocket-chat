@@ -50,6 +50,7 @@ interface EventPayload {
   arguments?: Record<string, unknown>;
   result?: unknown;
   duration_ms?: number;
+  cwd?: string;
   subagent_id?: string;
   subagent_role?: string;
   parent_tool_call_id?: string | null;
@@ -194,6 +195,7 @@ function subagentStep(payload: EventPayload, settled: boolean): SubagentStep {
       ? {
           result: typeof result === "string" ? result : JSON.stringify(result, null, 2),
           duration_ms: payload.duration_ms,
+          cwd: payload.cwd,
         }
       : {}),
   };
@@ -495,6 +497,7 @@ export class MissionWebSocket {
             result: typeof step.result === "string" ? step.result : JSON.stringify(step.result, null, 2),
             duration_ms: step.duration_ms,
             created_at: step.created_at,
+            cwd: step.cwd,
           },
         });
       }
@@ -858,6 +861,7 @@ export class MissionWebSocket {
           duration_ms: payload.duration_ms,
           arguments: payload.arguments,
           created_at: toolCreatedAt,
+          cwd: payload.cwd,
         });
         break;
       }

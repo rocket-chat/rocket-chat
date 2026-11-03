@@ -58,6 +58,7 @@ from agent_core.subagent_roles import (
 from agent_core.subagent_scope import SubagentFrame, current_tool_call_id
 from agent_core.summarizer import model_summarizer
 from agent_core.tools.clamp import clamp_output
+from agent_core.tools.live_output import LiveOutput, current_live_output
 from agent_core.tools.offload import offload_tool_output
 from agent_core.tools.registry import ToolRegistry
 from agent_core.truncation import (
@@ -1174,7 +1175,14 @@ class _SubagentExecution:
         raw_args = call.get("arguments") or "{}"
         started = time.monotonic()
         await self._events.tool_started(call["id"], name, self._redact(raw_args))
-        output, status = await self._run_tool(name, raw_args, call["id"])
+        # The child's own call, so a command it runs is not taken for the parent's
+        # ``delegate_subagent`` call (whose output sink the child would otherwise inherit).
+        live = LiveOutput(lambda _text: None)
+        token = current_live_output.set(live)
+        try:
+            output, status = await self._run_tool(name, raw_args, call["id"])
+        finally:
+            current_live_output.reset(token)
         await self._events.tool_completed(
             call["id"],
             name,
@@ -1182,6 +1190,7 @@ class _SubagentExecution:
             output,
             status,
             int((time.monotonic() - started) * 1000),
+            cwd=live.workdir,
         )
         return output
 

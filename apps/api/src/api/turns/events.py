@@ -369,6 +369,8 @@ class TurnEventHandlers:
             "duration_ms": event.payload.get("duration_ms", 0),
             "created_at": int(time.time()),
         }
+        if cwd := event.payload.get("cwd"):
+            tool_data["cwd"] = str(cwd)
         total_redacted = (redaction.count if redaction is not None else 0) + int(
             event.payload.get("redacted") or 0
         )

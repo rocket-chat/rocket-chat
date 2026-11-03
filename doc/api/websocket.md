@@ -97,6 +97,8 @@ Announces a tool about to run, then reports its result:
 ```
 A **subagent's own step** carries `subagent_id` and `parent_tool_call_id` (the parent's `delegate_subagent` call) on both events: clients nest it under that subagent's card and never count it as one of the turn's steps.
 
+A command (`bash_exec`) also reports **where it ran** in `tool_completed`'s `cwd` (for example `/workspace/api`). The call's `arguments` may name no folder (the session's shell folder, normally the active repository, is used) or start the command with `cd`; `cwd` is the folder the server actually used. The stored step keeps it, so it is also in the session's history and in `running_turn.steps`. Other tools leave it out.
+
 ### C. Live Terminal Logs (`log_chunk`)
 Streams ANSI-colored stdout and stderr chunks for the `@xterm/xterm` log viewer. A command's output arrives **while it runs**, a few times a second and whole lines at a time, already redacted; `tool_call_id` names the tool call it belongs to (the same id as in `tool_started` and `tool_completed`), so a client can show it under that step. It is absent for text that belongs to no call. A call that streamed its output does not repeat it in a final chunk; its `tool_completed` carries the complete (clamped) result. Streaming for one call stops after about 200,000 characters.
 ```json

@@ -85,6 +85,32 @@ test.describe("Chat layout: minimal by default, detail on demand", () => {
     await expect(page.getByText("1 failed, 12 passed").first()).toBeVisible();
   });
 
+  test("a command that named no folder says where it ran", async ({ page, request }) => {
+    const created = await request.post(`${BACKEND}/v1/sessions`, { data: { title: "Folder seed" } });
+    const { session_id: sessionId } = await created.json();
+    const patch = await request.post(`${BACKEND}/v1/dev/sessions/${sessionId}/transcript`, {
+      data: {
+        messages: [
+          { role: "user", content: "Build the web app" },
+          {
+            role: "assistant",
+            content: "The build passes.",
+            tool_calls: [
+              // The session's shell folder was used: only the server knew it, and it says so.
+              { id: "b1", name: "bash_exec", arguments: { command: "pnpm build", cwd: "" }, cwd: "/workspace/web", result: "ok", status: "success" },
+            ],
+          },
+        ],
+      },
+    });
+    expect(patch.ok()).toBeTruthy();
+
+    await page.goto(`/chat/${sessionId}`);
+    await page.getByTestId("action-group-toggle").first().click();
+    const run = page.getByTestId("activity-step").filter({ hasText: "pnpm build" });
+    await expect(run.getByTestId("step-where")).toHaveText("in web");
+  });
+
   test("sidebar footer links do not overlap", async ({ page }) => {
     await page.goto("/");
     const missions = await page.getByTestId("sidebar-missions-link").boundingBox();
