@@ -31,6 +31,8 @@ class ProviderModel:
 
     context_window: int
     max_output_tokens: int | None
+    # From ``architecture.input_modalities``; None when the listing does not say.
+    accepts_images: bool | None = None
 
 
 def _positive(value: object) -> int | None:
@@ -46,9 +48,11 @@ def parse_openrouter(payload: Mapping[str, Any]) -> dict[str, ProviderModel]:
         if not model_id or context is None:
             continue
         top = item.get("top_provider") or {}
+        modalities = (item.get("architecture") or {}).get("input_modalities")
         parsed[f"{OPENROUTER_PREFIX}{model_id}"] = ProviderModel(
             context_window=context,
             max_output_tokens=_positive(top.get("max_completion_tokens")),
+            accepts_images=("image" in modalities) if isinstance(modalities, list) else None,
         )
     return parsed
 

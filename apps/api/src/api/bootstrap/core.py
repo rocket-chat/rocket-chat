@@ -158,6 +158,8 @@ def _bind_spend_tracking(
     budget_service = BudgetService(db_manager, usage_ledger)
     llm_gateway.usage_sink = usage_ledger
     llm_gateway.budget_guard = budget_service
+    if isinstance(llm_gateway, LiteLLMGateway):
+        llm_gateway.model_catalogue = default_catalogue
     llm_gateway.credential_resolver = CredentialResolver(
         db_manager,
         model_credentials,
