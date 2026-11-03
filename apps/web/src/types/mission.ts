@@ -282,6 +282,8 @@ export interface ModelOption {
   context_window: number;
   provider: string;
   description?: string;
+  /** Whether the model reads image input; absent when the platform does not know. */
+  accepts_images?: boolean;
 }
 
 /** One thing a subagent found (its report's `findings`). */

@@ -151,3 +151,13 @@ def test_message_without_attachments_is_unchanged() -> None:
         [ChatMessage(role="user", content="hello")], "openrouter/deepseek/deepseek-v4.1-flash"
     )
     assert formatted[0]["content"] == "hello"
+
+
+def test_the_model_listing_says_which_models_read_images(openrouter_listing: None) -> None:
+    """The composer warns from this flag before an image goes to a model that cannot read it."""
+    from api.routers.models_catalog import _with_image_input
+
+    assert _with_image_input({"id": "openrouter/deepseek/deepseek-v4.1-flash"})["accepts_images"]
+    assert _with_image_input({"id": "openrouter/acme/text-only-1"})["accepts_images"] is False
+    # Nothing known about it: no flag, so nothing is claimed.
+    assert "accepts_images" not in _with_image_input({"id": "acme-unknown/nothing"})

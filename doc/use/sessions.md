@@ -139,7 +139,7 @@ When the agent produces something meant to be read (a design, a migration plan, 
 
 ## Images
 
-Attach a screenshot, or ask the agent to look at an image it created (`view_image`). Whether it can *see* the image depends on the **model**, not the sandbox: a vision-capable model gets the image; a text-only model is told plainly that it cannot.
+Attach a screenshot, or ask the agent to look at an image it created (`view_image`). Whether it can *see* the image depends on the **model**, not the sandbox: a vision-capable model gets the image; a text-only model is told plainly that it cannot. Which models read images comes from the provider's own catalogue (OpenRouter's input modalities), then LiteLLM's table. When you attach an image and the model the message would run on cannot read images, the composer says so before you send, so you can pick another model.
 
 ## Reliability
 
