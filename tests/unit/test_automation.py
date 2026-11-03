@@ -1,5 +1,5 @@
-"""Automation: triggers (matching, de-duplication, review mode, auto-fix), outbound webhooks,
-Jira and Linear, and the GitHub trigger parser."""
+"""Automation: mission triggers (matching, de-duplication, review mode, auto-fix), outbound
+webhooks, Jira and Linear, and the GitHub trigger parser."""
 
 from __future__ import annotations
 
@@ -12,27 +12,39 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from api.services import outbound_webhooks, triggers
+from api.services import mission_runs, outbound_webhooks, trigger_intake
 from api.services.github_watches import GithubWatchStore, watch_callbacks
+from api.services.mission_records import RunStore
+from api.services.mission_runs import REVIEWER_AGENT_ID, prompt_for, session_id_for, start_run
+from api.services.missions import MissionError, MissionStore, validate
 from api.services.outbound_webhooks import OutboundWebhookError, sign
 from api.services.ticket_trackers import TrackerSignatureError, jira_event, linear_event
-from api.services.triggers import (
-    TriggerError,
-    claim_delivery,
-    default_triggers,
-    matching_trigger,
-    prompt_for,
-    session_id_for,
-    start_from_trigger,
-    validate,
-)
+from api.services.trigger_intake import claim_delivery, default_missions, missions_for
 from git_engine.github_triggers import parse_github_trigger
 
-from specifications.interfaces.automation import Trigger, TriggerEvent, TriggerFilter, matches
+from specifications.interfaces.automation import (
+    Mission,
+    MissionTrigger,
+    TriggerEvent,
+    TriggerFilter,
+    matches,
+)
 
 
-def _trigger(**overrides: Any) -> Trigger:
-    return replace(Trigger(id="t1", org_id="org", name="T", source="github_pr"), **overrides)
+def _trigger(source: str = "github_pr", **rules: Any) -> MissionTrigger:
+    return MissionTrigger(source, TriggerFilter(**rules))
+
+
+def _mission(*, source: str = "github_pr", **overrides: Any) -> Mission:
+    base = Mission(
+        id="mission_t1",
+        org_id="org",
+        name="T",
+        instructions="",
+        scope="org",
+        triggers=(_trigger(source),),
+    )
+    return replace(base, **overrides)
 
 
 def _event(**overrides: Any) -> TriggerEvent:
@@ -51,27 +63,25 @@ def _event(**overrides: Any) -> TriggerEvent:
 
 @pytest.fixture(autouse=True)
 def _clean() -> Any:
-    triggers._memory.clear()
-    triggers._claimed.clear()
+    trigger_intake.reset_memory()
     outbound_webhooks.reset_memory()
+    RunStore._MEMORY.clear()
     yield
-    triggers._memory.clear()
-    triggers._claimed.clear()
+    trigger_intake.reset_memory()
     outbound_webhooks.reset_memory()
+    RunStore._MEMORY.clear()
 
 
 # -- matching -----------------------------------------------------------------------------------
 
 
 def test_a_trigger_takes_only_its_source_and_its_filters() -> None:
-    rules = TriggerFilter(repositories=("acme/*",), labels=("backend",), branches=("feat/*",))
-    trigger = _trigger(filter=rules)
+    trigger = _trigger(repositories=("acme/*",), labels=("backend",), branches=("feat/*",))
     assert matches(trigger, _event())
     assert not matches(trigger, _event(repository="other/api"))
     assert not matches(trigger, _event(labels=("frontend",)))
     assert not matches(trigger, _event(branch="main"))
     assert not matches(trigger, _event(source="github_issue_label"))
-    assert not matches(replace(trigger, enabled=False), _event())
 
 
 def test_an_untrusted_author_never_starts_work() -> None:
@@ -82,42 +92,53 @@ def test_a_comment_starts_work_when_it_addresses_the_agent_or_the_trigger_names_
     comment = _event(source="github_issue_comment", labels=("ai-fix",))
     assert not matches(_trigger(source="github_issue_comment"), comment)
     assert matches(_trigger(source="github_issue_comment"), replace(comment, mentions_agent=True))
-    labelled = _trigger(source="github_issue_comment", filter=TriggerFilter(labels=("ai-fix",)))
+    labelled = _trigger("github_issue_comment", labels=("ai-fix",))
     assert matches(labelled, comment)
 
 
-async def test_an_organization_without_triggers_gets_the_deployment_label() -> None:
+def _bare_app() -> Any:
+    return SimpleNamespace(state=SimpleNamespace(db_manager=None, mission_store=MissionStore(None)))
+
+
+async def test_an_organization_without_missions_on_events_gets_the_deployment_label() -> None:
+    app = _bare_app()
     labelled = _event(source="github_issue_label", labels=("ai-fix",))
-    assert (await matching_trigger(None, "org", labelled)) is not None
-    assert (await matching_trigger(None, "org", replace(labelled, labels=("bug",)))) is None
-    assert {t.source for t in default_triggers("org")} == {
+    assert await missions_for(app, "org", labelled)
+    assert not await missions_for(app, "org", replace(labelled, labels=("bug",)))
+    assert {t.source for m in default_missions("org") for t in m.triggers} == {
         "github_issue_label",
         "github_issue_comment",
     }
 
 
-async def test_configured_triggers_replace_the_defaults() -> None:
-    await triggers.save_trigger(None, _trigger(id=""), "admin")
-    assert (
-        await matching_trigger(None, "org", _event(source="github_issue_label", labels=("ai-fix",)))
-        is None
+async def test_configured_missions_replace_the_defaults() -> None:
+    app = _bare_app()
+    await app.state.mission_store.create(_mission(), {})
+    assert not await missions_for(
+        app, "org", _event(source="github_issue_label", labels=("ai-fix",))
     )
-    assert await matching_trigger(None, "org", _event()) is not None
+    assert await missions_for(app, "org", _event())
+    # A schedule-only mission does not take the built-in label's place.
+    other = _bare_app()
+    await other.state.mission_store.create(
+        _mission(triggers=(MissionTrigger("schedule", schedule="0 9 * * 1"),)), {}
+    )
+    assert await missions_for(other, "org", _event(source="github_issue_label", labels=("ai-fix",)))
 
 
 @pytest.mark.parametrize(
     "overrides, error",
     [
-        ({"source": "nope"}, "Unknown source"),
+        ({"source": "nope"}, "Unknown trigger source"),
         ({"mode": "review", "source": "github_issue_label"}, "pull request"),
         ({"model_tier": "huge"}, "tier"),
-        ({"source": "schedule", "schedule": "every day"}, "cron"),
+        ({"triggers": (MissionTrigger("schedule", schedule="every day"),)}, "cron"),
         ({"name": " "}, "name"),
     ],
 )
-def test_an_invalid_trigger_is_refused(overrides: dict[str, Any], error: str) -> None:
-    with pytest.raises(TriggerError, match=error):
-        validate(_trigger(**overrides))
+def test_an_invalid_mission_is_refused(overrides: dict[str, Any], error: str) -> None:
+    with pytest.raises(MissionError, match=error):
+        validate(_mission(**overrides))
 
 
 # -- de-duplication -------------------------------------------------------------------------------
@@ -133,24 +154,33 @@ async def test_a_delivery_is_handled_once() -> None:
 # -- sessions and prompts ------------------------------------------------------------------------
 
 
-def test_a_review_and_a_fix_of_one_pull_request_are_two_sessions() -> None:
-    work = session_id_for(_trigger(), _event())
-    review = session_id_for(_trigger(mode="review"), _event())
-    assert work != review and review.startswith("review_")
-    assert session_id_for(_trigger(), _event()) == work
+def test_two_missions_on_one_pull_request_are_two_sessions() -> None:
+    work = session_id_for(_mission(), _event())
+    review = session_id_for(_mission(id="mission_r2", mode="review"), _event())
+    assert work != review
+    assert session_id_for(_mission(), _event()) == work
+    # The built-in missions and those carried over from triggers keep the sessions' old keys.
+    assert session_id_for(replace(_mission(), id="default_issues"), _event()) == "gh_acme_api_7"
+    assert (
+        session_id_for(replace(_mission(mode="review"), id="trg_x"), _event())
+        == "review_acme_api_7"
+    )
+    # A run about no item gets a session of its own every time.
+    scheduled = _event(source="schedule", number=0)
+    assert session_id_for(_mission(), scheduled) != session_id_for(_mission(), scheduled)
 
 
 def test_a_review_prompt_reviews_only_the_new_commits() -> None:
     prompt = prompt_for(
-        _trigger(mode="review"), _event(head_sha="new"), follow_up=False, reviewed_sha="old"
+        _mission(mode="review"), _event(head_sha="new"), follow_up=False, reviewed_sha="old"
     )
     assert "git diff old..new" in prompt
-    assert "review_comments" in prompt and "Do not change or push code" in prompt
+    assert "Do not change or push code" in prompt
 
 
-def test_trigger_instructions_lead_the_prompt() -> None:
+def test_mission_instructions_lead_the_prompt() -> None:
     prompt = prompt_for(
-        _trigger(instructions="Keep it small."),
+        _mission(instructions="Keep it small."),
         _event(source="github_issue_label"),
         follow_up=False,
     )
@@ -163,8 +193,14 @@ def _app(store: Any) -> Any:
         orchestrator=object(),
         event_bus=object(),
         db_manager=None,
+        mission_store=MissionStore(None),
     )
     return SimpleNamespace(state=state)
+
+
+class _Task:
+    def add_done_callback(self, _: Any) -> None:
+        return None
 
 
 class _Store:
@@ -182,32 +218,42 @@ class _Store:
         return True
 
 
+def _spawning(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    spawned: list[dict[str, Any]] = []
+
+    def spawn(**kw: Any) -> _Task:
+        spawned.append(kw)
+        return _Task()
+
+    monkeypatch.setattr(mission_runs, "_spawn_background_turn", spawn)
+    return spawned
+
+
 async def test_a_review_runs_the_reviewer_once_per_commit(monkeypatch: pytest.MonkeyPatch) -> None:
-    spawned = []
-    monkeypatch.setattr(triggers, "_spawn_background_turn", lambda **kw: spawned.append(kw))
+    spawned = _spawning(monkeypatch)
     store = _Store()
     app = _app(store)
-    review = _trigger(mode="review", auto_fix=False)
-    first = await start_from_trigger(app, review, _event(), "gh_ada")
+    review = _mission(mode="review", auto_fix=False, run_as="mission_svc")
+    first = await start_run(app, review, _event())
     assert first.status == "created"
     record = store.records[first.session_id]
-    assert record.metadata["agent_id"] == triggers.REVIEWER_AGENT_ID
-    assert (await start_from_trigger(app, review, _event(), "gh_ada")).status == "ignored"
-    again = await start_from_trigger(app, review, _event(head_sha="def456"), "gh_ada")
+    assert record.metadata["agent_id"] == REVIEWER_AGENT_ID
+    assert record.tenant_user_id == "mission_svc", "a shared mission runs as its own member"
+    assert (await start_run(app, review, _event())).status == "ignored"
+    again = await start_run(app, review, _event(head_sha="def456"))
     assert again.status == "resumed" and len(spawned) == 2
     assert "git diff abc123..def456" in spawned[-1]["prompt"]
 
 
-async def test_a_trigger_carries_its_agent_mode_tier_and_sandbox(
+async def test_a_mission_carries_its_agent_mode_tier_and_sandbox(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    spawned = []
-    monkeypatch.setattr(triggers, "_spawn_background_turn", lambda **kw: spawned.append(kw))
+    spawned = _spawning(monkeypatch)
     store = _Store()
-    trigger = _trigger(
+    mission = _mission(
         agent_id="a-1", permission_mode="ask", model_tier="fast", sandbox_type="sb-1"
     )
-    outcome = await start_from_trigger(_app(store), trigger, _event(), "gh_ada")
+    outcome = await start_run(_app(store), mission, _event())
     metadata = store.records[outcome.session_id].metadata
     assert (metadata["agent_id"], metadata["permission_mode"], metadata["sandbox_id"]) == (
         "a-1",
@@ -371,7 +417,10 @@ def test_linear_and_jira_webhooks_must_be_signed(monkeypatch: pytest.MonkeyPatch
 
 def test_a_ticket_session_is_keyed_by_its_ticket() -> None:
     session = session_id_for(
-        _trigger(source="linear_issue"),
+        _mission(source="linear_issue"),
         TriggerEvent(source="linear_issue", key="ENG-3", trusted=True),
     )
-    assert session == "linear_eng_3"
+    assert session.endswith("_eng_3") and session == session_id_for(
+        _mission(source="linear_issue"),
+        TriggerEvent(source="linear_issue", key="ENG-3", trusted=True),
+    )

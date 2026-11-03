@@ -19,13 +19,14 @@ from specifications.interfaces.llm import ToolDefinition
 ALWAYS_LOADED = frozenset({"load_tools", "search_tools", "load_guidance"})
 # The tools a platform gate sends the agent to when it refuses a call: an unknown or deferred tool
 # (`search_tools`, `load_tools`), an MCP tool whose server has guidance (`load_guidance`), a
-# change in plan mode (`exit_plan_mode`). No agent tool list, Slack allowlist or channel profile
+# change in plan mode (`exit_plan_mode`), a mission's result (`deliver`, which its request asks
+# for: only on a mission run, through its toolset). No agent tool list, Slack allowlist or channel profile
 # can take them away, or the refusal would be a dead end; a list written before one existed made
 # every MCP tool with guidance unusable. Each is still offered only when it has work to do, and
 # the platform itself denies one when it has none (`load_guidance` without guidance). Tools that
 # merely improve a session (the checklist, skills) are not here: an administrator may leave them
 # out of a narrow agent on purpose.
-ESSENTIAL_TOOLS = ALWAYS_LOADED | frozenset({"exit_plan_mode"})
+ESSENTIAL_TOOLS = ALWAYS_LOADED | frozenset({"exit_plan_mode", "deliver"})
 MCP_PREFIX = "mcp__"
 
 

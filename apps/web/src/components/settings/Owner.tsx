@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useCallback } from "react";
+import React, { useCallback, useState } from "react";
 import { Building2, User, Users } from "lucide-react";
 import { Badge } from "../ui/Badge";
 import { Field, Select } from "../ui/Field";
-import { useConfirm } from "../ui/ConfirmDialog";
+import { MoveDialog, type MoveTarget } from "./MoveDialog";
 import { useTeams } from "../../lib/teams";
 import { audienceOf, ownerKey, ownerLabel, type OwnerKey, type Owned } from "../../lib/ownership";
 
@@ -63,23 +63,51 @@ export const OwnerSelect: React.FC<OwnerSelectProps> = ({ value, options, onChan
   );
 };
 
+interface PendingMove {
+  name: string;
+  from: OwnerKey;
+  to: OwnerKey;
+  options?: OwnerKey[];
+  target?: MoveTarget;
+  resolve: (to: OwnerKey | null) => void;
+}
+
 /**
  * `const [confirmMove, dialog] = useMoveConfirmation()`: before saving an existing object under
- * another owner, `await confirmMove(name, from, to)` says who will use it afterwards.
+ * another owner, `await confirmMove(name, from, to, { kind, id })` shows who uses it afterwards
+ * and what the move would break (from the API), and resolves false when it is not confirmed.
+ * `chooseOwner` asks for the owner in the dialog itself (rows with a "Move…" action).
  */
-export function useMoveConfirmation(): [(name: string, from: OwnerKey, to: OwnerKey) => Promise<boolean>, React.ReactNode] {
-  const { teams } = useTeams();
-  const [confirm, dialog] = useConfirm();
+export function useMoveConfirmation(): [
+  (name: string, from: OwnerKey, to: OwnerKey, target?: MoveTarget) => Promise<boolean>,
+  React.ReactNode,
+  (name: string, from: OwnerKey, options: OwnerKey[], target: MoveTarget) => Promise<OwnerKey | null>,
+] {
+  const [pending, setPending] = useState<PendingMove | null>(null);
   const confirmMove = useCallback(
-    (name: string, from: OwnerKey, to: OwnerKey) =>
+    (name: string, from: OwnerKey, to: OwnerKey, target?: MoveTarget) =>
       from === to
         ? Promise.resolve(true)
-        : confirm({
-            title: `Move "${name}" to ${ownerLabel(to, teams) === "You" ? "you" : ownerLabel(to, teams)}?`,
-            message: `It is used today by ${audienceOf(from, teams)}. After the move it will be used by ${audienceOf(to, teams)}, and changed by those who manage that owner.`,
-            confirmLabel: "Move",
-          }),
-    [confirm, teams],
+        : new Promise<boolean>((resolve) => setPending({ name, from, to, target, resolve: (chosen) => resolve(chosen !== null) })),
+    [],
   );
-  return [confirmMove, dialog];
+  const chooseOwner = useCallback(
+    (name: string, from: OwnerKey, options: OwnerKey[], target: MoveTarget) =>
+      new Promise<OwnerKey | null>((resolve) => setPending({ name, from, to: from, options, target, resolve })),
+    [],
+  );
+  const dialog = pending ? (
+    <MoveDialog
+      name={pending.name}
+      from={pending.from}
+      to={pending.to}
+      options={pending.options}
+      target={pending.target}
+      onDone={(to) => {
+        pending.resolve(to);
+        setPending(null);
+      }}
+    />
+  ) : null;
+  return [confirmMove, dialog, chooseOwner];
 }

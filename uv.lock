@@ -287,6 +287,7 @@ dependencies = [
     { name = "httpx" },
     { name = "joserfc" },
     { name = "json5" },
+    { name = "jsonschema" },
     { name = "llm-gateway" },
     { name = "mcp-runner", extra = ["client"] },
     { name = "opentelemetry-api" },
@@ -326,6 +327,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "joserfc", specifier = ">=1.0" },
     { name = "json5", specifier = ">=0.17.3" },
+    { name = "jsonschema", specifier = ">=4.23" },
     { name = "llm-gateway", editable = "packages/llm-gateway" },
     { name = "mcp-runner", extras = ["client"], editable = "packages/mcp-runner" },
     { name = "opentelemetry-api", specifier = ">=1.45.0" },
@@ -3327,6 +3329,7 @@ dev = [
     { name = "types-authlib" },
     { name = "types-croniter" },
     { name = "types-docker" },
+    { name = "types-jsonschema" },
     { name = "types-pyyaml" },
 ]
 
@@ -3359,6 +3362,7 @@ dev = [
     { name = "types-authlib", specifier = ">=1.3" },
     { name = "types-croniter", specifier = ">=6.0" },
     { name = "types-docker", specifier = ">=7.0.0.0" },
+    { name = "types-jsonschema", specifier = ">=4.23" },
     { name = "types-pyyaml", specifier = ">=6.0" },
 ]
 
@@ -3831,6 +3835,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/dc/23/f0b34fc4c81fd172811763e191b19295a3fc9500bb424d97028332414b7b/types_docker-7.2.0.20260923.tar.gz", hash = "sha256:b585cff7ff88720ed63dea8388469a2fd1785ed51d6f8043606513c52a94d121", size = 37322, upload-time = "2026-09-23T06:52:15.995Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/34/6469781657881c4e1b388f5e9df3cb5f5a4a34eefc9ca7525afad7c4fe2e/types_docker-7.2.0.20260923-py3-none-any.whl", hash = "sha256:d966f9e65708d9242995fc95515e2fb070623f14c3d7df9109266e3d50af41ae", size = 51416, upload-time = "2026-09-23T06:52:14.908Z" },
+]
+
+[[package]]
+name = "types-jsonschema"
+version = "4.26.0.20261006"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "referencing" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/29/d2/1f742605f5a6d39f993134885b8de41c98af606871d3ebddaf3e776bd1eb/types_jsonschema-4.26.0.20261006.tar.gz", hash = "sha256:3eb7db61b6819d40addfdaac7173e749071a7d4a9a4394f0c844598ec84b2500", size = 16843, upload-time = "2026-10-06T08:16:07.318Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/a0/4f2e3c0dc3d5cad958006f2e0307065cc8fe4fbf0393ff0b69d55ee9bbe5/types_jsonschema-4.26.0.20261006-py3-none-any.whl", hash = "sha256:29301f4e65e3928540cdf5e23ad716e38bb0c0b416a48dada213edd3d70206ec", size = 16113, upload-time = "2026-10-06T08:16:06.355Z" },
 ]
 
 [[package]]

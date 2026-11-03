@@ -1,7 +1,7 @@
 """Incoming forge webhooks: verified here, handed to the services that act on them.
 
 A delivery may report on a pull request a session follows (``deliver_repo_event``) and may
-start or wake a session through the organization's triggers (``services/triggers.py``).
+start or wake the runs of the missions that take them (``services/trigger_intake.py``).
 """
 
 import logging
@@ -46,8 +46,9 @@ async def github_webhook_endpoint(
     x_github_delivery: str | None = Header(None, alias="X-GitHub-Delivery"),
 ) -> dict[str, Any]:
     """Signed GitHub webhooks: reports for the sessions that follow a pull request, and events
-    for the organization's triggers (issues, comments, pull requests, review comments, failed
-    workflow runs). Each delivery starts at most one session, whatever the number of replicas."""
+    for the organization's missions (issues, comments, pull requests, review comments, failed
+    workflow runs). Each delivery starts each mission's run once, whatever the number of
+    replicas."""
     raw_body = await request.body()
     headers = dict(request.headers)
     git_engine = _git_engine(request)
@@ -67,7 +68,7 @@ async def github_webhook_endpoint(
             return {"status": "delivered", "sessions": delivered}
         return {
             "status": "ignored",
-            "reason": outcome.reason if outcome else "No actionable trigger in webhook event",
+            "reason": outcome.reason if outcome else "No mission takes this webhook event",
         }
     if outcome.status == "duplicate":
         logger.info("Dropping duplicate GitHub webhook delivery: %s", x_github_delivery)
@@ -75,7 +76,7 @@ async def github_webhook_endpoint(
     return {
         "status": outcome.status,
         "session_id": outcome.session_id,
-        "trigger_id": outcome.trigger_id,
+        "mission_id": outcome.mission_id,
         "issue_or_pr_number": event.number if event else 0,
         "repo": event.repository if event else "",
     }
@@ -85,7 +86,7 @@ async def github_webhook_endpoint(
 async def gitlab_webhook_endpoint(request: Request) -> dict[str, Any]:
     """GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,
     pipelines and notes for the sessions that follow a merge request, and issues, merge
-    requests, notes and failed pipelines for the organization's ``gitlab_*`` triggers. The
+    requests, notes and failed pipelines for the missions on ``gitlab_*`` events. The
     organization is ``?org=`` (as the operator connected the project), else the default."""
     raw_body = await request.body()
     headers = dict(request.headers)
@@ -123,11 +124,11 @@ async def _tracker_webhook(
 
 @router.post("/jira", status_code=status.HTTP_200_OK)
 async def jira_webhook_endpoint(request: Request) -> dict[str, Any]:
-    """Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for ``jira_issue`` triggers."""
+    """Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for missions on ``jira_issue`` events."""
     return await _tracker_webhook(request, jira_event)
 
 
 @router.post("/linear", status_code=status.HTTP_200_OK)
 async def linear_webhook_endpoint(request: Request) -> dict[str, Any]:
-    """Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for ``linear_issue`` triggers."""
+    """Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for missions on ``linear_issue`` events."""
     return await _tracker_webhook(request, linear_event)

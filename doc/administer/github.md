@@ -76,7 +76,7 @@ Under **Subscribe to events**, select:
 - [x] **Pull request review**, **Pull request review comment** and **Check suite** (optional: lets sessions follow reviews, comments and CI results; see [Sessions that follow a pull request](#sessions-that-follow-a-pull-request)).
 - [x] **Workflow runs** (optional: for triggers on a failed workflow run, and CI results of sessions that follow a pull request).
 
-What each event starts is the organization's choice: see [Triggers](/use/automation#triggers). GitLab, Jira and Linear send their webhooks to `/v1/webhooks/gitlab`, `/v1/webhooks/jira` and `/v1/webhooks/linear` (with `?org=<organization id>`), signed with the secrets in the [configuration reference](/install/configuration).
+What each event starts is the missions' choice: see [Missions](/use/automation#missions). GitLab, Jira and Linear send their webhooks to `/v1/webhooks/gitlab`, `/v1/webhooks/jira` and `/v1/webhooks/linear` (with `?org=<organization id>`), signed with the secrets in the [configuration reference](/install/configuration).
 
 ---
 

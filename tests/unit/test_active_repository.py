@@ -6,13 +6,13 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from api.services.mission_runs import sync_active_repository
 from api.services.session_support import (
     ACTIVE_REPOSITORY_KEY,
     active_repository_of,
     choose_active_repository,
     remember_active_repository,
 )
-from api.services.triggers import sync_active_repository
 from api.store import InMemorySessionStore
 from api.turns.runner import TurnRunner
 from sandbox_driver.fake_driver import FakeSandboxDriver

@@ -134,7 +134,7 @@ These are the organization's Slack policy. Each bot can choose its own DM policy
 | :--- | :--- |
 | `allowed_channel_types` | Where Rocket answers: public channels, private channels, direct messages, group DMs. |
 | `dm_policy` | Who the agent may direct-message: nobody, linked members only, or everyone. |
-| `outbound_channels` | Channels the agent may post in or react in. Empty limits it to the conversation it was invoked from. Scheduled missions may only report to these. |
+| `outbound_channels` | Channels the agent may post in or react in. Empty limits it to the conversation it was invoked from. Missions may only deliver to these. |
 | `allowed_tools` | Which tools the Slack path may use. `*` means every tool, including the tools of the MCP servers the agent can reach, except the deployment's blocked list (`SLACK_BLOCKED_TOOLS`). A list names the tools exactly, so MCP tools must be listed by name (`mcp__<server>__<tool>`). |
 | `restrict_linked_members` | Off by default: a member who linked their Slack account uses their own access in DMs and private requests, as in the web app. On: the deployment's blocked tools (`SLACK_BLOCKED_TOOLS`) apply to them too. Shared channel threads and unlinked users are always restricted. |
 | `auto_link_by_verified_email` | Link Slack users to members by their verified e-mail. |
@@ -177,9 +177,9 @@ What a Slack workspace's guests may spend (unlinked Slack users and shared chann
 
 ---
 
-## 4. Scheduled missions that report to Slack
+## 4. Missions that deliver to Slack
 
-A scheduled mission (**Missions**) can name a **Slack channel**. When a run finishes, Rocket posts its result there with a link to the session (and the full report as a file when it is long). If the organization restricts `outbound_channels`, the channel must be one of them.
+A mission (**Missions**) can deliver its result to a **Slack channel** through one of the organization's bots (the first running one when it names none). When a run finishes, Rocket posts the result there with a link to the session. If the organization restricts `outbound_channels`, the channel must be one of them.
 
 ---
 

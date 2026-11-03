@@ -50,6 +50,7 @@ from api.routers.memory import router as memory_router
 from api.routers.missions import router as missions_router
 from api.routers.models_catalog import router as models_catalog_router
 from api.routers.organizations import router as organizations_router
+from api.routers.ownership import router as ownership_router
 from api.routers.plan import router as plan_router
 from api.routers.preview import router as preview_router
 from api.routers.processes import router as processes_router
@@ -287,6 +288,7 @@ app.include_router(admin_audit_router)
 app.include_router(admin_users_router)
 app.include_router(organizations_router)
 app.include_router(teams_router)
+app.include_router(ownership_router)
 app.include_router(attachments_router)
 app.include_router(artifacts_router)
 app.include_router(changes_router)

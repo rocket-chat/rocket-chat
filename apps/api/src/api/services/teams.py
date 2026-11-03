@@ -23,8 +23,10 @@ from api.db.models import (
     CustomSkillModel,
     KnowledgeBaseModel,
     McpServerEntityModel,
+    MissionModel,
     ProviderCredentialModel,
     SandboxCatalogueModel,
+    SessionTemplateModel,
     SpendLimitModel,
     TeamMembershipModel,
     TeamModel,
@@ -42,6 +44,8 @@ OWNED_TABLES: dict[str, Any] = {
     "knowledge_bases": KnowledgeBaseModel,
     "credentials": ProviderCredentialModel,
     "sandboxes": SandboxCatalogueModel,
+    "missions": MissionModel,
+    "templates": SessionTemplateModel,
 }
 
 

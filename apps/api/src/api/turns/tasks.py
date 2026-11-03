@@ -2,9 +2,6 @@
 
 import asyncio
 import logging
-import uuid
-from datetime import UTC, datetime
-from typing import Any
 
 from agent_core.orchestrator import AsyncReActOrchestrator
 from agent_core.tools.registry import ToolRegistry
@@ -18,13 +15,9 @@ from api.db.store import ResumableTurn, TurnTraceStore
 from api.services.attachments import AttachmentService
 from api.services.interrupted_work import build_interrupted_work, resume_notice
 from api.services.metrics import GlobalConcurrencyGate, SessionWriteLocks
-from api.services.missions import Mission
 from api.services.queued_messages import QueuedMessageStore
-from api.services.repository_hint import with_repository_hint
-from api.services.title import TITLE_SOURCE_USER
 from api.services.turn_resume import RESUME_NOTICE
 from api.turns.context import TurnSelection
-from api.turns.failure import FAILED_ANSWER_PREFIX
 from api.turns.runner import execute_turn_background
 from api.turns.shared import _background_tasks
 from specifications.interfaces.agent import (
@@ -33,11 +26,8 @@ from specifications.interfaces.agent import (
 from specifications.interfaces.events import EventBusProtocol
 from specifications.interfaces.sandbox import (
     SandboxDriverProtocol,
-    SandboxStatus,
 )
 from specifications.interfaces.session import (
-    SessionRecord,
-    SessionSource,
     SessionStoreProtocol,
 )
 
@@ -158,91 +148,6 @@ def _spawn_background_turn(
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
     return task
-
-
-async def launch_mission(app: FastAPI, mission: Mission) -> str:
-    """Start one run of a scheduled mission as an ordinary session owned by its creator."""
-    state = app.state
-    session_id = f"session_{uuid.uuid4().hex[:10]}"
-    metadata: dict[str, Any] = {
-        "mission_id": mission.id,
-        "is_shared": False,
-        "collaborators": [],
-        "title_source": TITLE_SOURCE_USER,
-    }
-    if mission.agent_id:
-        metadata["agent_id"] = mission.agent_id
-    if mission.permission_mode:
-        metadata["permission_mode"] = mission.permission_mode
-    stamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
-    token = current_tenant_org_id.set(mission.org_id)
-    try:
-        await state.session_store.create_session(
-            SessionRecord(
-                session_id=session_id,
-                tenant_org_id=mission.org_id,
-                tenant_user_id=mission.user_id,
-                title=f"{mission.name} · {stamp} UTC",
-                source=SessionSource.SCHEDULED,
-                sandbox_status=SandboxStatus.NON_EXISTENT,
-                metadata=metadata,
-            )
-        )
-        turn = _spawn_background_turn(
-            session_id=session_id,
-            prompt=with_repository_hint(mission.prompt, mission.git_repo, mission.git_branch),
-            orchestrator=state.orchestrator,
-            event_bus=state.event_bus,
-            driver=getattr(state, "sandbox_driver", None),
-            registry=getattr(state, "tool_registry", None),
-            store=state.session_store,
-            git_engine=getattr(state, "git_engine", None),
-            db_mgr=getattr(state, "db_manager", None),
-            author_user_id=mission.user_id,
-            attachment_service=getattr(state, "attachment_service", None),
-            concurrency_gate=getattr(state, "global_concurrency_gate", None),
-            session_locks=getattr(state, "session_write_locks", None),
-        )
-        if mission.slack_channel:
-            turn.add_done_callback(lambda _done: _report_mission_to_slack(app, mission, session_id))
-    finally:
-        current_tenant_org_id.reset(token)
-    return session_id
-
-
-def _report_mission_to_slack(app: FastAPI, mission: Mission, session_id: str) -> None:
-    """When a run ends, tell the channel its owner chose, through one of the organization's
-    bots (an organization without a bot is not an error)."""
-    manager = getattr(app.state, "slack_bot_manager", None)
-    bots = manager.for_org(mission.org_id) if manager is not None else []
-    if not bots or not mission.slack_channel:
-        return
-    assistant = bots[0]
-
-    async def report() -> None:
-        token = current_tenant_org_id.set(mission.org_id)
-        try:
-            record = await app.state.session_store.get_session(session_id)
-            answers = [
-                m for m in (record.conversation_history if record else []) if m.role == "assistant"
-            ]
-            answer = answers[-1].content or "" if answers else ""
-            await assistant.post_mission_report(
-                org_id=mission.org_id,
-                channel_id=str(mission.slack_channel),
-                mission_name=mission.name,
-                session_id=session_id,
-                answer=answer,
-                succeeded=bool(answers) and not answer.startswith(FAILED_ANSWER_PREFIX),
-            )
-        except Exception:
-            logger.exception("Could not report mission %s to Slack", mission.id)
-        finally:
-            current_tenant_org_id.reset(token)
-
-    task = asyncio.create_task(report())
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
 
 
 async def start_turn_on_session(

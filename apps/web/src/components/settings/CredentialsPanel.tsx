@@ -3,7 +3,10 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AlertCircle, KeyRound, RefreshCw, Share2, Star, Trash2 } from "lucide-react";
 import { Field, Input, Select } from "../ui/Field";
-import { OwnerBadge } from "./Owner";
+import { OwnerBadge, useMoveConfirmation } from "./Owner";
+import { useAccess } from "../../lib/access";
+import { useTeams } from "../../lib/teams";
+import { creatableOwners, ownerFields, ownerKey } from "../../lib/ownership";
 
 /** A stored credential as the API shows it: a fingerprint, never the secret. */
 export interface Credential {
@@ -86,6 +89,11 @@ export function CredentialsPanel({ mode, team }: CredentialsPanelProps) {
   const [rotating, setRotating] = useState<string | null>(null);
   const [rotateKey, setRotateKey] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const access = useAccess();
+  const { teams } = useTeams();
+  const [, moveDialog, chooseOwner] = useMoveConfirmation();
+  // A key moves to a team or the organization (never to another person).
+  const moveOptions = creatableOwners(access, teams, false);
 
   const load = useCallback(async () => {
     const res = await fetch(base);
@@ -164,6 +172,24 @@ export function CredentialsPanel({ mode, team }: CredentialsPanelProps) {
     await load();
   };
 
+  const move = async (credential: Credential) => {
+    const from = ownerKey(credentialOwner(credential));
+    const to = await chooseOwner(credential.label, from, moveOptions, { kind: "credential", id: credential.id });
+    if (!to) return;
+    setError(null);
+    const res = await fetch(`/v1/credentials/${encodeURIComponent(credential.id)}/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(ownerFields(to)),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      const detail = body.detail;
+      setError(typeof detail === "string" ? detail : typeof detail?.reason === "string" ? detail.reason : "The key was not moved.");
+    }
+    await load();
+  };
+
   const remove = async (id: string) => {
     await fetch(`${base}/${id}`, { method: "DELETE" });
     await load();
@@ -191,6 +217,7 @@ export function CredentialsPanel({ mode, team }: CredentialsPanelProps) {
               : "Keys you pay for, used for your own calls as the organization allows. Share one with an organization agent so an administrator can bind it."}
         </p>
       </div>
+      {moveDialog}
 
       {error && (
         <p role="alert" className="flex items-center gap-2 text-xs text-rose-500">
@@ -253,6 +280,16 @@ export function CredentialsPanel({ mode, team }: CredentialsPanelProps) {
                     className="rounded px-1.5 py-0.5 text-[10px] text-neutral-500 hover:text-foreground"
                   >
                     {credential.restricted_to_agents ? "Use for everyone" : "Restrict to bound agents"}
+                  </button>
+                )}
+                {moveOptions.length > 0 && (
+                  <button
+                    type="button"
+                    data-testid={`credential-move-${credential.id}`}
+                    onClick={() => void move(credential)}
+                    className="rounded px-1.5 py-0.5 text-[10px] text-neutral-500 hover:text-foreground"
+                  >
+                    Move…
                   </button>
                 )}
                 <button

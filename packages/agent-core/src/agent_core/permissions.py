@@ -73,6 +73,9 @@ READ_TOOLS: frozenset[str] = frozenset(
         # Recording that the session follows a pull request; nothing on GitHub changes.
         "github_watch",
         "github_unwatch",
+        # Handing a mission's result to the platform, which publishes it under the mission's
+        # own deliveries once the run ends: nothing changes during the turn.
+        "deliver",
         *SLACK_READ_TOOLS,
         "recall",
         "web_fetch",

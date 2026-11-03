@@ -7,8 +7,10 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Field } from "../ui/Field";
 import { SandboxEnvEditor, envPayload, rowsOf, type SandboxEnvRow, type SandboxEnvVar } from "./SandboxEnvEditor";
-import { OwnerBadge } from "./Owner";
+import { OwnerBadge, useMoveConfirmation } from "./Owner";
 import { useAccess } from "../../lib/access";
+import { useTeams } from "../../lib/teams";
+import { creatableOwners, ownerFields, type OwnerKey } from "../../lib/ownership";
 
 interface Sandbox {
   id: string;
@@ -261,7 +263,12 @@ const SandboxForm: React.FC<SandboxFormProps> = ({ initial, browserHelp, profile
  * capability is a promise that the image has what the tool needs, so the box says what that is.
  */
 export const SandboxCataloguePanel: React.FC<{ team?: { id: string; name: string } }> = ({ team }) => {
-  const { isAdmin } = useAccess();
+  const access = useAccess();
+  const { isAdmin } = access;
+  const { teams } = useTeams();
+  const [, moveDialog, chooseOwner] = useMoveConfirmation();
+  // A sandbox type belongs to a team or the organization.
+  const moveOptions = creatableOwners(access, teams, false);
   const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | "new" | null>(null);
@@ -314,6 +321,23 @@ export const SandboxCataloguePanel: React.FC<{ team?: { id: string; name: string
     return true;
   };
 
+  const move = async (box: Sandbox) => {
+    const from: OwnerKey = box.team_id ? `team:${box.team_id}` : "org";
+    const to = await chooseOwner(box.name, from, moveOptions, { kind: "sandbox", id: box.id });
+    if (!to) return;
+    setError(null);
+    const res = await fetch(`/v1/sandboxes/${encodeURIComponent(box.id)}/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(ownerFields(to)),
+    });
+    if (!res.ok) {
+      const detail = (await res.json().catch(() => ({}))).detail;
+      setError(typeof detail === "string" ? detail : typeof detail?.reason === "string" ? detail.reason : "The sandbox type was not moved.");
+    }
+    await load();
+  };
+
   if (!catalogue) return <p className="text-xs text-neutral-500">Loading sandboxes…</p>;
   const browserHelp = catalogue.capabilities.browser ?? "";
   const entries = catalogue.sandboxes.filter((box) => (team ? box.team_id === team.id : !box.team_id));
@@ -336,6 +360,7 @@ export const SandboxCataloguePanel: React.FC<{ team?: { id: string; name: string
         </Button>
       </div>
 
+      {moveDialog}
       {error && (
         <p role="alert" className="text-xs text-rose-600 dark:text-rose-400">
           {error}
@@ -415,6 +440,11 @@ export const SandboxCataloguePanel: React.FC<{ team?: { id: string; name: string
                   <Pencil className="w-3.5 h-3.5" />
                   Edit
                 </Button>
+                {!box.is_default && moveOptions.length > 1 && (
+                  <Button size="sm" variant="ghost" data-testid="sandbox-move" onClick={() => void move(box)}>
+                    Move…
+                  </Button>
+                )}
                 {!box.is_default && (
                   <>
                     {/* The organization's default is the organization's: a team's entry is never it. */}

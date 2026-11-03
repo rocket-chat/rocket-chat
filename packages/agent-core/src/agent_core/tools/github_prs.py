@@ -207,7 +207,11 @@ async def _reviewers(access: GithubAccess, slug: str, number: int, f: dict[str, 
 
 
 async def _comment(access: GithubAccess, slug: str, number: int, f: dict[str, Any]) -> str:
-    text = _required(f, "body")
+    return await post_comment(access, slug, number, _required(f, "body"))
+
+
+async def post_comment(access: GithubAccess, slug: str, number: int, text: str) -> str:
+    """Comment on an issue or pull request (the platform's own posts use it too)."""
     made = await request(
         access, "POST", f"/repos/{slug}/issues/{number}/comments", body={"body": text}
     )
@@ -220,28 +224,44 @@ MAX_REVIEW_COMMENTS = 50
 
 
 async def _review(access: GithubAccess, slug: str, number: int, f: dict[str, Any]) -> str:
-    event = REVIEW_EVENTS.get(str(f.get("event") or "comment"))
-    if event is None:
+    return await submit_review(
+        access,
+        slug,
+        number,
+        event=str(f.get("event") or "comment"),
+        body=str(f.get("body") or ""),
+        comments=list(f.get("review_comments") or []),
+    )
+
+
+async def submit_review(
+    access: GithubAccess,
+    slug: str,
+    number: int,
+    *,
+    event: str,
+    body: str,
+    comments: list[dict[str, Any]],
+) -> str:
+    """Submit one review with its inline comments (the platform's own posts use it too)."""
+    verdict = REVIEW_EVENTS.get(event or "comment")
+    if verdict is None:
         raise GithubError("The review event is one of: comment, request_changes, approve.")
-    comments = [
+    inline = [
         {
             "path": str(c["path"]),
             "line": int(c["line"]),
             "side": str(c.get("side") or "RIGHT"),
             "body": str(c["body"])[:4000],
         }
-        for c in (f.get("review_comments") or [])[:MAX_REVIEW_COMMENTS]
+        for c in comments[:MAX_REVIEW_COMMENTS]
     ]
-    body: dict[str, Any] = {"event": event, "body": f.get("body") or ""}
-    if comments:
-        body["comments"] = comments
-    await request(access, "POST", f"/repos/{slug}/pulls/{number}/reviews", body=body)
-    inline = (
-        f" with {len(comments)} inline comment{'s' if len(comments) != 1 else ''}"
-        if comments
-        else ""
-    )
-    return f"Submitted a {event.lower().replace('_', ' ')} review on #{number}{inline}"
+    review: dict[str, Any] = {"event": verdict, "body": body}
+    if inline:
+        review["comments"] = inline
+    await request(access, "POST", f"/repos/{slug}/pulls/{number}/reviews", body=review)
+    count = f" with {len(inline)} inline comment{'s' if len(inline) != 1 else ''}" if inline else ""
+    return f"Submitted a {verdict.lower().replace('_', ' ')} review on #{number}{count}"
 
 
 async def _reply(access: GithubAccess, slug: str, number: int, f: dict[str, Any]) -> str:

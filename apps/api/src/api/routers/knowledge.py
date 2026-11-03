@@ -33,6 +33,7 @@ from api.services.git_credentials import resolve_session_git_credentials
 from api.services.git_gateway_env import github_api_url_of
 from api.services.knowledge import (
     IngestionLimitError,
+    _kb_fallback_store,
     ingest_document,
     max_document_chars,
     query_knowledge_base,
@@ -67,21 +68,6 @@ router = APIRouter(prefix="/v1", tags=["Sessions & Telemetry"])
 # ============================================================================
 # KNOWLEDGE BASES (PGVECTOR) REST API
 # ============================================================================
-
-# In-memory fallback cache when PostgreSQL DatabaseManager is absent in tests
-_kb_fallback_store: dict[str, dict[str, Any]] = {
-    "kb-architecture": {
-        "id": "kb-architecture",
-        "name": "Platform Architecture & RFCs",
-        "description": "Architectural guidelines, ReAct state diagrams, and RFC contracts",
-        "vector_index": "pgvector_hnsw_platform_docs",
-        "embedding_model": "text-embedding-3-small (1536d)",
-        "hybrid_search": True,
-        "documents": {},
-        "created_at": int(time.time()),
-        "updated_at": int(time.time()),
-    }
-}
 
 
 async def _embedding_model(db_mgr: Any, org_id: str) -> str:

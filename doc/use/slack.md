@@ -83,8 +83,8 @@ Administrators can also turn on **auto link by verified e-mail** (see [Administr
 
 An administrator binds the connected workspace to the organization under **Settings → Slack → Workspace**. Unbound workspaces use `SLACK_DEFAULT_ORG_ID` (see the [configuration reference](/install/configuration)).
 
-## Scheduled missions
+## Missions
 
-A [scheduled mission](/use/automation) can post each run's result to a Slack channel, with a link to the session.
+A [mission](/use/automation#missions) can deliver each run's result to a Slack channel through one of your bots, with a link to the session.
 
 ---

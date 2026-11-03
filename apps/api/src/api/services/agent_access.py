@@ -24,7 +24,7 @@ from sqlalchemy import delete, select, update
 
 from api.auth.api_tokens import GUEST_ID_PREFIX
 from api.auth.roles import GUEST, can_write, canonical_role, is_admin, roles_for
-from api.db.models import AgentGrantModel, ScheduledMissionModel
+from api.db.models import AgentGrantModel, MissionModel
 from api.services.memberships import role_in
 from api.services.session_templates import SessionTemplate
 from api.services.teams import teams_of
@@ -294,35 +294,57 @@ async def blocked_for(
     return blocked
 
 
-async def pause_missions_without_access(db_mgr: Any, org_id: str, agent: UsableAgent) -> list[str]:
-    """Pause the scheduled missions whose owner may no longer use ``agent``; their ids.
+async def mission_principal(
+    db_mgr: Any, org_id: str, scope: str, user_id: str | None, team_id: str | None, run_as: str
+) -> Principal:
+    """Who a mission's runs are, for an access check: a personal mission's owner, else its
+    service member (a plain member of the organization and of the mission's team)."""
+    if scope == "user" and user_id:
+        return await principal_for(db_mgr, org_id, user_id)
+    teams = ((team_id, "member"),) if team_id else ()
+    return Principal(run_as or "mission", tuple(roles_for("member")), teams)
 
-    A mission runs as its owner, so one whose owner lost the agent would fail at every run;
-    it is disabled with a status saying why, until its owner picks another agent.
+
+async def pause_missions_without_access(db_mgr: Any, org_id: str, agent: UsableAgent) -> list[str]:
+    """Pause the missions whose runs may no longer use ``agent``; their ids.
+
+    A run of a mission that lost its agent would fail every time; it is disabled with a status
+    saying why, until someone who manages it picks another agent.
     """
     if not _has_database(db_mgr):
         return []
     async with db_mgr.session(tenant_org_id=org_id) as session:
         missions = (
             await session.execute(
-                select(ScheduledMissionModel.id, ScheduledMissionModel.user_id).where(
-                    ScheduledMissionModel.org_id == org_id,
-                    ScheduledMissionModel.agent_id == str(agent.id),
-                    ScheduledMissionModel.enabled.is_(True),
+                select(
+                    MissionModel.id,
+                    MissionModel.scope,
+                    MissionModel.user_id,
+                    MissionModel.team_id,
+                    MissionModel.run_as,
+                ).where(
+                    MissionModel.org_id == org_id,
+                    MissionModel.agent_id == str(agent.id),
+                    MissionModel.enabled.is_(True),
                 )
             )
         ).all()
     blocked = [
         mission_id
-        for mission_id, owner in missions
-        if not await may_use(db_mgr, org_id, await principal_for(db_mgr, org_id, owner), agent)
+        for mission_id, scope, owner, team, run_as in missions
+        if not await may_use(
+            db_mgr,
+            org_id,
+            await mission_principal(db_mgr, org_id, scope, owner, team, run_as),
+            agent,
+        )
     ]
     if blocked:
         async with db_mgr.session(tenant_org_id=org_id) as session:
             await session.execute(
-                update(ScheduledMissionModel)
-                .where(ScheduledMissionModel.id.in_(blocked))
-                .values(enabled=False, last_status=MISSION_BLOCKED_STATUS)
+                update(MissionModel)
+                .where(MissionModel.id.in_(blocked))
+                .values(enabled=False, next_run_at=None, last_status=MISSION_BLOCKED_STATUS)
             )
     return blocked
 
