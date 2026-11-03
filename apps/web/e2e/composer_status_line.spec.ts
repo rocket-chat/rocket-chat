@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { openConversation } from "./support/conversation";
 
 test.describe("Composer", () => {
   test("shows one status line and names the permission modes plainly", async ({ page }) => {
@@ -46,7 +47,7 @@ test.describe("Composer", () => {
       await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ path: path ?? ".", entries, truncated: false }) });
     });
 
-    await page.goto(`/chat/${sessionId}`);
+    await openConversation(page, sessionId);
     const input = page.getByTestId("instruction-input");
     await input.click();
     await input.pressSequentially("look at @a");

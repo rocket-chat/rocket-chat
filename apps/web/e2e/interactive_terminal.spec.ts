@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { openConversation } from "./support/conversation";
 
 // The PTY plumbing (auth, ACL, shell I/O, resize, audit) is covered by tests/security/test_terminal.py
 // against the real WebSocket handler. This proves the cockpit's Shell tab speaks that protocol:
@@ -7,7 +8,7 @@ async function openShellTab(page: import("@playwright/test").Page) {
   // The shell belongs to a real session (a draft has no sandbox), so create one first.
   const created = await page.request.post("/v1/sessions", { data: { title: "terminal e2e" } });
   const { session_id: sessionId } = await created.json();
-  await page.goto(`/chat/${sessionId}`);
+  await openConversation(page, sessionId);
   await page.getByTitle(/Expand Right Panel|Show Panel/i).click();
   await page.getByTestId("terminal-tab-shell").click();
 }
