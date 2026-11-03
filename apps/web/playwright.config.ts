@@ -19,7 +19,9 @@ export default defineConfig({
     baseURL: process.env.PLAYWRIGHT_TEST_BASE_URL || "http://localhost:3000",
     actionTimeout: 15_000,
     navigationTimeout: 45_000,
-    trace: "on-first-retry",
+    // With no retries, "on-first-retry" never records: keep the trace of a failure instead, so a
+    // failure seen only in CI can be read (it is uploaded with test-results/).
+    trace: "retain-on-failure",
   },
   projects: [
     {
