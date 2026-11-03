@@ -179,16 +179,18 @@ LARGE_WINDOW = {"tokens": 300_000, "limit": 1_048_576, "model_limit": 1_048_576}
 
 
 @pytest.mark.parametrize("recorded_model", ["gemini/gemini-2.5-pro", None])
-async def test_a_turn_on_a_larger_window_is_not_read_against_the_selections(
+def test_a_turn_on_a_larger_window_is_not_read_against_the_selections(
     client: TestClient, recorded_model: str | None
 ) -> None:
     """The turn ran on its agent's 1M-token model; the session selects none (the default has
     200k). Measured against the default's window the figure read as over 100%."""
     created = client.post("/v1/sessions", json={"title": "Big window"}, headers=OWNER)
     session_id = created.json()["session_id"]
-    await _record(app.state.usage_ledger, session_id)
     snapshot = {**LARGE_WINDOW, **({"model": recorded_model} if recorded_model else {})}
-    await _with_snapshot(session_id, snapshot)
+    # On the app's own event loop: a PostgreSQL store is bound to it.
+    assert client.portal is not None
+    client.portal.call(_record, app.state.usage_ledger, session_id)
+    client.portal.call(_with_snapshot, session_id, snapshot)
 
     context = client.get(f"/v1/sessions/{session_id}/usage", headers=OWNER).json()["active_context"]
 
