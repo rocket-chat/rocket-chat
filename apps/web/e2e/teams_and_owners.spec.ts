@@ -12,7 +12,11 @@ async function expectNoBlockingViolations(page: Page): Promise<void> {
 async function createTeam(page: Page, prefix: string): Promise<{ id: string; name: string }> {
   const name = `${prefix} ${Date.now().toString(36)}`;
   await page.goto("/settings/members");
+  // The server renders a lone Teams tab with no handler yet; the administrator's Members tab
+  // appears once the page is hydrated and knows the role, so a click before it is lost.
+  await expect(page.getByTestId("members-tab-members")).toBeVisible();
   await page.getByTestId("members-tab-teams").click();
+  await expect(page.getByTestId("members-tab-teams")).toHaveAttribute("aria-selected", "true");
   await page.getByTestId("team-new-name").fill(name);
   const created = page.waitForResponse((res) => res.url().endsWith("/v1/teams") && res.request().method() === "POST");
   await page.getByTestId("team-create").click();
