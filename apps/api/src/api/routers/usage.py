@@ -69,28 +69,30 @@ async def get_user_usage_telemetry(request: Request) -> dict[str, Any]:
     }
 
 
+def _measured_call(call: dict[str, Any]) -> tuple[int, str | None] | None:
+    prompt_toks = call.get("prompt_tokens")
+    if not isinstance(prompt_toks, int) or prompt_toks <= 0:
+        return None
+    model = call.get("model")
+    return prompt_toks, model if isinstance(model, str) and model else None
+
+
 def _extract_tokens_from_traces_or_events(
     traces: Sequence[Any] | None,
     events: Sequence[Any] | None,
-) -> int:
-    if traces:
-        for trace in reversed(traces):
-            calls = (trace.tokens or {}).get("calls", []) if isinstance(trace.tokens, dict) else []
-            for call in reversed(calls):
-                if call.get("role") == "react":
-                    prompt_toks = call.get("prompt_tokens")
-                    if isinstance(prompt_toks, int) and prompt_toks > 0:
-                        return prompt_toks
-            if calls:
-                prompt_toks = calls[-1].get("prompt_tokens")
-                if isinstance(prompt_toks, int) and prompt_toks > 0:
-                    return prompt_toks
-    if events:
-        for ev in reversed(events):
-            prompt_toks = ev.get("prompt_tokens")
-            if isinstance(prompt_toks, int) and prompt_toks > 0:
-                return prompt_toks
-    return 0
+) -> tuple[int, str | None]:
+    """The prompt size of the latest agent step, and the model that call ran on."""
+    for trace in reversed(traces or []):
+        calls = (trace.tokens or {}).get("calls", []) if isinstance(trace.tokens, dict) else []
+        for call in reversed(calls):
+            if call.get("role") == "react" and (found := _measured_call(call)):
+                return found
+        if calls and (found := _measured_call(calls[-1])):
+            return found
+    for ev in reversed(events or []):
+        if found := _measured_call(ev):
+            return found
+    return 0, None
 
 
 async def _resolve_session_active_context(
@@ -101,11 +103,14 @@ async def _resolve_session_active_context(
     traces: Sequence[Any] | None = None,
     events: Sequence[Any] | None = None,
 ) -> ActiveContextModel:
-    saved_raw = record.metadata.get("active_context") if isinstance(record.metadata, dict) else None
+    metadata = record.metadata if isinstance(record.metadata, dict) else {}
+    saved_raw = metadata.get("active_context")
     saved_model = saved_raw.get("model") if isinstance(saved_raw, dict) else None
-    # The turn may run on another model than the session's selection (its agent's, a route's):
-    # measured against the selection's window, a figure from a larger one reads as over 100%.
-    model_id = saved_model or getattr(record, "selected_model", None) or default_model()
+    counted, measured_model = _extract_tokens_from_traces_or_events(traces, events)
+    # The figure is the prompt of one call: its window is that call's model's (an agent's or a
+    # route's may differ from the selection). The selection lives in the metadata; a record
+    # has no such attribute, so every session was read against the platform default's window.
+    model_id = saved_model or measured_model or metadata.get("selected_model") or default_model()
     ctx_mgr = getattr(request.app.state, "context_manager", None) or ContextManager()
     models_cfg: dict[str, Any] = {}
     if db_mgr is not None:
@@ -133,7 +138,6 @@ async def _resolve_session_active_context(
         except Exception:
             pass
 
-    counted = _extract_tokens_from_traces_or_events(traces, events)
     return ActiveContextModel(
         tokens=counted,
         limit=effective_limit,
