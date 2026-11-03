@@ -25,9 +25,14 @@ test.describe("Missions", () => {
     await expect(page).toHaveURL(/\/missions/);
 
     await page.getByTestId("mission-new").click();
-    await page.getByTestId("mission-preset").selectOption("pr-review");
-    await expect(page.getByTestId("mission-trigger-source-0")).toHaveValue("github_pr");
-    await expect(page.getByTestId("mission-mode")).toHaveValue("review");
+    await page.getByTestId("mission-preset-pr-review").click();
+    await expect(page.getByTestId("mission-trigger-0-source-github_pr")).toHaveAttribute("aria-checked", "true");
+    // Each step of the flow says what it holds without being opened.
+    await expect(page.getByTestId("mission-step-agent-summary")).toContainText("reviews the pull request");
+    await expect(page.getByTestId("mission-step-deliver-summary")).toContainText("A pull request review");
+    await page.getByTestId("mission-step-agent").click();
+    await expect(page.getByTestId("mission-mode-review")).toHaveAttribute("aria-checked", "true");
+    await page.getByTestId("mission-step-deliver").click();
     await expect(page.getByTestId("mission-delivery-github_review")).toBeVisible();
     await page.getByTestId("mission-owner").selectOption(`team:${team.id}`);
     const name = `PR review ${Date.now().toString(36)}`;
@@ -71,15 +76,20 @@ test.describe("Missions", () => {
     await page.getByTestId("mission-new").click();
     const name = `Alert triage ${Date.now().toString(36)}`;
     await page.getByTestId("mission-name").fill(name);
-    await page.getByTestId("mission-trigger-source-0").selectOption("webhook");
-    await page.getByTestId("mission-delivery-add").selectOption("webhook");
+    await page.getByTestId("mission-trigger-0-source-webhook").click();
+    await page.getByTestId("mission-step-deliver").click();
+    await page.getByTestId("mission-delivery-toggle-webhook").click();
     await page.getByTestId("mission-webhook-url").fill("https://hooks.example.com/rocket");
+    // The result schema is an advanced setting.
+    await expect(page.getByTestId("mission-webhook-schema")).toHaveCount(0);
+    await page.getByTestId("mission-advanced").click();
     await page.getByTestId("mission-webhook-schema").fill("{ not json");
     await page.getByTestId("mission-save").click();
     await expect(page.getByTestId("mission-error")).toHaveText("The schema is not valid JSON.");
     // Saving checks a webhook delivery's URL resolves to a public address: no network here, so
     // the run reports to its session only.
-    await page.getByRole("button", { name: "Remove A webhook (JSON)" }).click();
+    await page.getByTestId("mission-delivery-toggle-webhook").click();
+    await expect(page.getByTestId("mission-delivery-webhook")).toHaveCount(0);
 
     const created = page.waitForResponse((res) => res.url().endsWith("/v1/missions") && res.request().method() === "POST");
     await page.getByTestId("mission-save").click();
@@ -119,7 +129,8 @@ test.describe("Missions", () => {
     );
     await page.goto("/missions");
     await page.getByTestId("mission-new").click();
-    await page.getByTestId("mission-delivery-add").selectOption("chat");
+    await page.getByTestId("mission-step-deliver").click();
+    await page.getByTestId("mission-delivery-toggle-chat").click();
     const delivery = page.getByTestId("mission-delivery-chat");
     await expect(delivery.getByLabel("Slack bot").locator("option")).toHaveText(["The organization's bot", "Rocket E2E bot"]);
   });
@@ -128,9 +139,45 @@ test.describe("Missions", () => {
     await page.goto("/missions");
     await page.getByTestId("mission-new").click();
     await page.getByTestId("mission-name").fill("Review without a pull request");
-    await page.getByTestId("mission-mode").selectOption("review");
+    await page.getByTestId("mission-step-agent").click();
+    await page.getByTestId("mission-mode-review").click();
     await page.getByTestId("mission-save").click();
     await expect(page.getByTestId("mission-error")).toContainText("needs a pull request");
+  });
+
+  test("a schedule is picked in plain words and saved as its cron", async ({ page }) => {
+    await page.goto("/missions");
+    await page.getByTestId("mission-new").click();
+    const name = `Weekly digest ${Date.now().toString(36)}`;
+    await page.getByTestId("mission-name").fill(name);
+    await page.getByTestId("mission-trigger-frequency-0").selectOption("weekly");
+    await page.getByTestId("mission-trigger-time-0").fill("07:30");
+    await expect(page.getByTestId("mission-step-when-summary")).toHaveText("Every Monday at 07:30 (UTC)");
+    // Advanced shows the cron the picker wrote.
+    await page.getByTestId("mission-advanced").click();
+    await expect(page.getByTestId("mission-trigger-cron-0")).toHaveValue("30 7 * * 1");
+
+    const created = page.waitForResponse((res) => res.url().endsWith("/v1/missions") && res.request().method() === "POST");
+    await page.getByTestId("mission-save").click();
+    const body = (await (await created).json()) as { triggers: { schedule: string }[] };
+    expect(body.triggers[0].schedule).toBe("30 7 * * 1");
+    await expect(page.getByTestId("mission-item").filter({ hasText: name })).toBeVisible();
+  });
+
+  test("a mission with a custom schedule opens in Advanced, hiding nothing", async ({ page, request }) => {
+    const name = `Odd hours ${Date.now().toString(36)}`;
+    const res = await request.post(`${API}/v1/missions`, {
+      data: { name, instructions: "Check the queue", triggers: [{ source: "schedule", schedule: "15 */6 * * *" }] },
+    });
+    expect(res.status()).toBe(200);
+    await page.goto("/missions");
+    await page.getByTestId("mission-item").filter({ hasText: name }).getByRole("button", { name: `Edit ${name}` }).click();
+    await expect(page.getByTestId("mission-advanced")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("mission-trigger-cron-0")).toHaveValue("15 */6 * * *");
+
+    // Simple says the schedule is a custom one instead of offering a picker that cannot show it.
+    await page.getByTestId("mission-simple").click();
+    await expect(page.getByTestId("mission-trigger-custom-0")).toContainText("15 */6 * * *");
   });
 
   test("an unsafe schedule is explained, not silently accepted", async ({ request }) => {
@@ -146,7 +193,10 @@ test.describe("Missions", () => {
       await page.emulateMedia({ colorScheme: scheme });
       await page.goto("/missions");
       await page.getByTestId("mission-new").click();
-      await page.getByTestId("mission-delivery-add").selectOption("chat");
+      await page.getByTestId("mission-advanced").click();
+      await expectNoBlockingViolations(page);
+      await page.getByTestId("mission-step-deliver").click();
+      await page.getByTestId("mission-delivery-toggle-chat").click();
       await expectNoBlockingViolations(page);
     });
   }

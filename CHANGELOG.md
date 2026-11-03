@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `web`: The mission editor is a flow of four steps (When → Agent → Task → Deliver), each summarised in plain words and opened by choosing it, with triggers, modes, presets and deliveries picked as tiles and a schedule picked in plain words. A **Simple** view shows what most missions need; **Advanced** adds cron, filters, supervision, model, sandbox, branch and result schema, and a mission using any of them opens there.
 - `api`: Ownership of agents, skills, MCP servers and knowledge bases goes through one contract (`specifications/interfaces/ownership.py`) and one helper (`services/ownership.py`). An administrator's edit of a member's personal agent, skill or MCP server keeps the member as owner (it used to make the object the administrator's).
 
 - `api`: `/v1/admin/triggers` and `POST /v1/triggers/{id}/run` are gone: what starts work on its own is a mission (`/v1/missions`, `POST /v1/missions/{id}/run`). Settings → Automation keeps the outbound webhooks. The old mission fields (`prompt`, `cron`, `timezone`, `slack_channel`) are a mission's `instructions`, a `schedule` trigger and a `chat` delivery; mission templates became presets.
