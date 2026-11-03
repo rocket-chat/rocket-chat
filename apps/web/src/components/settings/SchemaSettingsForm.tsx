@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, ChevronRight, Lock, RotateCcw } from "lucide-react";
 import { InheritanceBadge, type Provenance } from "./InheritanceBadge";
 import { useSettingsFormHandle } from "./SettingsSave";
@@ -163,12 +163,16 @@ export function SchemaSettingsForm({
     return only.map((key) => visible.find((f) => f.key === key)).filter((f): f is FieldSchema => !!f);
   }, [schema, mode, exclude, only, initial, teamKeys]);
 
+  // Loads overlap (the effect runs twice in development, a save reloads): only the latest one
+  // is applied, or an earlier reply arriving later overwrites what was typed since.
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
+    const isLatest = () => seq === loadSeq.current;
     try {
       const schemaRes = await fetch("/v1/settings-schema");
       if (!schemaRes.ok) throw new Error(`schema HTTP ${schemaRes.status}`);
       const allFields: FieldSchema[] = (await schemaRes.json()).domains[domain] ?? [];
-      setSchema(allFields);
 
       const byKey = Object.fromEntries(allFields.map((f) => [f.key, f]));
       let source: FieldValues;
@@ -182,6 +186,7 @@ export function SchemaSettingsForm({
           effective: FieldValues;
           provenance: Record<string, Provenance>;
         };
+        if (!isLatest()) return;
         // The team's own value where it set one, else what its agents' turns get today.
         source = { ...(data.effective ?? {}), ...(data.config ?? {}) };
         setTeamConfig(data.config ?? {});
@@ -192,6 +197,7 @@ export function SchemaSettingsForm({
         const res = await fetch(`/v1/admin/settings/${domain}`);
         if (!res.ok) throw new Error(`settings HTTP ${res.status}`);
         const data = await res.json();
+        if (!isLatest()) return;
         source = { ...(data.instance ?? {}), ...data.config };
         setLockedKeys(data.locked_keys ?? []);
         setInitialLocked(data.locked_keys ?? []);
@@ -201,6 +207,7 @@ export function SchemaSettingsForm({
         const res = await fetch(`/v1/settings/${domain}`);
         if (!res.ok) throw new Error(`settings HTTP ${res.status}`);
         const data = await res.json();
+        if (!isLatest()) return;
         source = data.effective;
         setOrgLocked(data.locked_keys ?? []);
         setProvenance(data.provenance ?? {});
@@ -209,10 +216,12 @@ export function SchemaSettingsForm({
       for (const [key, raw] of Object.entries(source)) {
         if (byKey[key]) editable[key] = toEditable(byKey[key], raw);
       }
+      setSchema(allFields);
       setValues(editable);
       setInitial(editable);
       setLoaded(true);
     } catch (err) {
+      if (!isLatest()) return;
       setBanner({ kind: "error", text: err instanceof Error ? err.message : "Failed to load settings" });
     }
   }, [domain, mode, isAdmin, teamBase]);
