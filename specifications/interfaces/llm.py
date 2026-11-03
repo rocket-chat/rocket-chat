@@ -234,6 +234,9 @@ class ModelSpec:
     # Where ``context_window`` came from: 'override' (registered), 'provider' (the provider's own
     # catalogue), 'litellm', 'family' or 'default' (nothing known: a guess consumers may ignore).
     context_source: str = "default"
+    # Whether the model reads image input, from the provider's catalogue, else LiteLLM's table;
+    # None when neither says.
+    accepts_images: bool | None = None
 
 
 @runtime_checkable

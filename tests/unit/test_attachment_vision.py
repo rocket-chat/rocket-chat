@@ -8,6 +8,11 @@ block it cannot parse.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
+import pytest
+from api.services.model_catalogue import ModelCatalogue
+from api.services.provider_catalogue import parse_openrouter, provider_catalogue
 from llm_gateway.gateway import LiteLLMGateway
 
 from specifications.interfaces.llm import AttachmentRef, ChatMessage
@@ -38,14 +43,63 @@ def _log_ref() -> AttachmentRef:
 
 
 def test_supports_vision_truth_table() -> None:
-    assert LiteLLMGateway._supports_vision("openrouter/anthropic/claude-3.7-sonnet")
-    assert LiteLLMGateway._supports_vision("openrouter/openai/gpt-4o")
-    assert LiteLLMGateway._supports_vision("gemini/gemini-2.5-pro")
+    """Without the platform's catalogue (a gateway used on its own): LiteLLM, then the markers."""
+    gateway = LiteLLMGateway()
+    assert gateway._supports_vision("openrouter/anthropic/claude-3.7-sonnet")
+    assert gateway._supports_vision("openrouter/openai/gpt-4o")
+    assert gateway._supports_vision("gemini/gemini-2.5-pro")
     # Releases after the marker list was written: LiteLLM's model map knows they see images.
-    assert LiteLLMGateway._supports_vision("openrouter/anthropic/claude-sonnet-5.5")
-    assert LiteLLMGateway._supports_vision("anthropic/claude-opus-5-5")
-    assert not LiteLLMGateway._supports_vision("openrouter/deepseek/deepseek-v4.1-flash")
-    assert not LiteLLMGateway._supports_vision("")
+    assert gateway._supports_vision("openrouter/anthropic/claude-sonnet-5.5")
+    assert gateway._supports_vision("anthropic/claude-opus-5-5")
+    assert not gateway._supports_vision("")
+
+
+@pytest.fixture
+def openrouter_listing() -> Iterator[None]:
+    """The provider's own listing, as fetched: one model reads images, one does not."""
+    saved = dict(provider_catalogue._models)
+    provider_catalogue.load(
+        parse_openrouter(
+            {
+                "data": [
+                    {
+                        "id": "deepseek/deepseek-v4.1-flash",
+                        "context_length": 1_048_576,
+                        "architecture": {"input_modalities": ["text", "image"]},
+                    },
+                    {
+                        "id": "acme/text-only-1",
+                        "context_length": 131_072,
+                        "architecture": {"input_modalities": ["text"]},
+                    },
+                ]
+            }
+        )
+    )
+    yield
+    provider_catalogue._models = saved
+
+
+def _formatted_blocks(model: str) -> list[dict[str, object]]:
+    gateway = LiteLLMGateway()
+    gateway.model_catalogue = ModelCatalogue()
+    message = ChatMessage(role="user", content="Look at this", attachments=[_image_ref()])
+    blocks = gateway._format_request_messages([message], model)[0]["content"]
+    assert isinstance(blocks, list)
+    return blocks
+
+
+def test_a_model_the_provider_says_reads_images_gets_them(openrouter_listing: None) -> None:
+    """LiteLLM's table does not list DeepSeek V4.1 Flash, so its images were withheld although
+    OpenRouter serves it with image input."""
+    blocks = _formatted_blocks("openrouter/deepseek/deepseek-v4.1-flash")
+    assert [b["type"] for b in blocks].count("image_url") == 1
+
+
+def test_a_model_the_provider_says_is_text_only_gets_the_notice(openrouter_listing: None) -> None:
+    blocks = _formatted_blocks("openrouter/acme/text-only-1")
+    assert all(b["type"] != "image_url" for b in blocks)
+    assert "cannot process image input" in " ".join(str(b.get("text", "")) for b in blocks)
 
 
 def test_vision_model_emits_image_url_block() -> None:
@@ -69,9 +123,7 @@ def test_non_vision_model_degrades_explicitly() -> None:
     gateway = LiteLLMGateway()
     message = ChatMessage(role="user", content="Read this", attachments=[_image_ref()])
 
-    formatted = gateway._format_request_messages(
-        [message], "openrouter/deepseek/deepseek-v4.1-flash"
-    )
+    formatted = gateway._format_request_messages([message], "openrouter/acme/text-only-1")
 
     blocks = formatted[0]["content"]
     assert all(block["type"] != "image_url" for block in blocks)
@@ -84,9 +136,7 @@ def test_text_attachment_is_an_inlined_block() -> None:
     gateway = LiteLLMGateway()
     message = ChatMessage(role="user", content="Summarise this", attachments=[_log_ref()])
 
-    formatted = gateway._format_request_messages(
-        [message], "openrouter/deepseek/deepseek-v4.1-flash"
-    )
+    formatted = gateway._format_request_messages([message], "openrouter/acme/text-only-1")
 
     blocks = formatted[0]["content"]
     inlined = " ".join(block.get("text", "") for block in blocks)
