@@ -12,7 +12,10 @@ test("a file the agent wrote is listed in the changes panel", async ({ page }) =
   await expect(page).toHaveURL(/\/chat\/session_.+/, { timeout: 15000 });
   await expect(page.getByText(/Stub answer/).first()).toBeVisible({ timeout: 20000 });
 
-  await page.getByRole("button", { name: /Expand Right Panel/ }).click();
+  // The changes panel opens on its own when the write arrives live, not when the page joined
+  // after it (the snapshot has it). The diff precedes the answer, so this is settled by now.
+  const toggle = page.getByTestId("right-panel-toggle");
+  if ((await toggle.getAttribute("aria-pressed")) !== "true") await toggle.click();
   await page.getByTestId("tab-changes").click();
 
   await expect(page.getByText("notes/written_by_agent.md").first()).toBeVisible({ timeout: 15000 });
