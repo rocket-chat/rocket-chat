@@ -11,6 +11,7 @@ import {
   formatCount,
   formatDuration,
   formatUsd,
+  modelLabels,
   type UsageTotals,
 } from "../lib/session-usage";
 import { Badge } from "./ui/Badge";
@@ -87,6 +88,7 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
 
   if (!usage || usage.totals.calls === 0) return null;
   const { totals } = usage;
+  const modelNames = modelLabels(usage.models.map((m) => m.model));
   const contextFillPct =
     contextTokens != null && contextLimit != null && contextLimit > 0
       ? Math.min(100, Math.round((contextTokens / contextLimit) * 100))
@@ -252,7 +254,7 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
                   {usage.models.map((model) => (
                     <li key={model.model} className="flex items-center justify-between gap-3">
                       <span className="min-w-0 truncate font-mono text-neutral-600 dark:text-neutral-300" title={model.model}>
-                        {model.model.split("/").slice(-2).join("/")}
+                        {modelNames.get(model.model) ?? model.model}
                       </span>
                       <span className="shrink-0 font-mono text-foreground">
                         {formatUsd(model.cost_usd)} · {model.calls} calls

@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { routeSessionSocket } from "./support/session-socket";
 
 test.describe("Provider credentials and spend limits", () => {
   test.describe.configure({ mode: "serial" });
@@ -74,5 +75,27 @@ test.describe("Provider credentials and spend limits", () => {
 
     await row.getByRole("button", { name: /Delete the limit/ }).click();
     await expect(row).toHaveCount(0);
+  });
+
+  test("what is left this month follows a running turn's spend", async ({ page, request }) => {
+    const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Spend live" } });
+    const sessionId: string = (await created.json()).session_id;
+    let remaining = 10;
+    await page.route(`**/v1/sessions/${sessionId}/spend`, (route) => {
+      const body = { tightest: { label: "Monthly", mode: "block", remaining, amount: 10, resets_at: null, period: "month" } };
+      remaining -= 1;
+      return route.fulfill({ json: body });
+    });
+    const socket = await routeSessionSocket(page, sessionId);
+
+    await page.goto(`/chat/${sessionId}`);
+    await socket.ready;
+    const chip = page.getByTestId("spend-limit-chip");
+    await expect(chip).toBeVisible();
+    // A turn starting is read at once; the figure must then keep moving while it runs.
+    socket.emit("status_changed", { status: "running" });
+    await expect(chip).toContainText("$9.00 left");
+    await expect(chip).toContainText("$8.00 left", { timeout: 20_000 });
+    await expect(chip).toContainText("left this month");
   });
 });

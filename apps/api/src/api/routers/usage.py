@@ -101,7 +101,11 @@ async def _resolve_session_active_context(
     traces: Sequence[Any] | None = None,
     events: Sequence[Any] | None = None,
 ) -> ActiveContextModel:
-    model_id = getattr(record, "selected_model", None) or default_model()
+    saved_raw = record.metadata.get("active_context") if isinstance(record.metadata, dict) else None
+    saved_model = saved_raw.get("model") if isinstance(saved_raw, dict) else None
+    # The turn may run on another model than the session's selection (its agent's, a route's):
+    # measured against the selection's window, a figure from a larger one reads as over 100%.
+    model_id = saved_model or getattr(record, "selected_model", None) or default_model()
     ctx_mgr = getattr(request.app.state, "context_manager", None) or ContextManager()
     models_cfg: dict[str, Any] = {}
     if db_mgr is not None:
@@ -119,10 +123,12 @@ async def _resolve_session_active_context(
         int(models_cfg.get("context_compact_percent") or 0) / 100 or ctx_mgr.tier3_threshold_ratio
     )
 
-    if isinstance(record.metadata, dict) and "active_context" in record.metadata:
+    if isinstance(saved_raw, dict):
         try:
-            saved = ActiveContextModel.model_validate(record.metadata["active_context"])
-            if saved.tokens <= effective_limit or not (traces or events):
+            saved = ActiveContextModel.model_validate(saved_raw)
+            # A snapshot from before the model was recorded is bounded by the limit saved with it.
+            bound = effective_limit if saved_model else saved.limit
+            if saved.tokens <= bound or not (traces or events):
                 return saved
         except Exception:
             pass

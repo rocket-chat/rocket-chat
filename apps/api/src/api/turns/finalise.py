@@ -49,6 +49,7 @@ async def _extract_turn_context_stats(
         tokens_count = mgr.count_tokens(model_id, history)
 
     return {
+        "context_model": model_id,
         "context_tokens": tokens_count,
         "context_limit": effective_limit,
         "context_model_limit": limit_info.tokens,
@@ -117,6 +118,8 @@ async def record_answer(ctx: TurnContext) -> str:
         if not isinstance(record.metadata, dict):
             record.metadata = {}
         record.metadata["active_context"] = {
+            # The model the turn ran on: its window, not the session's selection, bounds the figure.
+            "model": ctx_stats["context_model"],
             "tokens": ctx_stats["context_tokens"],
             "limit": ctx_stats["context_limit"],
             "model_limit": ctx_stats["context_model_limit"],
