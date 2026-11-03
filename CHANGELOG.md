@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api`: `/v1/admin/triggers` and `POST /v1/triggers/{id}/run` are gone: what starts work on its own is a mission (`/v1/missions`, `POST /v1/missions/{id}/run`). Settings → Automation keeps the outbound webhooks. The old mission fields (`prompt`, `cron`, `timezone`, `slack_channel`) are a mission's `instructions`, a `schedule` trigger and a `chat` delivery; mission templates became presets.
 
 ### Fixed
+- `slack`: A message with a file (an image, a log) sent to a bot was ignored: Slack sends it as a `file_share` message, which was dropped with system messages, so neither the file nor the words with it reached the agent.
+- `llm-gateway`: Images were withheld from models that can see them when the model was newer than a fixed list (every Claude after the 4 family, the default model included). Whether a model accepts images now comes from LiteLLM's model map, with the list as a fallback.
 - `api`: A session's context gauge could read over 100% (and its token figure wrong) between turns when the turn ran on another model than the session's selection, such as its agent's larger-window model: the figure was checked against the selection's window. The figure saved at the end of a turn now records its model and is read against that model's window.
 - `web`: The "left this month" spend chip now follows a running turn's spend instead of changing only when the turn starts or ends.
 - `web`: The session's cost by model names the provider when the same model was used through two (for example Claude through OpenRouter and from Anthropic).

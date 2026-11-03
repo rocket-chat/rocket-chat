@@ -161,6 +161,35 @@ async def test_a_direct_message_is_answered(bolt: BoltStack) -> None:
     assert "Fixed it." in json.dumps(bolt.client.sent("chat.postMessage"))
 
 
+def _direct_message(**fields: Any) -> dict[str, Any]:
+    body = payload("event_message_im")
+    body["event"] = {**body["event"], **fields}
+    return body
+
+
+@pytest.mark.asyncio
+async def test_a_direct_message_with_an_image_is_answered(bolt: BoltStack) -> None:
+    """Slack sends a message carrying a file as ``file_share``; it used to be dropped as a
+    system message, so the person's image (and their words with it) never reached the agent."""
+    image = {
+        "id": "F1",
+        "name": "screenshot.png",
+        "mimetype": "image/png",
+        "size": 2048,
+        "url_private": "https://files.slack.com/files-pri/T1-F1/screenshot.png",
+    }
+    await bolt.dispatch(_direct_message(subtype="file_share", files=[image], text="what is this?"))
+    await bolt.settle()
+    assert "Fixed it." in json.dumps(bolt.client.sent("chat.postMessage"))
+
+
+@pytest.mark.asyncio
+async def test_other_system_messages_are_still_ignored(bolt: BoltStack) -> None:
+    await bolt.dispatch(_direct_message(subtype="channel_join", text="<@U1> has joined"))
+    await bolt.settle()
+    assert bolt.client.calls == []
+
+
 @pytest.mark.asyncio
 async def test_messages_from_bots_are_ignored(bolt: BoltStack) -> None:
     await bolt.dispatch(payload("event_message_from_bot"))

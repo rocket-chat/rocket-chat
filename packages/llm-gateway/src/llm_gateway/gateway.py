@@ -215,6 +215,13 @@ class LiteLLMGateway(LLMGatewayProtocol):
     @staticmethod
     def _supports_vision(model: str) -> bool:
         """Whether ``model`` accepts ``image_url`` content blocks."""
+        # LiteLLM's model map knows each release (a marker list missed every Claude after
+        # ``claude-4``); the markers still cover a model it does not list.
+        try:
+            if litellm.supports_vision(model=model):
+                return True
+        except Exception:  # an unknown provider prefix: fall back to the markers
+            logger.debug("LiteLLM has no vision flag for %s", model)
         normalized = (model or "").lower()
         return any(marker in normalized for marker in _VISION_MODEL_MARKERS)
 

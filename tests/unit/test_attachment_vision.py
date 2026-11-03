@@ -41,6 +41,9 @@ def test_supports_vision_truth_table() -> None:
     assert LiteLLMGateway._supports_vision("openrouter/anthropic/claude-3.7-sonnet")
     assert LiteLLMGateway._supports_vision("openrouter/openai/gpt-4o")
     assert LiteLLMGateway._supports_vision("gemini/gemini-2.5-pro")
+    # Releases after the marker list was written: LiteLLM's model map knows they see images.
+    assert LiteLLMGateway._supports_vision("openrouter/anthropic/claude-sonnet-5.5")
+    assert LiteLLMGateway._supports_vision("anthropic/claude-opus-5-5")
     assert not LiteLLMGateway._supports_vision("openrouter/deepseek/deepseek-v4.1-flash")
     assert not LiteLLMGateway._supports_vision("")
 

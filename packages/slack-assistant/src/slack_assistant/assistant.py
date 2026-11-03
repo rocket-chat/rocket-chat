@@ -457,8 +457,9 @@ class SlackAssistant(
             if subtype == "message_deleted":
                 await self._on_message_deleted(event)
                 return
-            # Ignore messages from bots or system subtypes to avoid loops
-            if event.get("bot_id") or subtype:
+            # Ignore messages from bots or system subtypes to avoid loops. A person's message
+            # with a file (an image, a log) arrives as ``file_share``: it is theirs to answer.
+            if event.get("bot_id") or (subtype and subtype != "file_share"):
                 return
 
             if event.get("channel_type") == "im":
