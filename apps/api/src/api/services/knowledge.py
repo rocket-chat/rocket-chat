@@ -6,6 +6,7 @@ import logging
 import math
 import os
 import re
+import time
 import uuid
 from collections.abc import Sequence
 from typing import Any
@@ -18,6 +19,21 @@ from api.services.ownership import visible_clause
 from specifications.interfaces.ownership import Viewer
 
 logger = logging.getLogger(__name__)
+
+# Knowledge bases without a database (development and tests); the routes and moves read it.
+_kb_fallback_store: dict[str, dict[str, Any]] = {
+    "kb-architecture": {
+        "id": "kb-architecture",
+        "name": "Platform Architecture & RFCs",
+        "description": "Architectural guidelines, ReAct state diagrams, and RFC contracts",
+        "vector_index": "pgvector_hnsw_platform_docs",
+        "embedding_model": "text-embedding-3-small (1536d)",
+        "hybrid_search": True,
+        "documents": {},
+        "created_at": int(time.time()),
+        "updated_at": int(time.time()),
+    }
+}
 
 
 # Fallback deterministic pseudo-embedding generator (1536d) when external embedding API key is absent

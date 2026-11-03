@@ -1,37 +1,16 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("Automation: triggers and outbound webhooks", () => {
+test.describe("Automation: outbound webhooks", () => {
   test.describe.configure({ mode: "serial" });
 
-  test("an administrator adds a review trigger, turns it off and deletes it", async ({ page }) => {
+  test("the Automation page keeps only outbound webhooks and points to Missions", async ({ page }) => {
     await page.goto("/settings/org/automation");
-    const panel = page.getByTestId("triggers-panel");
-    await expect(panel.getByRole("heading", { name: "Triggers" })).toBeVisible();
-
-    const name = `E2E review ${Date.now()}`;
-    await panel.getByTestId("trigger-name").fill(name);
-    await panel.getByTestId("trigger-source").selectOption("github_pr");
-    await panel.getByTestId("trigger-mode").selectOption("review");
-    await panel.getByLabel("Repositories").fill("acme/*");
-    await panel.getByTestId("trigger-add").click();
-
-    const row = panel.getByTestId("triggers-list").locator("li").filter({ hasText: name });
-    await expect(row).toContainText("review");
-    await expect(row).toContainText("acme/*");
-
-    await row.getByLabel(`Enable ${name}`).uncheck();
-    await expect(row.getByLabel(`Enable ${name}`)).not.toBeChecked();
-    await row.getByRole("button", { name: `Delete ${name}` }).click();
-    await expect(row).toHaveCount(0);
-  });
-
-  test("review mode is only offered for pull request sources", async ({ page }) => {
-    await page.goto("/settings/org/automation");
-    const panel = page.getByTestId("triggers-panel");
-    await panel.getByTestId("trigger-source").selectOption("github_issue_label");
-    await expect(panel.getByTestId("trigger-mode")).toHaveCount(0);
-    await panel.getByTestId("trigger-source").selectOption("gitlab_mr");
-    await expect(panel.getByTestId("trigger-mode")).toBeVisible();
+    await expect(page.getByTestId("triggers-panel")).toHaveCount(0);
+    await expect(page.getByTestId("webhooks-panel")).toBeVisible();
+    const note = page.getByTestId("automation-missions-note");
+    await expect(note).toContainText("is now a mission");
+    await note.getByRole("link", { name: "Open Missions" }).click();
+    await expect(page).toHaveURL(/\/missions$/);
   });
 
   test("a webhook that is not https is refused with the reason", async ({ page }) => {

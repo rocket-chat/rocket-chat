@@ -355,6 +355,26 @@ class SandboxCatalogue:
             updated.is_default = True
         return updated
 
+    async def move(self, org_id: str, entry_id: str, team_id: str | None) -> SandboxEntry:
+        """Give the type to a team (``team_id``) or the organization (``None``)."""
+        entries = await self.entries(org_id, teams=None)
+        entry = next((e for e in entries if e.id == entry_id), None)
+        if entry is None:
+            raise CatalogueError("No such sandbox.")
+        if entry.is_default and team_id:
+            raise CatalogueError(
+                "Make another sandbox the default before giving this one to a team."
+            )
+        if entry.team_id is None and team_id and sum(1 for e in entries if e.team_id is None) == 1:
+            raise CatalogueError("An organization needs at least one sandbox of its own.")
+        if self._db is None and entry.team_id:
+            note_memory_owned(org_id, entry.team_id, "sandboxes", -1)
+        if self._db is None and team_id:
+            note_memory_owned(org_id, team_id, "sandboxes", 1)
+        entry.team_id = team_id
+        await self._write(entry)
+        return entry
+
     async def make_default(self, org_id: str, entry_id: str) -> None:
         for entry in await self.entries(org_id):
             wanted = entry.id == entry_id

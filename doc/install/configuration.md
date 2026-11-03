@@ -174,7 +174,7 @@ Command (stdio) MCP servers run in their own pod or container, the `mcp-runner` 
 | `GITHUB_APP_ALLOW_UNMAPPED_INSTALLATIONS` | bool | `false` | Legacy single-organization mode: mint App tokens for an installation no organization has mapped. Leave off when organizations share the platform. |
 | `GITHUB_APP_PRIVATE_KEY` | string | `None` | RSA private key PEM for the GitHub App. |
 | `GITHUB_WEBHOOK_SECRET` | string | `None` | HMAC SHA-256 secret configured in GitHub App settings to verify webhook payloads. |
-| `GITHUB_TRIGGER_LABEL` | string | `ai-fix` | The issue label of the default triggers of an organization that has configured none (Settings > Organization > Automation). |
+| `GITHUB_TRIGGER_LABEL` | string | `ai-fix` | The issue label of the built-in mission of an organization that has no mission on GitHub events (see Missions). |
 | `GITLAB_URL` | string | `https://gitlab.com` | The GitLab the platform works with (gitlab.com or self-hosted): repositories on it are cloned through the git gateway, published and given merge requests. |
 | `GITLAB_WEBHOOK_SECRET` | string | `None` | The secret token of GitLab webhooks (`POST /v1/webhooks/gitlab?org=<organization id>`). Without it every GitLab webhook is refused. |
 | `GITLAB_TOKEN` | string | `None` | A deployment token used for GitLab repositories when the member added none of their own (Settings > Git & version control). |

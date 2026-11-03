@@ -1,14 +1,16 @@
-"""Triggers, webhook deliveries and outbound webhooks are each organization's own, under forced
-Row-Level Security."""
+"""Missions, their runs and deliveries, webhook deliveries and outbound webhooks are each
+organization's own, under forced Row-Level Security."""
 
 from __future__ import annotations
 
 import time
 
 from api.db.models import (
+    MissionDeliveryModel,
+    MissionModel,
+    MissionRunModel,
     OutboundDeliveryModel,
     OutboundWebhookModel,
-    TriggerModel,
     WebhookDeliveryModel,
 )
 from api.db.session import DatabaseSessionManager
@@ -24,11 +26,27 @@ from tests.support.rls import (
 )
 
 
-def _trigger(org: str) -> TriggerModel:
+def _mission(org: str, mission_id: str | None = None) -> MissionModel:
     now = int(time.time())
-    return TriggerModel(
-        id=new_id("trg"), org_id=org, name="t", source="github_pr", filter={},
+    return MissionModel(
+        id=mission_id or new_id("mission"), org_id=org, scope="org", name="m", instructions="",
+        triggers=[{"source": "github_pr"}], deliveries=[{"kind": "session"}], secrets={},
         created_at=now, updated_at=now,
+    )  # fmt: skip
+
+
+def _run(org: str, mission_id: str, run_id: str | None = None) -> MissionRunModel:
+    return MissionRunModel(
+        id=run_id or new_id("run"), org_id=org, mission_id=mission_id, session_id="s",
+        source="api", item={}, deliveries=[], started_at=int(time.time()),
+    )  # fmt: skip
+
+
+def _mission_delivery(org: str, run_id: str) -> MissionDeliveryModel:
+    now = int(time.time())
+    return MissionDeliveryModel(
+        id=new_id("mdl"), org_id=org, run_id=run_id, kind="chat", payload={},
+        next_attempt_at=now, created_at=now,
     )  # fmt: skip
 
 
@@ -63,8 +81,13 @@ async def test_automation_tables_are_isolated_in_postgres() -> None:
         await add_row(db, org_a, _webhook(org_a, webhook_id))
         await assert_isolated(db, OutboundWebhookModel, org_a, org_b)
         await assert_cannot_write_into(db, org_b, _webhook(org_a))
+        mission_id, run_id = new_id("mission"), new_id("run")
+        await add_row(db, org_a, _mission(org_a, mission_id))
+        await add_row(db, org_a, _run(org_a, mission_id, run_id))
         for make, model in (
-            (_trigger, TriggerModel),
+            (_mission, MissionModel),
+            (lambda org: _run(org, mission_id), MissionRunModel),
+            (lambda org: _mission_delivery(org, run_id), MissionDeliveryModel),
             (_delivery, WebhookDeliveryModel),
             (lambda org: _outbound(org, webhook_id), OutboundDeliveryModel),
         ):

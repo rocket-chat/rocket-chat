@@ -330,6 +330,18 @@ async def get_persona(
     return persona
 
 
+async def listed_agents(db_mgr: Any, org_id: str, viewer: Viewer) -> list[AgentPersonaModel]:
+    """The agents ``viewer`` sees, whatever their grants (bookkeeping: what depends on what)."""
+    return await _listed_personas(db_mgr, org_id, viewer)
+
+
+async def find_agent(
+    db_mgr: Any, org_id: str, viewer: Viewer, persona_id: str | None
+) -> AgentPersonaModel | None:
+    """The agent ``persona_id`` if ``viewer`` sees it, whatever its grants."""
+    return await _find_persona(db_mgr, org_id, viewer, persona_id)
+
+
 async def agent_owner(db_mgr: Any, org_id: str, persona_id: str | None) -> Owner | None:
     """The owner of an organization or team agent, whoever asks (platform bookkeeping: which
     team's limits count it). A member's personal agent is nobody else's business: ``None``."""

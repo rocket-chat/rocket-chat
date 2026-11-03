@@ -1142,6 +1142,24 @@
         "title": "ChangesResponse",
         "type": "object"
       },
+      "ChatBotView": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ChatBotView",
+        "type": "object"
+      },
       "CheckItem": {
         "properties": {
           "conclusion": {
@@ -1806,6 +1824,230 @@
         "title": "CreatedInvite",
         "type": "object"
       },
+      "CreatedMissionView": {
+        "properties": {
+          "agent_id": {
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "auto_fix": {
+            "title": "Auto Fix",
+            "type": "boolean"
+          },
+          "can_manage": {
+            "default": false,
+            "title": "Can Manage",
+            "type": "boolean"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "integer"
+          },
+          "deliveries": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryBody"
+            },
+            "title": "Deliveries",
+            "type": "array"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "git_branch": {
+            "title": "Git Branch",
+            "type": "string"
+          },
+          "git_repo": {
+            "title": "Git Repo",
+            "type": "string"
+          },
+          "has_inbound_secret": {
+            "default": false,
+            "title": "Has Inbound Secret",
+            "type": "boolean"
+          },
+          "has_webhook_secret": {
+            "default": false,
+            "title": "Has Webhook Secret",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "inbound_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbound Path"
+          },
+          "inbound_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbound Secret"
+          },
+          "instructions": {
+            "title": "Instructions",
+            "type": "string"
+          },
+          "last_run_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run At"
+          },
+          "last_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Session Id"
+          },
+          "last_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Status"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "model_tier": {
+            "title": "Model Tier",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "permission_mode": {
+            "title": "Permission Mode",
+            "type": "string"
+          },
+          "run_as": {
+            "title": "Run As",
+            "type": "string"
+          },
+          "sandbox_type": {
+            "title": "Sandbox Type",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerBody"
+            },
+            "title": "Triggers",
+            "type": "array"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "integer"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          },
+          "webhook_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Secret"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "instructions",
+          "scope",
+          "user_id",
+          "team_id",
+          "triggers",
+          "deliveries",
+          "agent_id",
+          "permission_mode",
+          "model_tier",
+          "sandbox_type",
+          "mode",
+          "auto_fix",
+          "git_repo",
+          "git_branch",
+          "enabled",
+          "run_as",
+          "next_run_at",
+          "last_run_at",
+          "last_session_id",
+          "last_status",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CreatedMissionView",
+        "type": "object"
+      },
       "CreatedWebhookView": {
         "properties": {
           "description": {
@@ -2260,6 +2502,46 @@
           "duration_ms"
         ],
         "title": "CustomSkillTestResponse",
+        "type": "object"
+      },
+      "DeliveryBody": {
+        "properties": {
+          "bot_id": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Bot Id",
+            "type": "string"
+          },
+          "channel": {
+            "default": "",
+            "description": "Slack channel id (chat)",
+            "maxLength": 64,
+            "title": "Channel",
+            "type": "string"
+          },
+          "kind": {
+            "description": "session | chat | webhook | github_review | github_comment",
+            "title": "Kind",
+            "type": "string"
+          },
+          "output_schema": {
+            "additionalProperties": true,
+            "description": "JSON Schema the webhook's result follows",
+            "title": "Output Schema",
+            "type": "object"
+          },
+          "url": {
+            "default": "",
+            "description": "https URL (webhook)",
+            "maxLength": 2000,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "DeliveryBody",
         "type": "object"
       },
       "DevLoginRequest": {
@@ -4302,20 +4584,23 @@
       "MissionBody": {
         "properties": {
           "agent_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Id"
-          },
-          "cron": {
-            "description": "Five-field cron, e.g. '0 9 * * 1-5'",
-            "title": "Cron",
+            "default": "",
+            "maxLength": 64,
+            "title": "Agent Id",
             "type": "string"
+          },
+          "auto_fix": {
+            "default": false,
+            "title": "Auto Fix",
+            "type": "boolean"
+          },
+          "deliveries": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryBody"
+            },
+            "maxItems": 4,
+            "title": "Deliveries",
+            "type": "array"
           },
           "enabled": {
             "default": true,
@@ -4323,27 +4608,34 @@
             "type": "boolean"
           },
           "git_branch": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Git Branch"
+            "default": "",
+            "maxLength": 255,
+            "title": "Git Branch",
+            "type": "string"
           },
           "git_repo": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "owner/name or https GitHub URL",
-            "title": "Git Repo"
+            "default": "",
+            "maxLength": 255,
+            "title": "Git Repo",
+            "type": "string"
+          },
+          "instructions": {
+            "default": "",
+            "maxLength": 20000,
+            "title": "Instructions",
+            "type": "string"
+          },
+          "mode": {
+            "default": "work",
+            "maxLength": 16,
+            "title": "Mode",
+            "type": "string"
+          },
+          "model_tier": {
+            "default": "",
+            "maxLength": 16,
+            "title": "Model Tier",
+            "type": "string"
           },
           "name": {
             "maxLength": 120,
@@ -4352,183 +4644,127 @@
             "type": "string"
           },
           "permission_mode": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Permission Mode"
-          },
-          "prompt": {
-            "maxLength": 20000,
-            "minLength": 1,
-            "title": "Prompt",
+            "default": "",
+            "maxLength": 16,
+            "title": "Permission Mode",
             "type": "string"
           },
-          "slack_channel": {
-            "anyOf": [
-              {
-                "pattern": "^[CGD][A-Z0-9]{2,31}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Slack channel id (C..., G... or D...) to post each run's result to",
-            "title": "Slack Channel"
-          },
-          "timezone": {
-            "default": "UTC",
+          "sandbox_type": {
+            "default": "",
             "maxLength": 64,
-            "title": "Timezone",
+            "title": "Sandbox Type",
             "type": "string"
+          },
+          "scope": {
+            "default": "user",
+            "description": "Owner: 'user', 'team' or 'org'",
+            "title": "Scope",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerBody"
+            },
+            "maxItems": 3,
+            "title": "Triggers",
+            "type": "array"
           }
         },
         "required": [
-          "name",
-          "prompt",
-          "cron"
+          "name"
         ],
         "title": "MissionBody",
         "type": "object"
       },
       "MissionPatch": {
         "properties": {
-          "cron": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Cron"
-          },
           "enabled": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Enabled"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "maxLength": 120,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "permission_mode": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Permission Mode"
-          },
-          "prompt": {
-            "anyOf": [
-              {
-                "maxLength": 20000,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Prompt"
-          },
-          "slack_channel": {
-            "anyOf": [
-              {
-                "pattern": "^[CGD][A-Z0-9]{2,31}$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Slack Channel"
-          },
-          "timezone": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Timezone"
+            "title": "Enabled",
+            "type": "boolean"
           }
         },
+        "required": [
+          "enabled"
+        ],
         "title": "MissionPatch",
         "type": "object"
       },
-      "MissionResponse": {
+      "MissionView": {
         "properties": {
           "agent_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Agent Id"
-          },
-          "cron": {
-            "title": "Cron",
+            "title": "Agent Id",
             "type": "string"
+          },
+          "auto_fix": {
+            "title": "Auto Fix",
+            "type": "boolean"
+          },
+          "can_manage": {
+            "default": false,
+            "title": "Can Manage",
+            "type": "boolean"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "integer"
+          },
+          "deliveries": {
+            "items": {
+              "$ref": "#/components/schemas/DeliveryBody"
+            },
+            "title": "Deliveries",
+            "type": "array"
           },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
           },
           "git_branch": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Git Branch"
+            "title": "Git Branch",
+            "type": "string"
           },
           "git_repo": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Git Repo"
+            "title": "Git Repo",
+            "type": "string"
+          },
+          "has_inbound_secret": {
+            "default": false,
+            "title": "Has Inbound Secret",
+            "type": "boolean"
+          },
+          "has_webhook_secret": {
+            "default": false,
+            "title": "Has Webhook Secret",
+            "type": "boolean"
           },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "inbound_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inbound Path"
+          },
+          "instructions": {
+            "title": "Instructions",
             "type": "string"
           },
           "last_run_at": {
@@ -4564,6 +4800,14 @@
             ],
             "title": "Last Status"
           },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "model_tier": {
+            "title": "Model Tier",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -4580,97 +4824,82 @@
             "title": "Next Run At"
           },
           "permission_mode": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Permission Mode"
-          },
-          "prompt": {
-            "title": "Prompt",
-            "type": "string"
-          },
-          "slack_channel": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Slack Channel"
-          },
-          "timezone": {
-            "title": "Timezone",
-            "type": "string"
-          },
-          "user_id": {
-            "title": "User Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "user_id",
-          "name",
-          "prompt",
-          "cron",
-          "timezone",
-          "agent_id",
-          "git_repo",
-          "git_branch",
-          "permission_mode",
-          "slack_channel",
-          "enabled",
-          "next_run_at",
-          "last_run_at",
-          "last_session_id",
-          "last_status"
-        ],
-        "title": "MissionResponse",
-        "type": "object"
-      },
-      "MissionTemplateResponse": {
-        "properties": {
-          "cron": {
-            "title": "Cron",
-            "type": "string"
-          },
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "name": {
-            "title": "Name",
-            "type": "string"
-          },
-          "permission_mode": {
             "title": "Permission Mode",
             "type": "string"
           },
-          "prompt": {
-            "title": "Prompt",
+          "run_as": {
+            "title": "Run As",
             "type": "string"
+          },
+          "sandbox_type": {
+            "title": "Sandbox Type",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "triggers": {
+            "items": {
+              "$ref": "#/components/schemas/TriggerBody"
+            },
+            "title": "Triggers",
+            "type": "array"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "integer"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
           }
         },
         "required": [
           "id",
           "name",
-          "description",
-          "prompt",
-          "cron",
-          "permission_mode"
+          "instructions",
+          "scope",
+          "user_id",
+          "team_id",
+          "triggers",
+          "deliveries",
+          "agent_id",
+          "permission_mode",
+          "model_tier",
+          "sandbox_type",
+          "mode",
+          "auto_fix",
+          "git_repo",
+          "git_branch",
+          "enabled",
+          "run_as",
+          "next_run_at",
+          "last_run_at",
+          "last_session_id",
+          "last_status",
+          "created_at",
+          "updated_at"
         ],
-        "title": "MissionTemplateResponse",
+        "title": "MissionView",
         "type": "object"
       },
       "ModelUsage": {
@@ -4733,6 +4962,31 @@
           "model"
         ],
         "title": "ModelUsage",
+        "type": "object"
+      },
+      "MoveBody": {
+        "properties": {
+          "scope": {
+            "description": "The new owner: 'user', 'team' or 'org'",
+            "title": "Scope",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "title": "MoveBody",
         "type": "object"
       },
       "MyAccess": {
@@ -5135,6 +5389,70 @@
         "title": "PlatformKeyView",
         "type": "object"
       },
+      "PresetView": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mission": {
+            "$ref": "#/components/schemas/MissionBody"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "mission"
+        ],
+        "title": "PresetView",
+        "type": "object"
+      },
+      "PreviewBody": {
+        "properties": {
+          "id": {
+            "maxLength": 64,
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "agent | skill | mcp_server | knowledge_base | credential | sandbox | mission | template",
+            "title": "Kind",
+            "type": "string"
+          },
+          "scope": {
+            "description": "The new owner: 'user', 'team' or 'org'",
+            "title": "Scope",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          }
+        },
+        "required": [
+          "scope",
+          "kind",
+          "id"
+        ],
+        "title": "PreviewBody",
+        "type": "object"
+      },
       "PreviewLink": {
         "properties": {
           "expires_at": {
@@ -5173,6 +5491,70 @@
           "port"
         ],
         "title": "PreviewRequest",
+        "type": "object"
+      },
+      "PreviewView": {
+        "properties": {
+          "allowed": {
+            "title": "Allowed",
+            "type": "boolean"
+          },
+          "audience": {
+            "description": "Who would use it after the move",
+            "title": "Audience",
+            "type": "string"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ProblemView"
+            },
+            "title": "Problems",
+            "type": "array"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "audience",
+          "allowed"
+        ],
+        "title": "PreviewView",
+        "type": "object"
+      },
+      "ProblemView": {
+        "properties": {
+          "breaks": {
+            "title": "Breaks",
+            "type": "boolean"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "detail",
+          "breaks"
+        ],
+        "title": "ProblemView",
         "type": "object"
       },
       "ProcessList": {
@@ -5722,6 +6104,24 @@
         "title": "RotateCredentialRequest",
         "type": "object"
       },
+      "RotatedSecret": {
+        "properties": {
+          "secret": {
+            "title": "Secret",
+            "type": "string"
+          },
+          "which": {
+            "title": "Which",
+            "type": "string"
+          }
+        },
+        "required": [
+          "which",
+          "secret"
+        ],
+        "title": "RotatedSecret",
+        "type": "object"
+      },
       "RouterTryRequest": {
         "description": "Sample message to classify using the bot's router configuration.",
         "properties": {
@@ -5786,6 +6186,108 @@
           "latency_ms"
         ],
         "title": "RouterTryResponse",
+        "type": "object"
+      },
+      "RunBody": {
+        "properties": {
+          "text": {
+            "default": "",
+            "description": "What this run is about",
+            "maxLength": 8000,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "title": "RunBody",
+        "type": "object"
+      },
+      "RunResult": {
+        "properties": {
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "run_id": {
+            "default": "",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "session_id": {
+            "default": "",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "RunResult",
+        "type": "object"
+      },
+      "RunView": {
+        "properties": {
+          "deliveries": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Deliveries",
+            "type": "array"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "source",
+          "title",
+          "status",
+          "deliveries",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "RunView",
         "type": "object"
       },
       "SandboxBody": {
@@ -8635,9 +9137,20 @@
           },
           "scope": {
             "default": "user",
-            "pattern": "^(user|org)$",
+            "pattern": "^(user|team|org)$",
             "title": "Scope",
             "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
           }
         },
         "required": [
@@ -8724,6 +9237,17 @@
           "scope": {
             "title": "Scope",
             "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
           }
         },
         "required": [
@@ -9084,72 +9608,29 @@
       },
       "TriggerBody": {
         "properties": {
-          "agent_id": {
-            "default": "",
-            "maxLength": 64,
-            "title": "Agent Id",
-            "type": "string"
-          },
-          "auto_fix": {
-            "default": false,
-            "title": "Auto Fix",
-            "type": "boolean"
-          },
-          "enabled": {
-            "default": true,
-            "title": "Enabled",
-            "type": "boolean"
-          },
           "filter": {
             "$ref": "#/components/schemas/TriggerFilterBody"
           },
-          "instructions": {
-            "default": "",
-            "maxLength": 4000,
-            "title": "Instructions",
-            "type": "string"
-          },
-          "mode": {
-            "default": "work",
-            "title": "Mode",
-            "type": "string"
-          },
-          "model_tier": {
-            "default": "",
-            "title": "Model Tier",
-            "type": "string"
-          },
-          "name": {
-            "maxLength": 120,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          },
-          "permission_mode": {
-            "default": "",
-            "maxLength": 16,
-            "title": "Permission Mode",
-            "type": "string"
-          },
-          "sandbox_type": {
-            "default": "",
-            "maxLength": 64,
-            "title": "Sandbox Type",
-            "type": "string"
-          },
           "schedule": {
             "default": "",
+            "description": "Five-field cron (schedule)",
             "maxLength": 120,
             "title": "Schedule",
             "type": "string"
           },
           "source": {
+            "maxLength": 40,
             "title": "Source",
+            "type": "string"
+          },
+          "timezone": {
+            "default": "UTC",
+            "maxLength": 64,
+            "title": "Timezone",
             "type": "string"
           }
         },
         "required": [
-          "name",
           "source"
         ],
         "title": "TriggerBody",
@@ -9183,152 +9664,6 @@
           }
         },
         "title": "TriggerFilterBody",
-        "type": "object"
-      },
-      "TriggerList": {
-        "properties": {
-          "triggers": {
-            "items": {
-              "$ref": "#/components/schemas/TriggerView"
-            },
-            "title": "Triggers",
-            "type": "array"
-          }
-        },
-        "required": [
-          "triggers"
-        ],
-        "title": "TriggerList",
-        "type": "object"
-      },
-      "TriggerRunBody": {
-        "description": "What an ``api`` trigger works on: the task, and optionally where.",
-        "properties": {
-          "branch": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Branch",
-            "type": "string"
-          },
-          "idempotency_key": {
-            "default": "",
-            "maxLength": 128,
-            "title": "Idempotency Key",
-            "type": "string"
-          },
-          "prompt": {
-            "maxLength": 20000,
-            "minLength": 1,
-            "title": "Prompt",
-            "type": "string"
-          },
-          "repository": {
-            "default": "",
-            "maxLength": 200,
-            "title": "Repository",
-            "type": "string"
-          }
-        },
-        "required": [
-          "prompt"
-        ],
-        "title": "TriggerRunBody",
-        "type": "object"
-      },
-      "TriggerRunResult": {
-        "properties": {
-          "session_id": {
-            "default": "",
-            "title": "Session Id",
-            "type": "string"
-          },
-          "status": {
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "TriggerRunResult",
-        "type": "object"
-      },
-      "TriggerView": {
-        "properties": {
-          "agent_id": {
-            "default": "",
-            "maxLength": 64,
-            "title": "Agent Id",
-            "type": "string"
-          },
-          "auto_fix": {
-            "default": false,
-            "title": "Auto Fix",
-            "type": "boolean"
-          },
-          "enabled": {
-            "default": true,
-            "title": "Enabled",
-            "type": "boolean"
-          },
-          "filter": {
-            "$ref": "#/components/schemas/TriggerFilterBody"
-          },
-          "id": {
-            "title": "Id",
-            "type": "string"
-          },
-          "instructions": {
-            "default": "",
-            "maxLength": 4000,
-            "title": "Instructions",
-            "type": "string"
-          },
-          "mode": {
-            "default": "work",
-            "title": "Mode",
-            "type": "string"
-          },
-          "model_tier": {
-            "default": "",
-            "title": "Model Tier",
-            "type": "string"
-          },
-          "name": {
-            "maxLength": 120,
-            "minLength": 1,
-            "title": "Name",
-            "type": "string"
-          },
-          "permission_mode": {
-            "default": "",
-            "maxLength": 16,
-            "title": "Permission Mode",
-            "type": "string"
-          },
-          "sandbox_type": {
-            "default": "",
-            "maxLength": 64,
-            "title": "Sandbox Type",
-            "type": "string"
-          },
-          "schedule": {
-            "default": "",
-            "maxLength": 120,
-            "title": "Schedule",
-            "type": "string"
-          },
-          "source": {
-            "title": "Source",
-            "type": "string"
-          }
-        },
-        "required": [
-          "name",
-          "source",
-          "id"
-        ],
-        "title": "TriggerView",
         "type": "object"
       },
       "TurnMetricsModel": {
@@ -11012,7 +11347,7 @@
     },
     "/api/v1/webhooks/github": {
       "post": {
-        "description": "Signed GitHub webhooks: reports for the sessions that follow a pull request, and events\nfor the organization's triggers (issues, comments, pull requests, review comments, failed\nworkflow runs). Each delivery starts at most one session, whatever the number of replicas.",
+        "description": "Signed GitHub webhooks: reports for the sessions that follow a pull request, and events\nfor the organization's missions (issues, comments, pull requests, review comments, failed\nworkflow runs). Each delivery starts each mission's run once, whatever the number of\nreplicas.",
         "operationId": "github_webhook_endpoint_api_v1_webhooks_github_post",
         "parameters": [
           {
@@ -11096,7 +11431,7 @@
     },
     "/api/v1/webhooks/gitlab": {
       "post": {
-        "description": "GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,\npipelines and notes for the sessions that follow a merge request, and issues, merge\nrequests, notes and failed pipelines for the organization's ``gitlab_*`` triggers. The\norganization is ``?org=`` (as the operator connected the project), else the default.",
+        "description": "GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,\npipelines and notes for the sessions that follow a merge request, and issues, merge\nrequests, notes and failed pipelines for the missions on ``gitlab_*`` events. The\norganization is ``?org=`` (as the operator connected the project), else the default.",
         "operationId": "gitlab_webhook_endpoint_api_v1_webhooks_gitlab_post",
         "responses": {
           "200": {
@@ -11120,7 +11455,7 @@
     },
     "/api/v1/webhooks/jira": {
       "post": {
-        "description": "Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for ``jira_issue`` triggers.",
+        "description": "Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for missions on ``jira_issue`` events.",
         "operationId": "jira_webhook_endpoint_api_v1_webhooks_jira_post",
         "responses": {
           "200": {
@@ -11144,7 +11479,7 @@
     },
     "/api/v1/webhooks/linear": {
       "post": {
-        "description": "Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for ``linear_issue`` triggers.",
+        "description": "Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for missions on ``linear_issue`` events.",
         "operationId": "linear_webhook_endpoint_api_v1_webhooks_linear_post",
         "responses": {
           "200": {
@@ -12776,155 +13111,6 @@
         ]
       }
     },
-    "/v1/admin/triggers": {
-      "get": {
-        "description": "The organization's triggers (an organization without any uses the deployment's label).",
-        "operationId": "get_triggers_v1_admin_triggers_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TriggerList"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Triggers",
-        "tags": [
-          "Automation"
-        ]
-      },
-      "post": {
-        "description": "Add a trigger.",
-        "operationId": "create_trigger_v1_admin_triggers_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TriggerBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TriggerView"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Create Trigger",
-        "tags": [
-          "Automation"
-        ]
-      }
-    },
-    "/v1/admin/triggers/{trigger_id}": {
-      "delete": {
-        "description": "Delete a trigger.",
-        "operationId": "remove_trigger_v1_admin_triggers__trigger_id__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "trigger_id",
-            "required": true,
-            "schema": {
-              "title": "Trigger Id",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Remove Trigger",
-        "tags": [
-          "Automation"
-        ]
-      },
-      "put": {
-        "description": "Replace a trigger.",
-        "operationId": "update_trigger_v1_admin_triggers__trigger_id__put",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "trigger_id",
-            "required": true,
-            "schema": {
-              "title": "Trigger Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TriggerBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TriggerView"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Trigger",
-        "tags": [
-          "Automation"
-        ]
-      }
-    },
     "/v1/admin/users": {
       "get": {
         "description": "List the organization's members (admin/owner only).",
@@ -13840,6 +14026,59 @@
         "summary": "Start Provider Sign In",
         "tags": [
           "Credentials"
+        ]
+      }
+    },
+    "/v1/credentials/{credential_id}/move": {
+      "post": {
+        "description": "Give a provider key to another owner (managing both sides); refused (409, with what\nwould break) while an agent bound to it would lose it.",
+        "operationId": "move_credential_v1_credentials__credential_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "credential_id",
+            "required": true,
+            "schema": {
+              "title": "Credential Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CredentialView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Credential",
+        "tags": [
+          "Ownership"
         ]
       }
     },
@@ -14941,26 +15180,15 @@
     },
     "/v1/missions": {
       "get": {
+        "description": "The missions the caller may see: theirs, their teams' and the organization's.",
         "operationId": "list_missions_v1_missions_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "all",
-            "required": false,
-            "schema": {
-              "default": false,
-              "title": "All",
-              "type": "boolean"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/MissionResponse"
+                    "$ref": "#/components/schemas/MissionView"
                   },
                   "title": "Response List Missions V1 Missions Get",
                   "type": "array"
@@ -14968,16 +15196,6 @@
               }
             },
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
         "summary": "List Missions",
@@ -14986,6 +15204,7 @@
         ]
       },
       "post": {
+        "description": "Create a mission for the caller, one of their teams or the organization.",
         "operationId": "create_mission_v1_missions_post",
         "requestBody": {
           "content": {
@@ -15002,7 +15221,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MissionResponse"
+                  "$ref": "#/components/schemas/CreatedMissionView"
                 }
               }
             },
@@ -15025,19 +15244,19 @@
         ]
       }
     },
-    "/v1/missions/templates": {
+    "/v1/missions/chat-bots": {
       "get": {
-        "description": "Starting points for recurring maintenance missions (created disabled until switched on).",
-        "operationId": "list_mission_templates_v1_missions_templates_get",
+        "description": "The organization's enabled Slack bots a chat delivery may name (ids and names only).",
+        "operationId": "list_chat_bots_v1_missions_chat_bots_get",
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/MissionTemplateResponse"
+                    "$ref": "#/components/schemas/ChatBotView"
                   },
-                  "title": "Response List Mission Templates V1 Missions Templates Get",
+                  "title": "Response List Chat Bots V1 Missions Chat Bots Get",
                   "type": "array"
                 }
               }
@@ -15045,7 +15264,33 @@
             "description": "Successful Response"
           }
         },
-        "summary": "List Mission Templates",
+        "summary": "List Chat Bots",
+        "tags": [
+          "Missions"
+        ]
+      }
+    },
+    "/v1/missions/presets": {
+      "get": {
+        "description": "Starting points for usual missions (pull request review, CI fixes, digests, triage).",
+        "operationId": "list_presets_v1_missions_presets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PresetView"
+                  },
+                  "title": "Response List Presets V1 Missions Presets Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Presets",
         "tags": [
           "Missions"
         ]
@@ -15096,8 +15341,49 @@
           "Missions"
         ]
       },
+      "get": {
+        "operationId": "get_mission_v1_missions__mission_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mission_id",
+            "required": true,
+            "schema": {
+              "title": "Mission Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MissionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Mission",
+        "tags": [
+          "Missions"
+        ]
+      },
       "patch": {
-        "operationId": "update_mission_v1_missions__mission_id__patch",
+        "description": "Switch a mission on or off.",
+        "operationId": "toggle_mission_v1_missions__mission_id__patch",
         "parameters": [
           {
             "in": "path",
@@ -15124,7 +15410,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MissionResponse"
+                  "$ref": "#/components/schemas/MissionView"
                 }
               }
             },
@@ -15141,7 +15427,58 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Update Mission",
+        "summary": "Toggle Mission",
+        "tags": [
+          "Missions"
+        ]
+      },
+      "put": {
+        "description": "Replace a mission; naming another owner moves it (managing both sides).",
+        "operationId": "replace_mission_v1_missions__mission_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mission_id",
+            "required": true,
+            "schema": {
+              "title": "Mission Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MissionBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedMissionView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Replace Mission",
         "tags": [
           "Missions"
         ]
@@ -15149,7 +15486,7 @@
     },
     "/v1/missions/{mission_id}/run": {
       "post": {
-        "description": "Start a run immediately, without moving the schedule.",
+        "description": "Start a run now, without moving the schedule (``text``: what this run is about).",
         "operationId": "run_mission_now_v1_missions__mission_id__run_post",
         "parameters": [
           {
@@ -15162,16 +15499,22 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunBody"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Run Mission Now V1 Missions  Mission Id  Run Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/RunResult"
                 }
               }
             },
@@ -15189,6 +15532,105 @@
           }
         },
         "summary": "Run Mission Now",
+        "tags": [
+          "Missions"
+        ]
+      }
+    },
+    "/v1/missions/{mission_id}/runs": {
+      "get": {
+        "description": "The mission's latest runs, newest first, with how each delivery went.",
+        "operationId": "list_runs_v1_missions__mission_id__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mission_id",
+            "required": true,
+            "schema": {
+              "title": "Mission Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunView"
+                  },
+                  "title": "Response List Runs V1 Missions  Mission Id  Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Runs",
+        "tags": [
+          "Missions"
+        ]
+      }
+    },
+    "/v1/missions/{mission_id}/secrets/{which}": {
+      "post": {
+        "description": "Replace the inbound webhook's secret (``inbound``) or the webhook delivery's signing\nsecret (``webhook``); the new one is shown once.",
+        "operationId": "rotate_secret_v1_missions__mission_id__secrets__which__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "mission_id",
+            "required": true,
+            "schema": {
+              "title": "Mission Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "which",
+            "required": true,
+            "schema": {
+              "title": "Which",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotatedSecret"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rotate Secret",
         "tags": [
           "Missions"
         ]
@@ -15305,6 +15747,48 @@
         "summary": "Rename Organization",
         "tags": [
           "Organizations"
+        ]
+      }
+    },
+    "/v1/ownership/preview": {
+      "post": {
+        "description": "What moving an object to another owner would do (nothing is moved).",
+        "operationId": "preview_v1_ownership_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "Ownership"
         ]
       }
     },
@@ -15460,6 +15944,59 @@
         "summary": "List Sandboxes",
         "tags": [
           "Sandboxes"
+        ]
+      }
+    },
+    "/v1/sandboxes/{sandbox_id}/move": {
+      "post": {
+        "description": "Give a sandbox type to a team or the organization (managing both sides); refused (409,\nwith what would break) while an agent or mission outside the team starts in it.",
+        "operationId": "move_sandbox_v1_sandboxes__sandbox_id__move_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sandbox_id",
+            "required": true,
+            "schema": {
+              "title": "Sandbox Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Move Sandbox",
+        "tags": [
+          "Ownership"
         ]
       }
     },
@@ -21092,7 +21629,7 @@
     },
     "/v1/templates": {
       "get": {
-        "description": "The organization's templates and the caller's own; ``blocked`` marks those naming an\nagent the caller may no longer use.",
+        "description": "The organization's templates, the caller's teams' and their own; ``blocked`` marks those\nnaming an agent the caller may no longer use.",
         "operationId": "list_templates_v1_templates_get",
         "responses": {
           "200": {
@@ -21196,6 +21733,57 @@
           }
         },
         "summary": "Delete Template",
+        "tags": [
+          "Templates"
+        ]
+      },
+      "put": {
+        "description": "Replace a template; naming another owner moves it (managing both sides).",
+        "operationId": "replace_template_v1_templates__template_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TemplateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Replace Template",
         "tags": [
           "Templates"
         ]
@@ -21305,59 +21893,6 @@
         "summary": "Preview Tool Loading",
         "tags": [
           "Tools"
-        ]
-      }
-    },
-    "/v1/triggers/{trigger_id}/run": {
-      "post": {
-        "description": "Start a session from an ``api`` trigger, as the caller (an API token or a member). The\ntrigger's agent, mode, tier and sandbox type apply; ``idempotency_key`` starts it once.",
-        "operationId": "run_trigger_v1_triggers__trigger_id__run_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "trigger_id",
-            "required": true,
-            "schema": {
-              "title": "Trigger Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TriggerRunBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TriggerRunResult"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Run Trigger",
-        "tags": [
-          "Automation"
         ]
       }
     },
@@ -22040,7 +22575,7 @@
     },
     "/v1/webhooks/github": {
       "post": {
-        "description": "Signed GitHub webhooks: reports for the sessions that follow a pull request, and events\nfor the organization's triggers (issues, comments, pull requests, review comments, failed\nworkflow runs). Each delivery starts at most one session, whatever the number of replicas.",
+        "description": "Signed GitHub webhooks: reports for the sessions that follow a pull request, and events\nfor the organization's missions (issues, comments, pull requests, review comments, failed\nworkflow runs). Each delivery starts each mission's run once, whatever the number of\nreplicas.",
         "operationId": "github_webhook_endpoint_v1_webhooks_github_post",
         "parameters": [
           {
@@ -22124,7 +22659,7 @@
     },
     "/v1/webhooks/gitlab": {
       "post": {
-        "description": "GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,\npipelines and notes for the sessions that follow a merge request, and issues, merge\nrequests, notes and failed pipelines for the organization's ``gitlab_*`` triggers. The\norganization is ``?org=`` (as the operator connected the project), else the default.",
+        "description": "GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,\npipelines and notes for the sessions that follow a merge request, and issues, merge\nrequests, notes and failed pipelines for the missions on ``gitlab_*`` events. The\norganization is ``?org=`` (as the operator connected the project), else the default.",
         "operationId": "gitlab_webhook_endpoint_v1_webhooks_gitlab_post",
         "responses": {
           "200": {
@@ -22148,7 +22683,7 @@
     },
     "/v1/webhooks/jira": {
       "post": {
-        "description": "Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for ``jira_issue`` triggers.",
+        "description": "Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for missions on ``jira_issue`` events.",
         "operationId": "jira_webhook_endpoint_v1_webhooks_jira_post",
         "responses": {
           "200": {
@@ -22172,7 +22707,7 @@
     },
     "/v1/webhooks/linear": {
       "post": {
-        "description": "Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for ``linear_issue`` triggers.",
+        "description": "Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for missions on ``linear_issue`` events.",
         "operationId": "linear_webhook_endpoint_v1_webhooks_linear_post",
         "responses": {
           "200": {
@@ -22191,6 +22726,78 @@
         "summary": "Linear Webhook Endpoint",
         "tags": [
           "GitHub Webhooks"
+        ]
+      }
+    },
+    "/v1/webhooks/missions/{org_id}/{mission_id}": {
+      "post": {
+        "description": "A mission's own webhook: ``X-Rocket-Signature: sha256=<hex HMAC of \"<timestamp>.<body>\">``\nwith the mission's inbound secret and ``X-Rocket-Timestamp`` within five minutes. The JSON\nbody is what the run is about (capped).",
+        "operationId": "inbound_webhook_v1_webhooks_missions__org_id___mission_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "title": "Org Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "mission_id",
+            "required": true,
+            "schema": {
+              "title": "Mission Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Rocket-Timestamp",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-Rocket-Timestamp",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Rocket-Signature",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "X-Rocket-Signature",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Inbound Webhook",
+        "tags": [
+          "Missions"
         ]
       }
     }

@@ -449,6 +449,52 @@ test.describe("a team's defaults and sandboxes", () => {
   });
 });
 
+test.describe("move previews", () => {
+  test("moving a sandbox type an organization agent starts in to a team is refused, with the agent named", async ({ page }) => {
+    const team = await createTeam(page, "Move team");
+    const stamp = Date.now().toString(36);
+    const box = await page.request.post("/v1/admin/sandboxes", { data: { name: `Shared box ${stamp}`, image: "registry.example.com/box:1" } });
+    expect(box.status()).toBe(200);
+    const { id: boxId, name: boxName } = (await box.json()) as { id: string; name: string };
+    const agent = await page.request.post("/v1/agents", {
+      data: { id: `persona-mv-${stamp}`, name: `Boxed agent ${stamp}`, role_title: "S", system_prompt: "x", model: "", scope: "org", sandbox_id: boxId },
+    });
+    expect(agent.status()).toBe(200);
+
+    await page.goto("/settings/org/sandboxes?owner=org");
+    const row = page.getByTestId("sandbox-catalogue").getByTestId("sandbox-row").filter({ hasText: boxName });
+    await row.getByTestId("sandbox-move").click();
+    const dialog = page.getByTestId("confirm-dialog");
+    await expect(dialog.getByTestId("confirm-accept")).toBeDisabled();
+    await dialog.getByTestId("move-owner").selectOption(`team:${team.id}`);
+    await expect(dialog.getByTestId("move-problem-breaks")).toContainText(`Boxed agent ${stamp}`);
+    await expect(dialog.getByTestId("move-refused")).toContainText("would break");
+    await expect(dialog.getByTestId("confirm-accept")).toBeDisabled();
+    await dialog.getByTestId("confirm-cancel").click();
+    await page.request.delete(`/v1/agents/persona-mv-${stamp}`);
+    await page.request.delete(`/v1/admin/sandboxes/${boxId}`);
+  });
+
+  test("an organization key moves to a team after its preview", async ({ page }) => {
+    const team = await createTeam(page, "Key move team");
+    const key = await page.request.post("/v1/admin/credentials", {
+      data: { provider: "anthropic", api_key: "sk-ant-move-0123456789", label: `Movable key ${Date.now().toString(36)}` },
+    });
+    expect(key.status()).toBe(200);
+    const { id, label } = (await key.json()) as { id: string; label: string };
+    await page.goto("/settings/org/models?owner=org");
+    await page.getByTestId(`credential-move-${id}`).click();
+    const dialog = page.getByTestId("confirm-dialog");
+    await dialog.getByTestId("move-owner").selectOption(`team:${team.id}`);
+    await expect(dialog.getByTestId("move-audience")).toContainText(`the members of the team ${team.name}`);
+    const moved = page.waitForResponse((res) => res.url().endsWith(`/v1/credentials/${id}/move`));
+    await dialog.getByTestId("confirm-accept").click();
+    expect((await moved).status()).toBe(200);
+    await page.goto(`/settings/org/models?owner=team:${team.id}`);
+    await expect(page.getByTestId(`credentials-panel-team-${team.id}`).getByText(label)).toBeVisible();
+  });
+});
+
 for (const scheme of ["light", "dark"] as const) {
   test.describe(`teams pages, WCAG 2.1 AA (${scheme})`, () => {
     test.use({ colorScheme: scheme });

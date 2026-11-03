@@ -51,6 +51,7 @@ dev = [
     "types-pyyaml>=6.0",
     "types-croniter>=6.0",
     "asyncpg-stubs>=0.31.3",
+    "types-jsonschema>=4.23",
 ]
 
 [tool.pytest.ini_options]

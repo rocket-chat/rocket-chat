@@ -88,7 +88,7 @@ export const AgentsManager: React.FC = () => {
     }
     const copy = d.built_in && !access.isAdmin;
     const before = agents.find((a) => a.id === d.id);
-    if (!copy && before && !before.built_in && !(await confirmMove(d.name, ownerKey(before), ownerKey(d)))) return null;
+    if (!copy && before && !before.built_in && !(await confirmMove(d.name, ownerKey(before), ownerKey(d), { kind: "agent", id: d.id }))) return null;
     const body: AgentPersonaConfig = copy
       ? { ...toAgent(d), id: `persona-${Date.now().toString(36)}`, name: `${d.name} (copy)`, built_in: false, scope: "user", team_id: null }
       : toAgent(d);

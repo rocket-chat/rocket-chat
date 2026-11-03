@@ -111,7 +111,7 @@ export default function SkillsSettingsPage() {
       return;
     }
 
-    if (storedOwner && !(await confirmMove(title.trim(), storedOwner, formOwner))) return;
+    if (storedOwner && !(await confirmMove(title.trim(), storedOwner, formOwner, editingSkillId ? { kind: "skill", id: editingSkillId } : undefined))) return;
     try {
       const payload: Record<string, unknown> = {
         title: title.trim(),

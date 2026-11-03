@@ -306,6 +306,45 @@ class ModelCredentialStore:
             await self._clear_default(org_id, updated)
         return updated
 
+    async def move(
+        self,
+        org_id: str,
+        credential_id: str,
+        owner_kind: OwnerKind,
+        owner_user_id: str | None,
+        team_id: str | None,
+    ) -> StoredCredential | None:
+        """Give the key to another owner (bindings are kept; ``ownership_moves`` checks first
+        that none would break). A moved key stops being a default: its new owner chooses."""
+        now = int(time.time())
+        self._forget(org_id, credential_id)
+        user = owner_user_id if owner_kind == "member" else None
+        team = team_id if owner_kind == "team" else None
+        if self._db is None:
+            row = self._memory.get(credential_id)
+            if row is None or row.stored.org_id != org_id:
+                return None
+            if row.stored.team_id:
+                note_memory_owned(org_id, row.stored.team_id, "credentials", -1)
+            if team:
+                note_memory_owned(org_id, team, "credentials", 1)
+            row.stored = replace(
+                row.stored,
+                owner_kind=owner_kind,
+                owner_user_id=user,
+                team_id=team,
+                default_for_provider=False,
+                updated_at=now,
+            )
+            return row.stored
+        async with self._db.session(tenant_org_id=org_id) as session:
+            found = await session.get(ProviderCredentialModel, credential_id)
+            if found is None or found.org_id != org_id:
+                return None
+            found.owner_kind, found.owner_user_id, found.team_id = owner_kind, user, team
+            found.default_for_provider, found.updated_at = False, now
+            return _stored(found)
+
     async def rotate(
         self, org_id: str, credential_id: str, api_key: str
     ) -> StoredCredential | None:

@@ -36,6 +36,7 @@ from api.services.metrics import (
     build_backpressure,
     session_lock_capacity,
 )
+from api.services.mission_delivery import register_deliver_tool
 from api.services.model_catalogue import default_catalogue
 from api.services.model_credentials import CredentialResolver, ModelCredentialStore
 from api.services.redaction import RedactionPolicy, Redactor
@@ -111,6 +112,7 @@ async def assemble_core(app: FastAPI) -> CoreServices:
     app.state.sandbox_driver = sandbox_driver
     app.state.llm_gateway = llm_gateway
     app.state.tool_registry = tool_registry
+    register_deliver_tool(app, tool_registry)
     app.state.orchestrator = orchestrator
     app.state.event_bus = event_bus
     app.state.session_store = persistence.session_store

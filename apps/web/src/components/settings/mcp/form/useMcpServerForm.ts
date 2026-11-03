@@ -6,6 +6,7 @@ import type { McpRunnerStatus, McpServerConfig, McpToolSchema } from "../../../.
 import { MCP_PRESETS, type McpPreset } from "../presets";
 import { useMcpAuthFields } from "./useMcpAuthFields";
 import { ownerFields, ownerKey, type OwnerKey } from "../../../../lib/ownership";
+import type { MoveTarget } from "../../MoveDialog";
 
 export type Transport = McpServerConfig["transport"];
 export type SignIn = "automatic" | "needs_client";
@@ -33,7 +34,7 @@ export interface McpServerFormOptions {
   owner: OwnerKey;
   owners: OwnerKey[];
   /** Asked before an edit saves the server under another owner. */
-  confirmMove?: (name: string, from: OwnerKey, to: OwnerKey) => Promise<boolean>;
+  confirmMove?: (name: string, from: OwnerKey, to: OwnerKey, target?: MoveTarget) => Promise<boolean>;
   isAdmin: boolean;
   runner: McpRunnerStatus | null;
   editing?: McpServerConfig;
@@ -178,7 +179,7 @@ export function useMcpServerForm({ owner: initialOwner, owners, confirmMove, isA
     const problem = problemBeforeSave();
     setFormError(problem);
     if (problem) return;
-    if (editing && confirmMove && !(await confirmMove(serverName.trim(), ownerKey(editing), owner))) return;
+    if (editing && confirmMove && !(await confirmMove(serverName.trim(), ownerKey(editing), owner, { kind: "mcp_server", id: editing.id }))) return;
     // Opened now, while the click still counts as the person's gesture (a tab opened after the
     // save would be blocked as a pop-up), and pointed at the sign-in once the server exists.
     const signInTab = signsIn ? window.open("", "_blank") : null;

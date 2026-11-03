@@ -104,7 +104,7 @@ export default function KnowledgeSettingsPage() {
   };
 
   const handleUpdateKb = async (kb: KnowledgeBaseConfig) => {
-    if (!(await confirmMove(newKbName.trim(), ownerKey(kb), createOwner))) return;
+    if (!(await confirmMove(newKbName.trim(), ownerKey(kb), createOwner, { kind: "knowledge_base", id: kb.id }))) return;
     setErrorBanner(null);
     const res = await fetch(`/v1/knowledge/bases/${encodeURIComponent(kb.id)}`, {
       method: "PATCH",

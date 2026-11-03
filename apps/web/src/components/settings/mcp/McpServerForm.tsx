@@ -11,12 +11,13 @@ import { ToolsStep } from "./form/ToolsStep";
 import { STEP_LABELS, useMcpServerForm, type McpServerFormState, type Step } from "./form/useMcpServerForm";
 import { OwnerSelect } from "../Owner";
 import type { OwnerKey } from "../../../lib/ownership";
+import type { MoveTarget } from "../MoveDialog";
 
 interface McpServerFormProps {
   owner: OwnerKey;
   /** The owners the person may register a server for. */
   owners: OwnerKey[];
-  confirmMove?: (name: string, from: OwnerKey, to: OwnerKey) => Promise<boolean>;
+  confirmMove?: (name: string, from: OwnerKey, to: OwnerKey, target?: MoveTarget) => Promise<boolean>;
   isAdmin: boolean;
   /** Whether command servers can run here; null while it is still being checked. */
   runner: McpRunnerStatus | null;

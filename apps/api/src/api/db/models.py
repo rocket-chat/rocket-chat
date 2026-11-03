@@ -1279,35 +1279,110 @@ class SlackRouteDecisionModel(Base):
     __table_args__ = (Index("ix_slack_route_decisions_bot_time", "bot_id", "created_at"),)
 
 
-class ScheduledMissionModel(Base):
-    """A prompt the platform runs on a cron schedule as a normal session.
+class MissionModel(Base):
+    """An agent run the platform starts on its own: triggers, agent, instructions, deliveries.
 
-    ``next_run_at`` doubles as the claim token for the scheduler. Protected by RLS.
+    Owned like every shared object (``scope``, ``user_id``, ``team_id``). ``next_run_at`` is the
+    earliest firing of its schedule triggers and doubles as the scheduler's claim token.
+    Protected by forced RLS.
     """
 
-    __tablename__ = "scheduled_missions"
+    __tablename__ = "missions"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     org_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    user_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    scope: Mapped[str] = mapped_column(String(20), default="user", nullable=False, index=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
     )
+    team_id: Mapped[str | None] = _team_owner_column()
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    prompt: Mapped[str] = mapped_column(Text, nullable=False)
-    cron: Mapped[str] = mapped_column(String(120), nullable=False)
-    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
-    agent_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    git_repo: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    git_branch: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    permission_mode: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    slack_channel: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    instructions: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # [{source, filter: {repositories, labels, branches}, schedule, timezone}]
+    triggers: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
+    # [{kind, bot_id, channel, url, output_schema}]; a webhook's secret is in ``secrets``.
+    deliveries: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
+    # Sealed secrets: {"inbound": ..., "webhook": ...} (CredentialCipher), never returned.
+    secrets: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict
+    )
+    webhook_fingerprint: Mapped[str] = mapped_column(String(32), nullable=False, default="")
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    permission_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    model_tier: Mapped[str] = mapped_column(String(16), nullable=False, default="")
+    sandbox_type: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="work")
+    auto_fix: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    git_repo: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    git_branch: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    run_as: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     next_run_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     last_run_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     last_session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     last_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class MissionRunModel(Base):
+    """One run of a mission: what started it, its session, how its deliveries went. Forced RLS."""
+
+    __tablename__ = "mission_runs"
+    __table_args__ = (Index("ix_mission_runs_mission_started", "mission_id", "started_at"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    mission_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("missions.id", ondelete="CASCADE"), nullable=False
+    )
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source: Mapped[str] = mapped_column(String(40), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    # The item the run is about, for the deliveries that post on it.
+    item: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="running", index=True)
+    deliveries: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
+    started_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    finished_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
+class MissionDeliveryModel(Base):
+    """A run's result waiting to be posted (Slack, a webhook, GitHub): stored before any attempt,
+    each attempt claimed by moving its due time, so a restart or another replica loses none and
+    sends none twice. Forced RLS."""
+
+    __tablename__ = "mission_deliveries"
+    __table_args__ = (Index("ix_mission_deliveries_due", "status", "next_attempt_at"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    run_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("mission_runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict
+    )
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    next_attempt_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
@@ -1321,6 +1396,9 @@ class SessionTemplateModel(Base):
         String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
     )
     user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Owner: ``user`` (``user_id``), ``team`` (``team_id``) or ``org``.
+    scope: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
+    team_id: Mapped[str | None] = _team_owner_column()
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
@@ -1709,40 +1787,6 @@ Index(
     UsageEventModel.agent_id,
     UsageEventModel.created_at,
 )
-
-
-class TriggerModel(Base):
-    """An organization's trigger: which events start a session, with which agent and how.
-
-    ``filter`` holds ``TriggerFilter`` (repositories, labels, branches, channels). Protected by
-    PostgreSQL Row-Level Security (RLS).
-    """
-
-    __tablename__ = "triggers"
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    org_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
-    )
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
-    source: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
-    filter: Mapped[dict[str, Any]] = mapped_column(default=dict, nullable=False)
-    agent_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    permission_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="")
-    model_tier: Mapped[str] = mapped_column(String(16), nullable=False, default="")
-    sandbox_type: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="work")
-    auto_fix: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    instructions: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    schedule: Mapped[str] = mapped_column(String(120), nullable=False, default="")
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    created_by: Mapped[str] = mapped_column(String(64), nullable=False, default="")
-    created_at: Mapped[int] = mapped_column(
-        BigInteger, default=lambda: int(time.time()), nullable=False
-    )
-    updated_at: Mapped[int] = mapped_column(
-        BigInteger, default=lambda: int(time.time()), nullable=False
-    )
 
 
 class WebhookDeliveryModel(Base):

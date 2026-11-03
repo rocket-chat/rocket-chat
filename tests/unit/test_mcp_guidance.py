@@ -342,7 +342,13 @@ async def test_a_subagent_reads_the_guidance_in_the_result_and_never_overwrites_
 
 
 def test_the_essential_tools_are_the_ones_a_platform_gate_sends_the_agent_to() -> None:
-    assert ESSENTIAL_TOOLS == {"load_tools", "search_tools", "load_guidance", "exit_plan_mode"}
+    assert ESSENTIAL_TOOLS == {
+        "load_tools",
+        "search_tools",
+        "load_guidance",
+        "exit_plan_mode",
+        "deliver",
+    }
 
 
 @pytest.mark.parametrize("name", sorted(ESSENTIAL_TOOLS))

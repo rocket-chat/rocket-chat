@@ -565,76 +565,6 @@ Initiate OAuth 2.0 / OIDC authorization code flow.
 
 ## Automation
 
-### `GET /v1/admin/triggers`
-
-The organization's triggers (an organization without any uses the deployment's label).
-
-**Responses:** `200`
-
-### `POST /v1/admin/triggers`
-
-Add a trigger.
-
-**Request body**
-
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| name | string | yes |  |
-| source | string | yes |  |
-| filter | TriggerFilterBody | no |  |
-| agent_id | string | no |  |
-| permission_mode | string | no |  |
-| model_tier | string | no |  |
-| sandbox_type | string | no |  |
-| mode | string | no |  |
-| auto_fix | boolean | no |  |
-| instructions | string | no |  |
-| schedule | string | no |  |
-| enabled | boolean | no |  |
-
-**Responses:** `201`
-
-### `PUT /v1/admin/triggers/{trigger_id}`
-
-Replace a trigger.
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| trigger_id | path | yes | string |
-
-**Request body**
-
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| name | string | yes |  |
-| source | string | yes |  |
-| filter | TriggerFilterBody | no |  |
-| agent_id | string | no |  |
-| permission_mode | string | no |  |
-| model_tier | string | no |  |
-| sandbox_type | string | no |  |
-| mode | string | no |  |
-| auto_fix | boolean | no |  |
-| instructions | string | no |  |
-| schedule | string | no |  |
-| enabled | boolean | no |  |
-
-**Responses:** `200`
-
-### `DELETE /v1/admin/triggers/{trigger_id}`
-
-Delete a trigger.
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| trigger_id | path | yes | string |
-
-**Responses:** `204`
-
 ### `GET /v1/admin/webhooks`
 
 The organization's outbound webhooks.
@@ -666,28 +596,6 @@ Delete an outbound webhook (its queued reports go with it).
 | webhook_id | path | yes | string |
 
 **Responses:** `204`
-
-### `POST /v1/triggers/{trigger_id}/run`
-
-Start a session from an ``api`` trigger, as the caller (an API token or a member). The
-trigger's agent, mode, tier and sandbox type apply; ``idempotency_key`` starts it once.
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| trigger_id | path | yes | string |
-
-**Request body**
-
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| prompt | string | yes |  |
-| repository | string | no |  |
-| branch | string | no |  |
-| idempotency_key | string | no |  |
-
-**Responses:** `200`
 
 ## Changes
 
@@ -967,8 +875,9 @@ GitHub's post-install redirect: map the installation to the organization in ``st
 ### `POST /api/v1/webhooks/github`
 
 Signed GitHub webhooks: reports for the sessions that follow a pull request, and events
-for the organization's triggers (issues, comments, pull requests, review comments, failed
-workflow runs). Each delivery starts at most one session, whatever the number of replicas.
+for the organization's missions (issues, comments, pull requests, review comments, failed
+workflow runs). Each delivery starts each mission's run once, whatever the number of
+replicas.
 
 **Parameters**
 
@@ -984,28 +893,29 @@ workflow runs). Each delivery starts at most one session, whatever the number of
 
 GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,
 pipelines and notes for the sessions that follow a merge request, and issues, merge
-requests, notes and failed pipelines for the organization's ``gitlab_*`` triggers. The
+requests, notes and failed pipelines for the missions on ``gitlab_*`` events. The
 organization is ``?org=`` (as the operator connected the project), else the default.
 
 **Responses:** `200`
 
 ### `POST /api/v1/webhooks/jira`
 
-Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for ``jira_issue`` triggers.
+Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for missions on ``jira_issue`` events.
 
 **Responses:** `200`
 
 ### `POST /api/v1/webhooks/linear`
 
-Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for ``linear_issue`` triggers.
+Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for missions on ``linear_issue`` events.
 
 **Responses:** `200`
 
 ### `POST /v1/webhooks/github`
 
 Signed GitHub webhooks: reports for the sessions that follow a pull request, and events
-for the organization's triggers (issues, comments, pull requests, review comments, failed
-workflow runs). Each delivery starts at most one session, whatever the number of replicas.
+for the organization's missions (issues, comments, pull requests, review comments, failed
+workflow runs). Each delivery starts each mission's run once, whatever the number of
+replicas.
 
 **Parameters**
 
@@ -1021,20 +931,20 @@ workflow runs). Each delivery starts at most one session, whatever the number of
 
 GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,
 pipelines and notes for the sessions that follow a merge request, and issues, merge
-requests, notes and failed pipelines for the organization's ``gitlab_*`` triggers. The
+requests, notes and failed pipelines for the missions on ``gitlab_*`` events. The
 organization is ``?org=`` (as the operator connected the project), else the default.
 
 **Responses:** `200`
 
 ### `POST /v1/webhooks/jira`
 
-Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for ``jira_issue`` triggers.
+Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for missions on ``jira_issue`` events.
 
 **Responses:** `200`
 
 ### `POST /v1/webhooks/linear`
 
-Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for ``linear_issue`` triggers.
+Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for missions on ``linear_issue`` events.
 
 **Responses:** `200`
 
@@ -1338,46 +1248,63 @@ Delete one memory the caller can see (the inspector's "forget" action).
 
 ### `GET /v1/missions`
 
-List Missions
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| all | query | no | boolean |
+The missions the caller may see: theirs, their teams' and the organization's.
 
 **Responses:** `200`
 
 ### `POST /v1/missions`
 
-Create Mission
+Create a mission for the caller, one of their teams or the organization.
 
 **Request body**
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | name | string | yes |  |
-| prompt | string | yes |  |
-| cron | string | yes | Five-field cron, e.g. '0 9 * * 1-5' |
-| timezone | string | no |  |
+| instructions | string | no |  |
+| scope | string | no | Owner: 'user', 'team' or 'org' |
+| team_id | string | no |  |
+| triggers | list of TriggerBody | no |  |
+| deliveries | list of DeliveryBody | no |  |
 | agent_id | string | no |  |
-| git_repo | string | no | owner/name or https GitHub URL |
-| git_branch | string | no |  |
 | permission_mode | string | no |  |
-| slack_channel | string | no | Slack channel id (C..., G... or D...) to post each run's result to |
+| model_tier | string | no |  |
+| sandbox_type | string | no |  |
+| mode | string | no |  |
+| auto_fix | boolean | no |  |
+| git_repo | string | no |  |
+| git_branch | string | no |  |
 | enabled | boolean | no |  |
 
 **Responses:** `200`
 
-### `GET /v1/missions/templates`
+### `GET /v1/missions/chat-bots`
 
-Starting points for recurring maintenance missions (created disabled until switched on).
+The organization's enabled Slack bots a chat delivery may name (ids and names only).
 
 **Responses:** `200`
 
-### `PATCH /v1/missions/{mission_id}`
+### `GET /v1/missions/presets`
 
-Update Mission
+Starting points for usual missions (pull request review, CI fixes, digests, triage).
+
+**Responses:** `200`
+
+### `GET /v1/missions/{mission_id}`
+
+Get Mission
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| mission_id | path | yes | string |
+
+**Responses:** `200`
+
+### `PUT /v1/missions/{mission_id}`
+
+Replace a mission; naming another owner moves it (managing both sides).
 
 **Parameters**
 
@@ -1389,13 +1316,39 @@ Update Mission
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| name | string | no |  |
-| prompt | string | no |  |
-| cron | string | no |  |
-| timezone | string | no |  |
-| enabled | boolean | no |  |
+| name | string | yes |  |
+| instructions | string | no |  |
+| scope | string | no | Owner: 'user', 'team' or 'org' |
+| team_id | string | no |  |
+| triggers | list of TriggerBody | no |  |
+| deliveries | list of DeliveryBody | no |  |
+| agent_id | string | no |  |
 | permission_mode | string | no |  |
-| slack_channel | string | no |  |
+| model_tier | string | no |  |
+| sandbox_type | string | no |  |
+| mode | string | no |  |
+| auto_fix | boolean | no |  |
+| git_repo | string | no |  |
+| git_branch | string | no |  |
+| enabled | boolean | no |  |
+
+**Responses:** `200`
+
+### `PATCH /v1/missions/{mission_id}`
+
+Switch a mission on or off.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| mission_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| enabled | boolean | yes |  |
 
 **Responses:** `200`
 
@@ -1413,13 +1366,62 @@ Delete Mission
 
 ### `POST /v1/missions/{mission_id}/run`
 
-Start a run immediately, without moving the schedule.
+Start a run now, without moving the schedule (``text``: what this run is about).
 
 **Parameters**
 
 | Name | In | Required | Type |
 | :--- | :--- | :--- | :--- |
 | mission_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| text | string | no | What this run is about |
+
+**Responses:** `200`
+
+### `GET /v1/missions/{mission_id}/runs`
+
+The mission's latest runs, newest first, with how each delivery went.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| mission_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/missions/{mission_id}/secrets/{which}`
+
+Replace the inbound webhook's secret (``inbound``) or the webhook delivery's signing
+secret (``webhook``); the new one is shown once.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| mission_id | path | yes | string |
+| which | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/webhooks/missions/{org_id}/{mission_id}`
+
+A mission's own webhook: ``X-Rocket-Signature: sha256=<hex HMAC of "<timestamp>.<body>">``
+with the mission's inbound secret and ``X-Rocket-Timestamp`` within five minutes. The JSON
+body is what the run is about (capped).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| org_id | path | yes | string |
+| mission_id | path | yes | string |
+| X-Rocket-Timestamp | header | no | string |
+| X-Rocket-Signature | header | no | string |
 
 **Responses:** `200`
 
@@ -1822,6 +1824,63 @@ Static **liveness** signal: healthy while the process runs, no dependency is che
 
 Use `/v1/ready` for the database check; conflating the two would restart pods for a
 database outage they cannot fix.
+
+**Responses:** `200`
+
+## Ownership
+
+### `POST /v1/credentials/{credential_id}/move`
+
+Give a provider key to another owner (managing both sides); refused (409, with what
+would break) while an agent bound to it would lose it.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| credential_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| scope | string | yes | The new owner: 'user', 'team' or 'org' |
+| team_id | string | no |  |
+
+**Responses:** `200`
+
+### `POST /v1/ownership/preview`
+
+What moving an object to another owner would do (nothing is moved).
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| scope | string | yes | The new owner: 'user', 'team' or 'org' |
+| team_id | string | no |  |
+| kind | string | yes | agent \| skill \| mcp_server \| knowledge_base \| credential \| sandbox \| mission \| template |
+| id | string | yes |  |
+
+**Responses:** `200`
+
+### `POST /v1/sandboxes/{sandbox_id}/move`
+
+Give a sandbox type to a team or the organization (managing both sides); refused (409,
+with what would break) while an agent or mission outside the team starts in it.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| sandbox_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| scope | string | yes | The new owner: 'user', 'team' or 'org' |
+| team_id | string | no |  |
 
 **Responses:** `200`
 
@@ -3503,8 +3562,8 @@ organization locked).
 
 ### `GET /v1/templates`
 
-The organization's templates and the caller's own; ``blocked`` marks those naming an
-agent the caller may no longer use.
+The organization's templates, the caller's teams' and their own; ``blocked`` marks those
+naming an agent the caller may no longer use.
 
 **Responses:** `200`
 
@@ -3520,6 +3579,33 @@ Create Template
 | description | string | no |  |
 | prompt | string | yes |  |
 | scope | string | no |  |
+| team_id | string | no |  |
+| agent_id | string | no |  |
+| git_repo | string | no |  |
+| git_branch | string | no |  |
+| permission_mode | string | no |  |
+
+**Responses:** `200`
+
+### `PUT /v1/templates/{template_id}`
+
+Replace a template; naming another owner moves it (managing both sides).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| template_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | yes |  |
+| description | string | no |  |
+| prompt | string | yes |  |
+| scope | string | no |  |
+| team_id | string | no |  |
 | agent_id | string | no |  |
 | git_repo | string | no |  |
 | git_branch | string | no |  |

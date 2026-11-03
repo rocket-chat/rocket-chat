@@ -1396,6 +1396,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             needed |= LOADING_TOOLS
         if ctx is not None and ctx.plan_mode:
             needed.add("exit_plan_mode")
+        if self._registry.enabled_for_this_turn("deliver"):
+            needed.add("deliver")
         # An agent's list never takes away what a platform gate sends it to (ESSENTIAL_TOOLS).
         allowed += [
             t for t in all_tools if t.name in needed & ESSENTIAL_TOOLS and t.name not in listed

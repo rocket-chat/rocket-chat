@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { ExternalLink } from "lucide-react";
+import Link from "next/link";
+import { ExternalLink, Workflow } from "lucide-react";
 import { threadBindingOf } from "../lib/channels";
 import { useMissionStore } from "../lib/store";
 import { ChannelIcon } from "./ChannelIcon";
@@ -43,6 +44,29 @@ export const ThreadBanner: React.FC = () => {
           Open in {binding.label} <ExternalLink className="h-3 w-3" aria-hidden="true" />
         </a>
       )}
+    </div>
+  );
+};
+
+/** A strip above the conversation of a session a mission started: where the mission lives. */
+export const MissionBanner: React.FC = () => {
+  const session = useMissionStore((state) => state.session);
+  const metadata = session?.metadata;
+  const missionId = metadata && typeof metadata.mission_id === "string" ? metadata.mission_id : "";
+  if (!missionId) return null;
+  return (
+    <div
+      role="note"
+      data-testid="mission-banner"
+      className="flex items-center justify-between gap-3 border-b border-surface-border bg-surface-card px-4 py-1.5 text-xs text-neutral-600 dark:text-neutral-300 sm:px-6"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <Workflow className="h-3.5 w-3.5 shrink-0 text-brand" aria-hidden="true" />
+        <span className="truncate">A mission started this session; where its result goes is set on the mission.</span>
+      </span>
+      <Link href="/missions" className="shrink-0 font-medium text-brand hover:underline">
+        Open Missions
+      </Link>
     </div>
   );
 };

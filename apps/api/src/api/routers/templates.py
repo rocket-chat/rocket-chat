@@ -1,6 +1,7 @@
 """Session templates / playbooks API.
 
-Organization-wide templates are administrator-managed; members keep personal ones. Starting a
+A template is owned like any shared object (a member, a team or the organization): whoever
+manages its owner changes, moves or deletes it. Starting a
 template is exactly ``POST /v1/sessions`` with the template's fields, so every check that
 applies to a hand-made session (repository validation, permission mode, read-only roles)
 applies here too.
@@ -8,12 +9,13 @@ applies here too.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from api.auth.access import _get_request_identity
 from api.auth.roles import can_write
-from api.auth.roles import is_admin as holds_admin
 from api.models import CreateSessionRequest, SessionResponse
 from api.routers.session_crud import create_session
 from api.services.agent_access import (
@@ -21,6 +23,13 @@ from api.services.agent_access import (
     AgentAccessDenied,
     blocked_for,
     require_usable_agent,
+)
+from api.services.ownership import (
+    OwnershipError,
+    manageable,
+    owner_for_write,
+    owner_of,
+    request_viewer,
 )
 from api.services.repository_validation import (
     InvalidRepositoryError,
@@ -43,7 +52,8 @@ class TemplateBody(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     description: str = Field(default="", max_length=500)
     prompt: str = Field(..., min_length=1, max_length=20_000)
-    scope: str = Field(default="user", pattern="^(user|org)$")
+    scope: str = Field(default="user", pattern="^(user|team|org)$")
+    team_id: str | None = None
     agent_id: str | None = None
     git_repo: str | None = None
     git_branch: str | None = None
@@ -56,6 +66,7 @@ class TemplateResponse(BaseModel):
     description: str
     prompt: str
     scope: str
+    team_id: str | None = None
     agent_id: str | None
     git_repo: str | None
     git_branch: str | None
@@ -78,7 +89,6 @@ def _view(template: SessionTemplate, blocked_agents: set[str] | None = None) -> 
     data = {k: v for k, v in vars(template).items() if k in TemplateResponse.model_fields}
     blocked = bool(template.agent_id) and template.agent_id in (blocked_agents or set())
     return TemplateResponse(
-        scope="org" if template.user_id is None else "user",
         blocked=blocked,
         blocked_reason=TEMPLATE_BLOCKED_REASON if blocked else "",
         **data,
@@ -87,10 +97,11 @@ def _view(template: SessionTemplate, blocked_agents: set[str] | None = None) -> 
 
 @router.get("/templates", response_model=list[TemplateResponse])
 async def list_templates(request: Request) -> list[TemplateResponse]:
-    """The organization's templates and the caller's own; ``blocked`` marks those naming an
-    agent the caller may no longer use."""
+    """The organization's templates, the caller's teams' and their own; ``blocked`` marks those
+    naming an agent the caller may no longer use."""
     org_id, user_id, roles = _get_request_identity(request)
-    templates = await _store(request).visible_to(org_id, user_id)
+    _, viewer = await request_viewer(request)
+    templates = await _store(request).visible_to(org_id, viewer)
     db_mgr = getattr(request.app.state, "db_manager", None)
     blocked = await blocked_for(db_mgr, org_id, user_id, roles, templates)
     return [_view(t, blocked) for t in templates]
@@ -99,13 +110,16 @@ async def list_templates(request: Request) -> list[TemplateResponse]:
 @router.post("/templates", response_model=TemplateResponse)
 async def create_template(body: TemplateBody, request: Request) -> TemplateResponse:
     org_id, user_id, roles = _get_request_identity(request)
-    is_admin = holds_admin(roles)
     if not can_write(roles):
         raise HTTPException(status_code=403, detail="Forbidden: viewers cannot create templates")
-    if body.scope == "org" and not is_admin:
-        raise HTTPException(
-            status_code=403, detail="Only administrators can create organization-wide templates."
-        )
+    _, viewer = await request_viewer(request)
+    try:
+        owner = await owner_for_write(
+            getattr(request.app.state, "db_manager", None), org_id, viewer,
+            scope=body.scope, team_id=body.team_id, current=None, what="templates",
+        )  # fmt: skip
+    except OwnershipError as err:
+        raise err.as_http() from err
     if body.permission_mode is not None and body.permission_mode not in PERMISSION_MODES:
         raise HTTPException(
             status_code=422, detail=f"permission_mode must be one of: {', '.join(PERMISSION_MODES)}"
@@ -118,7 +132,9 @@ async def create_template(body: TemplateBody, request: Request) -> TemplateRespo
             SessionTemplate(
                 id="",
                 org_id=org_id,
-                user_id=None if body.scope == "org" else user_id,
+                user_id=owner.user_id,
+                scope=owner.scope,
+                team_id=owner.team_id,
                 name=body.name,
                 description=body.description,
                 prompt=body.prompt,
@@ -133,17 +149,53 @@ async def create_template(body: TemplateBody, request: Request) -> TemplateRespo
     return _view(template)
 
 
+@router.put("/templates/{template_id}", response_model=TemplateResponse)
+async def replace_template(
+    template_id: str, body: TemplateBody, request: Request
+) -> TemplateResponse:
+    """Replace a template; naming another owner moves it (managing both sides)."""
+    org_id, user_id, roles = _get_request_identity(request)
+    _, viewer = await request_viewer(request)
+    store = _store(request)
+    current = await store.get(org_id, viewer, template_id)
+    if current is None:
+        raise HTTPException(status_code=404, detail="Template not found")
+    if body.permission_mode is not None and body.permission_mode not in PERMISSION_MODES:
+        raise HTTPException(
+            status_code=422, detail=f"permission_mode must be one of: {', '.join(PERMISSION_MODES)}"
+        )
+    try:
+        owner = await owner_for_write(
+            getattr(request.app.state, "db_manager", None), org_id, viewer,
+            scope=body.scope, team_id=body.team_id, current=owner_of(current), what="templates",
+        )  # fmt: skip
+    except OwnershipError as err:
+        raise err.as_http() from err
+    await _usable_agent(request, org_id, user_id, roles, body.agent_id)
+    try:
+        repo = parse_repository(body.git_repo).url if body.git_repo else None
+        branch = validate_branch(body.git_branch) if body.git_branch else None
+    except InvalidRepositoryError as err:
+        raise HTTPException(status_code=422, detail=str(err)) from err
+    updated = replace(
+        current,
+        name=body.name, description=body.description, prompt=body.prompt,
+        agent_id=body.agent_id, git_repo=repo, git_branch=branch,
+        permission_mode=body.permission_mode,
+        scope=owner.scope, user_id=owner.user_id, team_id=owner.team_id,
+    )  # fmt: skip
+    return _view(await store.save(updated, current))
+
+
 @router.delete("/templates/{template_id}")
 async def delete_template(template_id: str, request: Request) -> dict[str, str]:
-    org_id, user_id, roles = _get_request_identity(request)
+    org_id, viewer = await request_viewer(request)
     store = _store(request)
-    template = await store.get(org_id, user_id, template_id)
+    template = await store.get(org_id, viewer, template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="Template not found")
-    if template.user_id is None and not holds_admin(roles):
-        raise HTTPException(
-            status_code=403, detail="Only administrators can delete organization-wide templates."
-        )
+    if not manageable(template, viewer):
+        raise HTTPException(status_code=403, detail="Only those who manage it can delete it.")
     await store.delete(org_id, template_id)
     return {"status": "deleted"}
 
@@ -153,7 +205,8 @@ async def start_from_template(template_id: str, request: Request) -> SessionResp
     """Start a session from the template (the opening prompt runs immediately); refused (403)
     while the template is blocked."""
     org_id, user_id, roles = _get_request_identity(request)
-    template = await _store(request).get(org_id, user_id, template_id)
+    _, viewer = await request_viewer(request)
+    template = await _store(request).get(org_id, viewer, template_id)
     if template is None:
         raise HTTPException(status_code=404, detail="Template not found")
     if template.agent_id and await blocked_for(
