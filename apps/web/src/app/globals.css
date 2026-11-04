@@ -26,6 +26,7 @@
 
   /* Modern Rocket Brand Accents - Stitch Design */
   --brand: #c2410c;
+  --brand-rgb: 194 65 12;
   --brand-hover: #9a3412;
   --primary: #c2410c;
   --primary-hover: #9a3412;
@@ -66,6 +67,7 @@
 
   /* Modern Rocket Brand Accents - Stitch Design */
   --brand: #fe5825;
+  --brand-rgb: 254 88 37;
   --brand-hover: #ea4c1d;
   --primary: #fe5825;
   --primary-hover: #ea4c1d;
