@@ -16,25 +16,33 @@ import {
 } from "../lib/session-usage";
 import { Badge } from "./ui/Badge";
 
+// The totals sum every call's prompt: each call re-sends the conversation, so they grow far
+// faster than the conversation and are no measure of its size (the context gauge is).
 const Figures: React.FC<{ totals: UsageTotals }> = ({ totals }) => (
-  <dl className="grid grid-cols-4 gap-2 text-[11px]">
-    <div>
-      <dt className="text-neutral-500">In</dt>
-      <dd className="font-mono text-foreground">{formatCount(totals.prompt_tokens)}</dd>
-    </div>
-    <div>
-      <dt className="text-neutral-500">Cached</dt>
-      <dd className="font-mono text-foreground">{cacheHitPercent(totals)}%</dd>
-    </div>
-    <div>
-      <dt className="text-neutral-500">Out</dt>
-      <dd className="font-mono text-foreground">{formatCount(totals.completion_tokens)}</dd>
-    </div>
-    <div>
-      <dt className="text-neutral-500">Calls</dt>
-      <dd className="font-mono text-foreground">{totals.calls}</dd>
-    </div>
-  </dl>
+  <div className="space-y-1.5">
+    <p data-testid="session-usage-processed" className="text-[11px] text-neutral-600 dark:text-neutral-400">
+      Tokens processed over {totals.calls} calls: <span className="font-mono text-foreground">{formatCount(totals.total_tokens)}</span>,{" "}
+      {cacheHitPercent(totals)}% from the cache. Each call re-sends the conversation, so this grows much faster than the conversation itself.
+    </p>
+    <dl className="grid grid-cols-4 gap-2 text-[11px]">
+      <div>
+        <dt className="text-neutral-500">In</dt>
+        <dd className="font-mono text-foreground">{formatCount(totals.prompt_tokens)}</dd>
+      </div>
+      <div>
+        <dt className="text-neutral-500">Cached</dt>
+        <dd className="font-mono text-foreground">{cacheHitPercent(totals)}%</dd>
+      </div>
+      <div>
+        <dt className="text-neutral-500">Out</dt>
+        <dd className="font-mono text-foreground">{formatCount(totals.completion_tokens)}</dd>
+      </div>
+      <div>
+        <dt className="text-neutral-500">Calls</dt>
+        <dd className="font-mono text-foreground">{totals.calls}</dd>
+      </div>
+    </dl>
+  </div>
 );
 
 type UsageTab = "overview" | "context" | "costs";
@@ -108,15 +116,12 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
         aria-expanded={open}
         aria-haspopup="dialog"
         onClick={() => setOpen((value) => !value)}
-        title="Tokens and cost of this session"
+        title="Cost and context of this session"
         className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-surface-border bg-surface-card px-2.5 text-[11px] text-neutral-600 transition-colors hover:bg-surface-elevated dark:text-neutral-300"
       >
         <Coins className="h-3.5 w-3.5 text-brand" aria-hidden="true" />
         <span data-testid="session-usage-cost" className="font-mono font-medium text-foreground">
           {formatUsd(totals.cost_usd)}
-        </span>
-        <span data-testid="session-usage-tokens" className="hidden font-mono sm:inline">
-          · {formatCount(totals.total_tokens)} tok
         </span>
         {contextFillPct != null && (
           <span

@@ -52,12 +52,14 @@ test.describe("Session usage", () => {
     const chip = page.getByTestId("session-usage-chip");
     await expect(chip).toBeVisible();
     await expect(page.getByTestId("session-usage-cost")).toHaveText("$0.118");
-    await expect(chip).toContainText("659k tok");
+    // The tokens processed by every call are no measure of the conversation: not in the header.
+    await expect(chip).not.toContainText("tok");
 
     await chip.click();
     const popover = page.getByTestId("session-usage-popover");
     await expect(popover).toBeVisible();
     await expect(page.getByTestId("session-usage-total")).toHaveText("$0.118");
+    await expect(page.getByTestId("session-usage-processed").first()).toContainText("Tokens processed over 18 calls: 659k, 92% from the cache");
     await expect(popover).toContainText("92%"); // 600k of 650k prompt tokens came from the cache
     await expect(popover).toContainText("$0.100 of it was paid with your own provider key");
 
@@ -137,7 +139,7 @@ test.describe("Session usage", () => {
 
     const chip = page.getByTestId("session-usage-chip");
     await expect(chip).toBeVisible();
-    await expect(page.getByTestId("session-usage-tokens")).toBeHidden();
+    await expect(chip).not.toContainText("tok");
     await chip.click();
 
     const box = await page.getByTestId("session-usage-popover").boundingBox();
