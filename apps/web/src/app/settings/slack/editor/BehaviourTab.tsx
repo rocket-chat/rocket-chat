@@ -72,6 +72,34 @@ const PolicyOverrides: React.FC<{ editor: BotEditorState }> = ({ editor }) => {
           />
         )}
       </Field>
+      <Field label="Thread Replies Without a Mention" hint="In a thread where this bot already works, what it does with a reply that does not mention it.">
+        {(props) => (
+          <Select
+            {...props}
+            data-testid="bot-thread-follow-ups"
+            value={String(form.policy.thread_follow_ups || "")}
+            onChange={(e) => patch({ policy: { ...form.policy, thread_follow_ups: e.target.value } })}
+          >
+            <option value="">(Inherits organization policy)</option>
+            <option value="mention">Ignore them: answer only when mentioned</option>
+            <option value="auto">Answer replies that read like a request</option>
+            <option value="classifier">Ask a classifier model whether the reply is for the bot</option>
+          </Select>
+        )}
+      </Field>
+      {form.policy.thread_follow_ups === "classifier" && (
+        <Field label="Follow-up Classifier Model" hint="For example openrouter/typesafe/jev-latest. Empty: the router's classifier model, else the organization's default.">
+          {(props) => (
+            <Input
+              {...props}
+              data-testid="bot-follow-up-classifier-model"
+              value={String(form.policy.follow_up_classifier_model || "")}
+              onChange={(e) => patch({ policy: { ...form.policy, follow_up_classifier_model: e.target.value } })}
+              placeholder="openrouter/typesafe/jev-latest"
+            />
+          )}
+        </Field>
+      )}
     </div>
   );
 };

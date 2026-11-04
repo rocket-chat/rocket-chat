@@ -16,7 +16,7 @@ from agent_core.tools.registry import ToolRegistry
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp, AsyncAssistant
 
-from slack_assistant.bot import ClassifyRequest, RouteDecision, SlackBot
+from slack_assistant.bot import ClassifyRequest, FollowUpRequest, RouteDecision, SlackBot
 from slack_assistant.config import SlackAssistantSettings
 from slack_assistant.file_ingestion import FileDownloader
 from slack_assistant.guardrails import FailureTracker, WorkspaceQuotaGate
@@ -33,6 +33,12 @@ HoldMessageFn = Callable[..., Awaitable[bool]]
 # The classifier's decision for a message, or None when it could not decide (the router's
 # fallback applies).
 ClassifyFn = Callable[[ClassifyRequest], Awaitable[RouteDecision | None]]
+# Whether a thread reply without a mention asks the bot for something (``RESPOND``/``IGNORE``),
+# or None when the classifier could not decide (the reply is then left to the others).
+FollowUpFn = Callable[[FollowUpRequest], Awaitable[RouteDecision | None]]
+# (session id) -> how many queued messages were withdrawn; also closes the session's open
+# waits, so nothing restarts the work the person stopped.
+StopSessionFn = Callable[[str], Awaitable[int]]
 
 
 class SlackAssistantState:
@@ -95,6 +101,8 @@ class SlackAssistantState:
     _session_meta: dict[str, tuple[str, str]]
     bot: SlackBot | None
     _classify_fn: ClassifyFn | None
+    _follow_up_fn: FollowUpFn | None
+    _stop_session_fn: StopSessionFn | None
     _slack_api_ready: bool
     _dedupe: EventDeduplicator
     _health: SocketHealth

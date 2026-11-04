@@ -34,6 +34,8 @@ POLICY_KEYS = frozenset(
         "long_output_to_file",
         "long_output_chars",
         "channel_profiles",
+        "thread_follow_ups",
+        "follow_up_classifier_model",
     }
 )
 

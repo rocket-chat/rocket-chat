@@ -185,13 +185,16 @@ class SlackEntrypointsMixin(SlackGatesMixin):
     async def _stop_text(self, body: dict[str, Any]) -> str:
         channel_id = str(body.get("channel_id", ""))
         user_id = str(body.get("user_id", ""))
+        self._bind_tenant(
+            await self._workspace_org(str(body.get("team_id", "")) or self.team_id or "")
+        )
         stopped = 0
         for session_id in list(self._active_turns):
             if self._session_meta.get(session_id, ("", ""))[0] != channel_id:
                 continue
             if await self._durable_requester(session_id) != user_id:
                 continue
-            await self.orchestrator.cancel_turn(session_id)
+            await self._stop_session(session_id, user_id)
             stopped += 1
         if not stopped:
             return "You have nothing running in this channel."

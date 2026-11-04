@@ -148,6 +148,29 @@ class Stack:
         return " ".join(json.dumps(c.kwargs, default=str) for c in self.say.call_args_list)
 
 
+def _queue_in(stack: Stack) -> Any:
+    """The platform's hold for messages sent while a turn runs, on the stack's stores."""
+    from api.services.queued_messages import hold_for_running_turn
+
+    async def hold(*, session_id: str, prompt: str, author_user_id: str, message_id: str) -> bool:
+        record = await stack.store.get_session(session_id)
+        assert record is not None
+        return await hold_for_running_turn(
+            session_store=stack.store,
+            orchestrator=stack.orchestrator,
+            event_bus=stack.bus,
+            db_mgr=None,
+            org_id=record.tenant_org_id,
+            session_id=session_id,
+            prompt=prompt,
+            delivery="queue",
+            message_id=message_id,
+            author_user_id=author_user_id,
+        )
+
+    return hold
+
+
 def _gate_body(value: str, user: str) -> dict[str, Any]:
     return {
         "actions": [{"value": value}],
@@ -419,27 +442,11 @@ async def test_an_agent_allowlist_does_not_take_back_a_linked_members_tools() ->
 
 @pytest.mark.asyncio
 async def test_a_message_sent_while_a_turn_runs_is_queued_and_runs_next() -> None:
-    from api.services.queued_messages import hold_for_running_turn
-
     model = ScriptedModel()
     model.gate = asyncio.Event()
     stack = Stack(model)
 
-    async def hold(*, session_id: str, prompt: str, author_user_id: str, message_id: str) -> bool:
-        return await hold_for_running_turn(
-            session_store=stack.store,
-            orchestrator=stack.orchestrator,
-            event_bus=stack.bus,
-            db_mgr=None,
-            org_id=(await stack.store.get_session(session_id)).tenant_org_id,  # type: ignore[union-attr]
-            session_id=session_id,
-            prompt=prompt,
-            delivery="queue",
-            message_id=message_id,
-            author_user_id=author_user_id,
-        )
-
-    stack.assistant._hold_message_fn = hold
+    stack.assistant._hold_message_fn = _queue_in(stack)
     first = stack.send("<@UBOT> first")
     await asyncio.wait_for(model.started.wait(), 5)
     await asyncio.wait_for(stack.send("<@UBOT> second"), 5)  # answered at once: queued
@@ -449,3 +456,52 @@ async def test_a_message_sent_while_a_turn_runs_is_queued_and_runs_next() -> Non
     model.gate.set()
     await asyncio.wait_for(first, 10)
     await _wait_for(lambda: len(model.agent_requests()) == 2, 10)
+
+
+@pytest.mark.asyncio
+async def test_stopping_withdraws_the_queued_messages_and_closes_the_waits() -> None:
+    """Stopping means stopping: a message queued behind the turn, or a wait at its deadline,
+    would otherwise start the work again right after."""
+    from types import SimpleNamespace
+
+    from api.bootstrap.slack import _SlackCallbacks
+    from api.services.queued_messages import QueuedMessageStore
+    from api.services.waits import InMemoryWaitStore, SessionWait
+
+    model = ScriptedModel()
+    model.gate = asyncio.Event()
+    stack = Stack(model)
+    waits = InMemoryWaitStore()
+    callbacks = _SlackCallbacks(
+        SimpleNamespace(  # type: ignore[arg-type]
+            session_store=stack.store,
+            orchestrator=stack.orchestrator,
+            event_bus=stack.bus,
+            db_manager=None,
+        ),
+        waits,
+    )
+
+    stack.assistant._hold_message_fn = _queue_in(stack)
+    stack.assistant._stop_session_fn = callbacks.stop_session
+    first = stack.send("<@UBOT> first")
+    await asyncio.wait_for(model.started.wait(), 5)
+    await asyncio.wait_for(stack.send("<@UBOT> second"), 5)
+    org = (await stack.store.get_session(SESSION_ID)).tenant_org_id  # type: ignore[union-attr]
+    await waits.create_wait(
+        SessionWait(
+            id="w1", session_id=SESSION_ID, tenant_org_id=org, kind="time", target="", deadline=0
+        )
+    )
+
+    stop = {"channel": THREAD[0], "thread_ts": THREAD[1], "ts": "1.9", "user": "U1"}
+    assert await stack.assistant._stop_from_message(
+        {**stop, "text": "<@UBOT> stop"}, addressed=True
+    )
+    await asyncio.wait_for(first, 10)
+    await asyncio.sleep(0.3)
+
+    assert len(model.agent_requests()) == 1, "the queued message did not run"
+    assert await QueuedMessageStore(None).pending(org, SESSION_ID) == []
+    assert await waits.list_active_waits(SESSION_ID, org) == []
+    assert "Stopped by <@U1>" in stack.posted()

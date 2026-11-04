@@ -21,7 +21,7 @@ from api.services.turn_trace import (
     user_turn_index,
 )
 from api.turns.context import TurnContext, TurnRequest, TurnState
-from api.turns.followup import suggest_followup
+from api.turns.followup import EARLIER_REQUESTS, suggest_followup
 from api.turns.shared import platform_default_model
 from specifications.interfaces.events import EventType, SessionEvent
 from specifications.interfaces.llm import ChatMessage, ModelExecutionError
@@ -152,7 +152,8 @@ async def record_answer(ctx: TurnContext) -> str:
 
 
 async def publish_followup(ctx: TurnContext, answer: str) -> None:
-    """Offer the likely next instruction, unless the member turned suggestions off."""
+    """Offer the likely next instruction, unless the member turned suggestions off. A turn
+    with none clears the previous one, which a reload would otherwise show again."""
     if getattr(ctx.state, "is_continuation", False) or getattr(ctx.state, "is_waiting", False):
         return
     req, session = ctx.req, ctx.session
@@ -164,18 +165,25 @@ async def publish_followup(ctx: TurnContext, answer: str) -> None:
     router = ctx.state.router
     model = router.model_for("suggest") if router is not None else ctx.effective_model
     suggestion = await suggest_followup(
-        req.orchestrator.gateway, model, req.prompt, answer, ctx.state.executed_tools
+        req.orchestrator.gateway,
+        model,
+        req.prompt,
+        answer,
+        ctx.state.executed_tools,
+        earlier_requests=_earlier_requests(session, req.prompt),
     )
-    if not suggestion:
-        return
-    # Persist the suggestion in the session record so it survives page reloads.
 
     def keep_suggestion(record: SessionRecord) -> None:
         if not isinstance(record.metadata, dict):
             record.metadata = {}
-        record.metadata["suggested_followup"] = suggestion
+        if suggestion:
+            record.metadata["suggested_followup"] = suggestion
+        else:
+            record.metadata.pop("suggested_followup", None)
 
     await req.store.mutate_session(ctx.session_id, session.tenant_org_id, keep_suggestion)
+    if not suggestion:
+        return
     await req.event_bus.publish(
         SessionEvent(
             session_id=ctx.session_id,
@@ -183,6 +191,18 @@ async def publish_followup(ctx: TurnContext, answer: str) -> None:
             payload={"suggestion": suggestion},
         )
     )
+
+
+def _earlier_requests(session: SessionRecord, prompt: str) -> list[str]:
+    """The person's requests before this turn's, most recent last."""
+    requests = [
+        m.content
+        for m in session.conversation_history or []
+        if m.role == "user" and isinstance(m.content, str) and m.content.strip()
+    ]
+    if requests and requests[-1] == prompt:
+        requests.pop()
+    return requests[-EARLIER_REQUESTS:]
 
 
 async def persist_trace(state: TurnState, db_mgr: Any) -> None:

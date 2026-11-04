@@ -34,6 +34,14 @@ test("administrator views slack bots, opens editor and configures routing", asyn
   await expect(dmUpdates).not.toBeChecked();
   await dmUpdates.check();
   await expect(dmUpdates).toBeChecked();
+  // Thread replies without a mention: the classifier mode asks for its model.
+  const followUps = page.getByTestId("bot-thread-follow-ups");
+  await expect(followUps).toHaveValue("");
+  await expect(page.getByTestId("bot-follow-up-classifier-model")).toHaveCount(0);
+  await followUps.selectOption("classifier");
+  await page.getByTestId("bot-follow-up-classifier-model").fill("openrouter/typesafe/jev-latest");
+  await followUps.selectOption("mention");
+  await expect(page.getByTestId("bot-follow-up-classifier-model")).toHaveCount(0);
 
   // Routing Tab: one table, the default row first; intents bring the classifier's settings.
   await page.getByRole("tab", { name: "Routing" }).click();

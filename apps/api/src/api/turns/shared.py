@@ -6,7 +6,7 @@ import os
 from typing import Any
 
 from config_engine import CascadingSettingsResolver
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.bootstrap.runtime import default_model
 from api.services.audit import (
@@ -43,7 +43,9 @@ _api_rate_limiter = GovernanceRateLimiter(
 class FollowUpSuggestion(BaseModel):
     """Validated shape of the auxiliary "what next?" suggestion."""
 
-    suggestion: str
+    suggestion: str = Field(
+        default="", description="The person's likely next message; empty when none is clear"
+    )
 
 
 # Shared turn plan/invocation service: both the web handler above and the Slack

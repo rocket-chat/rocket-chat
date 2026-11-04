@@ -9,6 +9,10 @@ from typing import Any
 # Slack event `channel_type` -> the policy vocabulary used by `allowed_channel_types`.
 _EVENT_TO_POLICY_TYPE = {"channel": "public", "group": "private", "im": "im", "mpim": "mpim"}
 ALL_CHANNEL_TYPES = frozenset({"public", "private", "im", "mpim"})
+# How a thread reply that does not mention the bot is taken: ignored ("mention"), answered when
+# it reads like a request ("auto"), or answered when a classifier model says it asks the bot
+# for something ("classifier").
+THREAD_FOLLOW_UP_MODES = ("mention", "auto", "classifier")
 
 
 def _as_list(raw: Any) -> list[str]:
@@ -80,6 +84,10 @@ class SlackOrgPolicy:
     # A top-level direct message continues the person's last DM session when it was active in
     # the last this many minutes (0: every top-level message starts a new session).
     dm_continue_minutes: int = 60
+    thread_follow_ups: str = "mention"
+    # The follow-up classifier's model (empty: the router's classifier model, else the
+    # organization's default model).
+    follow_up_classifier_model: str = ""
 
     def profile_for(self, channel_id: str) -> ChannelProfile | None:
         return self.channel_profiles.get(channel_id)
@@ -105,4 +113,11 @@ class SlackOrgPolicy:
             restrict_linked_members=bool(source.get("restrict_linked_members", False)),
             channel_profiles=_profiles(source.get("channel_profiles")),
             dm_continue_minutes=max(0, int(source.get("dm_continue_minutes", 60) or 0)),
+            thread_follow_ups=_follow_up_mode(source.get("thread_follow_ups")),
+            follow_up_classifier_model=str(source.get("follow_up_classifier_model") or "").strip(),
         )
+
+
+def _follow_up_mode(raw: Any) -> str:
+    mode = str(raw or "").strip().lower()
+    return mode if mode in THREAD_FOLLOW_UP_MODES else "mention"

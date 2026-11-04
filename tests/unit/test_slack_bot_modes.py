@@ -128,6 +128,7 @@ async def test_a_private_request_leaves_only_a_reaction_in_the_channel() -> None
     ephemerals = client.chat_postEphemeral.await_args_list
     assert [c.kwargs["user"] for c in ephemerals] == ["U1", "U1"], "acknowledgement, then answer"
     assert "Only you see this" in ephemerals[0].kwargs["text"]
+    assert "Reply `stop` in this thread" in ephemerals[0].kwargs["text"], "no stop button here"
     assert ANSWER in ephemerals[1].kwargs["text"]
     share = ephemerals[1].kwargs["blocks"][-1]["elements"][-1]
     assert share["action_id"] == "share_private_answer"

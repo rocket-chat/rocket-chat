@@ -6,6 +6,7 @@ import pytest
 from api.services.compaction import InMemoryCompactionStore
 from api.services.transcript import InMemoryTranscriptStore
 from api.store import InMemorySessionStore
+from api.turns.followup import SUGGESTION_SYSTEM_PROMPT
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
 from specifications.interfaces.llm import ChatMessage
@@ -95,7 +96,7 @@ async def test_100_step_multi_service_refactor_scenario() -> None:
     react_requests = [
         r
         for r in outcome.model.requests
-        if r.messages and "expert developer copilot" not in (r.messages[0].content or "")
+        if r.messages and r.messages[0].content != SUGGESTION_SYSTEM_PROMPT
     ]
     assert len(react_requests) >= 50
     stable_count = 0

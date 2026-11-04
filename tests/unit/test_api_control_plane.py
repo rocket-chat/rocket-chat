@@ -286,10 +286,19 @@ async def test_delete_session(mock_app_state: None) -> None:
 
 
 @pytest.mark.asyncio
-async def test_followup_suggestion_event_emission(mock_app_state: None) -> None:
+async def test_followup_suggestion_event_emission(
+    mock_app_state: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Verify follow-up suggestion is published on turn completion without exposing reasoning."""
+    from api.turns.shared import FollowUpSuggestion
+
     from specifications.interfaces.agent import AgentEvent
     from specifications.interfaces.events import EventType
+
+    suggest = AsyncMock(
+        return_value=FollowUpSuggestion(suggestion="Apply the same change to the staging config")
+    )
+    monkeypatch.setattr("api.turns.followup.generate_structured", suggest)
 
     session_id = "test_sugg_session"
     record = SessionRecord(
@@ -358,6 +367,19 @@ async def test_followup_suggestion_event_emission(mock_app_state: None) -> None:
         sess_body = sess_get.json()
         assert sess_body.get("suggested_followup") == sugg_text
         assert sess_body.get("metadata", {}).get("suggested_followup") == sugg_text
+    model_input = suggest.await_args.args[1].messages[-1].content
+    assert "Code refactored and updated." in model_input
+    assert "Internal reasoning" not in model_input
+
+    # A turn whose answer leads nowhere offers nothing, and a reload no longer shows the last one.
+    suggest.return_value = FollowUpSuggestion(suggestion="")
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        res = await client.post(f"/v1/sessions/{session_id}/turns", json={"prompt": "Thanks"})
+        assert res.status_code == 200
+        await asyncio.sleep(0.2)
+        sess_body = (await client.get(f"/v1/sessions/{session_id}")).json()
+    assert not sess_body.get("suggested_followup")
+    assert "suggested_followup" not in sess_body.get("metadata", {})
 
 
 @pytest.mark.asyncio

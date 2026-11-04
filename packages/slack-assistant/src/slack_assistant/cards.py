@@ -13,11 +13,11 @@ from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 RETRY_ACTION_ID = "retry_request"
+# Retired: the suggested-next-step button of earlier answers.
 FOLLOWUP_ACTION_ID = "run_followup"
 OPEN_SESSION_ACTION_ID = "open_session"
-# Slack caps a button's value at 2,000 characters and its label at 75.
+# Slack caps a button's value at 2,000 characters.
 _VALUE_CHARS = 2000
-_LABEL_CHARS = 75
 # Session metadata key holding the thread's pull request cards (bounded, newest last).
 PR_CARDS_KEY = "slack_pr_cards"
 MAX_PR_CARDS = 10
@@ -179,26 +179,6 @@ def build_summary_card(
     if buttons:
         blocks.append({"type": "actions", "elements": buttons})
     return blocks
-
-
-def build_followup_blocks(suggestion: str, session_id: str) -> list[dict[str, Any]]:
-    """A suggested next request as a button that sends it (only its requester may)."""
-    label = suggestion if len(suggestion) <= _LABEL_CHARS else suggestion[: _LABEL_CHARS - 1] + "…"
-    return [
-        {
-            "type": "actions",
-            "block_id": f"followup:{session_id}"[:255],
-            "elements": [
-                {
-                    "type": "button",
-                    "text": {"type": "plain_text", "text": label},
-                    "action_id": FOLLOWUP_ACTION_ID,
-                    "value": suggestion[:_VALUE_CHARS],
-                }
-            ],
-        },
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": "Suggested next step"}]},
-    ]
 
 
 def wait_notice(wait_type: str, target: str) -> str:

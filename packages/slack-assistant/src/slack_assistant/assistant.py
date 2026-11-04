@@ -65,8 +65,15 @@ from slack_assistant.ratelimit import BoundedRateLimiter
 from slack_assistant.refusals import failure_notice
 from slack_assistant.revisits import LAST_REQUEST_KEY, SlackRevisitsMixin, remember_request
 from slack_assistant.routing import ROUTE_KEY, Routing, SlackRoutingMixin
-from slack_assistant.shortcuts import Shortcuts, parse_shortcuts
-from slack_assistant.state import ClassifyFn, HoldMessageFn, RunTurnFn, SlackAssistantState
+from slack_assistant.shortcuts import Shortcuts, clean_mention_text, parse_shortcuts
+from slack_assistant.state import (
+    ClassifyFn,
+    FollowUpFn,
+    HoldMessageFn,
+    RunTurnFn,
+    SlackAssistantState,
+    StopSessionFn,
+)
 from slack_assistant.stream import TurnStream
 from slack_assistant.toolset import SlackToolsetMixin
 from slack_assistant.turn_stream import TurnOutcome, TurnView
@@ -87,11 +94,6 @@ logger = logging.getLogger(__name__)
 
 # Every Slack Web API call is bounded: a hung call must not hold a turn's reply.
 SLACK_API_TIMEOUT_SECONDS = 30
-
-
-def clean_mention_text(text: str) -> str:
-    """Remove Slack user/bot mention markup from message content."""
-    return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
 
 @dataclass(frozen=True)
@@ -186,6 +188,8 @@ class SlackAssistant(
         handler: AsyncSocketModeHandler | None = None,
         bot: SlackBot | None = None,
         classify_fn: ClassifyFn | None = None,
+        follow_up_fn: FollowUpFn | None = None,
+        stop_session_fn: StopSessionFn | None = None,
     ) -> None:
         base_settings = settings or SlackAssistantSettings()
         # A bot configured in the cockpit brings its own Slack app; the deployment's settings
@@ -199,6 +203,8 @@ class SlackAssistant(
         )
         self.bot: SlackBot | None = bot
         self._classify_fn: ClassifyFn | None = classify_fn
+        self._follow_up_fn: FollowUpFn | None = follow_up_fn
+        self._stop_session_fn: StopSessionFn | None = stop_session_fn
         self.orchestrator: AgentOrchestratorProtocol = orchestrator
         self.sandbox_driver: SandboxDriverProtocol | None = sandbox_driver
         self.tool_registry: ToolRegistry | None = tool_registry
@@ -399,6 +405,8 @@ class SlackAssistant(
                 return
             if not self._answers_direct_messages():
                 return
+            if await self._stop_from_message(event, addressed=True):
+                return
             await self._title_thread(set_title, channel_id, thread_ts, text)
             await self.process_incoming_request(
                 channel_id=channel_id,
@@ -424,6 +432,8 @@ class SlackAssistant(
             text = event.get("text", "")
             user_id = event.get("user", "")
             channel_type = event.get("channel_type") or "channel"
+            if await self._stop_from_message(event, addressed=True):
+                return
             status_fn = context.get("set_status")
             if not status_fn and thread_ts:
                 status_fn = AsyncSetStatus(
@@ -453,20 +463,27 @@ class SlackAssistant(
             subtype = event.get("subtype")
             if subtype == "message_changed":
                 await self._on_message_changed(event)
-                return
-            if subtype == "message_deleted":
+            elif subtype == "message_deleted":
                 await self._on_message_deleted(event)
-                return
             # Ignore messages from bots or system subtypes to avoid loops. A person's message
             # with a file (an image, a log) arrives as ``file_share``: it is theirs to answer.
-            if event.get("bot_id") or (subtype and subtype != "file_share"):
-                return
+            elif not event.get("bot_id") and subtype in (None, "", "file_share"):
+                await self._on_person_message(event, context, say)
 
-            if event.get("channel_type") == "im":
-                if self._answers_direct_messages():
-                    await self._handle_event_request(event, context, say)
-            elif self._listens_to(event) or await self._is_thread_follow_up(event):
+    async def _on_person_message(
+        self, event: dict[str, Any], context: dict[str, Any], say: AsyncSay
+    ) -> None:
+        """A person's message without a mention of the bot: a DM, a message in a channel the
+        bot listens to, a reply in one of its threads, or a stop."""
+        if event.get("channel_type") == "im":
+            if self._answers_direct_messages() and not await self._stop_from_message(
+                event, addressed=True
+            ):
                 await self._handle_event_request(event, context, say)
+        elif await self._stop_from_message(event, addressed=False):
+            return
+        elif self._listens_to(event) or await self._is_thread_follow_up(event):
+            await self._handle_event_request(event, context, say)
 
     def _answers_direct_messages(self) -> bool:
         return self.bot is None or self.bot.respond_in_dms
@@ -482,8 +499,9 @@ class SlackAssistant(
 
     async def _is_thread_follow_up(self, event: dict[str, Any]) -> bool:
         """A reply, without a mention of the bot, in a channel thread where the bot already
-        works for this person: the shared session, or their own private one. The usual
-        classifier then decides whether it is addressed to the bot."""
+        works, answered as the policy's ``thread_follow_ups`` says. A private session never
+        continues from the public thread without a mention: what its requester writes there
+        is for the others (often a summary of the private answer)."""
         thread_ts, text = str(event.get("thread_ts") or ""), str(event.get("text", ""))
         user_id = str(event.get("user") or "")
         if (
@@ -495,14 +513,21 @@ class SlackAssistant(
             return False
         if self.bot_user_id and f"<@{self.bot_user_id}>" in text:
             return False  # arrives as ``app_mention``
-        if not self.should_respond_to_thread_message(text, event.get("channel_type"), user_id):
-            return False
         channel_id = str(event.get("channel", ""))
-        self._bind_tenant(await self._workspace_org(str(event.get("team") or self.team_id or "")))
-        for private_for in (None, user_id):
-            if await self._session_record(self.get_session_id(channel_id, thread_ts, private_for)):
-                return True
-        return False
+        org_id = await self._workspace_org(str(event.get("team") or self.team_id or ""))
+        self._bind_tenant(org_id)
+        if not await self._session_record(self.get_session_id(channel_id, thread_ts)):
+            return False
+        policy = await self._load_org_policy(org_id)
+        return await self._answers_follow_up(
+            policy,
+            org_id=org_id,
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            user_id=user_id,
+            text=text,
+            channel_type=event.get("channel_type"),
+        )
 
     async def _handle_event_request(
         self, event: dict[str, Any], context: dict[str, Any], say: AsyncSay
@@ -634,10 +659,11 @@ class SlackAssistant(
             await ack()
             await self._retry_request(body)
 
+        # Suggested-next-step buttons are no longer posted; those already in threads are
+        # acknowledged so a click shows no error, and do nothing.
         @self.app.action(FOLLOWUP_ACTION_ID)
-        async def handle_followup(ack: AsyncAck, body: dict[str, Any]) -> None:
+        async def handle_followup(ack: AsyncAck) -> None:
             await ack()
-            await self._run_followup(body)
 
     async def _ingest_slack_attachments(
         self,

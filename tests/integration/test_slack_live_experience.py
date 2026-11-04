@@ -63,10 +63,9 @@ async def test_a_turn_streams_its_current_step_then_the_answer_in_the_same_reply
     footer = json.dumps(stop["blocks"])
     assert f"https://rocket.example/chat/{SESSION_ID}" in footer and "Done in" in footer
     assert "stop_turn" not in footer, "no Stop button: the slash command stops a turn"
-    # The answer is in the streamed reply; the only message the thread may get after it is the
-    # suggested next step, as a button.
-    for call in stack.say.await_args_list:
-        assert "run_followup" in json.dumps(call.kwargs.get("blocks")), call.kwargs
+    # The answer is in the streamed reply: the thread gets no other message after it (no
+    # suggested next step).
+    stack.say.assert_not_awaited()
     client.chat_postMessage.assert_not_awaited()
     assert "Turn complete" not in json.dumps([c.kwargs for c in client.mock_calls]), "no notice"
     client.agents_sessions_setStatus.assert_awaited_with(

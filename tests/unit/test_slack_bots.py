@@ -28,7 +28,16 @@ from api.services.slack_routing import (
     try_classify,
 )
 from fastapi.testclient import TestClient
-from slack_assistant.bot import DISMISS, RouteDecision, SlackBot, SlackRoute, SlackRouter
+from slack_assistant.bot import (
+    DISMISS,
+    IGNORE,
+    RESPOND,
+    FollowUpRequest,
+    RouteDecision,
+    SlackBot,
+    SlackRoute,
+    SlackRouter,
+)
 from slack_assistant.state import SlackAssistantState
 
 from specifications.interfaces.llm import LLMGatewayProtocol, current_model_scope
@@ -586,3 +595,103 @@ def test_a_bot_can_choose_its_slash_command() -> None:
     for bad in ("rocky", "/", "/has space", "/" + "x" * 40):
         with pytest.raises(SlackBotError):
             validate(replace(record, slash_command=bad))
+
+
+def _follow_up(model: str = "") -> FollowUpRequest:
+    return FollowUpRequest(
+        bot=SlackBot(id="b_fu", org_id="org_fu", name="Rocky", bot_token="x", app_token="y"),
+        org_id="org_fu",
+        text="Pour info : Rocky dit qu'il faut redémarrer le worker",
+        thread_excerpt="- Alice: @Rocky why is the worker down?\n- Rocky (bot): OOM, restart it.",
+        channel_id="C1",
+        thread_ts="1.0",
+        slack_user_id="U1",
+        model=model,
+    )
+
+
+@pytest.mark.setting("slack.follow_up_classifier_model")
+async def test_the_follow_up_classifier_asks_the_policys_model_and_logs_its_decision() -> None:
+    from api.services.slack_routing import classify_follow_up
+
+    gateway = MagicMock(spec=LLMGatewayProtocol)
+    with patch(
+        "api.services.slack_routing.generate_structured", new_callable=AsyncMock
+    ) as structured:
+        structured.return_value = RouterClassification(
+            route=IGNORE, confidence=0.83, reason="relays the answer to the others"
+        )
+        decision = await classify_follow_up(
+            gateway, _follow_up("openai/gpt-5-mini"), None, default_model="openai/default"
+        )
+
+    assert decision is not None and decision.route == IGNORE
+    request = structured.await_args.args[1]
+    assert request.model == "openai/gpt-5-mini" and request.temperature == 0.0
+    system, user = request.messages
+    assert "'respond'" in system.content and "'ignore'" in system.content
+    assert "Rocky" in system.content and "OOM, restart it." in user.content
+    assert user.content.endswith("Pour info : Rocky dit qu'il faut redémarrer le worker")
+    logged = (await list_route_decisions(None, "org_fu", "b_fu"))[0]
+    assert (logged["route"], logged["applied"], logged["model"]) == (
+        IGNORE,
+        IGNORE,
+        "openai/gpt-5-mini",
+    )
+    assert logged["excerpt"].startswith("Reply: Pour info")
+
+
+async def test_without_its_own_model_the_follow_up_classifier_uses_the_default() -> None:
+    from api.services.slack_routing import classify_follow_up
+
+    with patch(
+        "api.services.slack_routing.generate_structured", new_callable=AsyncMock
+    ) as structured:
+        structured.return_value = RouterClassification(route=RESPOND, confidence=0.9, reason="")
+        decision = await classify_follow_up(
+            MagicMock(spec=LLMGatewayProtocol), _follow_up(), None, default_model="openai/default"
+        )
+    assert decision is not None and decision.route == RESPOND
+    assert structured.await_args.args[1].model == "openai/default"
+
+
+async def test_an_unexpected_or_failed_follow_up_decision_is_undecided() -> None:
+    from api.services.slack_routing import classify_follow_up
+
+    gateway = MagicMock(spec=LLMGatewayProtocol)
+    with patch(
+        "api.services.slack_routing.generate_structured", new_callable=AsyncMock
+    ) as structured:
+        structured.return_value = RouterClassification(route="dev_bug", confidence=1, reason="")
+        assert await classify_follow_up(gateway, _follow_up(), None, "openai/default") is None
+        structured.side_effect = RuntimeError("provider down")
+        assert await classify_follow_up(gateway, _follow_up(), None, "openai/default") is None
+
+
+async def test_a_system_one_model_answers_the_follow_up_question(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.services.slack_routing import classify_follow_up
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-or-key")
+    answer = MagicMock()
+    answer.raise_for_status.return_value = None
+    answer.json.return_value = {
+        "answers": {
+            "respond": {
+                "type": "choice",
+                "choice": RESPOND,
+                "confidence": 0.71,
+                "probabilities": {RESPOND: 0.71, IGNORE: 0.29},
+            }
+        },
+        "usage": {"input_tokens": 40, "output_tokens": 0},
+    }
+    with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=answer) as post:
+        decision = await classify_follow_up(
+            MagicMock(spec=LLMGatewayProtocol), _follow_up("openrouter/typesafe/jev-latest"), None
+        )
+    assert decision is not None and decision.route == RESPOND
+    sent = post.await_args.kwargs["json"]
+    assert sent["model"] == "typesafe/jev-latest"
+    assert set(sent["questions"]["respond"]["criteria"]) == {RESPOND, IGNORE}

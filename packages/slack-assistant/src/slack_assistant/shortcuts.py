@@ -1,5 +1,6 @@
 """Command shortcuts typed in a Slack message: ``!fast``, ``!deep``, ``!agent <name>``,
-``!repo <owner/name>``, and ``(aside)`` for a message the agent should not answer.
+``!repo <owner/name>``, ``(aside)`` for a message the agent should not answer, and a message
+that only says stop.
 
 Shortcuts are stripped from the prompt and become choices for the turn. They choose nothing on
 their own: the reasoning effort and the agent go through the platform's resolver and access
@@ -16,6 +17,18 @@ _ASIDE = re.compile(r"^\s*\(aside\)", re.IGNORECASE)
 _EFFORT = re.compile(r"(?<!\S)(!fast|!deep)(?!\S)", re.IGNORECASE)
 _AGENT = re.compile(r"(?<!\S)!agent\s+(\"[^\"]{1,80}\"|[\w.-]{1,80})", re.IGNORECASE)
 _REPO = re.compile(r"(?<!\S)!repo\s+([\w.-]{1,100}/[\w.-]{1,100})(?:@([\w./-]{1,100}))?", re.I)
+_MENTION = re.compile(r"<@[A-Z0-9]+>")
+STOP_WORDS = frozenset({"stop", "!stop", "arrête", "arrete", "annule", "cancel"})
+
+
+def clean_mention_text(text: str) -> str:
+    """Remove Slack user/bot mention markup from message content."""
+    return _MENTION.sub("", text).strip()
+
+
+def is_stop_request(text: str) -> bool:
+    """Whether a message (mentions aside) only asks to stop: ``stop``, ``arrête``, ``!stop``..."""
+    return clean_mention_text(text).lower().rstrip("!. ") in STOP_WORDS
 
 
 @dataclass(frozen=True)

@@ -939,6 +939,31 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             maximum=10080,
             member_override=False,
         ),
+        _spec(
+            "thread_follow_ups",
+            "enum",
+            "mention",
+            "org_default",
+            "packages/slack-assistant/src/slack_assistant/policy.py",
+            "How the bot takes a reply that does not mention it, in a channel thread where it "
+            "already works: 'mention' ignores it (only a mention starts a turn), 'auto' answers "
+            "a reply that reads like a request, 'classifier' asks a classifier model, with the "
+            "thread's recent messages, whether the reply is for the bot. A private session is "
+            "never continued from the public thread without a mention.",
+            choices=("mention", "auto", "classifier"),
+            member_override=False,
+        ),
+        _spec(
+            "follow_up_classifier_model",
+            "str",
+            "",
+            "org_default",
+            "packages/slack-assistant/src/slack_assistant/policy.py",
+            "The model the 'classifier' mode of thread_follow_ups asks (for example "
+            "openrouter/typesafe/jev-latest). Empty: the bot's router classifier model, else the "
+            "organization's default model.",
+            member_override=False,
+        ),
     ),
     "governance": (
         _spec(
