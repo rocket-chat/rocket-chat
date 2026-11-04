@@ -59,7 +59,7 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="bg-void text-foreground antialiased selection:bg-flame/20 selection:text-flame">
+      <body className="bg-void text-foreground antialiased selection:bg-primary/25 selection:text-foreground">
         <ViewportSync />
         <AuthProvider>{children}</AuthProvider>
         <LaunchRocketHost />

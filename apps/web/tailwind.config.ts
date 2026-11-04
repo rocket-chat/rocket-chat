@@ -11,7 +11,8 @@ const config: Config = {
     extend: {
       colors: {
         brand: {
-          DEFAULT: "var(--brand, #fe5825)",
+          // Channels, so opacity modifiers (bg-brand/10) apply: on a plain var() they render nothing.
+          DEFAULT: "rgb(var(--brand-rgb) / <alpha-value>)",
           hover: "var(--brand-hover, #ea4c1d)",
           subtle: "rgba(254, 88, 37, 0.12)",
           border: "rgba(254, 88, 37, 0.35)",
@@ -37,7 +38,7 @@ const config: Config = {
         elevated: "var(--elevated)",
         overlay: "var(--overlay)",
         flame: {
-          DEFAULT: "var(--primary)",
+          DEFAULT: "rgb(var(--primary-rgb) / <alpha-value>)",
           hover: "var(--primary-hover)",
           dim: "var(--primary-dim)",
         },
