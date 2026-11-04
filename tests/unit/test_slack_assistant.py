@@ -6,13 +6,13 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from slack_assistant.assistant import clean_mention_text
 from slack_assistant.block_kit import (
     build_approval_blocks,
     build_diff_blocks,
     build_question_blocks,
     markdown_to_slack_mrkdwn,
 )
+from slack_assistant.shortcuts import clean_mention_text
 from slack_assistant.state import SlackAssistantState
 from slack_harness import make_slack
 

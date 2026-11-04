@@ -23,6 +23,7 @@ from slack_assistant.block_kit import (
     session_block_id,
     session_of_block,
 )
+from slack_assistant.bot import IGNORE, RESPOND, RouteDecision, SlackBot
 from slack_assistant.cards import (
     RETRY_ACTION_ID,
     PullRequestCard,
@@ -35,7 +36,7 @@ from slack_assistant.cards import (
 )
 from slack_assistant.policy import ChannelProfile, SlackOrgPolicy
 from slack_assistant.refusals import failure_notice
-from slack_assistant.shortcuts import parse_shortcuts
+from slack_assistant.shortcuts import is_stop_request, parse_shortcuts
 from slack_assistant.stream import TurnStream
 from slack_harness import make_slack
 
@@ -120,6 +121,26 @@ def test_an_aside_is_not_a_request() -> None:
     assert not parse_shortcuts("what about the (aside) test?").aside
 
 
+def test_a_message_that_only_says_stop_is_a_stop() -> None:
+    for text in ("stop", "<@UBOT> stop", "Stop!", "arrête", "Arrete.", "annule", "!stop", "cancel"):
+        assert is_stop_request(text), text
+    for text in ("stop the deploy job", "don't stop", "<@UBOT> arrête le worker", ""):
+        assert not is_stop_request(text), text
+
+
+def test_an_unknown_follow_up_mode_is_read_as_mention_only() -> None:
+    assert SlackOrgPolicy.from_settings({"thread_follow_ups": "always"}).thread_follow_ups == (
+        "mention"
+    )
+    read = SlackOrgPolicy.from_settings(
+        {"thread_follow_ups": "Classifier", "follow_up_classifier_model": " typesafe/jev-latest "}
+    )
+    assert (read.thread_follow_ups, read.follow_up_classifier_model) == (
+        "classifier",
+        "typesafe/jev-latest",
+    )
+
+
 def test_a_message_without_shortcuts_is_unchanged() -> None:
     parsed = parse_shortcuts("deploy !important now")
     assert not parsed.any and parsed.text == "deploy !important now"
@@ -162,29 +183,74 @@ def test_the_manifest_always_receives_channel_messages() -> None:
     assert {"message.channels", "message.groups"} <= set(events)
 
 
-async def test_a_reply_in_a_thread_with_a_session_is_a_follow_up() -> None:
+def _policy(**fields: Any) -> AsyncMock:
+    return AsyncMock(return_value=SlackOrgPolicy(**fields))
+
+
+_REPLY = {"channel": "C1", "thread_ts": "10.0", "ts": "11.0", "user": "U1"}
+
+
+@pytest.mark.setting("slack.thread_follow_ups")
+async def test_by_default_a_reply_without_a_mention_is_left_to_the_people() -> None:
     assistant = _assistant()
     session_id = assistant.get_session_id("C1", "10.0")
     assistant.session_store = _Store(_record(session_id))  # type: ignore[assignment]
-    event = {
-        "channel": "C1",
-        "thread_ts": "10.0",
-        "ts": "11.0",
-        "user": "U1",
-        "text": "can you also fix b?",
-    }
+    assert not await assistant._is_thread_follow_up({**_REPLY, "text": "can you also fix b?"})
+
+
+@pytest.mark.setting("slack.thread_follow_ups")
+async def test_in_auto_mode_a_reply_that_reads_like_a_request_is_a_follow_up() -> None:
+    assistant = _assistant(resolve_slack_policy_fn=_policy(thread_follow_ups="auto"))
+    session_id = assistant.get_session_id("C1", "10.0")
+    assistant.session_store = _Store(_record(session_id))  # type: ignore[assignment]
+    event = {**_REPLY, "text": "can you also fix b?"}
     assert await assistant._is_thread_follow_up(event)
     assert not await assistant._is_thread_follow_up({**event, "thread_ts": "99.0"})
     assert not await assistant._is_thread_follow_up({**event, "text": "thanks"})
 
 
-async def test_a_private_session_takes_follow_ups_from_its_requester_only() -> None:
-    assistant = _assistant()
-    private = assistant.get_session_id("C1", "10.0", private_for="U1")
-    assistant.session_store = _Store(_record(private))  # type: ignore[assignment]
-    event = {"channel": "C1", "thread_ts": "10.0", "ts": "11.0", "text": "please check"}
-    assert await assistant._is_thread_follow_up({**event, "user": "U1"})
-    assert not await assistant._is_thread_follow_up({**event, "user": "U2"})
+@pytest.mark.setting("slack.thread_follow_ups")
+async def test_a_private_session_never_continues_from_the_public_thread() -> None:
+    """Its requester's summary of the private answer, written for the others, is not a request
+    (whatever the mode)."""
+    for mode in ("mention", "auto", "classifier"):
+        follow_up = AsyncMock(return_value=RouteDecision(RESPOND, 0.9, ""))
+        assistant = _assistant(
+            resolve_slack_policy_fn=_policy(thread_follow_ups=mode), follow_up_fn=follow_up
+        )
+        private = assistant.get_session_id("C1", "10.0", private_for="U1")
+        assistant.session_store = _Store(_record(private))  # type: ignore[assignment]
+        reply = {**_REPLY, "text": "Résumé : il faut check la config et fix le build"}
+        assert not await assistant._is_thread_follow_up(reply), mode
+        follow_up.assert_not_awaited()
+
+
+@pytest.mark.setting("slack.thread_follow_ups")
+@pytest.mark.setting("slack.follow_up_classifier_model")
+async def test_in_classifier_mode_the_classifier_decides_with_the_thread() -> None:
+    follow_up = AsyncMock(return_value=RouteDecision(IGNORE, 0.8, "a summary for the others"))
+    assistant = _assistant(
+        resolve_slack_policy_fn=_policy(
+            thread_follow_ups="classifier", follow_up_classifier_model="typesafe/jev-latest"
+        ),
+        follow_up_fn=follow_up,
+        bot=SlackBot(id="b1", org_id="org", name="Rocky", bot_token="x", app_token="y"),
+    )
+    session_id = assistant.get_session_id("C1", "10.0")
+    assistant.session_store = _Store(_record(session_id))  # type: ignore[assignment]
+    reply = {**_REPLY, "text": "Pour info, Rocky propose de fix le build"}
+
+    assert not await assistant._is_thread_follow_up(reply)
+    request = follow_up.await_args.args[0]
+    assert (request.text, request.channel_id, request.thread_ts) == (reply["text"], "C1", "10.0")
+    assert request.model == "typesafe/jev-latest" and request.bot.name == "Rocky"
+
+    follow_up.return_value = RouteDecision(RESPOND, 0.9, "asks for a change")
+    assert await assistant._is_thread_follow_up(reply)
+    follow_up.return_value = None
+    assert not await assistant._is_thread_follow_up(reply), "undecided: left to the people"
+    follow_up.side_effect = RuntimeError("provider down")
+    assert not await assistant._is_thread_follow_up(reply), "a failure answers nothing"
 
 
 # -- P8.2 channel repository --------------------------------------------------------------------

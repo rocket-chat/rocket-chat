@@ -20,7 +20,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from slack_assistant.cards import build_followup_blocks
 from slack_assistant.policy import SlackOrgPolicy
 from slack_assistant.refusals import failure_notice
 from slack_assistant.turn_stream import SlackTurnStreamMixin, TurnOutcome, TurnView
@@ -34,9 +33,6 @@ IDLE_CLOSE_SECONDS = 600.0
 # The runner returns right after publishing a turn's closing event; its watcher may still be
 # rendering it.
 FINAL_GRACE_SECONDS = 5.0
-# How long after a turn its suggested follow-up is still posted (the runner asks a model for it
-# once the answer is stored).
-FOLLOWUP_WAIT_SECONDS = 30.0
 
 
 @dataclass
@@ -177,26 +173,17 @@ class SlackDeliveryMixin(SlackTurnStreamMixin):
         running: bool,
     ) -> None:
         view = await self._thread_view(session_id, org_id) if running else None
-        # A turn just shown, while its suggested follow-up may still come.
-        lingering: tuple[TurnView, float] | None = None
         try:
             # A watcher lives while it shows a turn or a request waits for one; a later turn
             # opens another (the organization follower sees the session start working).
-            while view is not None or lingering is not None or self._awaited(session_id):
+            while view is not None or self._awaited(session_id):
                 try:
                     event = await asyncio.wait_for(
-                        queue.get(), timeout=self._watch_timeout(view, lingering)
+                        queue.get(), timeout=None if view is not None else IDLE_CLOSE_SECONDS
                     )
                 except TimeoutError:
-                    lingering = None
                     continue
-                if lingering is not None and event.event_type == EventType.FOLLOWUP_SUGGESTION:
-                    await self._post_followup(lingering[0], event.payload)
-                    lingering = None
-                    continue
-                shown = view
                 view = await self._deliver(event, view, session_id, org_id)
-                lingering = self._linger_after(shown, view, event, lingering)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -206,46 +193,6 @@ class SlackDeliveryMixin(SlackTurnStreamMixin):
             # meanwhile finds no watcher and opens its own.
             close()
             self._watchers.pop(session_id, None)
-
-    def _watch_timeout(
-        self, view: TurnView | None, lingering: tuple[TurnView, float] | None
-    ) -> float | None:
-        if view is not None:
-            return None
-        if lingering is not None:
-            return max(0.0, lingering[1] - self._clock())
-        return IDLE_CLOSE_SECONDS
-
-    def _linger_after(
-        self,
-        shown: TurnView | None,
-        view: TurnView | None,
-        event: SessionEvent,
-        lingering: tuple[TurnView, float] | None,
-    ) -> tuple[TurnView, float] | None:
-        """Keep listening for a follow-up after a completed turn shown in a shared thread (the
-        runner suggests one after storing the answer); a new turn ends the wait."""
-        if view is not None:
-            return None
-        if shown is None or not self._is_terminal(event):
-            return lingering
-        outcome = shown.outcome
-        if shown.private or outcome.final_status != "completed" or outcome.error or outcome.refusal:
-            return None
-        return shown, self._clock() + FOLLOWUP_WAIT_SECONDS
-
-    async def _post_followup(self, view: TurnView, payload: dict[str, Any]) -> None:
-        suggestion = " ".join(str(payload.get("suggestion") or "").split())
-        if not suggestion:
-            return
-        try:
-            await view.say_fn(
-                blocks=build_followup_blocks(suggestion, view.session_id),
-                text=f"Suggested next step: {suggestion}",
-                thread_ts=view.thread_ts,
-            )
-        except Exception as err:
-            logger.info("Follow-up not posted in %s: %s", view.session_id, err)
 
     def _awaited(self, session_id: str) -> bool:
         """Whether a Slack request waits for a turn of ``session_id`` to be shown."""

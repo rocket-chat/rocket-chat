@@ -128,7 +128,7 @@ Both are set on the bot's **Routing** tab.
 
 ## 3. Administrator settings (Settings → Slack)
 
-These are the organization's Slack policy. Each bot can choose its own DM policy and outbound channels (its **Behaviour** tab) and channel profiles (its **Routing** tab), except for a setting the organization locked, which keeps the organization's value for every bot. The agent a bot runs is chosen per bot (**Routing** tab), not here.
+These are the organization's Slack policy. Each bot can choose its own DM policy, outbound channels and how it takes thread replies without a mention (its **Behaviour** tab) and channel profiles (its **Routing** tab), except for a setting the organization locked, which keeps the organization's value for every bot. The agent a bot runs is chosen per bot (**Routing** tab), not here.
 
 | Setting | What it does |
 | :--- | :--- |
@@ -139,8 +139,10 @@ These are the organization's Slack policy. Each bot can choose its own DM policy
 | `restrict_linked_members` | Off by default: a member who linked their Slack account uses their own access in DMs and private requests, as in the web app. On: the deployment's blocked tools (`SLACK_BLOCKED_TOOLS`) apply to them too. Shared channel threads and unlinked users are always restricted. |
 | `auto_link_by_verified_email` | Link Slack users to members by their verified e-mail. |
 | `web_base_url` | The public address of Rocket Chat, for "Open in Rocket Chat" links (falls back to `ROCKET_PUBLIC_URL`). |
-| `live_progress` | Show the step the turn is on in its reply (one card, updated in place), then write a one-line summary and the answer into the same message. Switched off, only Slack's status line shows progress and the answer is posted when the turn ends. Either way, the person who asked can stop a turn with Slack's stop button under the thread (the app must subscribe to `agent_session_stopped`) or the bot's command (`/<command> stop`). |
+| `live_progress` | Show the step the turn is on in its reply (one card, updated in place), then write a one-line summary and the answer into the same message. Switched off, only Slack's status line shows progress and the answer is posted when the turn ends. Either way, the person who asked can stop a turn with Slack's stop button under the thread (the app must subscribe to `agent_session_stopped`), the bot's command (`/<command> stop`), or a message that only says `stop` (`arrête`, `annule`, `cancel`, `!stop`). A stop also withdraws the messages queued behind the turn and closes its waits, so nothing restarts the work. |
 | `long_output_to_file`, `long_output_chars` | Attach long answers and large diffs as files, and the length that counts as long. |
+| `thread_follow_ups` | What the bot does with a reply that does not mention it, in a channel thread where it already works. `mention` (default): nothing, only a mention starts a turn. `auto`: it answers a reply that reads like a request (keywords, small talk ignored). `classifier`: a classifier model reads the thread's recent messages and the reply and decides whether the reply asks the bot for something or is meant for the other people (a summary of its answer, a discussion); an undecided or failed classification answers nothing. Its decisions are logged under the bot's **Activity** tab as `respond` or `ignore`, and billed like the router's. In every mode, a private session is never continued from the public thread without a mention. |
+| `follow_up_classifier_model` | The model of the `classifier` mode (for example `openrouter/typesafe/jev-latest`, a System One model, or any model with structured output). Empty: the bot's router classifier model, else the organization's default. It must be allowed by the organization's model policy. |
 | `channel_profiles` | Per-channel behaviour (below). |
 
 ### Per-channel profiles

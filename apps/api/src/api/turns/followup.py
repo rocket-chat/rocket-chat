@@ -1,9 +1,15 @@
-"""The suggested next instruction shown under a finished answer."""
+"""The suggested next instruction shown under a finished answer.
+
+A suggestion is worth showing only when the answer itself leads somewhere: a question the agent
+asked, a step it said remains, a choice it offered. Anything else is a guess that costs the
+person a read, so the model may answer nothing, and nothing is shown.
+"""
 
 from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from llm_gateway.structured import StructuredOutputError, generate_structured
@@ -12,6 +18,13 @@ from api.turns.shared import FollowUpSuggestion
 from specifications.interfaces.llm import ChatMessage, ModelRequest
 
 logger = logging.getLogger(__name__)
+
+# What the model reads, bounded whatever the turn produced: the answer (head and tail, where a
+# summary and its open questions sit), the person's last requests, and what the turn touched.
+ANSWER_CHARS = 4000
+REQUEST_CHARS = 600
+EARLIER_REQUESTS = 3
+TOUCHED_ITEMS = 12
 
 _LEAK_INDICATORS = (
     "i think",
@@ -27,16 +40,19 @@ _LEAK_INDICATORS = (
     "here is",
     "rule:",
     "rules:",
-    "introduction",
-    "chapter",
 )
 
-_SUGGESTION_SYSTEM_PROMPT = (
-    "You are an expert developer copilot. Based on the conversation, choose the single "
-    "most logical next instruction, prompt, or command the developer would give next. "
-    "Rules: 3 to 14 words, plain text only, no quotes, no conversational filler, directly actionable. "
-    "Put it in the JSON 'suggestion' field."
+SUGGESTION_SYSTEM_PROMPT = (
+    "You write the next message a person would send to their coding agent, offered as a "
+    "one-key completion under the agent's answer. Suggest one only when the answer itself "
+    "leads to it: the person's answer to a question the agent asked, a step the agent said "
+    "remains, or the choice the agent offered. Otherwise leave 'suggestion' empty: a generic "
+    "next step (run the tests, review the changes, what next?) is worse than none. "
+    "Write it as the person would, in the language they write in, 3 to 14 words, plain text, "
+    "specific to this work (name the file, branch, option or command). Answer in JSON."
 )
+
+_EDIT_TOOLS = frozenset({"file_write", "file_edit", "apply_patch"})
 
 
 def clean_answer(content: str) -> str:
@@ -46,82 +62,63 @@ def clean_answer(content: str) -> str:
     return content.strip()
 
 
+def _head_and_tail(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    half = limit // 2
+    return f"{text[:half]}\n[… {len(text) - 2 * half} characters cut …]\n{text[-half:]}"
+
+
 def _acceptable(candidate: str) -> bool:
     """A schema-valid string can still leak prompt text or exceed the length budget."""
     words = candidate.split()
     lowered = candidate.lower()
     return (
-        bool(candidate)
-        and 8 <= len(candidate) <= 120
+        8 <= len(candidate) <= 120
         and 2 <= len(words) <= 18
         and not any(indicator in lowered for indicator in _LEAK_INDICATORS)
     )
 
 
-async def _from_model(gateway: Any, model: str, prompt: str, answer: str) -> str | None:
-    summary_slice = answer[-1500:] if len(answer) > 1500 else answer
-    request = ModelRequest(
-        model=model,
-        messages=[
-            ChatMessage(role="system", content=_SUGGESTION_SYSTEM_PROMPT),
-            ChatMessage(role="user", content=prompt),
-            ChatMessage(role="assistant", content=summary_slice),
-        ],
-        max_tokens=80,
-        temperature=0.3,
-        stream=False,
-    )
-    try:
-        # Schema-constrained output validated by Pydantic, replacing the provider-specific
-        # regex/backtick scraping this used to do.
-        suggestion = await generate_structured(gateway, request, FollowUpSuggestion)
-    except StructuredOutputError as err:
-        # A gateway that cannot honour the schema degrades to the heuristics below rather
-        # than leaving the developer with no suggestion.
-        logger.debug("Structured suggestion generation failed: %s", err)
-        return None
-    first_line = suggestion.suggestion.split("\n")[0].strip()
-    return first_line if _acceptable(first_line) else None
+def _touched(executed_tools: Sequence[dict[str, Any]]) -> str:
+    """The tools the turn ran, and the files it changed, in one bounded line."""
+    names: list[str] = []
+    files: list[str] = []
+    for tool in executed_tools:
+        name = str(tool.get("name") or "")
+        if name and name not in names:
+            names.append(name)
+        arguments = tool.get("arguments")
+        path = arguments.get("path") if isinstance(arguments, dict) else None
+        if name in _EDIT_TOOLS and isinstance(path, str) and path not in files:
+            files.append(path)
+    parts = []
+    if names:
+        parts.append("Tools used: " + ", ".join(names[:TOUCHED_ITEMS]))
+    if files:
+        parts.append("Files changed: " + ", ".join(files[:TOUCHED_ITEMS]))
+    return "\n".join(parts)
 
 
-def _from_answer_text(answer: str) -> str | None:
-    """An explicit next command or next step the assistant itself wrote."""
-    command = re.search(
-        r"(?:run|execute|try|test with)[:\s`]+([a-zA-Z0-9_\-./ ]{5,45})[`\n.]",
-        answer,
-        re.IGNORECASE,
-    )
-    if command and len(command.group(1).strip().split()) <= 6:
-        return f"Run `{command.group(1).strip()}` to verify"
-    action = re.search(
-        r"(?:Next steps?|To proceed|You can now)[:\s*-]+\s*([A-Z][^\n\r.]{10,80})", answer
-    )
-    if action and 3 <= len(action.group(1).strip().split()) <= 14:
-        return action.group(1).strip()
-    return None
-
-
-def _from_context(prompt: str, answer: str, executed_tools: list[dict[str, Any]]) -> str | None:
-    """A generic but relevant suggestion when nothing better was found."""
-    last_tool = executed_tools[-1]["name"] if executed_tools else ""
-    prompt_lower, content_lower = prompt.lower(), answer.lower()
-    if "test" in prompt_lower or "pytest" in prompt_lower or "test" in last_tool:
-        return "Run the full test suite with coverage"
-    if (
-        last_tool in ("file_write", "file_edit", "apply_patch")
-        or "modified" in content_lower
-        or "updated" in content_lower
-    ):
-        return "Verify these changes with automated unit tests"
-    if "git" in last_tool or "commit" in prompt_lower:
-        return "Review git status and prepare commit"
-    if "error" in content_lower or "fail" in content_lower or "exception" in content_lower:
-        return "Inspect failure logs and trace the root cause"
-    if "docker" in prompt_lower or "container" in prompt_lower:
-        return "Check container status and sandbox health"
-    if "api" in prompt_lower or "route" in prompt_lower:
-        return "Test the endpoint with sample request payload"
-    return "What are the recommended next steps?" if answer else None
+def _context(
+    prompt: str,
+    answer: str,
+    executed_tools: Sequence[dict[str, Any]],
+    earlier_requests: Sequence[str],
+) -> str:
+    earlier = [
+        f"- {_head_and_tail(r.strip(), REQUEST_CHARS)}"
+        for r in earlier_requests[-EARLIER_REQUESTS:]
+        if r.strip()
+    ]
+    sections = []
+    if earlier:
+        sections.append("Earlier requests of the person:\n" + "\n".join(earlier))
+    sections.append(f"The person's request:\n{_head_and_tail(prompt.strip(), REQUEST_CHARS)}")
+    if touched := _touched(executed_tools):
+        sections.append(touched)
+    sections.append(f"The agent's answer:\n{_head_and_tail(answer, ANSWER_CHARS)}")
+    return "\n\n".join(sections)
 
 
 async def suggest_followup(
@@ -129,11 +126,29 @@ async def suggest_followup(
     model: str,
     prompt: str,
     answer: str,
-    executed_tools: list[dict[str, Any]],
+    executed_tools: Sequence[dict[str, Any]],
+    earlier_requests: Sequence[str] = (),
 ) -> str | None:
-    """The next instruction to offer: from the model, else the answer's own words, else context."""
+    """The next instruction to offer, or ``None`` when the answer leads to none."""
     clean = clean_answer(answer)
-    suggestion = await _from_model(gateway, model, prompt, clean) if clean and gateway else None
-    if not suggestion and clean:
-        suggestion = _from_answer_text(clean)
-    return suggestion or _from_context(prompt, clean, executed_tools)
+    if not (clean and gateway):
+        return None
+    request = ModelRequest(
+        model=model,
+        messages=[
+            ChatMessage(role="system", content=SUGGESTION_SYSTEM_PROMPT),
+            ChatMessage(
+                role="user", content=_context(prompt, clean, executed_tools, earlier_requests)
+            ),
+        ],
+        max_tokens=80,
+        temperature=0.0,
+        stream=False,
+    )
+    try:
+        suggestion = await generate_structured(gateway, request, FollowUpSuggestion)
+    except StructuredOutputError as err:
+        logger.debug("Structured suggestion generation failed: %s", err)
+        return None
+    first_line = suggestion.suggestion.split("\n")[0].strip().strip("\"'`")
+    return first_line if _acceptable(first_line) else None

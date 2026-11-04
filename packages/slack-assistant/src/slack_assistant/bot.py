@@ -16,6 +16,8 @@ from slack_assistant.policy import SlackOrgPolicy, _as_list, _profiles
 
 RESPONSE_MODES = ("thread", "private")
 DISMISS = "dismiss"
+# The follow-up classifier's two answers.
+RESPOND, IGNORE = "respond", "ignore"
 DEFAULT_COMMAND = "/rocket"
 
 
@@ -132,6 +134,22 @@ class ClassifyRequest:
     channel_id: str
     thread_ts: str
     slack_user_id: str
+
+
+@dataclass(frozen=True)
+class FollowUpRequest:
+    """A thread reply that does not mention the bot, for the classifier that decides whether
+    it asks the bot for something (``RESPOND``) or is meant for the others (``IGNORE``)."""
+
+    bot: SlackBot
+    org_id: str
+    text: str
+    thread_excerpt: str
+    channel_id: str
+    thread_ts: str
+    slack_user_id: str
+    # The policy's classifier model; empty: the router's classifier model, else the default.
+    model: str = ""
 
 
 @dataclass(frozen=True)

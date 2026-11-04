@@ -9,7 +9,7 @@ from typing import Any
 
 from slack_assistant.artifacts import head_of
 from slack_assistant.block_kit import build_private_blocks, markdown_to_slack_mrkdwn
-from slack_assistant.bot import DISMISS, ClassifyRequest, SlackBot
+from slack_assistant.bot import DISMISS, RESPOND, ClassifyRequest, FollowUpRequest, SlackBot
 from slack_assistant.policy import SlackOrgPolicy
 from slack_assistant.state import SlackAssistantState
 from slack_assistant.thread_context import fetch_thread_messages, render_transcript
@@ -21,6 +21,9 @@ ROUTE_KEY = "slack_route"
 PRIVATE_ANSWER_KEY = "slack_private_answer"
 # What "Share in thread" may post: Slack refuses a section over 3,000 characters.
 SHARED_ANSWER_CHARS = 2800
+# The thread messages the follow-up classifier sees before the reply: enough to hold the
+# bot's last answer and what the others said since.
+FOLLOW_UP_CONTEXT_MESSAGES = 8
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,49 @@ class SlackRoutingMixin(SlackAssistantState):
         if route is None:
             return default
         return Routing(route.agent_id, route.response_mode or default.response_mode, route.name)
+
+    async def _answers_follow_up(
+        self,
+        policy: SlackOrgPolicy,
+        *,
+        org_id: str,
+        channel_id: str,
+        thread_ts: str,
+        user_id: str,
+        text: str,
+        channel_type: str | None,
+    ) -> bool:
+        """Whether a thread reply that does not mention the bot is for the bot to answer."""
+        mode = policy.thread_follow_ups
+        if mode == "auto":
+            return self.should_respond_to_thread_message(text, channel_type, user_id)
+        if mode != "classifier" or self.bot is None or self._follow_up_fn is None:
+            return False
+        request = FollowUpRequest(
+            bot=self.bot,
+            org_id=org_id,
+            text=text,
+            thread_excerpt=await self._thread_excerpt(
+                channel_id, thread_ts, FOLLOW_UP_CONTEXT_MESSAGES
+            ),
+            channel_id=channel_id,
+            thread_ts=thread_ts,
+            slack_user_id=user_id,
+            model=policy.follow_up_classifier_model,
+        )
+        try:
+            decision = await self._follow_up_fn(request)
+        except Exception as err:
+            logger.warning("Follow-up classifier failed for %s: %s", channel_id, err)
+            return False
+        # Undecided is left to the people of the thread: an unwanted turn costs more than a
+        # missed one, which a mention brings back.
+        return decision is not None and decision.route == RESPOND
+
+    def should_respond_to_thread_message(
+        self, text: str, channel_type: str | None, user_id: str | None
+    ) -> bool:
+        raise NotImplementedError
 
     async def _classify(
         self,
@@ -161,7 +207,7 @@ class SlackRoutingMixin(SlackAssistantState):
             ":lock: Working on it privately. I'll send my questions and the result to you directly."
             if direct
             else ":lock: Working on it privately. Only you see this."
-        )
+        ) + " Reply `stop` in this thread to stop me."
         try:
             await say(
                 text=text, blocks=build_private_blocks(text, link_url=link_url), thread_ts=thread_ts
