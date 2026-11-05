@@ -235,3 +235,39 @@ def test_a_short_name_resolves_only_when_it_is_unambiguous() -> None:
     assert resolve_tool_name("getJiraIssue", known) == "getJiraIssue", "two servers: ask for more"
     assert resolve_tool_name("mcp__other__getJiraIssue", known) == "mcp__other__getJiraIssue"
     assert resolve_tool_name("nothing", known) == "nothing"
+
+
+# -- the catalogue the agent settings page groups -------------------------------------------
+
+
+def test_the_catalogue_groups_tools_by_the_domain_that_declares_them(preview_client: Any) -> None:
+    reply = preview_client.get("/v1/tools", headers=_MEMBER).json()
+    by_name = {tool["name"]: tool for tool in reply["tools"]}
+
+    assert by_name["git_commit"]["category"] == "Git"
+    assert by_name["file_read"]["category"] == "Files"
+    assert by_name["github_pull_request"]["category"] == "GitHub"
+    assert by_name["delegate_subagent"]["category"] == "Subagents", "the module, not its caller"
+    assert by_name["web_search"]["category"] == "Web"
+    assert "Other" not in reply["categories"], "every built-in tool has a domain"
+    assert reply["categories"] == sorted({tool["category"] for tool in reply["tools"]})
+
+
+def test_the_catalogue_marks_exactly_the_core_tools(preview_client: Any) -> None:
+    tools = preview_client.get("/v1/tools", headers=_MEMBER).json()["tools"]
+
+    assert {tool["name"] for tool in tools if tool["core"]} == set(CORE_TOOLS)
+    assert next(tool for tool in tools if tool["name"] == "git_status")["core"] is False
+
+
+def test_a_toolset_tool_is_grouped_by_its_toolset() -> None:
+    from agent_core.tools.registry import ToolRegistry
+    from api.routers.tools import _category
+
+    registry = ToolRegistry()
+
+    assert registry.domain_of("bash_exec") == "Commands"
+    assert registry.domain_of("slack_post") is None
+    assert _category("slack_post", None, "slack") == "Slack"
+    assert _category("mcp__grafana__query", None, None) == "Connectors"
+    assert _category("unknown", None, None) == "Other"

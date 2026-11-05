@@ -108,8 +108,9 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     const allowAll = page.getByTestId("agent-allow-all");
     await expect(allowAll).toBeChecked();
 
-    // The tool list is driven by the live backend catalog, grouped by the approval it needs.
+    // The tool list is driven by the live backend catalog, grouped by the domain that declares it.
     await expect(page.getByRole("region", { name: "Commands tools" })).toBeVisible();
+    await page.getByTestId("agent-tool-group-header-commands").click();
     await expect(page.getByTestId("agent-tool-bash_exec")).toBeVisible();
 
     // Narrow it, then allow everything again.

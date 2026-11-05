@@ -44,6 +44,32 @@ _DOMAINS = (
 )
 
 
+# What the agent settings page calls each module's tools, so its groups follow the code. Keyed by
+# module, since a domain may register another's tools (conversation registers delegation).
+DOMAIN_TITLES: dict[str, str] = {
+    "web": "Web",
+    "conversation": "Conversation & planning",
+    "delegation": "Subagents",
+    "artifacts": "Artifacts",
+    "knowledge": "Knowledge, memory & skills",
+    "repository": "Repositories",
+    "workspace": "Workspace",
+    "github": "GitHub",
+    "files": "Files",
+    "commands": "Commands",
+    "environment": "Environment",
+    "background": "Background processes",
+    "git": "Git",
+    "wait": "Waits",
+}
+
+
+def domain_title(module: str) -> str:
+    """The title of the domain whose module (``agent_core.tools.builtin.<domain>``) declared a tool."""
+    domain = module.rsplit(".", 1)[-1]
+    return DOMAIN_TITLES.get(domain, domain.replace("_", " ").capitalize())
+
+
 def register_all(registry: ToolRegistry) -> None:
     for domain in _DOMAINS:
         domain.register(registry)

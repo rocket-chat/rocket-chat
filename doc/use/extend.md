@@ -56,7 +56,7 @@ Upload documents (architecture notes, runbooks, API docs) and the agent searches
 
 ## Agents (personas)
 
-An agent is a system prompt, a model and an optional list of allowed tools, skills and knowledge bases, with the sandbox type its sessions start in and its own limits. One editor (**Settings → Agents** for the organization's, **Settings → Agents** for yours) has six sections: *Identity & prompt*, *Model & credentials*, *Tools & knowledge* (tools grouped by what they do: read, edit, run commands, publish), *Sandbox*, *Access* (organization agents) and *Limits*; subagent roles are edited in the same place. **Export** and **Import** move an agent as a `.rocket/agents/<id>.md` file. The platform ships with three built-in agents:
+An agent is a system prompt, a model and an optional list of allowed tools, skills and knowledge bases, with the sandbox type its sessions start in and its own limits. One editor (**Settings → Agents** for the organization's, **Settings → Agents** for yours) has six sections: *Identity & prompt*, *Model & credentials*, *Tools & knowledge* (see [Choosing an agent's tools](#choosing-an-agents-tools)), *Sandbox*, *Access* (organization agents) and *Limits*; subagent roles are edited in the same place. **Export** and **Import** move an agent as a `.rocket/agents/<id>.md` file. The platform ships with three built-in agents:
 
 * **General Software Engineer (`persona-general`)**: versatile full-stack autonomous engineer with access to all runtime tools.
 * **Backend Developer (`persona-backend`)**: optimized for complex, long-running backend engineering tasks (APIs, microservices, databases, durable waits, and subagent worktrees) keeping background processes and `git_diff` active beside the core tools, `medium` reasoning effort, and a 100-step turn budget.
@@ -74,6 +74,12 @@ Administrators can edit the built-in agents for the whole organization (prompt, 
 ### Max steps per turn
 
 Each agent can set **Max steps per turn**, from 1 up to the organization's ceiling (**Settings → Organization**, up to 500; the deployment's `AGENT_MAX_TURNS` is its default); leave it empty to use the organization's limit. For complex missions requiring hundreds of steps across multiple files and tests, Rocket Chat automatically schedules **Goal Continuations** when a turn hits its step cap while the `.rocket/PLAN.md` checklist has pending items.
+
+### Choosing an agent's tools
+
+*Tools & knowledge* lists every tool in groups: one per kind of built-in tool (*Files*, *Git*, *GitHub*, *Commands*, *Web*, *Subagents* and so on) and one per MCP server, marked *MCP*. Groups start collapsed. Each header shows how many of its tools the agent may use (`3 / 12`) and has a checkbox that adds the whole group, or removes it once every tool is in; it works with the group closed, and shows a dash when only some are in. Open a group with its header (click, or `Enter`/`Space`) to pick tools one by one: each is one line with its name and the approval it needs (*Edit*, *Command* or *Publish*; the rest only read), and its description shows when you point at it or move to it with the keyboard.
+
+**Add core tools** adds the core set described below in one click. To give an agent the core tools and everything one MCP server offers: untick **Every tool, including ones added later**, click **Add core tools**, then tick the server's group. **Filter tools** narrows the list by name or description and opens every group with a match; the total of selected tools stays above the groups.
 
 ### Which tools every step carries
 

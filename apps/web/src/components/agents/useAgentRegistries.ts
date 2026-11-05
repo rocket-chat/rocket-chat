@@ -11,6 +11,8 @@ export interface CatalogTool {
   toolset: string | null;
   /** read, edit, command or publish: the approval the tool needs. */
   permission: string;
+  /** A core tool: sent with every step whenever the agent may use it. */
+  core: boolean;
 }
 
 export interface SandboxType {

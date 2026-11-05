@@ -14,6 +14,9 @@ test.describe("Agent tool loading", () => {
     // A new agent may use every tool, including ones added later.
     await expect(page.getByTestId("agent-allow-all")).toBeChecked();
     await page.getByRole("button", { name: "Advanced: tools kept active" }).click();
+    // Tools are grouped by domain, collapsed until opened.
+    await page.getByTestId("agent-tool-group-header-files").click();
+    await page.getByTestId("agent-tool-group-header-git").click();
 
     await expect(page.getByTestId("tool-state-core").first()).toBeVisible();
     await expect(page.getByTestId("agent-pin-file_read")).toHaveCount(0);
@@ -40,6 +43,7 @@ test.describe("Agent tool loading", () => {
     await page.getByTestId("agent-section-tools").click();
     await expect(page.getByTestId("agent-allow-all")).toBeChecked();
     await page.getByRole("button", { name: "Advanced: tools kept active" }).click();
+    await page.getByTestId("agent-tool-group-header-git").click();
     const summary = page.getByTestId("tool-load-summary");
 
     await expect(summary).toContainText("Core tools and the ones kept active");

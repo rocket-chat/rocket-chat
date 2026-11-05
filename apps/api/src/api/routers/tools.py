@@ -12,7 +12,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from agent_core.permissions import permission_class
-from agent_core.tool_loading import ALWAYS_LOADED, deferred_names, sent_count
+from agent_core.tool_loading import ALWAYS_LOADED, MCP_PREFIX, deferred_names, sent_count
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
@@ -23,32 +23,20 @@ from specifications.interfaces.llm import ToolDefinition
 
 router = APIRouter(prefix="/v1", tags=["Tools"])
 
-_SANDBOX_TOOLS = {
-    "bash_exec",
-    "file_read",
-    "file_write",
-    "file_edit",
-    "apply_patch",
-    "apply_diff_file",
-    "list_dir",
-    "execute_skill",
-    "git_log",
-    "git_status",
-    "git_diff",
-    "package_manager",
-    "think",
-}
-_MEMORY_TOOLS = {"remember", "recall", "kb_search"}
-_WEB_TOOLS = {"web_search", "web_fetch", "browser_inspect"}
-
 
 class ToolCatalogEntry(BaseModel):
     name: str
     description: str
-    category: str
+    category: str = Field(
+        ...,
+        description="The tool's group: its built-in domain (e.g. Git), toolset (e.g. Slack) or Other",
+    )
     toolset: str | None = None
     permission: str = Field(
         default="command", description="read, edit, command or publish (what approval it needs)"
+    )
+    core: bool = Field(
+        default=False, description="A core tool: sent with every step whenever the agent may use it"
     )
 
 
@@ -57,23 +45,20 @@ class ToolCatalogResponse(BaseModel):
     categories: list[str]
 
 
-def _category(name: str, toolset: str | None) -> str:
+def _category(name: str, domain: str | None, toolset: str | None) -> str:
     if toolset:
         return toolset.capitalize()
-    if name in _MEMORY_TOOLS:
-        return "Memory & Knowledge"
-    if name in _SANDBOX_TOOLS:
-        return "Sandbox & Repository"
-    if name in _WEB_TOOLS:
-        return "Web"
-    if name.startswith("mcp"):
+    if domain:
+        return domain
+    if name.startswith(MCP_PREFIX):
         return "Connectors"
-    return "General"
+    return "Other"
 
 
 @router.get("/tools", response_model=ToolCatalogResponse)
 async def list_tools(request: Request) -> ToolCatalogResponse:
-    """The full tool catalog (name, description, category, toolset)."""
+    """The full tool catalog: each tool's name, description, group (its built-in domain or
+    toolset), the approval it needs and whether it is a core tool."""
     registry = getattr(request.app.state, "tool_registry", None)
     if registry is None:
         raise HTTPException(status_code=503, detail="Tool registry is not available")
@@ -82,9 +67,14 @@ async def list_tools(request: Request) -> ToolCatalogResponse:
         ToolCatalogEntry(
             name=definition.name,
             description=(definition.description or "").strip(),
-            category=_category(definition.name, registry.toolset_of(definition.name)),
+            category=_category(
+                definition.name,
+                registry.domain_of(definition.name),
+                registry.toolset_of(definition.name),
+            ),
             toolset=registry.toolset_of(definition.name),
             permission=permission_class(definition.name),
+            core=definition.name in CORE_TOOLS,
         )
         for definition in registry.catalog()
     ]

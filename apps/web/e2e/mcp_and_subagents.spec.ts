@@ -141,6 +141,7 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     await page.getByTestId("agent-section-limits").click();
     await page.getByTestId("agent-max-turns").fill("6");
     await page.getByTestId("agent-section-tools").click();
+    await page.getByTestId("agent-tool-group-header-commands").click();
     await expect(page.getByTestId("agent-tool-bash_exec")).toBeVisible();
 
     const saved = page.waitForResponse(
