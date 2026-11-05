@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from agent_core.context import current_execution_ctx
@@ -16,7 +16,7 @@ from config_engine import Preset
 from fastapi import FastAPI
 from sandbox_driver.blobs import read_bytes
 from slack_assistant.assistant import SlackAssistant
-from slack_assistant.bot import ClassifyRequest, RouteDecision, SlackBot
+from slack_assistant.bot import ClassifyRequest, FollowUpRequest, RouteDecision, SlackBot
 from slack_assistant.config import SlackAssistantSettings
 from slack_assistant.policy import SlackOrgPolicy
 from slack_assistant.state import ClassifyFn
@@ -27,9 +27,10 @@ from api.services.audit import AuditService
 from api.services.budgets import BudgetService
 from api.services.cluster import LeaderElection
 from api.services.decision_answer import decision_answer_prompt
+from api.services.default_agent import resolve_default_agent
 from api.services.memberships import member_display_name
 from api.services.personas import list_personas
-from api.services.queued_messages import hold_for_running_turn
+from api.services.queued_messages import QueuedMessageStore, hold_for_running_turn
 from api.services.quota import SlackWorkspaceQuotaService
 from api.services.settings import resolve_settings
 from api.services.slack_bots import (
@@ -45,7 +46,9 @@ from api.services.slack_link import (
     slack_guest_id,
     workspace_org,
 )
-from api.services.slack_routing import classify_slack_message
+from api.services.slack_private_threads import SqlPrivateThreads
+from api.services.slack_routing import classify_follow_up, classify_slack_message
+from api.services.waits import WaitStoreProtocol, get_wait_store, settle_waits
 from api.turns.context import TurnSelection
 from api.turns.gates import _forget_pending_decisions, take_stored_question
 from api.turns.tasks import run_guarded_turn
@@ -111,7 +114,7 @@ class SlackBotManager:
         self._bot_store = bot_store
         self._owner_db = owner_db
         self._settings = settings or SlackAssistantSettings()
-        self._callbacks = _SlackCallbacks(core)
+        self._callbacks = _SlackCallbacks(core, getattr(app.state, "wait_store", None))
         self._runtimes: dict[str, SlackRuntime] = {}
         self._lock = asyncio.Lock()
         self._resync: asyncio.Task[None] | None = None
@@ -236,7 +239,7 @@ def _build_assistant(
     classify_fn: ClassifyFn | None = None,
     callbacks: _SlackCallbacks | None = None,
 ) -> SlackAssistant:
-    callbacks = callbacks or _SlackCallbacks(core)
+    callbacks = callbacks or _SlackCallbacks(core, getattr(app.state, "wait_store", None))
     return SlackAssistant(
         orchestrator=core.orchestrator,
         settings=settings,
@@ -267,6 +270,11 @@ def _build_assistant(
         clear_stored_question_fn=callbacks.clear_stored_question,
         bot=bot,
         classify_fn=classify_fn,
+        follow_up_fn=callbacks.classify_follow_up,
+        stop_session_fn=callbacks.stop_session,
+        private_thread_store=(
+            SqlPrivateThreads(core.db_manager) if core.db_manager is not None else None
+        ),
     )
 
 
@@ -294,8 +302,9 @@ async def _listen(
 class _SlackCallbacks:
     """The platform services the assistant calls back into, bound to one set of core services."""
 
-    def __init__(self, core: CoreServices) -> None:
+    def __init__(self, core: CoreServices, wait_store: WaitStoreProtocol | None = None) -> None:
         self._core = core
+        self._wait_store = wait_store or get_wait_store(core.db_manager)
         self.pairing_codes = PairingCodes(core.db_manager)
         self._audit_service = AuditService(core.db_manager)
 
@@ -312,6 +321,40 @@ class _SlackCallbacks:
             self._core.db_manager,
             default_model=self._core.orchestrator.default_model,
         )
+
+    async def classify_follow_up(self, request: FollowUpRequest) -> RouteDecision | None:
+        """Whether a thread reply without a mention is for the bot (billed like routing)."""
+        return await classify_follow_up(
+            self._core.orchestrator.gateway,
+            request,
+            self._core.db_manager,
+            default_model=self._core.orchestrator.default_model,
+        )
+
+    async def stop_session(self, session_id: str) -> int:
+        """Withdraw what would start a stopped session again: its queued messages and its
+        open waits. How many messages were withdrawn."""
+        core = self._core
+        record = await core.session_store.get_session(session_id, include_history=False)
+        if record is None:
+            return 0
+        org_id = record.tenant_org_id
+        queued = QueuedMessageStore(core.db_manager)
+        withdrawn = 0
+        for message in await queued.pending(org_id, session_id):
+            if not await queued.cancel(org_id, session_id, message.id):
+                continue
+            withdrawn += 1
+            core.orchestrator.withdraw_steering(session_id, message.id)
+            await core.event_bus.publish(
+                SessionEvent(
+                    session_id=session_id,
+                    event_type=EventType.MESSAGE_CANCELLED,
+                    payload={"message_id": message.id},
+                )
+            )
+        await settle_waits(self._wait_store, session_id, org_id, status="cancelled")
+        return withdrawn
 
     async def resolve_user(
         self, slack_user_id: str, email: str | None, org_id: str
@@ -414,6 +457,8 @@ class _SlackCallbacks:
         """Run a Slack message through the same guarded turn the web cockpit uses. A shortcut's
         effort and agent are the turn's choices, resolved and checked like the web app's."""
         core = self._core
+        if not agent_id and not overlay.default_agent_id:
+            overlay = await self._with_member_default(session_id, overlay, author_user_id)
         await run_guarded_turn(
             session_id=session_id,
             prompt=prompt,
@@ -433,6 +478,20 @@ class _SlackCallbacks:
             reasoning_effort=reasoning_effort,
             selection=TurnSelection(agent_id=agent_id) if agent_id else None,
         )
+
+    async def _with_member_default(
+        self, session_id: str, overlay: TurnOverlay, requester_id: str
+    ) -> TurnOverlay:
+        """A direct message to a bot without an agent (of its own, or routed) runs the
+        requester's default agent (``default_agent``), unless the session already has one."""
+        record = await self._core.session_store.get_session(session_id, include_history=False)
+        metadata = record.metadata if record is not None else {}
+        if record is None or not metadata.get("slack_is_dm") or metadata.get("agent_id"):
+            return overlay
+        choice = await resolve_default_agent(
+            self._core.db_manager, record.tenant_org_id, requester_id
+        )
+        return replace(overlay, default_agent_id=choice.agent_id) if choice.agent_id else overlay
 
     async def answer_stored_question(
         self, session_id: str, question_id: str, options: list[str], text: str | None

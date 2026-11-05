@@ -113,7 +113,7 @@ An organization can run several bots in the same Slack workspace (e.g. `@RocketD
 ### Response modes per bot
 
 * **Thread mode:** The bot responds publicly in the Slack thread, streaming each step into its reply, then the answer, where everyone in the channel can see them.
-* **Private session mode:** The bot marks the request with a reaction (default `white_check_mark`) and posts an ephemeral reply visible only to the requester containing an **Open session** link. The turn runs privately in Rocket Chat. On completion, an ephemeral summary is sent with a **Share in thread** button that allows the requester to post the final answer publicly. Ephemeral messages disappear when Slack reloads and send no notification, so a bot can instead send a private request's questions, approvals, errors and result **by direct message** (*Behaviour → Send questions, approvals, errors and the result by direct message*): each message links back to the original thread, the buttons work from the DM, and the thread keeps only the reaction and a short "I'll message you directly" note.
+* **Private session mode:** The bot marks the request with a reaction (default `white_check_mark`) and posts nothing else in the channel. The turn runs in the requester's own session and is shown in a thread of their **direct messages** with the bot, headed by a link to the request and its first words: live progress, Slack's status and stop button, questions, approvals and the answer, with a **Share in thread** button that posts the answer in the channel thread. Replies in the DM thread continue the session (`stop` stops it); a later mention in the channel thread continues it in the same DM thread. The app needs `im:write` and the `message.im` event (both in the manifest above). A requester the bot cannot message (Messages tab turned off) gets a one-line ephemeral notice and the request does not run.
 
 ### Brain: One Agent or Router
 
@@ -128,19 +128,21 @@ Both are set on the bot's **Routing** tab.
 
 ## 3. Administrator settings (Settings → Slack)
 
-These are the organization's Slack policy. Each bot can choose its own DM policy and outbound channels (its **Behaviour** tab) and channel profiles (its **Routing** tab), except for a setting the organization locked, which keeps the organization's value for every bot. The agent a bot runs is chosen per bot (**Routing** tab), not here.
+These are the organization's Slack policy. Each bot can choose its own DM policy, outbound channels and how it takes thread replies without a mention (its **Behaviour** tab) and channel profiles (its **Routing** tab), except for a setting the organization locked, which keeps the organization's value for every bot. The agent a bot runs is chosen per bot (**Routing** tab), not here.
 
 | Setting | What it does |
 | :--- | :--- |
 | `allowed_channel_types` | Where Rocket answers: public channels, private channels, direct messages, group DMs. |
 | `dm_policy` | Who the agent may direct-message: nobody, linked members only, or everyone. |
-| `outbound_channels` | Channels the agent may post in or react in. Empty limits it to the conversation it was invoked from. Scheduled missions may only report to these. |
+| `outbound_channels` | Channels the agent may post in or react in. Empty limits it to the conversation it was invoked from. Missions may only deliver to these. |
 | `allowed_tools` | Which tools the Slack path may use. `*` means every tool, including the tools of the MCP servers the agent can reach, except the deployment's blocked list (`SLACK_BLOCKED_TOOLS`). A list names the tools exactly, so MCP tools must be listed by name (`mcp__<server>__<tool>`). |
 | `restrict_linked_members` | Off by default: a member who linked their Slack account uses their own access in DMs and private requests, as in the web app. On: the deployment's blocked tools (`SLACK_BLOCKED_TOOLS`) apply to them too. Shared channel threads and unlinked users are always restricted. |
 | `auto_link_by_verified_email` | Link Slack users to members by their verified e-mail. |
 | `web_base_url` | The public address of Rocket Chat, for "Open in Rocket Chat" links (falls back to `ROCKET_PUBLIC_URL`). |
-| `live_progress` | Show the step the turn is on in its reply (one card, updated in place), then write a one-line summary and the answer into the same message. Switched off, only Slack's status line shows progress and the answer is posted when the turn ends. Either way, the person who asked can stop a turn with Slack's stop button under the thread (the app must subscribe to `agent_session_stopped`) or the bot's command (`/<command> stop`). |
+| `live_progress` | Show the step the turn is on in its reply (one card, updated in place), then write a one-line summary and the answer into the same message. Switched off, only Slack's status line shows progress and the answer is posted when the turn ends. Either way, the person who asked can stop a turn with Slack's stop button under the thread (the app must subscribe to `agent_session_stopped`), the bot's command (`/<command> stop`), or a message that only says `stop` (`arrête`, `annule`, `cancel`, `!stop`). A stop also withdraws the messages queued behind the turn and closes its waits, so nothing restarts the work. |
 | `long_output_to_file`, `long_output_chars` | Attach long answers and large diffs as files, and the length that counts as long. |
+| `thread_follow_ups` | What the bot does with a reply that does not mention it, in a channel thread where it already works. `mention` (default): nothing, only a mention starts a turn. `auto`: it answers a reply that reads like a request (keywords, small talk ignored). `classifier`: a classifier model reads the thread's recent messages and the reply and decides whether the reply asks the bot for something or is meant for the other people (a summary of its answer, a discussion); an undecided or failed classification answers nothing. Its decisions are logged under the bot's **Activity** tab as `respond` or `ignore`, and billed like the router's. In every mode, a private session is never continued from the public thread without a mention. |
+| `follow_up_classifier_model` | The model of the `classifier` mode (for example `openrouter/typesafe/jev-latest`, a System One model, or any model with structured output). Empty: the bot's router classifier model, else the organization's default. It must be allowed by the organization's model policy. |
 | `channel_profiles` | Per-channel behaviour (below). |
 
 ### Per-channel profiles
@@ -158,7 +160,7 @@ A channel can have its own persona, house rules, tool scope and sandbox image. I
 }
 ```
 
-`allowed_tools` can only narrow what the organization allows. `sandbox_image` must be an image the organization permits (**Settings → Organization → Sandboxes**). Direct messages never use a channel profile.
+`allowed_tools` can only narrow what the organization allows. `sandbox_image` must be an image the organization permits (**Settings → Sandboxes**). Direct messages never use a channel profile.
 
 ### Who owns Slack sessions
 
@@ -167,19 +169,19 @@ A direct message from a linked Slack user belongs to that member. Everything els
 * `slack:<team>:<user>` for an unlinked Slack user's direct messages;
 * `slack:<team>` for shared channel threads.
 
-Guests have the `viewer` role, no password and no linked accounts, so they cannot sign in. They appear in **Settings → Organization → Members & roles**. They can use only the agents whose **Access** allows guests. When a Slack user links their account, their guest's sessions move to them. Sessions are never created for a user that does not exist: a turn whose session is missing fails instead.
+Guests have the `viewer` role, no password and no linked accounts, so they cannot sign in. They appear in **Settings → Members & teams**. They can use only the agents whose **Access** allows guests. When a Slack user links their account, their guest's sessions move to them. Sessions are never created for a user that does not exist: a turn whose session is missing fails instead.
 
 ### Safety limits (deployment-wide)
 
 Environment variables bound what an unlinked Slack user can cost or break: `SLACK_USER_TURNS_PER_MINUTE`, `SLACK_CHANNEL_TURNS_PER_MINUTE`, `SLACK_MAX_ATTACHMENTS_PER_TURN`, `SLACK_MAX_CONSECUTIVE_FAILURES` / `SLACK_FAILURE_COOLDOWN_SECONDS` (a circuit breaker), `SLACK_ALLOWED_TOOLS` / `SLACK_BLOCKED_TOOLS` (by default `git_revert`, `git_open_pr` and `git_push` are blocked on the unauthenticated path: shared channel threads and Slack users who have not linked their account. A linked member's DM or private request runs with their own account and the same tools as the web app, unless the organization turns on `restrict_linked_members`), and `SLACK_HEALTH_CHECK_SECONDS` (below). The settings reference lists every key.
 
-What a Slack workspace's guests may spend (unlinked Slack users and shared channel threads) is a **spend limit** on the subject *Slack workspace* (**Settings → Organization → Spend**), like any other limit; a linked member's requests count against that member's limits instead. When it is used up, the bot answers "Workspace budget reached" before any turn starts, so the refused request costs nothing.
+What a Slack workspace's guests may spend (unlinked Slack users and shared channel threads) is a **spend limit** on the subject *Slack workspace* (**Settings → Spend & usage**), like any other limit; a linked member's requests count against that member's limits instead. When it is used up, the bot answers "Workspace budget reached" before any turn starts, so the refused request costs nothing.
 
 ---
 
-## 4. Scheduled missions that report to Slack
+## 4. Missions that deliver to Slack
 
-A scheduled mission (**Missions**) can name a **Slack channel**. When a run finishes, Rocket posts its result there with a link to the session (and the full report as a file when it is long). If the organization restricts `outbound_channels`, the channel must be one of them.
+A mission (**Missions**) can deliver its result to a **Slack channel** through one of the organization's bots (the first running one when it names none). When a run finishes, Rocket posts the result there with a link to the session. If the organization restricts `outbound_channels`, the channel must be one of them.
 
 ---
 

@@ -99,7 +99,14 @@ class SubagentEvents:
         )
 
     async def tool_completed(
-        self, call_id: str, name: str, arguments: str, result: str, status: str, duration_ms: int
+        self,
+        call_id: str,
+        name: str,
+        arguments: str,
+        result: str,
+        status: str,
+        duration_ms: int,
+        cwd: str | None = None,
     ) -> None:
         shown = (
             result
@@ -118,6 +125,7 @@ class SubagentEvents:
                 "result": shown,
                 "status": status,
                 "duration_ms": duration_ms,
+                **({"cwd": cwd} if cwd else {}),
                 **self._identity(),
             },
         )

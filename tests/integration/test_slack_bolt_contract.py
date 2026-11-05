@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from slack_assistant.bot import SlackBot
 from slack_bolt.async_app import AsyncApp
 from slack_bolt.authorization import AuthorizeResult
 from slack_bolt.request.async_request import AsyncBoltRequest
@@ -46,7 +47,10 @@ class SlackApi:
     ) -> AsyncSlackResponse:
         sent = kwargs.get("json") or kwargs.get("data") or kwargs.get("params") or {}
         self.calls.append((api_method, dict(sent)))
-        data = {"ok": True, "ts": f"9{len(self.calls)}.0", "channel": sent.get("channel", "C1")}
+        channel = str(sent.get("channel") or "C1")
+        # A message sent to a person lands in the bot's direct messages with them.
+        channel = f"D{channel[1:]}" if channel.startswith("U") else channel
+        data = {"ok": True, "ts": f"9{len(self.calls)}.0", "channel": channel}
         return AsyncSlackResponse(
             client=client,
             http_verb="POST",
@@ -159,6 +163,35 @@ async def test_a_direct_message_is_answered(bolt: BoltStack) -> None:
     await bolt.dispatch(payload("event_message_im"))
     await bolt.settle()
     assert "Fixed it." in json.dumps(bolt.client.sent("chat.postMessage"))
+
+
+def _direct_message(**fields: Any) -> dict[str, Any]:
+    body = payload("event_message_im")
+    body["event"] = {**body["event"], **fields}
+    return body
+
+
+@pytest.mark.asyncio
+async def test_a_direct_message_with_an_image_is_answered(bolt: BoltStack) -> None:
+    """Slack sends a message carrying a file as ``file_share``; it used to be dropped as a
+    system message, so the person's image (and their words with it) never reached the agent."""
+    image = {
+        "id": "F1",
+        "name": "screenshot.png",
+        "mimetype": "image/png",
+        "size": 2048,
+        "url_private": "https://files.slack.com/files-pri/T1-F1/screenshot.png",
+    }
+    await bolt.dispatch(_direct_message(subtype="file_share", files=[image], text="what is this?"))
+    await bolt.settle()
+    assert "Fixed it." in json.dumps(bolt.client.sent("chat.postMessage"))
+
+
+@pytest.mark.asyncio
+async def test_other_system_messages_are_still_ignored(bolt: BoltStack) -> None:
+    await bolt.dispatch(_direct_message(subtype="channel_join", text="<@U1> has joined"))
+    await bolt.settle()
+    assert bolt.client.calls == []
 
 
 @pytest.mark.asyncio
@@ -289,3 +322,180 @@ async def test_slacks_stop_button_stops_the_requesters_turn_and_ends_the_session
 
     await bolt.dispatch(_stop_click("U1", "Ev_STOP_IDLE"))
     assert statuses()[-1] == "active", "a stuck indicator with nothing running is cleared"
+
+
+_ROOT = "1700000000.000100"
+_SESSION = "slack_C1_1700000000_000100"
+
+
+def _in_thread(event_type: str, event_id: str, ts: str, **fields: Any) -> dict[str, Any]:
+    """A reply in the thread the mention fixture started (``app_mention`` or ``message``)."""
+    body = payload("event_app_mention", event_id=event_id)
+    body["event"] = {
+        **body["event"],
+        "type": event_type,
+        "channel_type": "channel",
+        "thread_ts": _ROOT,
+        "ts": ts,
+        **fields,
+    }
+    return body
+
+
+async def _running_turn(bolt: BoltStack) -> tuple[asyncio.Task[Any], list[str]]:
+    model = bolt.stack.model
+    model.gate = asyncio.Event()
+    cancelled: list[str] = []
+
+    async def cancel_turn(session_id: str) -> None:
+        cancelled.append(session_id)
+
+    bolt.assistant.orchestrator.cancel_turn = cancel_turn  # type: ignore[method-assign]
+    turn = asyncio.create_task(bolt.dispatch(payload("event_app_mention")))
+    await asyncio.wait_for(model.started.wait(), 5)
+    await _wait_for(lambda: _SESSION in bolt.assistant._active_turns)
+    return turn, cancelled
+
+
+@pytest.mark.asyncio
+async def test_a_stop_message_stops_the_requesters_turn_and_is_never_queued(
+    bolt: BoltStack,
+) -> None:
+    turn, cancelled = await _running_turn(bolt)
+    cleared: list[str] = []
+
+    async def stop_session(session_id: str) -> int:
+        cleared.append(session_id)
+        return 0
+
+    bolt.assistant._stop_session_fn = stop_session
+    try:
+        await bolt.dispatch(
+            _in_thread("app_mention", "Ev_S1", "1700000501.0", user="U2", text="<@UBOT> stop")
+        )
+        assert cancelled == [], "only the requester stops the turn"
+        note = bolt.client.sent("chat.postEphemeral")[-1]
+        assert note["user"] == "U2" and "Nothing of yours" in note["text"]
+
+        await bolt.dispatch(
+            _in_thread("message", "Ev_S2", "1700000502.0", user="U1", text="Arrête !")
+        )
+        assert cancelled == [_SESSION] and cleared == [_SESSION], "a bare stop counts too"
+    finally:
+        assert bolt.stack.model.gate is not None
+        bolt.stack.model.gate.set()
+        await asyncio.wait_for(turn, 10)
+
+    posted = json.dumps(bolt.client.sent("chat.postMessage"), ensure_ascii=False)
+    assert "Queued" not in posted, "a stop is not a request for after the turn"
+    assert len(bolt.stack.model.agent_requests()) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_bare_stop_with_nothing_running_is_left_to_the_people(bolt: BoltStack) -> None:
+    await bolt.dispatch(payload("event_app_mention"))
+    await bolt.settle()
+    calls = len(bolt.client.calls)
+
+    await bolt.dispatch(_in_thread("message", "Ev_S3", "1700000503.0", user="U2", text="stop"))
+    await bolt.settle()
+
+    assert len(bolt.client.calls) == calls, "no note, no turn"
+
+
+@pytest.mark.setting("slack.thread_follow_ups")
+@pytest.mark.asyncio
+async def test_a_summary_posted_in_the_thread_without_a_mention_starts_nothing(
+    bolt: BoltStack,
+) -> None:
+    await bolt.dispatch(payload("event_app_mention"))
+    await bolt.settle()
+    calls = len(bolt.client.calls)
+
+    summary = "Résumé pour l'équipe : Rocky propose de fix le build et de check la config."
+    await bolt.dispatch(
+        _in_thread("message", "Ev_SUMMARY", "1700000504.0", user="U1", text=summary)
+    )
+    await bolt.settle()
+
+    assert len(bolt.client.calls) == calls
+    assert len(bolt.stack.model.agent_requests()) == 1
+
+
+def _private(bolt: BoltStack) -> str:
+    """Make the bot private; the private session a mention of U1 in the fixture thread gets."""
+    bolt.assistant.bot = SlackBot(
+        id="b1",
+        org_id=bolt.assistant.settings.slack_default_org_id,
+        name="Ops",
+        bot_token="xoxb-test",
+        app_token="xapp-test",
+        response_mode="private",
+    )
+    return bolt.assistant.get_session_id("C1", _ROOT, private_for="U1")
+
+
+@pytest.mark.asyncio
+async def test_a_private_request_runs_in_the_requesters_dm_thread_and_stops_there(
+    bolt: BoltStack,
+) -> None:
+    session = _private(bolt)
+    model = bolt.stack.model
+    model.gate = asyncio.Event()
+    cancelled: list[str] = []
+
+    async def cancel_turn(session_id: str) -> None:
+        cancelled.append(session_id)
+
+    bolt.assistant.orchestrator.cancel_turn = cancel_turn  # type: ignore[method-assign]
+    turn = asyncio.create_task(bolt.dispatch(payload("event_app_mention")))
+    await asyncio.wait_for(model.started.wait(), 5)
+    await _wait_for(lambda: session in bolt.assistant._active_turns)
+    thread = await bolt.assistant._known_private_thread(session)
+    assert thread is not None and thread.dm_channel_id == "D1"
+
+    def stop(user: str, event_id: str) -> dict[str, Any]:
+        body = _stop_click(user, event_id)
+        body["event"] = {**body["event"], "channel": "D1", "thread_ts": thread.dm_thread_ts}
+        return body
+
+    try:
+        await bolt.dispatch(stop("U2", "Ev_PRIVATE_STOP_STRANGER"))
+        assert cancelled == []
+        await bolt.dispatch(stop("U1", "Ev_PRIVATE_STOP_OWNER"))
+        assert cancelled == [session]
+    finally:
+        model.gate.set()
+        await asyncio.wait_for(turn, 10)
+
+    posted = bolt.client.sent("chat.postMessage")
+    assert posted[0]["channel"] == "U1", "the DM thread opens first"
+    assert all(p["channel"] in ("U1", "D1") for p in posted), "nothing posted in the channel"
+    assert "chat.postEphemeral" not in bolt.client.methods()
+    assert bolt.client.sent("reactions.add")[0]["channel"] == "C1"
+    assert "Stopped by <@U1>" in json.dumps(posted, ensure_ascii=False)
+    ended = bolt.client.sent("agents.sessions.setStatus")[-1]
+    assert (ended["channel_id"], ended["status"]) == ("D1", "active")
+
+
+@pytest.mark.asyncio
+async def test_a_reply_in_the_dm_thread_continues_the_private_session(bolt: BoltStack) -> None:
+    session = _private(bolt)
+    await bolt.dispatch(payload("event_app_mention"))
+    await bolt.settle()
+    thread = await bolt.assistant._known_private_thread(session)
+    assert thread is not None
+
+    await bolt.dispatch(
+        _direct_message(
+            thread_ts=thread.dm_thread_ts, ts="1700000200.000100", text="and the staging one?"
+        )
+    )
+    await bolt.settle()
+
+    requests = bolt.stack.model.agent_requests()
+    assert len(requests) == 2
+    assert "and the staging one?" in json.dumps(requests[-1], default=str)
+    answers = [p for p in bolt.client.sent("chat.postMessage") if "Fixed it." in json.dumps(p)]
+    assert len(answers) == 2
+    assert all((a["channel"], a.get("thread_ts")) == ("D1", thread.dm_thread_ts) for a in answers)

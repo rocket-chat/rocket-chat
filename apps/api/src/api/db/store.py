@@ -2,19 +2,21 @@
 
 import os
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, and_, func, or_, select, update
 from sqlalchemy import cast as sql_cast
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import array as sql_array
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, defer
 
 from specifications.interfaces.llm import ChatMessage
 from specifications.interfaces.sandbox import SandboxStatus
 from specifications.interfaces.session import (
+    SHARED_TEAMS_KEY,
     SessionCursor,
     SessionPage,
     SessionRecord,
@@ -717,6 +719,7 @@ class PostgresSessionStore(SessionStoreProtocol):
         query: str | None = None,
         limit: int = 50,
         cursor: SessionCursor | None = None,
+        visible_to_teams: Sequence[str] = (),
     ) -> SessionPage:
         """List one keyset page of sessions, newest ``(updated_at, session_id)`` first.
 
@@ -743,6 +746,11 @@ class PostgresSessionStore(SessionStoreProtocol):
                         SessionModel.user_id == visible_to_user_id,
                         metadata["is_shared"].as_boolean().is_(True),
                         metadata["collaborators"].contains([visible_to_user_id]),
+                        *(
+                            [metadata[SHARED_TEAMS_KEY].has_any(sql_array(list(visible_to_teams)))]
+                            if visible_to_teams
+                            else []
+                        ),
                     )
                 )
             if cursor is not None:

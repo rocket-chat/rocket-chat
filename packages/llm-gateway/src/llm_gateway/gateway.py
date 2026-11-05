@@ -31,6 +31,7 @@ from specifications.interfaces.llm import (
     ChatMessage,
     CredentialResolverProtocol,
     LLMGatewayProtocol,
+    ModelCatalogueProtocol,
     ModelRequest,
     ModelScope,
     Reservation,
@@ -163,6 +164,8 @@ class LiteLLMGateway(LLMGatewayProtocol):
         self.usage_sink: UsageSinkProtocol | None = None
         self.budget_guard: BudgetGuardProtocol | None = None
         self.credential_resolver: CredentialResolverProtocol | None = None
+        # The platform's model facts (the provider's live catalogue): which models read images.
+        self.model_catalogue: ModelCatalogueProtocol | None = None
         self._usage_ledger: list[dict[str, Any]] = []
         env_retries = os.getenv("ROCKET_MODEL_MAX_RETRIES")
         self._max_retries: int = int(env_retries) if env_retries and env_retries.isdigit() else 2
@@ -212,9 +215,18 @@ class LiteLLMGateway(LLMGatewayProtocol):
             formatted.append(entry)
         return formatted
 
-    @staticmethod
-    def _supports_vision(model: str) -> bool:
+    def _supports_vision(self, model: str) -> bool:
         """Whether ``model`` accepts ``image_url`` content blocks."""
+        spec = self.model_catalogue.get_model_spec(model) if self.model_catalogue else None
+        if spec is not None and spec.accepts_images is not None:
+            return spec.accepts_images
+        # LiteLLM's model map knows most releases (a marker list missed every Claude after
+        # ``claude-4``); the markers still cover a model neither lists.
+        try:
+            if litellm.supports_vision(model=model):
+                return True
+        except Exception:  # an unknown provider prefix: fall back to the markers
+            logger.debug("LiteLLM has no vision flag for %s", model)
         normalized = (model or "").lower()
         return any(marker in normalized for marker in _VISION_MODEL_MARKERS)
 

@@ -18,6 +18,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 
 from api.auth.access import _check_session_access, _get_request_identity
+from api.auth.context import caller_teams
 from api.auth.roles import is_admin
 from api.models import SessionResponse
 from api.services.session_support import _to_response
@@ -125,6 +126,7 @@ async def list_sessions(
     page = await store.list_sessions_page(
         tenant_org_id=req_org,
         visible_to_user_id=None if scope == "organization" else req_user,
+        visible_to_teams=sorted(caller_teams(req_user)),
         include_archived=archived,
         query=q,
         limit=limit,

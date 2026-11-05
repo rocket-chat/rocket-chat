@@ -2,8 +2,9 @@
 
 A limit caps the dollars one *subject* spends over one *period*:
 
-* subjects - the organization, a member (or each member), an agent, an agent for a member
-  (or for each member), a Slack workspace;
+* subjects - the organization, a team (the calls made in its context: its agents' turns), a
+  member (or each member), an agent, an agent for a member (or for each member), a Slack
+  workspace;
 * periods - calendar ``day``, ``week``, ``month`` (UTC), ``rolling_24h`` and ``rolling_7d``
   (hourly buckets summed over the window), one ``session``, one ``turn``;
 * modes - ``block`` refuses the call that would cross it, ``warn`` only tells the member.
@@ -13,6 +14,10 @@ A row with no member (``member`` with no ``subject_id``, ``agent_member`` with n
 when the default is marked ``is_ceiling`` the explicit row can only lower it.
 
 Calls paid with a member's own provider key count against no limit: that money is theirs.
+
+A limit is the organization's, or a team's (``team_id``): a team's administrators add limits on
+their team and its agents. Every limit that applies counts, so a team's own limit can only
+tighten what the organization set, never loosen it.
 """
 
 from __future__ import annotations
@@ -28,12 +33,13 @@ from sqlalchemy import select
 from api.db.models import SpendLimitModel
 from specifications.interfaces.llm import ModelScope
 
-SubjectKind = Literal["org", "member", "agent", "agent_member", "slack_workspace"]
+SubjectKind = Literal["org", "team", "member", "agent", "agent_member", "slack_workspace"]
 Period = Literal["day", "week", "month", "rolling_24h", "rolling_7d", "session", "turn"]
 Mode = Literal["warn", "block"]
 
 SUBJECT_KINDS: tuple[SubjectKind, ...] = (
     "org",
+    "team",
     "member",
     "agent",
     "agent_member",
@@ -51,8 +57,8 @@ PERIODS: tuple[Period, ...] = (
 MODES: tuple[Mode, ...] = ("warn", "block")
 ROLLING_HOURS = {"rolling_24h": 24, "rolling_7d": 168}
 HOUR = 3600
-# Calls on these keys are the organization's money and count against limits.
-LIMITED_KEY_SOURCES = ("platform", "org", "agent")
+# Calls on these keys are the organization's money (a team's included) and count against limits.
+LIMITED_KEY_SOURCES = ("platform", "org", "team", "agent")
 
 
 @dataclass(frozen=True)
@@ -70,6 +76,8 @@ class SpendLimit:
     created_by: str
     created_at: int
     updated_at: int
+    # The team that owns the limit (its administrators manage it); ``None``: the organization.
+    team_id: str | None = None
 
     @property
     def is_default_for_each(self) -> bool:
@@ -117,6 +125,7 @@ def _limit(row: SpendLimitModel) -> SpendLimit:
         created_by=row.created_by,
         created_at=row.created_at,
         updated_at=row.updated_at,
+        team_id=row.team_id,
     )
 
 
@@ -159,6 +168,10 @@ def _base_key(limit: SpendLimit, scope: ModelScope) -> str | None:
     member = scope.member_id
     if limit.subject_kind == "org":
         return "org"
+    if limit.subject_kind == "team":
+        return (
+            f"team:{scope.team_id}" if scope.team_id and limit.subject_id == scope.team_id else None
+        )
     if limit.subject_kind == "member":
         return member if limit.subject_id in (None, member) else None
     if limit.subject_kind == "agent":
@@ -229,6 +242,7 @@ def describe(limit: SpendLimit) -> str:
     }[limit.period]
     subject = {
         "org": "Organization",
+        "team": "Team",
         "member": "Each member" if limit.subject_id is None else "Member",
         "agent": "Agent",
         "agent_member": "Agent, each member" if limit.member_id is None else "Agent for a member",
@@ -281,6 +295,7 @@ class SpendLimitStore:
                     created_by=created.created_by,
                     created_at=created.created_at,
                     updated_at=created.updated_at,
+                    team_id=created.team_id,
                 )
             )
         return created

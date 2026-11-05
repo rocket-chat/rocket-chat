@@ -97,7 +97,8 @@ and the caller's own. Administrators also see disabled organization agents.
 
 ### `POST /v1/agents`
 
-Create or update a custom agent persona, enforcing scope boundaries.
+Create or update a custom agent owned by the caller, one of their teams or the
+organization; changing the owner moves it (the caller manages both sides).
 
 A non-administrator who does not name a scope gets a personal persona. The returned
 persona carries the stored id, which can differ from the proposed one.
@@ -115,8 +116,9 @@ persona carries the stored id, which can differ from the proposed one.
 | whitelisted_tools | list of string | no | List of allowed tool names |
 | skill_ids | list of string | no | Attached custom skill IDs |
 | knowledge_base_ids | list of string | no | Attached knowledge base IDs |
-| scope | string | no | 'org' or 'user' |
+| scope | string | no | Owner: 'org', 'team' or 'user' |
 | user_id | string | no | Owner user ID for personal agents |
+| team_id | string | no | Owning team for team objects |
 | built_in | boolean | no | Shipped with the platform; an administrator can edit it for the organization |
 | customized | boolean | no | A built-in agent whose organization edit is in effect (it can be reset) |
 | enabled | boolean | no | Whether this agent persona is enabled and selectable in the cockpit/sessions |
@@ -193,6 +195,15 @@ scheduled missions of people who lost it are paused.
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | grants | list of AgentGrantModel | no |  |
+
+**Responses:** `200`
+
+### `GET /v1/me/default-agent`
+
+The agent the caller's new sessions start with when none is chosen, and which level
+chose it: their own, their team's (when they belong to exactly one team), the
+organization's, else none (the platform's). A level whose agent they may not use is
+skipped.
 
 **Responses:** `200`
 
@@ -563,76 +574,6 @@ Initiate OAuth 2.0 / OIDC authorization code flow.
 
 ## Automation
 
-### `GET /v1/admin/triggers`
-
-The organization's triggers (an organization without any uses the deployment's label).
-
-**Responses:** `200`
-
-### `POST /v1/admin/triggers`
-
-Add a trigger.
-
-**Request body**
-
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| name | string | yes |  |
-| source | string | yes |  |
-| filter | TriggerFilterBody | no |  |
-| agent_id | string | no |  |
-| permission_mode | string | no |  |
-| model_tier | string | no |  |
-| sandbox_type | string | no |  |
-| mode | string | no |  |
-| auto_fix | boolean | no |  |
-| instructions | string | no |  |
-| schedule | string | no |  |
-| enabled | boolean | no |  |
-
-**Responses:** `201`
-
-### `PUT /v1/admin/triggers/{trigger_id}`
-
-Replace a trigger.
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| trigger_id | path | yes | string |
-
-**Request body**
-
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| name | string | yes |  |
-| source | string | yes |  |
-| filter | TriggerFilterBody | no |  |
-| agent_id | string | no |  |
-| permission_mode | string | no |  |
-| model_tier | string | no |  |
-| sandbox_type | string | no |  |
-| mode | string | no |  |
-| auto_fix | boolean | no |  |
-| instructions | string | no |  |
-| schedule | string | no |  |
-| enabled | boolean | no |  |
-
-**Responses:** `200`
-
-### `DELETE /v1/admin/triggers/{trigger_id}`
-
-Delete a trigger.
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| trigger_id | path | yes | string |
-
-**Responses:** `204`
-
 ### `GET /v1/admin/webhooks`
 
 The organization's outbound webhooks.
@@ -664,28 +605,6 @@ Delete an outbound webhook (its queued reports go with it).
 | webhook_id | path | yes | string |
 
 **Responses:** `204`
-
-### `POST /v1/triggers/{trigger_id}/run`
-
-Start a session from an ``api`` trigger, as the caller (an API token or a member). The
-trigger's agent, mode, tier and sandbox type apply; ``idempotency_key`` starts it once.
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| trigger_id | path | yes | string |
-
-**Request body**
-
-| Field | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| prompt | string | yes |  |
-| repository | string | no |  |
-| branch | string | no |  |
-| idempotency_key | string | no |  |
-
-**Responses:** `200`
 
 ## Changes
 
@@ -965,8 +884,9 @@ GitHub's post-install redirect: map the installation to the organization in ``st
 ### `POST /api/v1/webhooks/github`
 
 Signed GitHub webhooks: reports for the sessions that follow a pull request, and events
-for the organization's triggers (issues, comments, pull requests, review comments, failed
-workflow runs). Each delivery starts at most one session, whatever the number of replicas.
+for the organization's missions (issues, comments, pull requests, review comments, failed
+workflow runs). Each delivery starts each mission's run once, whatever the number of
+replicas.
 
 **Parameters**
 
@@ -982,28 +902,29 @@ workflow runs). Each delivery starts at most one session, whatever the number of
 
 GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,
 pipelines and notes for the sessions that follow a merge request, and issues, merge
-requests, notes and failed pipelines for the organization's ``gitlab_*`` triggers. The
+requests, notes and failed pipelines for the missions on ``gitlab_*`` events. The
 organization is ``?org=`` (as the operator connected the project), else the default.
 
 **Responses:** `200`
 
 ### `POST /api/v1/webhooks/jira`
 
-Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for ``jira_issue`` triggers.
+Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for missions on ``jira_issue`` events.
 
 **Responses:** `200`
 
 ### `POST /api/v1/webhooks/linear`
 
-Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for ``linear_issue`` triggers.
+Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for missions on ``linear_issue`` events.
 
 **Responses:** `200`
 
 ### `POST /v1/webhooks/github`
 
 Signed GitHub webhooks: reports for the sessions that follow a pull request, and events
-for the organization's triggers (issues, comments, pull requests, review comments, failed
-workflow runs). Each delivery starts at most one session, whatever the number of replicas.
+for the organization's missions (issues, comments, pull requests, review comments, failed
+workflow runs). Each delivery starts each mission's run once, whatever the number of
+replicas.
 
 **Parameters**
 
@@ -1019,20 +940,20 @@ workflow runs). Each delivery starts at most one session, whatever the number of
 
 GitLab webhooks (``X-Gitlab-Token`` = ``GITLAB_WEBHOOK_SECRET``): merge requests,
 pipelines and notes for the sessions that follow a merge request, and issues, merge
-requests, notes and failed pipelines for the organization's ``gitlab_*`` triggers. The
+requests, notes and failed pipelines for the missions on ``gitlab_*`` events. The
 organization is ``?org=`` (as the operator connected the project), else the default.
 
 **Responses:** `200`
 
 ### `POST /v1/webhooks/jira`
 
-Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for ``jira_issue`` triggers.
+Signed Jira issue webhooks (``JIRA_WEBHOOK_SECRET``) for missions on ``jira_issue`` events.
 
 **Responses:** `200`
 
 ### `POST /v1/webhooks/linear`
 
-Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for ``linear_issue`` triggers.
+Signed Linear issue webhooks (``LINEAR_WEBHOOK_SECRET``) for missions on ``linear_issue`` events.
 
 **Responses:** `200`
 
@@ -1186,7 +1107,7 @@ Whether command (stdio) MCP servers can run on this installation (the MCP runner
 
 ### `GET /v1/mcp/servers`
 
-List registered MCP servers scoped to tenant organization and current user.
+The MCP servers the caller may use: the organization's, their teams' and their own.
 
 **Responses:** `200`
 
@@ -1205,6 +1126,7 @@ Register or update an MCP server, securely encrypting secrets with AES-256-GCM.
 | endpoint_or_command | string | yes |  |
 | guidance | string | no | Usage guidance for the agent, in markdown. The first line says when to use the server and is always in the agent's instructions; the rest is given once the agent uses the server. Empty costs nothing. |
 | scope | string | no |  |
+| team_id | string | no |  |
 | auth | McpAuthInput | no |  |
 | tools | list of McpToolItem | no |  |
 
@@ -1228,7 +1150,7 @@ Validate MCP connection and probe tools prior to saving.
 
 ### `DELETE /v1/mcp/servers/{server_id}`
 
-Delete a registered MCP server.
+Delete a registered MCP server (whoever may manage its owner).
 
 **Parameters**
 
@@ -1335,46 +1257,63 @@ Delete one memory the caller can see (the inspector's "forget" action).
 
 ### `GET /v1/missions`
 
-List Missions
-
-**Parameters**
-
-| Name | In | Required | Type |
-| :--- | :--- | :--- | :--- |
-| all | query | no | boolean |
+The missions the caller may see: theirs, their teams' and the organization's.
 
 **Responses:** `200`
 
 ### `POST /v1/missions`
 
-Create Mission
+Create a mission for the caller, one of their teams or the organization.
 
 **Request body**
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | name | string | yes |  |
-| prompt | string | yes |  |
-| cron | string | yes | Five-field cron, e.g. '0 9 * * 1-5' |
-| timezone | string | no |  |
+| instructions | string | no |  |
+| scope | string | no | Owner: 'user', 'team' or 'org' |
+| team_id | string | no |  |
+| triggers | list of TriggerBody | no |  |
+| deliveries | list of DeliveryBody | no |  |
 | agent_id | string | no |  |
-| git_repo | string | no | owner/name or https GitHub URL |
-| git_branch | string | no |  |
 | permission_mode | string | no |  |
-| slack_channel | string | no | Slack channel id (C..., G... or D...) to post each run's result to |
+| model_tier | string | no |  |
+| sandbox_type | string | no |  |
+| mode | string | no |  |
+| auto_fix | boolean | no |  |
+| git_repo | string | no |  |
+| git_branch | string | no |  |
 | enabled | boolean | no |  |
 
 **Responses:** `200`
 
-### `GET /v1/missions/templates`
+### `GET /v1/missions/chat-bots`
 
-Starting points for recurring maintenance missions (created disabled until switched on).
+The organization's enabled Slack bots a chat delivery may name (ids and names only).
 
 **Responses:** `200`
 
-### `PATCH /v1/missions/{mission_id}`
+### `GET /v1/missions/presets`
 
-Update Mission
+Starting points for usual missions (pull request review, CI fixes, digests, triage).
+
+**Responses:** `200`
+
+### `GET /v1/missions/{mission_id}`
+
+Get Mission
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| mission_id | path | yes | string |
+
+**Responses:** `200`
+
+### `PUT /v1/missions/{mission_id}`
+
+Replace a mission; naming another owner moves it (managing both sides).
 
 **Parameters**
 
@@ -1386,13 +1325,39 @@ Update Mission
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| name | string | no |  |
-| prompt | string | no |  |
-| cron | string | no |  |
-| timezone | string | no |  |
-| enabled | boolean | no |  |
+| name | string | yes |  |
+| instructions | string | no |  |
+| scope | string | no | Owner: 'user', 'team' or 'org' |
+| team_id | string | no |  |
+| triggers | list of TriggerBody | no |  |
+| deliveries | list of DeliveryBody | no |  |
+| agent_id | string | no |  |
 | permission_mode | string | no |  |
-| slack_channel | string | no |  |
+| model_tier | string | no |  |
+| sandbox_type | string | no |  |
+| mode | string | no |  |
+| auto_fix | boolean | no |  |
+| git_repo | string | no |  |
+| git_branch | string | no |  |
+| enabled | boolean | no |  |
+
+**Responses:** `200`
+
+### `PATCH /v1/missions/{mission_id}`
+
+Switch a mission on or off.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| mission_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| enabled | boolean | yes |  |
 
 **Responses:** `200`
 
@@ -1410,13 +1375,62 @@ Delete Mission
 
 ### `POST /v1/missions/{mission_id}/run`
 
-Start a run immediately, without moving the schedule.
+Start a run now, without moving the schedule (``text``: what this run is about).
 
 **Parameters**
 
 | Name | In | Required | Type |
 | :--- | :--- | :--- | :--- |
 | mission_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| text | string | no | What this run is about |
+
+**Responses:** `200`
+
+### `GET /v1/missions/{mission_id}/runs`
+
+The mission's latest runs, newest first, with how each delivery went.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| mission_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/missions/{mission_id}/secrets/{which}`
+
+Replace the inbound webhook's secret (``inbound``) or the webhook delivery's signing
+secret (``webhook``); the new one is shown once.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| mission_id | path | yes | string |
+| which | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/webhooks/missions/{org_id}/{mission_id}`
+
+A mission's own webhook: ``X-Rocket-Signature: sha256=<hex HMAC of "<timestamp>.<body>">``
+with the mission's inbound secret and ``X-Rocket-Timestamp`` within five minutes. The JSON
+body is what the run is about (capped).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| org_id | path | yes | string |
+| mission_id | path | yes | string |
+| X-Rocket-Timestamp | header | no | string |
+| X-Rocket-Signature | header | no | string |
 
 **Responses:** `200`
 
@@ -1497,6 +1511,115 @@ Rotate Org Credential
 
 | Name | In | Required | Type |
 | :--- | :--- | :--- | :--- |
+| credential_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| api_key | string | yes |  |
+
+**Responses:** `200`
+
+### `GET /v1/agents/{agent_id}/bindable-credentials`
+
+The keys the caller may bind on this agent (fingerprints only), by the agent's owner:
+
+* personal agent: its owner's own keys;
+* team agent: the team's keys, members' keys shared with this agent, and, for an
+  organization administrator, the organization's;
+* organization agent: the organization's keys and members' keys shared with this agent
+  (administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| agent_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/teams/{team_id}/credentials`
+
+The team's provider keys (fingerprints only; its administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/teams/{team_id}/credentials`
+
+Add a team key: the team's agents use it before the organization's.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| provider | string | yes |  |
+| api_key | string | yes | The provider API key |
+| label | string | no |  |
+| api_base | string | no | Endpoint for self-hosted or proxied providers (Ollama, vLLM, ...) |
+| default_for_provider | boolean | no |  |
+| restricted_to_agents | boolean | no | Skip it in the default chain: only the agents bound to it use it (admins) |
+
+**Responses:** `200`
+
+### `PATCH /v1/teams/{team_id}/credentials/{credential_id}`
+
+Update Team Credential
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| credential_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| label | string | no |  |
+| api_base | string | no |  |
+| clear_api_base | boolean | no |  |
+| default_for_provider | boolean | no |  |
+| restricted_to_agents | boolean | no |  |
+| shared_with_org_agents | list of string | no | Organization agents that may use this member credential |
+
+**Responses:** `200`
+
+### `DELETE /v1/teams/{team_id}/credentials/{credential_id}`
+
+Remove a team key; agents bound to it fail with "credential withdrawn".
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| credential_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/teams/{team_id}/credentials/{credential_id}/rotate`
+
+Rotate Team Credential
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
 | credential_id | path | yes | string |
 
 **Request body**
@@ -1713,6 +1836,63 @@ database outage they cannot fix.
 
 **Responses:** `200`
 
+## Ownership
+
+### `POST /v1/credentials/{credential_id}/move`
+
+Give a provider key to another owner (managing both sides); refused (409, with what
+would break) while an agent bound to it would lose it.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| credential_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| scope | string | yes | The new owner: 'user', 'team' or 'org' |
+| team_id | string | no |  |
+
+**Responses:** `200`
+
+### `POST /v1/ownership/preview`
+
+What moving an object to another owner would do (nothing is moved).
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| scope | string | yes | The new owner: 'user', 'team' or 'org' |
+| team_id | string | no |  |
+| kind | string | yes | agent \| skill \| mcp_server \| knowledge_base \| credential \| sandbox \| mission \| template |
+| id | string | yes |  |
+
+**Responses:** `200`
+
+### `POST /v1/sandboxes/{sandbox_id}/move`
+
+Give a sandbox type to a team or the organization (managing both sides); refused (409,
+with what would break) while an agent or mission outside the team starts in it.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| sandbox_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| scope | string | yes | The new owner: 'user', 'team' or 'org' |
+| team_id | string | no |  |
+
+**Responses:** `200`
+
 ## Plans
 
 ### `POST /v1/sessions/{session_id}/plan/decision`
@@ -1912,7 +2092,78 @@ Delete Sandbox
 
 ### `GET /v1/sandboxes`
 
-List Sandboxes
+The types the caller may pick: the organization's and their teams' (every team's for an
+administrator); the variables only of the types they manage.
+
+**Responses:** `200`
+
+### `POST /v1/teams/{team_id}/sandboxes`
+
+Offer a sandbox type to the team (its administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | yes |  |
+| image | string | yes |  |
+| description | string | no |  |
+| capabilities | list of string | no |  |
+| is_default | boolean | no |  |
+| profile | string | no |  |
+| cpu_limit | string | no |  |
+| memory_limit | string | no |  |
+| disk_size | string | no |  |
+| release_after_days | integer | no |  |
+| env | list of SandboxEnvVar | no |  |
+
+**Responses:** `200`
+
+### `PATCH /v1/teams/{team_id}/sandboxes/{sandbox_id}`
+
+Update Team Sandbox
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| sandbox_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | no |  |
+| image | string | no |  |
+| description | string | no |  |
+| capabilities | list of string | no |  |
+| is_default | boolean | no |  |
+| profile | string | no |  |
+| cpu_limit | string | no |  |
+| memory_limit | string | no |  |
+| disk_size | string | no |  |
+| release_after_days | integer | no |  |
+| env | list of SandboxEnvVar | no |  |
+
+**Responses:** `200`
+
+### `DELETE /v1/teams/{team_id}/sandboxes/{sandbox_id}`
+
+Delete Team Sandbox
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| sandbox_id | path | yes | string |
 
 **Responses:** `200`
 
@@ -2058,13 +2309,14 @@ Replace the organization's defaults and locked keys for a domain (admin only).
 
 ### `GET /v1/knowledge/bases`
 
-List all Knowledge Bases accessible to the organization and current user.
+The knowledge bases the caller may use: the organization's, their teams' and their own.
 
 **Responses:** `200`
 
 ### `POST /v1/knowledge/bases`
 
-Create a new pgvector semantic knowledge base collection.
+Create a pgvector knowledge base owned by the caller, one of their teams or the
+organization.
 
 **Request body**
 
@@ -2072,10 +2324,33 @@ Create a new pgvector semantic knowledge base collection.
 | :--- | :--- | :--- | :--- |
 | name | string | yes | Collection name |
 | description | string | no | Collection description |
-| scope | string | no | 'org' or 'user' |
+| scope | string | no | Owner: 'org', 'team' or 'user' |
+| team_id | string | no | Owning team for team objects |
 | vector_index | string | no | Index name |
 | embedding_model | string | no | Embedding model identifier |
 | hybrid_search | boolean | no | Enable hybrid BM25/vector search |
+
+**Responses:** `200`
+
+### `PATCH /v1/knowledge/bases/{kb_id}`
+
+Rename a knowledge base or move it to another owner (whoever manages it, and for a move
+the destination too).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| kb_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | no |  |
+| description | string | no |  |
+| scope | string | no | Owner: 'org', 'team' or 'user' |
+| team_id | string | no | Owning team for team objects |
 
 **Responses:** `200`
 
@@ -2093,7 +2368,7 @@ Delete a Knowledge Base collection and cascade delete documents and chunks.
 
 ### `POST /v1/knowledge/bases/{kb_id}/documents`
 
-Ingest, chunk, and embed a document into the Knowledge Base.
+Ingest, chunk, and embed a document into the Knowledge Base (whoever manages it).
 
 **Parameters**
 
@@ -2178,7 +2453,7 @@ Create a new agent session with optional sandbox provisioning.
 | title | string | no | Session title or task name |
 | tenant_org_id | string | no | Organization ID |
 | tenant_user_id | string | no | User ID |
-| agent_id | string | no | Active custom agent persona ID |
+| agent_id | string | no | The session's agent; omitted, the caller's default agent (their own, their team's, the organization's) when one is set and usable |
 | model | string | no | Optional model override |
 | mode | `agent` / `direct` | no | 'direct' runs the first turn without an agent, on `model` with every tool |
 | initial_prompt | string | no | Initial prompt to ignite the first turn on creation |
@@ -2549,13 +2824,14 @@ including its later changes.
 
 ### `GET /v1/skills`
 
-List all custom skills registered for the organization and current user.
+The custom skills the caller may use: the organization's, their teams' and their own.
 
 **Responses:** `200`
 
 ### `POST /v1/skills`
 
-Create or update a custom prompt skill with scoping.
+Create or update a custom prompt skill owned by the caller, one of their teams or the
+organization (moving it needs the right to manage it on both sides).
 
 **Request body**
 
@@ -2568,7 +2844,8 @@ Create or update a custom prompt skill with scoping.
 | body | string | no | Prompt instructions and guidelines |
 | code | string | no | Legacy code fallback |
 | signature | string | no | Function signature |
-| scope | string | no | 'org' or 'user' |
+| scope | string | no | Owner: 'org', 'team' or 'user' |
+| team_id | string | no | Owning team for team objects |
 | is_active | boolean | no | Whether skill is active |
 
 **Responses:** `200`
@@ -2582,7 +2859,8 @@ Create or update a prompt skill from a ``SKILL.md`` document (front matter + bod
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
 | markdown | string | yes | Contents of a SKILL.md file |
-| scope | string | no | 'org' (administrators) or 'user' |
+| scope | string | no | Owner: 'org', 'team' or 'user' |
+| team_id | string | no | Owning team for team objects |
 
 **Responses:** `200`
 
@@ -2595,7 +2873,7 @@ The shipped instruction skills and whether the organization offers each
 
 ### `DELETE /v1/skills/{skill_id}`
 
-Delete a custom skill.
+Delete a custom skill (whoever may manage its owner).
 
 **Parameters**
 
@@ -2729,7 +3007,8 @@ Get Sharing
 
 ### `PUT /v1/sessions/{session_id}/sharing`
 
-Share with the whole organization and/or exactly the members with these emails.
+Share with the whole organization and/or exactly the members with these emails and the
+members of these teams.
 
 **Parameters**
 
@@ -2743,6 +3022,7 @@ Share with the whole organization and/or exactly the members with these emails.
 | :--- | :--- | :--- | :--- |
 | org_wide | boolean | no |  |
 | emails | list of string | no |  |
+| team_ids | list of string | no | Teams of the organization to share with |
 
 **Responses:** `200`
 
@@ -2813,8 +3093,6 @@ Register a new Slack bot with its encrypted tokens and identity.
 | respond_in_dms | boolean | no |  |
 | listen_channels | list of string | no |  |
 | private_reaction | string | no |  |
-| private_dm_result | boolean | no |  |
-| private_dm_updates | boolean | no | Private requests: send questions, approvals, errors and the result by direct message, with a link to the thread |
 | router | object | no |  |
 | policy | object | no |  |
 | enabled | boolean | no |  |
@@ -2856,8 +3134,6 @@ Update a Slack bot's configuration or rotate its tokens.
 | respond_in_dms | boolean | no |  |
 | listen_channels | list of string | no |  |
 | private_reaction | string | no |  |
-| private_dm_result | boolean | no |  |
-| private_dm_updates | boolean | no |  |
 | router | object | no |  |
 | policy | object | no |  |
 | enabled | boolean | no |  |
@@ -2979,7 +3255,7 @@ Add a spend limit (needs ``manage_spend_limits``).
 
 | Field | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| subject_kind | `org` / `member` / `agent` / `agent_member` / `slack_workspace` | yes |  |
+| subject_kind | `org` / `team` / `member` / `agent` / `agent_member` / `slack_workspace` | yes |  |
 | subject_id | string | no |  |
 | member_id | string | no |  |
 | period | `day` / `week` / `month` / `rolling_24h` / `rolling_7d` / `session` / `turn` | yes |  |
@@ -3036,6 +3312,79 @@ What the caller has left under the limits of this session (the header chip).
 
 **Responses:** `200`
 
+### `GET /v1/teams/{team_id}/spend-limits`
+
+The limits that count the team's spend (the organization's and its own), with what
+each has used (the team's administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/teams/{team_id}/spend-limits`
+
+Add a limit the team owns, on the team or one of its agents.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| subject_kind | `org` / `team` / `member` / `agent` / `agent_member` / `slack_workspace` | yes |  |
+| subject_id | string | no |  |
+| member_id | string | no |  |
+| period | `day` / `week` / `month` / `rolling_24h` / `rolling_7d` / `session` / `turn` | yes |  |
+| amount_usd | number | yes |  |
+| mode | `warn` / `block` | no |  |
+| warn_at_percent | integer | no |  |
+| is_ceiling | boolean | no |  |
+
+**Responses:** `200`
+
+### `PATCH /v1/teams/{team_id}/spend-limits/{limit_id}`
+
+Update Team Spend Limit
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| limit_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| amount_usd | number | no |  |
+| mode | `warn` / `block` | no |  |
+| warn_at_percent | integer | no |  |
+| is_ceiling | boolean | no |  |
+
+**Responses:** `200`
+
+### `DELETE /v1/teams/{team_id}/spend-limits/{limit_id}`
+
+Delete Team Spend Limit
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| limit_id | path | yes | string |
+
+**Responses:** `200`
+
 ## Subagents
 
 ### `GET /v1/sessions/{session_id}/subagents`
@@ -3071,12 +3420,155 @@ The running release, or `dev` for a build that is not a tagged release.
 
 **Responses:** `200`
 
+## Teams
+
+### `GET /v1/teams`
+
+The organization's teams, with the caller's role in each.
+
+**Responses:** `200`
+
+### `POST /v1/teams`
+
+Create a team (organization administrators only).
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | yes |  |
+| description | string | no |  |
+
+**Responses:** `201`
+
+### `PATCH /v1/teams/{team_id}`
+
+Rename a team or change its description (its administrators, or the organization's).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | no |  |
+| description | string | no |  |
+
+**Responses:** `200`
+
+### `DELETE /v1/teams/{team_id}`
+
+Delete a team that owns nothing (organization administrators only).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Responses:** `204`
+
+### `GET /v1/teams/{team_id}/candidates`
+
+Members of the organization a team administrator can add (not already in the team).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| q | query | no | string |
+
+**Responses:** `200`
+
+### `GET /v1/teams/{team_id}/members`
+
+Who is in the team, and what it owns (its members and administrators).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+
+**Responses:** `200`
+
+### `PUT /v1/teams/{team_id}/members/{user_id}`
+
+Add a member of the organization to the team, or change their team role.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| user_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| role | string | no | admin \| member |
+
+**Responses:** `200`
+
+### `DELETE /v1/teams/{team_id}/members/{user_id}`
+
+Remove someone from the team (its administrators), or leave it (oneself).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| user_id | path | yes | string |
+
+**Responses:** `204`
+
+### `GET /v1/teams/{team_id}/settings/{domain}`
+
+The team's defaults for a domain, used in the turns of the team's agents (its
+administrators). A member's own choice still wins; the organization's locks still hold.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| domain | path | yes | string |
+
+**Responses:** `200`
+
+### `PUT /v1/teams/{team_id}/settings/{domain}`
+
+Replace the team's defaults for a domain (organization defaults only, not a key the
+organization locked).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| team_id | path | yes | string |
+| domain | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| config | object | no | The team's defaults; only organization defaults |
+
+**Responses:** `200`
+
 ## Templates
 
 ### `GET /v1/templates`
 
-The organization's templates and the caller's own; ``blocked`` marks those naming an
-agent the caller may no longer use.
+The organization's templates, the caller's teams' and their own; ``blocked`` marks those
+naming an agent the caller may no longer use.
 
 **Responses:** `200`
 
@@ -3092,6 +3584,33 @@ Create Template
 | description | string | no |  |
 | prompt | string | yes |  |
 | scope | string | no |  |
+| team_id | string | no |  |
+| agent_id | string | no |  |
+| git_repo | string | no |  |
+| git_branch | string | no |  |
+| permission_mode | string | no |  |
+
+**Responses:** `200`
+
+### `PUT /v1/templates/{template_id}`
+
+Replace a template; naming another owner moves it (managing both sides).
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| template_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | yes |  |
+| description | string | no |  |
+| prompt | string | yes |  |
+| scope | string | no |  |
+| team_id | string | no |  |
 | agent_id | string | no |  |
 | git_repo | string | no |  |
 | git_branch | string | no |  |
@@ -3128,7 +3647,8 @@ while the template is blocked.
 
 ### `GET /v1/tools`
 
-The full tool catalog (name, description, category, toolset).
+The full tool catalog: each tool's name, description, group (its built-in domain or
+toolset), the approval it needs and whether it is a core tool.
 
 **Responses:** `200`
 

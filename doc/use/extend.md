@@ -5,7 +5,7 @@ description: Teach the agent your conventions and connect it to your systems.
 
 # Skills, tools, knowledge and agents
 
-Everything here lives under **Settings**. Items can be personal (only you) or, for administrators, shared with the organization.
+Everything here lives under **Settings → Build**. Each item has an **owner**: you (only you use it), one of your teams (its members use it; its administrators change it) or the organization (administrators change it). The **Owner** field of a form chooses it and moves an existing item; see [Teams](/administer/organization#teams).
 
 ## Skills
 
@@ -28,7 +28,7 @@ Connect tools from other systems through the [Model Context Protocol](https://mo
 
 **Common servers.** In the registration dialog, *Start from a common server* fills in the name, address, authentication type and a link to the vendor's setup guide for about twenty popular servers (GitHub, Linear, Notion, Atlassian, Slack, Sentry, Stripe, Supabase, PostgreSQL, Brave Search and more). It only prefills the form: you register the server the usual way. For servers that use OAuth there is nothing to fill in: Rocket Chat discovers the provider's endpoints and registers itself, then you sign in. Only if a provider does not allow that, create an OAuth app there (the dialog shows the callback URL under *Advanced*) and enter its client ID and secret.
 
-**Editing a server.** Every server has a pencil on its card: administrators edit organization servers, and you edit your own. The form opens with what is stored; secrets (an API key, an OAuth client secret, a secret header) are never shown, so leave one alone to keep it or type to replace it. The transport and scope cannot change. If you point a remote server at another address or another OAuth client, the connected account is disconnected (members must connect again) and its secrets must be typed again, so a credential is never sent to a host that did not receive it from you. *Test* uses the stored secrets too.
+**Editing a server.** Every server has a pencil on its card: administrators edit organization servers, and you edit your own. The form opens with what is stored; secrets (an API key, an OAuth client secret, a secret header) are never shown, so leave one alone to keep it or type to replace it. The transport cannot change; the owner can (a move). If you point a remote server at another address or another OAuth client, the connected account is disconnected (members must connect again) and its secrets must be typed again, so a credential is never sent to a host that did not receive it from you. *Test* uses the stored secrets too.
 
 **Guidance for the agent.** A server can come with usage guidance, written in markdown in the registration dialog (up to 8,000 characters; a *Write* and a *Preview* tab, and a template to start from). Its **first line says when to use the server**: it is always in the agent's instructions, next to the server's name, so the agent can tell whether the server is relevant without reading anything else. Everything after it says how to use the server and is given to the agent once, when it first loads one of the server's tools (or asks for it with `load_guidance`), and then stays in its instructions for the rest of the session. A tool of a guided server is refused until its guidance has been read, so the agent cannot skip it, and loading more tools of the same server never repeats it. Short guidance (up to 1,500 characters) applies as soon as a tool of the server is loaded; longer guidance is read on request, so a server that is not being used never fills the agent's context. A server without guidance costs nothing: no line, no check, no extra tool. **Starting from the server's own instructions.** An MCP server can describe how to use itself (the protocol's `instructions`). **Test & validate connection** fills the guidance with that text when the guidance is empty, says so, and you review and edit it before saving; it reaches the agent only once you save it, and text longer than 8,000 characters is cut to the limit. Each tool's own description and each parameter's description, as the server provides them, are always part of the tool the agent is given; there is nothing to write per tool.
 
@@ -56,7 +56,7 @@ Upload documents (architecture notes, runbooks, API docs) and the agent searches
 
 ## Agents (personas)
 
-An agent is a system prompt, a model and an optional list of allowed tools, skills and knowledge bases, with the sandbox type its sessions start in and its own limits. One editor (**Settings → Organization → Agents** for the organization's, **Settings → My agents** for yours) has six sections: *Identity & prompt*, *Model & credentials*, *Tools & knowledge* (tools grouped by what they do: read, edit, run commands, publish), *Sandbox*, *Access* (organization agents) and *Limits*; subagent roles are edited in the same place. **Export** and **Import** move an agent as a `.rocket/agents/<id>.md` file. The platform ships with three built-in agents:
+An agent is a system prompt, a model and an optional list of allowed tools, skills and knowledge bases, with the sandbox type its sessions start in and its own limits. One editor (**Settings → Agents** for the organization's, **Settings → Agents** for yours) has six sections: *Identity & prompt*, *Model & credentials*, *Tools & knowledge* (see [Choosing an agent's tools](#choosing-an-agents-tools)), *Sandbox*, *Access* (organization agents) and *Limits*; subagent roles are edited in the same place. **Export** and **Import** move an agent as a `.rocket/agents/<id>.md` file. The platform ships with three built-in agents:
 
 * **General Software Engineer (`persona-general`)**: versatile full-stack autonomous engineer with access to all runtime tools.
 * **Backend Developer (`persona-backend`)**: optimized for complex, long-running backend engineering tasks (APIs, microservices, databases, durable waits, and subagent worktrees) keeping background processes and `git_diff` active beside the core tools, `medium` reasoning effort, and a 100-step turn budget.
@@ -73,7 +73,13 @@ Administrators can edit the built-in agents for the whole organization (prompt, 
 
 ### Max steps per turn
 
-Each agent can set **Max steps per turn**, from 1 up to the organization's ceiling (**Settings → Organization → General**, up to 500; the deployment's `AGENT_MAX_TURNS` is its default); leave it empty to use the organization's limit. For complex missions requiring hundreds of steps across multiple files and tests, Rocket Chat automatically schedules **Goal Continuations** when a turn hits its step cap while the `.rocket/PLAN.md` checklist has pending items.
+Each agent can set **Max steps per turn**, from 1 up to the organization's ceiling (**Settings → Organization**, up to 500; the deployment's `AGENT_MAX_TURNS` is its default); leave it empty to use the organization's limit. For complex missions requiring hundreds of steps across multiple files and tests, Rocket Chat automatically schedules **Goal Continuations** when a turn hits its step cap while the `.rocket/PLAN.md` checklist has pending items.
+
+### Choosing an agent's tools
+
+*Tools & knowledge* lists every tool in groups: one per kind of built-in tool (*Files*, *Git*, *GitHub*, *Commands*, *Web*, *Subagents* and so on) and one per MCP server, marked *MCP*. Groups start collapsed. Each header shows how many of its tools the agent may use (`3 / 12`) and has a checkbox that adds the whole group, or removes it once every tool is in; it works with the group closed, and shows a dash when only some are in. Open a group with its header (click, or `Enter`/`Space`) to pick tools one by one: each is one line with its name and the approval it needs (*Edit*, *Command* or *Publish*; the rest only read), and its description shows when you point at it or move to it with the keyboard.
+
+**Add core tools** adds the core set described below in one click. To give an agent the core tools and everything one MCP server offers: untick **Every tool, including ones added later**, click **Add core tools**, then tick the server's group. **Filter tools** narrows the list by name or description and opens every group with a match; the total of selected tools stays above the groups.
 
 ### Which tools every step carries
 

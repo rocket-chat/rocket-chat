@@ -17,20 +17,9 @@ const PrivateModeSettings: React.FC<{ editor: BotEditorState }> = ({ editor }) =
           <Input {...props} value={form.privateReaction} onChange={(e) => patch({ privateReaction: e.target.value })} placeholder="white_check_mark" />
         )}
       </Field>
-      <label className="flex cursor-pointer items-center gap-2.5 text-xs text-foreground">
-        <input type="checkbox" checked={form.privateDmResult} onChange={(e) => patch({ privateDmResult: e.target.checked })} className={CHECKBOX} />
-        <span>Also send completion summary as a direct message (DM)</span>
-      </label>
-      <label className="flex cursor-pointer items-center gap-2.5 text-xs text-foreground">
-        <input
-          type="checkbox"
-          data-testid="private-dm-updates"
-          checked={form.privateDmUpdates}
-          onChange={(e) => patch({ privateDmUpdates: e.target.checked })}
-          className={CHECKBOX}
-        />
-        <span>Send questions, approvals, errors and the result by direct message, with a link to the thread</span>
-      </label>
+      <p className="text-xs text-neutral-500">
+        Requests run in a thread of the requester&apos;s direct messages, with live progress and a stop button.
+      </p>
     </div>
   );
 };
@@ -72,6 +61,34 @@ const PolicyOverrides: React.FC<{ editor: BotEditorState }> = ({ editor }) => {
           />
         )}
       </Field>
+      <Field label="Thread Replies Without a Mention" hint="In a thread where this bot already works, what it does with a reply that does not mention it.">
+        {(props) => (
+          <Select
+            {...props}
+            data-testid="bot-thread-follow-ups"
+            value={String(form.policy.thread_follow_ups || "")}
+            onChange={(e) => patch({ policy: { ...form.policy, thread_follow_ups: e.target.value } })}
+          >
+            <option value="">(Inherits organization policy)</option>
+            <option value="mention">Ignore them: answer only when mentioned</option>
+            <option value="auto">Answer replies that read like a request</option>
+            <option value="classifier">Ask a classifier model whether the reply is for the bot</option>
+          </Select>
+        )}
+      </Field>
+      {form.policy.thread_follow_ups === "classifier" && (
+        <Field label="Follow-up Classifier Model" hint="For example openrouter/typesafe/jev-latest. Empty: the router's classifier model, else the organization's default.">
+          {(props) => (
+            <Input
+              {...props}
+              data-testid="bot-follow-up-classifier-model"
+              value={String(form.policy.follow_up_classifier_model || "")}
+              onChange={(e) => patch({ policy: { ...form.policy, follow_up_classifier_model: e.target.value } })}
+              placeholder="openrouter/typesafe/jev-latest"
+            />
+          )}
+        </Field>
+      )}
     </div>
   );
 };

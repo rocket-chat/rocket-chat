@@ -8,7 +8,7 @@ model received, the commands the sandbox ran, the events a client would see.
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,6 +21,7 @@ from api.services.compaction import InMemoryCompactionStore
 from api.services.transcript import InMemoryTranscriptStore
 from api.store import InMemorySessionStore
 from api.turns.context import TurnSelection
+from api.turns.followup import SUGGESTION_SYSTEM_PROMPT
 from api.turns.runner import execute_turn_background
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
@@ -32,6 +33,11 @@ SCRIPTED_SUMMARY = (
     "## Objective\n- the scripted task\n\n## Work State\n### Completed\n- scripted steps\n\n"
     "## Next Move\n1. continue the script\n\n## Important Context\n- scripted summary"
 )
+
+
+def _is_suggestion_request(request: Any) -> bool:
+    messages = getattr(request, "messages", None) or []
+    return bool(messages) and messages[0].content == SUGGESTION_SYSTEM_PROMPT
 
 
 def _is_summary_request(request: Any) -> bool:
@@ -58,6 +64,8 @@ class ScriptedModel(LLMGatewayProtocol):
     step_index: int = 0
     summary_text: str = SCRIPTED_SUMMARY
     summary_requests: int = 0
+    # The next-step suggestion asked after the answer ("" for none).
+    suggestion_text: str = "Add a regression test for the fixed bug"
 
     @property
     def last_request(self) -> Any:
@@ -79,6 +87,12 @@ class ScriptedModel(LLMGatewayProtocol):
             # A compaction's summary, not a step: it consumes no step of the script.
             self.summary_requests += 1
             yield StreamChunk(text_delta=self.summary_text, is_finished=True)
+            return
+        if _is_suggestion_request(request):
+            # Asked after the answer, outside the script.
+            yield StreamChunk(
+                text_delta=json.dumps({"suggestion": self.suggestion_text}), is_finished=True
+            )
             return
         if self.leaked < len(self.leaks):
             text = self.leaks[self.leaked]
@@ -224,11 +238,13 @@ async def run_turn(
     compaction_store: Any = None,
     author: str | None = None,
     model: ScriptedModel | None = None,
+    tools: Callable[[ToolRegistry, InMemorySessionStore], None] | None = None,
 ) -> TurnOutcome:
     """Run a web-cockpit style turn for ``org`` and return what happened.
 
     ``author`` is the person who sends the message (the session's owner when ``None``);
-    ``model`` replaces the scripted model (a subclass that refuses a call, say).
+    ``model`` replaces the scripted model (a subclass that refuses a call, say); ``tools``
+    registers the platform's own tools on the turn's registry (the mission ``deliver`` tool).
     """
     session_id = f"session_{org}"
     store, bus = store or InMemorySessionStore(), AsyncIOEventBus()
@@ -240,6 +256,8 @@ async def run_turn(
         leaks=leaks or [],
     )
     registry = ToolRegistry(driver=driver, session_id=session_id)
+    if tools is not None:
+        tools(registry, store)
     if git_engine is not None:
         registry.bind_git_engine(git_engine)
     orchestrator = AsyncReActOrchestrator(

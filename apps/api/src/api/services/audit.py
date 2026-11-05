@@ -83,6 +83,11 @@ AUDIT_EVENT_TYPES: tuple[str, ...] = (
     "trigger.deleted",
     "webhook.created",
     "webhook.deleted",
+    "team.created",
+    "team.updated",
+    "team.deleted",
+    "team.member_changed",
+    "ownership.moved",
 )
 APPROVAL_DECISIONS: tuple[str, ...] = ("approved", "denied")
 APPROVAL_RISK_LEVELS: tuple[str, ...] = ("low", "medium", "high", "critical")

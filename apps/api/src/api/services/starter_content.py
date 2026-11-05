@@ -8,6 +8,7 @@ Starter skills are visible to every member unless the organization turns them of
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -18,13 +19,12 @@ class StarterSkill:
 
 
 @dataclass(frozen=True)
-class MissionTemplate:
+class MissionPreset:
     id: str
     name: str
     description: str
-    prompt: str
-    cron: str
-    permission_mode: str
+    # The mission body (``routers/missions.MissionBody``) the preset fills in.
+    mission: dict[str, Any]
 
 
 STARTER_SKILLS: tuple[StarterSkill, ...] = (
@@ -95,35 +95,115 @@ def starter_skill(name: str, enabled: list[str] | tuple[str, ...]) -> StarterSki
     return _BY_NAME.get(name) if name in enabled else None
 
 
-MISSION_TEMPLATES: tuple[MissionTemplate, ...] = (
-    MissionTemplate(
-        "weekly-dependency-audit",
-        "Weekly dependency audit",
-        "Lists outdated and vulnerable dependencies; changes nothing.",
-        "Audit the repository's dependencies: list the outdated ones (current, latest, how far "
-        "behind) and any with known vulnerabilities (the package manager's audit command). Rank "
-        "them by risk and effort, and recommend what to upgrade first. Do not change anything.",
-        "0 9 * * 1",
-        "plan",
+_LABEL = "ai-fix"
+_AUDIT = (
+    "Audit the repository's dependencies: list the outdated ones (current, latest, how far "
+    "behind) and any with known vulnerabilities (the package manager's audit command). Rank "
+    "them by risk and effort, and recommend what to upgrade first. Do not change anything."
+)
+
+# Starting points for usual missions: each fills the whole form (triggers, agent, instructions,
+# deliveries); the person picks the repository, channel or URL and saves. Kept in code so they
+# follow the platform's release, never stored.
+MISSION_PRESETS: tuple[MissionPreset, ...] = (
+    MissionPreset(
+        "pr-review",
+        "Pull request review",
+        "Reviews every pull request and its new commits, and posts one review with inline "
+        "comments. Read-only.",
+        {
+            "name": "Pull request review",
+            "instructions": "Focus on correctness, security and missing tests; skip style nits.",
+            "triggers": [{"source": "github_pr"}, {"source": "github_issue_comment"}],
+            "deliveries": [{"kind": "github_review"}],
+            "mode": "review",
+            "permission_mode": "plan",
+        },
     ),
-    MissionTemplate(
-        "flaky-test-triage",
-        "Flaky-test triage",
-        "Finds tests that failed and then passed on the same commit in CI this week.",
-        "Look at this week's CI runs of the default branch (github_actions): find tests that "
-        "failed and then passed on the same commit. For each, give how often it flaked, the "
-        "failure message, and the likely cause from reading the test. Do not change code.",
-        "0 8 * * 5",
-        "plan",
+    MissionPreset(
+        "ci-fixer",
+        "CI failure fixer",
+        "When a workflow fails on a branch, finds the cause in its logs, pushes a fix and "
+        "follows the checks.",
+        {
+            "name": "CI failure fixer",
+            "instructions": "Fix the cause, not the symptom; never disable a test to make it pass.",
+            "triggers": [{"source": "github_workflow_failed"}],
+            "deliveries": [{"kind": "session"}],
+            "auto_fix": True,
+        },
     ),
-    MissionTemplate(
-        "stale-branch-report",
-        "Stale-branch cleanup report",
-        "Reports branches with no commit for 30 days and whether they were merged.",
-        "List the repository's branches with no commit in the last 30 days: for each, the last "
-        "commit date and author, whether it was merged, and its open pull request if any. "
-        "Recommend which to delete. Delete nothing.",
-        "0 9 1 * *",
-        "plan",
+    MissionPreset(
+        "issue-to-pr",
+        f"Issue labelled {_LABEL} → pull request",
+        f"Takes an issue labelled `{_LABEL}`, does the work on a branch and opens a pull "
+        "request, then comments on the issue with what it did.",
+        {
+            "name": "Issues to pull requests",
+            "instructions": "Keep the change small and tested; ask in the issue when unsure.",
+            "triggers": [{"source": "github_issue_label", "filter": {"labels": [_LABEL]}}],
+            "deliveries": [{"kind": "github_comment"}],
+            "auto_fix": True,
+        },
+    ),
+    MissionPreset(
+        "dependency-audit",
+        "Weekly dependency audit → Slack",
+        "Every Monday morning, lists outdated and vulnerable dependencies and posts the summary "
+        "in a channel. Changes nothing.",
+        {
+            "name": "Weekly dependency audit",
+            "instructions": _AUDIT,
+            "triggers": [{"source": "schedule", "schedule": "0 9 * * 1", "timezone": "UTC"}],
+            "deliveries": [{"kind": "chat"}],
+            "permission_mode": "plan",
+        },
+    ),
+    MissionPreset(
+        "standup-digest",
+        "Daily engineering digest → Slack",
+        "Each weekday, summarises yesterday's merged pull requests, failing checks and open "
+        "reviews in a channel.",
+        {
+            "name": "Daily engineering digest",
+            "instructions": (
+                "Summarise the last working day of the repository: pull requests merged (one "
+                "line each), checks failing on the default branch, and reviews waiting for more "
+                "than a day. Under 15 lines; link each item."
+            ),
+            "triggers": [{"source": "schedule", "schedule": "0 8 * * 1-5", "timezone": "UTC"}],
+            "deliveries": [{"kind": "chat"}],
+            "permission_mode": "plan",
+        },
+    ),
+    MissionPreset(
+        "alert-triage",
+        "Alert triage → webhook",
+        "Takes an alert posted to the mission's webhook, finds the likely cause in the code and "
+        "recent changes, and sends a structured verdict to your incident tool.",
+        {
+            "name": "Alert triage",
+            "instructions": (
+                "Triage the alert: find the likely cause in the code and the recent changes, "
+                "say how sure you are, and what to do first. Change nothing."
+            ),
+            "triggers": [{"source": "webhook"}],
+            "deliveries": [
+                {
+                    "kind": "webhook",
+                    "output_schema": {
+                        "type": "object",
+                        "properties": {
+                            "severity": {"enum": ["low", "medium", "high", "critical"]},
+                            "likely_cause": {"type": "string"},
+                            "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                            "next_step": {"type": "string"},
+                        },
+                        "required": ["severity", "likely_cause", "confidence", "next_step"],
+                    },
+                }
+            ],
+            "permission_mode": "plan",
+        },
     ),
 )

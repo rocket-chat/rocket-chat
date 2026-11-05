@@ -10,13 +10,13 @@ from __future__ import annotations
 import asyncio
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent_core.tools.registry import ToolRegistry
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp, AsyncAssistant
 
-from slack_assistant.bot import ClassifyRequest, RouteDecision, SlackBot
+from slack_assistant.bot import ClassifyRequest, FollowUpRequest, RouteDecision, SlackBot
 from slack_assistant.config import SlackAssistantSettings
 from slack_assistant.file_ingestion import FileDownloader
 from slack_assistant.guardrails import FailureTracker, WorkspaceQuotaGate
@@ -28,11 +28,20 @@ from specifications.interfaces.events import EventBusProtocol
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 from specifications.interfaces.session import SessionStoreProtocol
 
+if TYPE_CHECKING:
+    from slack_assistant.private_threads import PrivateThread
+
 RunTurnFn = Callable[..., Awaitable[None]]
 HoldMessageFn = Callable[..., Awaitable[bool]]
 # The classifier's decision for a message, or None when it could not decide (the router's
 # fallback applies).
 ClassifyFn = Callable[[ClassifyRequest], Awaitable[RouteDecision | None]]
+# Whether a thread reply without a mention asks the bot for something (``RESPOND``/``IGNORE``),
+# or None when the classifier could not decide (the reply is then left to the others).
+FollowUpFn = Callable[[FollowUpRequest], Awaitable[RouteDecision | None]]
+# (session id) -> how many queued messages were withdrawn; also closes the session's open
+# waits, so nothing restarts the work the person stopped.
+StopSessionFn = Callable[[str], Awaitable[int]]
 
 
 class SlackAssistantState:
@@ -95,6 +104,8 @@ class SlackAssistantState:
     _session_meta: dict[str, tuple[str, str]]
     bot: SlackBot | None
     _classify_fn: ClassifyFn | None
+    _follow_up_fn: FollowUpFn | None
+    _stop_session_fn: StopSessionFn | None
     _slack_api_ready: bool
     _dedupe: EventDeduplicator
     _health: SocketHealth
@@ -114,6 +125,12 @@ class SlackAssistantState:
         raise NotImplementedError
 
     def _web_base(self, org_policy: SlackOrgPolicy) -> str:
+        raise NotImplementedError
+
+    # Implemented by the private threads mixin; declared so the gates can call it.
+    async def _private_thread_at(
+        self, channel_id: str, thread_ts: str, team_id: str
+    ) -> PrivateThread | None:
         raise NotImplementedError
 
     # Implemented by the toolset mixin; declared so the directory tools can call them.
@@ -140,6 +157,7 @@ class SlackAssistantState:
         ephemeral_fn: Callable[..., Any] | None = None,
         message_ts: str | None = None,
         session_thread_ts: str | None = None,
+        private_thread: PrivateThread | None = None,
     ) -> None:
         raise NotImplementedError
 

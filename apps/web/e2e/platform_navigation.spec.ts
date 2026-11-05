@@ -64,7 +64,7 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     await expect(page.getByText("Settings Console").first()).toBeVisible();
 
     // Navigate to Custom Agents page
-    await page.getByRole("navigation", { name: "Organization" }).getByRole("link", { name: /^Agents/ }).click();
+    await page.getByRole("navigation", { name: "Build" }).getByRole("link", { name: /^Agents/ }).click();
     await expect(page).toHaveURL(/\/settings\/agents/);
     await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
     await page.getByTestId("agent-item-persona-general").click();
@@ -108,8 +108,9 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     const allowAll = page.getByTestId("agent-allow-all");
     await expect(allowAll).toBeChecked();
 
-    // The tool list is driven by the live backend catalog, grouped by the approval it needs.
+    // The tool list is driven by the live backend catalog, grouped by the domain that declares it.
     await expect(page.getByRole("region", { name: "Commands tools" })).toBeVisible();
+    await page.getByTestId("agent-tool-group-header-commands").click();
     await expect(page.getByTestId("agent-tool-bash_exec")).toBeVisible();
 
     // Narrow it, then allow everything again.

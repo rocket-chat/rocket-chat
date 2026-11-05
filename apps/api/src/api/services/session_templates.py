@@ -11,7 +11,10 @@ from sqlalchemy import select
 
 from api.db.models import SessionTemplateModel
 from api.db.session import DatabaseSessionManager
+from api.services.ownership import visible
 from api.services.repository_hint import with_repository_hint
+from api.services.teams import note_memory_owned
+from specifications.interfaces.ownership import Viewer
 
 MAX_TEMPLATES_PER_ORG = 200
 
@@ -20,7 +23,7 @@ MAX_TEMPLATES_PER_ORG = 200
 class SessionTemplate:
     id: str
     org_id: str
-    user_id: str | None  # None: organization-wide
+    user_id: str | None  # the owner of a personal template
     name: str
     prompt: str
     description: str = ""
@@ -29,6 +32,9 @@ class SessionTemplate:
     git_branch: str | None = None
     permission_mode: str | None = None
     created_at: int = 0
+    # Owner: ``user`` (``user_id``), ``team`` (``team_id``) or ``org``.
+    scope: str = "user"
+    team_id: str | None = None
 
 
 class TemplateLimitError(ValueError):
@@ -62,15 +68,15 @@ class TemplateStore:
         """Every template of the organization, personal ones included (platform use only)."""
         return await self._all(org_id)
 
-    async def visible_to(self, org_id: str, user_id: str) -> list[SessionTemplate]:
-        """Organization-wide templates plus the caller's own, never another member's."""
-        found = [t for t in await self._all(org_id) if t.user_id in (None, user_id)]
-        return sorted(found, key=lambda t: (t.user_id is not None, t.name.lower()))
+    async def visible_to(self, org_id: str, viewer: Viewer) -> list[SessionTemplate]:
+        """The organization's templates, the caller's teams' and their own, never another
+        member's."""
+        found = [t for t in await self._all(org_id) if visible(t, viewer)]
+        order = {"org": 0, "team": 1, "user": 2}
+        return sorted(found, key=lambda t: (order.get(t.scope, 2), t.name.lower()))
 
-    async def get(self, org_id: str, user_id: str, template_id: str) -> SessionTemplate | None:
-        return next(
-            (t for t in await self.visible_to(org_id, user_id) if t.id == template_id), None
-        )
+    async def get(self, org_id: str, viewer: Viewer, template_id: str) -> SessionTemplate | None:
+        return next((t for t in await self.visible_to(org_id, viewer) if t.id == template_id), None)
 
     async def create(self, template: SessionTemplate) -> SessionTemplate:
         if len(await self._all(template.org_id)) >= MAX_TEMPLATES_PER_ORG:
@@ -79,14 +85,36 @@ class TemplateStore:
         template.created_at = int(time.time())
         if self._db is None:
             self._memory[template.id] = template
+            if template.team_id:
+                note_memory_owned(template.org_id, template.team_id, "templates", 1)
             return template
         async with self._db.session(tenant_org_id=template.org_id) as session:
             session.add(SessionTemplateModel(**vars(template)))
         return template
 
+    async def save(self, template: SessionTemplate, before: SessionTemplate) -> SessionTemplate:
+        """Replace a stored template (its owner may change: a move)."""
+        if self._db is None:
+            if before.team_id:
+                note_memory_owned(template.org_id, before.team_id, "templates", -1)
+            if template.team_id:
+                note_memory_owned(template.org_id, template.team_id, "templates", 1)
+            self._memory[template.id] = template
+            return template
+        async with self._db.session(tenant_org_id=template.org_id) as session:
+            row = await session.get(SessionTemplateModel, template.id)
+            if row is not None and row.org_id == template.org_id:
+                for name, value in vars(template).items():
+                    if name not in ("id", "org_id", "created_at"):
+                        setattr(row, name, value)
+        return template
+
     async def delete(self, org_id: str, template_id: str) -> bool:
         if self._db is None:
-            return self._memory.pop(template_id, None) is not None
+            removed = self._memory.pop(template_id, None)
+            if removed is not None and removed.team_id:
+                note_memory_owned(org_id, removed.team_id, "templates", -1)
+            return removed is not None
         async with self._db.session(tenant_org_id=org_id) as session:
             row = await session.get(SessionTemplateModel, template_id)
             if row is None:

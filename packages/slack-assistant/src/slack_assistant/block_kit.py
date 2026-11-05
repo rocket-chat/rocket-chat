@@ -491,53 +491,16 @@ def build_home_view(
     return {"type": "home", "blocks": blocks}
 
 
-SHARE_ACTION_ID = "share_private_answer"
 # The block id of a gate's buttons sent by direct message: a click there cannot name the
 # session through its channel and thread, so the buttons carry it.
 SESSION_BLOCK_PREFIX = "rocket-session:"
 
 
-def with_session_and_origin(
-    blocks: list[dict[str, Any]], session_id: str, origin: str
-) -> list[dict[str, Any]]:
-    """``blocks`` for a direct message: the buttons name their session, and a last line says
-    which request they are about."""
-    tagged = [
+def with_session(blocks: list[dict[str, Any]], session_id: str) -> list[dict[str, Any]]:
+    """``blocks`` for a private DM thread: its buttons name their session."""
+    return [
         {**block, "block_id": session_block_id(session_id)}
         if block.get("type") == "actions" and "block_id" not in block
         else block
         for block in blocks
     ]
-    return [*tagged, {"type": "context", "elements": [{"type": "mrkdwn", "text": origin}]}]
-
-
-def build_private_blocks(
-    text: str, *, link_url: str | None, share_value: str | None = None
-) -> list[dict[str, Any]]:
-    """A private (ephemeral) reply: its text, an **Open session** button and, once there is an
-    answer, a **Share in thread** button that posts it publicly."""
-    blocks: list[dict[str, Any]] = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": text[:2900]}}
-    ]
-    buttons: list[dict[str, Any]] = []
-    if link_url:
-        buttons.append(
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Open session"},
-                "url": link_url,
-                "action_id": "open_private_session",
-            }
-        )
-    if share_value:
-        buttons.append(
-            {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "Share in thread"},
-                "value": share_value,
-                "action_id": SHARE_ACTION_ID,
-            }
-        )
-    if buttons:
-        blocks.append({"type": "actions", "elements": buttons})
-    return blocks

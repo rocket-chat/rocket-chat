@@ -21,6 +21,8 @@ const PERIOD_WORDS: Record<string, string> = {
   turn: "this turn",
 };
 
+const SPEND_POLL_MS = 8000;
+
 /** The tightest spend limit for this person in this session: "$3.10 left today". */
 export const SpendLimitChip: React.FC<{ sessionId: string | undefined; running: boolean }> = ({ sessionId, running }) => {
   const [tightest, setTightest] = useState<(LimitView & { period: string }) | null>(null);
@@ -31,16 +33,21 @@ export const SpendLimitChip: React.FC<{ sessionId: string | undefined; running: 
       return;
     }
     let cancelled = false;
-    fetch(`/v1/sessions/${sessionId}/spend`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: { tightest?: (LimitView & { period: string }) | null } | null) => {
-        if (!cancelled) setTightest(body?.tightest ?? null);
-      })
-      .catch(() => undefined);
+    const load = () =>
+      fetch(`/v1/sessions/${sessionId}/spend`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body: { tightest?: (LimitView & { period: string }) | null } | null) => {
+          if (!cancelled) setTightest(body?.tightest ?? null);
+        })
+        .catch(() => undefined);
+    void load();
+    // The spend moves call by call while a turn runs (the session's cost beside it is read as
+    // often), and once more when it ends.
+    const timer = running ? setInterval(() => void load(), SPEND_POLL_MS) : undefined;
     return () => {
       cancelled = true;
+      if (timer) clearInterval(timer);
     };
-    // Refreshed when a turn starts or ends: that is when the spend moves.
   }, [sessionId, running]);
 
   if (!tightest) return null;

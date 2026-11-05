@@ -28,7 +28,8 @@ from .policy import Policy
 from .sandbox_images import DEFAULT_SANDBOX_IMAGE
 
 Kind = Literal["bool", "int", "float", "str", "enum", "list", "dict"]
-Writer = Literal["org", "member"]
+# ``team``: a team's administrators, who set defaults for their team's agents' turns.
+Writer = Literal["org", "team", "member"]
 
 
 @dataclass(frozen=True)
@@ -123,6 +124,7 @@ _TURN_RUNNER = "apps/api/src/api/turns/runner.py"
 _CAPABILITIES = "apps/api/src/api/auth/capabilities.py"
 _MODEL_DEFAULTS = "apps/api/src/api/services/model_defaults.py"
 _MEMORY = "apps/api/src/api/services/memory.py"
+_DEFAULT_AGENT = "apps/api/src/api/services/default_agent.py"
 
 # The roles a member can hold, highest first (``api.auth.capabilities``).
 ROLES = ("owner", "admin", "member", "viewer")
@@ -938,6 +940,31 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             maximum=10080,
             member_override=False,
         ),
+        _spec(
+            "thread_follow_ups",
+            "enum",
+            "mention",
+            "org_default",
+            "packages/slack-assistant/src/slack_assistant/policy.py",
+            "How the bot takes a reply that does not mention it, in a channel thread where it "
+            "already works: 'mention' ignores it (only a mention starts a turn), 'auto' answers "
+            "a reply that reads like a request, 'classifier' asks a classifier model, with the "
+            "thread's recent messages, whether the reply is for the bot. A private session is "
+            "never continued from the public thread without a mention.",
+            choices=("mention", "auto", "classifier"),
+            member_override=False,
+        ),
+        _spec(
+            "follow_up_classifier_model",
+            "str",
+            "",
+            "org_default",
+            "packages/slack-assistant/src/slack_assistant/policy.py",
+            "The model the 'classifier' mode of thread_follow_ups asks (for example "
+            "openrouter/typesafe/jev-latest). Empty: the bot's router classifier model, else the "
+            "organization's default model.",
+            member_override=False,
+        ),
     ),
     "governance": (
         _spec(
@@ -1189,6 +1216,20 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             choices=("plan", "ask", "auto_edit", "auto", "bypass"),
         ),
         _spec(
+            "default_agent",
+            "str",
+            # Empty: no preference, so the level above decides (see ``preferred_model``).
+            "",
+            "org_default",
+            _DEFAULT_AGENT,
+            "The agent new sessions start with when none is chosen: the cockpit's new-session "
+            "picker, a session created through the API without an agent, and a Slack direct "
+            "message to a bot without an agent of its own. A member's own choice wins, then their "
+            "team's (only for a member of exactly one team), then the organization's; one that "
+            "points at an agent the member may not use is skipped.",
+            label="Default agent",
+        ),
+        _spec(
             "full_name",
             "str",
             "",
@@ -1398,6 +1439,7 @@ def specs_for(domain: str) -> dict[str, SettingSpec]:
 
 _WRITERS: dict[Writer, tuple[Policy, ...]] = {
     "org": ("org", "org_default"),
+    "team": ("org_default",),
     "member": ("org_default", "member"),
 }
 
@@ -1548,7 +1590,7 @@ def validate(
         if not _may_write(spec, writer):
             decider = (
                 _DECIDER["org"]
-                if writer == "member" and spec.policy == "org_default"
+                if writer in ("member", "team") and spec.policy == "org_default"
                 else _DECIDER[spec.policy]
             )
             result.errors.append(FieldError(key, f"can only be set by {decider}"))

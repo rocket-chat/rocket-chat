@@ -17,20 +17,20 @@ from api.bootstrap.runtime import cluster_bus_enabled
 from api.db.models import McpServerEntityModel
 from api.db.session import DatabaseSessionManager, current_tenant_org_id
 from api.db.store import TurnTraceStore
-from api.services import outbound_webhooks
+from api.services import mission_delivery, outbound_webhooks
 from api.services.audit import RetentionPolicy, RetentionSweeper
 from api.services.budgets import BudgetService
 from api.services.cluster import LeaderElection
 from api.services.interrupted_work import clear_stuck_processing, save_interrupted_turns
 from api.services.mcp_engine import probe_and_fetch_tools
 from api.services.mcp_runtime import REMOTE_TRANSPORTS, auth_headers, canonical_transport
-from api.services.missions import MissionStore, claim_due
+from api.services.mission_runs import start_run
+from api.services.missions import MissionStore
 from api.services.provider_catalogue import REFRESH_SECONDS, provider_catalogue
 from api.services.queued_messages import stranded_sessions
 from api.services.settings import load_org_config
 from api.services.subagent_runs import supervise_subagent_runs
-from api.services.trigger_schedule import fire_due_schedules
-from api.services.triggers import forget_old_deliveries
+from api.services.trigger_intake import forget_old_deliveries
 from api.services.turn_resume import resume_interrupted_turns
 from api.services.turn_trace import (
     LEASE_HEARTBEAT_SECONDS,
@@ -55,10 +55,10 @@ from api.services.workspace_release import (
 from api.services.workspace_snapshots import before_pause_hook
 from api.turns.tasks import (
     _spawn_background_turn,
-    launch_mission,
     resume_claimed_turn,
     start_queued_turns,
 )
+from specifications.interfaces.automation import TriggerEvent
 from specifications.interfaces.events import EventType, SessionEvent
 
 logger = logging.getLogger(__name__)
@@ -73,7 +73,6 @@ DRAIN_POLL_SECONDS = 2.0
 # Stranded messages wait at least a minute (STRANDED_AFTER_SECONDS) anyway.
 QUEUED_SWEEP_SECONDS = 30.0
 SPEND_SWEEP_SECONDS = 300
-SCHEDULE_TRIGGER_SECONDS = 60
 WEBHOOK_RETRY_SECONDS = 30
 
 
@@ -300,10 +299,16 @@ class BackgroundServices:
         self._app.state.mission_store = mission_store
 
         async def _fire_due_missions() -> None:
-            for mission in await claim_due(admin_manager, mission_store):
+            for mission in await mission_store.claim_due(admin_manager):
+                event = TriggerEvent(
+                    source="schedule",
+                    title=mission.name,
+                    body=f"Scheduled run of '{mission.name}'.",
+                    actor="schedule",
+                    trusted=True,
+                )
                 try:
-                    session_id = await launch_mission(self._app, mission)
-                    await mission_store.mark_run(mission.org_id, mission.id, session_id, "started")
+                    await start_run(self._app, mission, event)
                 except Exception as err:
                     logger.exception("Mission %s could not start: %s", mission.id, err)
                     await mission_store.mark_run(mission.org_id, mission.id, None, "failed")
@@ -330,21 +335,18 @@ class BackgroundServices:
         self._spawn(_scheduler())
 
     def _start_automation(self, admin_manager: DatabaseSessionManager) -> None:
-        """Schedule triggers (each minute) and the retries of outbound webhook reports. Every
-        replica runs both: a run and an attempt are each claimed by one of them."""
+        """The retries of outbound webhook reports and of mission deliveries. Every replica runs
+        them: an attempt is claimed by one of them."""
         app, db_mgr = self._app, self._core.db_manager
-
-        async def _schedules() -> None:
-            await fire_due_schedules(app, admin_manager)
 
         async def _retries() -> None:
             await outbound_webhooks.retry_due(admin_manager, db_mgr)
+            await mission_delivery.retry_due(app, admin_manager)
 
         async def _retention() -> None:
             await forget_old_deliveries(admin_manager)
             await outbound_webhooks.forget_finished(admin_manager)
 
-        self._spawn(_run_periodically("Schedule triggers", SCHEDULE_TRIGGER_SECONDS, _schedules))
         self._spawn(_run_periodically("Outbound webhook retries", WEBHOOK_RETRY_SECONDS, _retries))
         self._spawn(_run_periodically("Automation retention", RETENTION_SWEEP_SECONDS, _retention))
 

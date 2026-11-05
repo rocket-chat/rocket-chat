@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useMissionStore } from "./store";
 
@@ -76,9 +76,24 @@ export function useTurnAttention(baseTitle: string): void {
       waiting: state.activeApproval !== null || state.activeDecision !== null,
     }))
   );
-  const preferences = useRef<AttentionPreferences>({ turn_notifications: false, notification_sound: false });
+  const preferences = useRef<AttentionPreferences | null>(null);
   const attention = useRef<Attention>(null);
   const wasExecuting = useRef(isExecuting);
+  // Raised before the preferences arrived: told once they do, if it still holds.
+  const unannounced = useRef<Attention>(null);
+
+  const announce = useCallback(
+    (next: Exclude<Attention, null>) => {
+      const loaded = preferences.current;
+      if (!loaded) {
+        unannounced.current = next;
+        return;
+      }
+      if (loaded.turn_notifications) notify(next, baseTitle);
+      if (loaded.notification_sound) chime();
+    },
+    [baseTitle]
+  );
 
   useEffect(() => {
     void loadPreferences().then((loaded) => {
@@ -86,7 +101,12 @@ export function useTurnAttention(baseTitle: string): void {
       if (loaded.turn_notifications && typeof Notification !== "undefined" && Notification.permission === "default") {
         void Notification.requestPermission();
       }
+      const pending = unannounced.current;
+      unannounced.current = null;
+      if (pending && pending === attention.current && document.hidden) announce(pending);
     });
+    // Read once per mount; a later change applies from the next conversation opened.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -99,11 +119,8 @@ export function useTurnAttention(baseTitle: string): void {
     const raised = next !== null && next !== attention.current && document.hidden;
     attention.current = next;
     document.title = attentionTitle(next, baseTitle);
-    if (raised && next !== null) {
-      if (preferences.current.turn_notifications) notify(next, baseTitle);
-      if (preferences.current.notification_sound) chime();
-    }
-  }, [isExecuting, waiting, baseTitle]);
+    if (raised && next !== null) announce(next);
+  }, [isExecuting, waiting, baseTitle, announce]);
 
   useEffect(() => {
     // Back on the tab: "done" has been seen; "needs you" stays until it is answered.

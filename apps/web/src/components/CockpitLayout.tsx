@@ -1,6 +1,6 @@
 "use client";
 
-import { ThreadBanner } from "./ThreadBanner";
+import { MissionBanner, ThreadBanner } from "./ThreadBanner";
 import React, { useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
@@ -214,6 +214,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
       <FlightTelemetryHeader />
       {!isDraft && <ConnectionBanner key={activeSessionId} />}
       {!isDraft && <ThreadBanner />}
+      {!isDraft && <MissionBanner />}
 
       {/* Main Cockpit Layout with Collapsible Session Sidebar */}
       <div className="flex-1 flex overflow-hidden">

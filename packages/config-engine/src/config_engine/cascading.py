@@ -1,7 +1,7 @@
 """Settings resolution for a whole domain, and model routing, on top of ``config_engine.policy``."""
 
 import fnmatch
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any
 
@@ -50,7 +50,8 @@ class ResolvedSettings:
 
 
 class CascadingSettingsResolver:
-    """Resolves every key of a domain by its policy: platform -> instance -> org -> member -> presets."""
+    """Resolves every key of a domain by its policy: platform -> instance -> org -> team ->
+    member -> presets."""
 
     def __init__(self, custom_defaults: dict[str, dict[str, Any]] | None = None) -> None:
         self.defaults = {domain: dict(values) for domain, values in SYSTEM_DOMAIN_DEFAULTS.items()}
@@ -69,18 +70,28 @@ class CascadingSettingsResolver:
         locked_keys: list[str] | None = None,
         user_overrides: dict[str, Any] | None = None,
         presets: Sequence[Preset] = (),
+        team_config: dict[str, Any] | None = None,
+        team_source: str = "team",
+        accept: Mapping[str, Callable[[Any], bool]] | None = None,
     ) -> ResolvedSettings:
-        """Each key of ``domain`` resolved by its policy, lock and ceiling."""
+        """Each key of ``domain`` resolved by its policy, lock and ceiling. ``accept`` holds an
+        extra test per key (``ResolveContext.accept``): a refused candidate is skipped."""
         ctx = ResolveContext(
             org=dict(org_config or {}),
             locked=frozenset(locked_keys or ()),
             member=dict(user_overrides or {}),
+            team=dict(team_config or {}),
+            team_source=team_source,
             presets=tuple(presets),
             instance=instance_values(domain),
         )
         defaults = self.get_system_defaults(domain)
+        tests = accept or {}
         provenance = {
-            key: resolve(_with_default(spec, defaults), ctx)
+            key: resolve(
+                _with_default(spec, defaults),
+                replace(ctx, accept=tests[key]) if key in tests else ctx,
+            )
             for key, spec in specs_for(domain).items()
         }
         org_defaults = {**defaults, **ctx.instance, **ctx.org}

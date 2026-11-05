@@ -47,6 +47,7 @@ from api.services.session_support import (
 from api.services.session_updates import publish_session_update
 from api.services.settings import effective_settings, load_org_config
 from api.services.skills_in_effect import skill_texts_for
+from api.services.teams import turn_teams
 from api.services.title import TITLE_SOURCE_AUTO, placeholder_title
 from api.services.tool_loading import guidance_read_of, loaded_tools_of, skills_read_of
 from api.services.turn_resume import RESUME_NOTICE
@@ -427,11 +428,18 @@ class TurnRunner:
         """Apply the session's sandbox type: its capabilities hide the tools it cannot support,
         and its variables (with the agent's own) reach every command of the turn."""
         catalogue = SandboxCatalogue(self.req.db_mgr)
+        attribution = binding.policy.attribution
         chosen = await catalogue.chosen(
             session.tenant_org_id,
             session_sandbox_id=metadata.get("sandbox_id"),
             session_image=session.container_image,
             agent_sandbox_id=binding.sandbox_id,
+            teams=await turn_teams(
+                self.req.db_mgr,
+                session.tenant_org_id,
+                attribution.requester_user_id,
+                attribution.team_id,
+            ),
         )
         entry = chosen or await catalogue.resolve(
             session.tenant_org_id, image=session.container_image or None
@@ -662,6 +670,7 @@ class TurnRunner:
                     session_id=self.req.session_id,
                     requester_user_id=attribution.requester_user_id,
                     agent_id=attribution.agent_id,
+                    team_id=attribution.team_id,
                     turn_id=attribution.turn_id,
                 )
             )

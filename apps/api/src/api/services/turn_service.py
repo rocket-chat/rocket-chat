@@ -27,6 +27,7 @@ from api.services.github_installations import installations_for_org
 from api.services.model_catalogue import default_catalogue
 from api.services.model_defaults import organization_providers
 from api.services.openrouter_efforts import ReasoningSupport, map_effort, openrouter_efforts
+from api.services.ownership import team_of
 from api.services.settings import (
     DeclaredSettings,
     effective_settings,
@@ -152,6 +153,7 @@ async def permission_mode_for(
             {"permission_mode": session_mode if session_mode in PERMISSION_MODES else None},
             {"permission_mode": getattr(agent, "default_permission_mode", None)},
         ),
+        team_id=team_of(agent),
     )
     allow_bypass = await member_has(db_mgr, org_id, requester_id, Capability.USE_BYPASS_MODE)
     return _supervised(str(resolved.value or ""), allow_bypass)
@@ -166,6 +168,7 @@ async def step_limit_for(db_mgr: Any, org_id: str, agent: Any) -> int:
         "general",
         "max_turns",
         presets=(Preset(_agent_source(agent), {"max_turns": own} if own is not None else {}),),
+        team_id=team_of(agent),
     )
     return int(resolved.value)
 
@@ -434,6 +437,7 @@ class TurnService:
                 ),
                 strict_binding=bool(getattr(agent, "strict_binding", False)),
                 turn_id=turn_id,
+                team_id=team_of(agent),
             ),
         )
         return AgentBinding(
@@ -461,12 +465,16 @@ class TurnService:
     async def _git_policy(db_mgr: Any, org_id: str, user_id: str, agent: Any) -> GitPolicy:
         """Publishing identity and signing: ``publish_as`` (an organization default a member
         may change, ``bot`` only with ``publish_as_bot``) and the organization's ``signing``."""
-        github = await effective_settings(db_mgr, org_id, "github", user_id)
-        prefs = await effective_settings(db_mgr, org_id, "user_preferences", user_id)
+        team_id = team_of(agent)
+        github = await effective_settings(db_mgr, org_id, "github", user_id, team_id=team_id)
+        prefs = await effective_settings(
+            db_mgr, org_id, "user_preferences", user_id, team_id=team_id
+        )
         publish_as = str(github["publish_as"])
         if publish_as == "bot" and not await member_has(
             db_mgr, org_id, user_id, Capability.PUBLISH_AS_BOT
         ):
+            # The organization's value: a team's "bot" would get around the capability too.
             resolved = await resolve_setting(db_mgr, org_id, "github", "publish_as")
             publish_as = str(resolved.value)
         signing = str(github["signing"])
@@ -509,6 +517,7 @@ class TurnService:
                     "temperature": getattr(agent, "temperature", None),
                 },
             ),
+            team_id=team_of(agent),
         )
         models = DeclaredSettings("models", models_resolved.effective)
         governance = await effective_settings(db_mgr, org_id, "governance")

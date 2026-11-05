@@ -58,8 +58,7 @@ class SlackPullRequestMixin(SlackTurnStreamMixin):
                 logger.warning("Could not post the pull request card of %s: %s", url, err)
                 continue
             ts = str(posted.get("ts") or "") if hasattr(posted, "get") else ""
-            # An ephemeral card (a private request) cannot be updated: nothing to remember.
-            if ts and not view.private:
+            if ts:
                 await self._remember_card(view.session_id, view.org_id, card, ts)
 
     async def _remember_card(

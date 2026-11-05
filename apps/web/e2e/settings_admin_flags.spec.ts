@@ -5,7 +5,7 @@ import { asMember } from "./support/access";
 test("admin-only settings are flagged for administrators too", async ({ page }) => {
   await page.goto("/settings/github");
 
-  const nav = page.getByRole("link", { name: /Members & roles/ });
+  const nav = page.getByRole("link", { name: /Members & teams/ });
   await expect(nav.getByTestId("nav-admin-only")).toHaveText("ADMIN");
   await expect(page.getByRole("link", { name: /^Profile/ }).getByTestId("nav-admin-only")).toHaveCount(0);
   // Every member links their own Slack account there: not an administrator's page.
@@ -18,14 +18,14 @@ test("admin-only settings are flagged for administrators too", async ({ page }) 
   await expect(page.getByText("Admin only · whole organization").first()).toBeVisible();
 });
 
-test("a member finds Slack under Integrations, links their account, and sees no bots", async ({ page }) => {
+test("a member finds Slack under Resources, links their account, and sees no bots", async ({ page }) => {
   await asMember(page);
   await page.goto("/settings/user/profile");
 
-  const integrations = page.getByRole("navigation", { name: "Integrations" });
+  const integrations = page.getByRole("navigation", { name: "Resources" });
   await expect(integrations.getByRole("link", { name: /^Slack/ })).toBeVisible();
   // Administrators' pages are hidden from members, not dimmed.
-  await expect(page.getByRole("link", { name: /Members & roles/ })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: /Members & teams/ })).toHaveCount(0);
 
   await integrations.getByRole("link", { name: /^Slack/ }).click();
   await expect(page).toHaveURL(/\/settings\/slack$/);

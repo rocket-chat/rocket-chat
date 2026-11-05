@@ -50,6 +50,7 @@ from api.routers.memory import router as memory_router
 from api.routers.missions import router as missions_router
 from api.routers.models_catalog import router as models_catalog_router
 from api.routers.organizations import router as organizations_router
+from api.routers.ownership import router as ownership_router
 from api.routers.plan import router as plan_router
 from api.routers.preview import router as preview_router
 from api.routers.processes import router as processes_router
@@ -72,6 +73,7 @@ from api.routers.slack_bots import router as slack_bots_router
 from api.routers.slack_status import router as slack_status_router
 from api.routers.spend_limits import router as spend_limits_router
 from api.routers.subagents import router as subagents_router
+from api.routers.teams import router as teams_router
 from api.routers.templates import router as templates_router
 from api.routers.terminal import router as terminal_router
 from api.routers.tools import router as tools_router
@@ -285,6 +287,8 @@ async def _provision_identity_if_enabled(request: Request, org_id: str, user_id:
 app.include_router(admin_audit_router)
 app.include_router(admin_users_router)
 app.include_router(organizations_router)
+app.include_router(teams_router)
+app.include_router(ownership_router)
 app.include_router(attachments_router)
 app.include_router(artifacts_router)
 app.include_router(changes_router)

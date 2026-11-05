@@ -58,6 +58,9 @@ class ModelScope:
     agent_id: str | None = None
     credential_bindings: tuple[CredentialBinding, ...] = ()
     strict_binding: bool = False
+    # The team that owns the agent (``None`` for a personal or organization agent): the team's
+    # keys come before the organization's, and the team's spend limits count the call.
+    team_id: str | None = None
     # Attribution for the usage ledger and spend limits.
     turn_id: str | None = None
     subagent_id: str | None = None
@@ -85,8 +88,8 @@ class UsageEvent:
     session_id: str | None = None
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
-    # Whose provider key paid: "platform", "org", "user" or "agent" (a key bound to the
-    # agent). Spend on a member's own key is theirs, so it counts against no spend limit.
+    # Whose provider key paid: "platform", "org", "team", "user" or "agent" (a key bound to
+    # the agent). Spend on a member's own key is theirs, so it counts against no spend limit.
     key_source: str = "platform"
     created_at: int = field(default_factory=lambda: int(time.time()))
     agent_id: str | None = None
@@ -186,7 +189,7 @@ class CallRefusal:
 @dataclass(frozen=True)
 class ResolvedCredentials:
     credentials: BYOKCredentials
-    key_source: str  # "org", "user" or "agent"
+    key_source: str  # "org", "team", "user" or "agent"
     credential_id: str | None = None
 
 
@@ -231,6 +234,9 @@ class ModelSpec:
     # Where ``context_window`` came from: 'override' (registered), 'provider' (the provider's own
     # catalogue), 'litellm', 'family' or 'default' (nothing known: a guess consumers may ignore).
     context_source: str = "default"
+    # Whether the model reads image input, from the provider's catalogue, else LiteLLM's table;
+    # None when neither says.
+    accepts_images: bool | None = None
 
 
 @runtime_checkable

@@ -1,4 +1,4 @@
-"""A mission can report each run to a Slack channel its owner chose."""
+"""A mission can deliver each run's result to a Slack channel its owner chose."""
 
 from __future__ import annotations
 
@@ -21,7 +21,15 @@ HEADERS = {
     "X-Tenant-User-Id": "mission_user",
     "X-User-Role": "admin",
 }
-BODY = {"name": "Nightly audit", "prompt": "audit it", "cron": "0 9 * * 1-5"}
+BODY = {
+    "name": "Nightly audit",
+    "instructions": "audit it",
+    "triggers": [{"source": "schedule", "schedule": "0 9 * * 1-5"}],
+}
+
+
+def _chat(channel: str) -> dict[str, Any]:
+    return {**BODY, "deliveries": [{"kind": "chat", "channel": channel}]}
 
 
 @pytest.fixture
@@ -33,9 +41,10 @@ def client() -> Any:
 
 
 def test_a_mission_stores_its_channel_and_rejects_a_malformed_one(client: TestClient) -> None:
-    ok = client.post("/v1/missions", json={**BODY, "slack_channel": "C0123ABCD"}, headers=HEADERS)
-    assert ok.status_code == 200 and ok.json()["slack_channel"] == "C0123ABCD"
-    bad = client.post("/v1/missions", json={**BODY, "slack_channel": "#general"}, headers=HEADERS)
+    ok = client.post("/v1/missions", json=_chat("C0123ABCD"), headers=HEADERS)
+    assert ok.status_code == 200, ok.text
+    assert [d["channel"] for d in ok.json()["deliveries"] if d["kind"] == "chat"] == ["C0123ABCD"]
+    bad = client.post("/v1/missions", json=_chat("#general"), headers=HEADERS)
     assert bad.status_code == 422
 
 
@@ -49,12 +58,8 @@ def test_the_channel_must_be_allowed_when_the_organization_restricts_posting(
 
     asyncio.run(restrict())
     headers = {**HEADERS, "X-Tenant-Org-Id": "restricted_org"}
-    refused = client.post(
-        "/v1/missions", json={**BODY, "slack_channel": "CNOPE001"}, headers=headers
-    )
-    allowed = client.post(
-        "/v1/missions", json={**BODY, "slack_channel": "COK0001"}, headers=headers
-    )
+    refused = client.post("/v1/missions", json=_chat("CNOPE001"), headers=headers)
+    allowed = client.post("/v1/missions", json=_chat("COK0001"), headers=headers)
     assert refused.status_code == 422
     assert allowed.status_code == 200, allowed.text
 

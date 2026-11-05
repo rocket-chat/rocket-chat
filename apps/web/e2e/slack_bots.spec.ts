@@ -29,11 +29,16 @@ test("administrator views slack bots, opens editor and configures routing", asyn
   await page.getByRole("tab", { name: "Behaviour" }).click();
   await page.getByTestId("bot-response-mode-select").selectOption("private");
   await expect(page.getByText("Acknowledgement Reaction")).toBeVisible();
-  // Private requests can report by direct message instead of messages a reload removes.
-  const dmUpdates = page.getByTestId("private-dm-updates");
-  await expect(dmUpdates).not.toBeChecked();
-  await dmUpdates.check();
-  await expect(dmUpdates).toBeChecked();
+  // Private requests run in the requester's direct messages: nothing to switch on.
+  await expect(page.getByText("thread of the requester's direct messages")).toBeVisible();
+  // Thread replies without a mention: the classifier mode asks for its model.
+  const followUps = page.getByTestId("bot-thread-follow-ups");
+  await expect(followUps).toHaveValue("");
+  await expect(page.getByTestId("bot-follow-up-classifier-model")).toHaveCount(0);
+  await followUps.selectOption("classifier");
+  await page.getByTestId("bot-follow-up-classifier-model").fill("openrouter/typesafe/jev-latest");
+  await followUps.selectOption("mention");
+  await expect(page.getByTestId("bot-follow-up-classifier-model")).toHaveCount(0);
 
   // Routing Tab: one table, the default row first; intents bring the classifier's settings.
   await page.getByRole("tab", { name: "Routing" }).click();

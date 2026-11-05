@@ -108,8 +108,9 @@ def delay_resolver(db_mgr: Any) -> Callable[[IdleWorkspace], Awaitable[int]]:
 
     async def delay_days(workspace: IdleWorkspace) -> int:
         catalogue = SandboxCatalogue(db_mgr)
+        # Every team's type too: only its delay is read, never its image or secrets.
         entry = await catalogue.resolve(
-            workspace.org_id, sandbox_id=workspace.sandbox_id, image=workspace.image
+            workspace.org_id, sandbox_id=workspace.sandbox_id, image=workspace.image, teams=None
         )
         if entry is not None and entry.release_after_days is not None:
             return entry.release_after_days

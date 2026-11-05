@@ -5,13 +5,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import select
 
 from api.db.models import (
     CustomSkillModel,
 )
+from api.services.ownership import visible, visible_clause
 from api.services.settings import effective_settings
 from api.services.starter_content import starter_skill
+from api.services.teams import member_viewer
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +71,7 @@ async def _starter(db_mgr: Any, org_id: str, name: str) -> _VisibleSkill | None:
 async def _lookup_visible_skill(
     db_mgr: Any, org_id: str, user_id: str, name: str
 ) -> _VisibleSkill | None:
+    viewer = await member_viewer(db_mgr, org_id, user_id)
     if db_mgr is not None:
         async with db_mgr.session(tenant_org_id=org_id) as session:
             result = await session.execute(
@@ -76,7 +79,7 @@ async def _lookup_visible_skill(
                     CustomSkillModel.org_id == org_id,
                     CustomSkillModel.name == name,
                     CustomSkillModel.is_active.is_(True),
-                    or_(CustomSkillModel.scope == "org", CustomSkillModel.user_id == user_id),
+                    visible_clause(CustomSkillModel, viewer),
                 )
             )
             row = result.scalars().first()
@@ -84,11 +87,7 @@ async def _lookup_visible_skill(
                 return None
             return _VisibleSkill(row.id, row.runtime or "text", row.code or "", row.body or "")
     for skill_id, record in _memory_skills.get(org_id, {}).items():
-        if (
-            record["name"] == name
-            and record.get("is_active", True)
-            and (record.get("scope") == "org" or record.get("user_id") == user_id)
-        ):
+        if record["name"] == name and record.get("is_active", True) and visible(record, viewer):
             return _VisibleSkill(
                 skill_id,
                 record.get("runtime", "text"),
@@ -103,26 +102,26 @@ async def list_visible_skills(
 ) -> list[tuple[str, str]]:
     """``(name, description)`` of every skill the member may use, in name order.
 
-    Same visibility as ``_find_visible_skill``: organization skills and the caller's own, narrowed
+    Same visibility as ``_find_visible_skill``: organization skills, the caller's teams' and their
+    own, narrowed
     to the persona's list when it has one. The agent can only run what it knows by name.
     """
     found: dict[str, tuple[str, str]] = {}
+    viewer = await member_viewer(db_mgr, org_id, user_id)
     if db_mgr is not None:
         async with db_mgr.session(tenant_org_id=org_id) as session:
             result = await session.execute(
                 select(CustomSkillModel).where(
                     CustomSkillModel.org_id == org_id,
                     CustomSkillModel.is_active.is_(True),
-                    or_(CustomSkillModel.scope == "org", CustomSkillModel.user_id == user_id),
+                    visible_clause(CustomSkillModel, viewer),
                 )
             )
             for row in result.scalars():
                 found[row.id] = (row.name, row.description or "")
     else:
         for skill_id, record in _memory_skills.get(org_id, {}).items():
-            if record.get("is_active", True) and (
-                record.get("scope") == "org" or record.get("user_id") == user_id
-            ):
+            if record.get("is_active", True) and visible(record, viewer):
                 found[skill_id] = (record["name"], record.get("description", ""))
     taken = {name for name, _ in found.values()}
     for name in await _enabled_starters(db_mgr, org_id):

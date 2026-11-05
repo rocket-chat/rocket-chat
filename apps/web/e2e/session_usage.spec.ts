@@ -52,12 +52,14 @@ test.describe("Session usage", () => {
     const chip = page.getByTestId("session-usage-chip");
     await expect(chip).toBeVisible();
     await expect(page.getByTestId("session-usage-cost")).toHaveText("$0.118");
-    await expect(chip).toContainText("659k tok");
+    // The tokens processed by every call are no measure of the conversation: not in the header.
+    await expect(chip).not.toContainText("tok");
 
     await chip.click();
     const popover = page.getByTestId("session-usage-popover");
     await expect(popover).toBeVisible();
     await expect(page.getByTestId("session-usage-total")).toHaveText("$0.118");
+    await expect(page.getByTestId("session-usage-processed").first()).toContainText("Tokens processed over 18 calls: 659k, 92% from the cache");
     await expect(popover).toContainText("92%"); // 600k of 650k prompt tokens came from the cache
     await expect(popover).toContainText("$0.100 of it was paid with your own provider key");
 
@@ -71,6 +73,28 @@ test.describe("Session usage", () => {
     await page.keyboard.press("Escape");
     await expect(popover).toHaveCount(0);
     await expect(chip).toHaveAttribute("aria-expanded", "false");
+  });
+
+  test("the same model from two providers says which is which", async ({ page }) => {
+    const sessionId = await newSession(page);
+    const body = {
+      ...usage(sessionId, 0.118),
+      models: [
+        { model: "openrouter/anthropic/claude-sonnet-5.5", ...totals({ calls: 10, cost_usd: 0.07 }) },
+        { model: "anthropic/claude-sonnet-5.5", ...totals({ calls: 6, cost_usd: 0.04 }) },
+        { model: "openrouter/deepseek/deepseek-v4.1-flash", ...totals({ calls: 2, cost_usd: 0.008 }) },
+      ],
+    };
+    await page.route(`**/v1/sessions/${sessionId}/usage`, (route) => route.fulfill({ json: body }));
+    await page.goto(`/chat/${sessionId}`);
+    await page.getByTestId("session-usage-chip").click();
+
+    const popover = page.getByTestId("session-usage-popover");
+    await expect(popover).toContainText("anthropic/claude-sonnet-5.5 · OpenRouter");
+    await expect(popover).toContainText("anthropic/claude-sonnet-5.5 · Anthropic");
+    // A model no other one could be taken for keeps its short name.
+    await expect(popover).toContainText("deepseek/deepseek-v4.1-flash");
+    await expect(popover).not.toContainText("deepseek-v4.1-flash · OpenRouter");
   });
 
   test("the figures refresh when a turn ends", async ({ page }) => {
@@ -115,7 +139,7 @@ test.describe("Session usage", () => {
 
     const chip = page.getByTestId("session-usage-chip");
     await expect(chip).toBeVisible();
-    await expect(page.getByTestId("session-usage-tokens")).toBeHidden();
+    await expect(chip).not.toContainText("tok");
     await chip.click();
 
     const box = await page.getByTestId("session-usage-popover").boundingBox();

@@ -22,7 +22,13 @@ from slack_assistant.bot import (
     SlackRouter,
     command_for,
 )
-from slack_assistant.routing import PRIVATE_ANSWER_KEY, ROUTE_KEY
+from slack_assistant.private_threads import (
+    PRIVATE_ANSWER_KEY,
+    PRIVATE_THREAD_KEY,
+    UNAVAILABLE_NOTICE,
+    PrivateThread,
+)
+from slack_assistant.routing import ROUTE_KEY
 from slack_assistant.toolset import NOT_CONNECTED
 from slack_harness import make_slack
 
@@ -93,7 +99,13 @@ def _slack(bot: SlackBot, decisions: list[RouteDecision | None] | None = None) -
     client = MagicMock()
     client.users_info = AsyncMock(return_value={"user": {"real_name": "Jane"}})
     client.conversations_replies = AsyncMock(return_value={"messages": []})
-    for method in ("chat_postEphemeral", "chat_postMessage", "reactions_add", "chat_update"):
+    for method in (
+        "chat_postEphemeral",
+        "chat_postMessage",
+        "reactions_add",
+        "chat_update",
+        "agents_sessions_setStatus",
+    ):
         setattr(client, method, AsyncMock(return_value={"ts": "9.9"}))
     assistant.app = MagicMock()
     assistant.app.client = client
@@ -116,27 +128,53 @@ async def _ask(assistant: SlackAssistant, text: str = "<@UBOT> why did deploy fa
     return say, status
 
 
-async def test_a_private_request_leaves_only_a_reaction_in_the_channel() -> None:
+def _dm_thread(assistant: SlackAssistant) -> AsyncMock:
+    """The bot's DMs with U1: the first message opens thread 200.1 of channel D1."""
+    post = assistant.app.client.chat_postMessage
+    post.return_value = {"channel": "D1", "ts": "200.1"}
+    assistant.app.client.chat_getPermalink = AsyncMock(
+        return_value={"permalink": "https://slack/p100"}
+    )
+    return post  # type: ignore[no-any-return]
+
+
+def _in_dm_thread(post: AsyncMock) -> list[dict[str, Any]]:
+    return [c.kwargs for c in post.await_args_list if c.kwargs.get("thread_ts") == "200.1"]
+
+
+async def test_a_private_request_leaves_only_a_reaction_and_runs_in_a_dm_thread() -> None:
     assistant = _slack(_bot(response_mode="private", private_reaction="eyes"))
+    post = _dm_thread(assistant)
 
     say, _ = await _ask(assistant)
 
     client = assistant.app.client
     client.reactions_add.assert_awaited_once_with(channel="C1", timestamp="100.1", name="eyes")
     say.assert_not_awaited()
-    client.chat_postMessage.assert_not_awaited()
-    ephemerals = client.chat_postEphemeral.await_args_list
-    assert [c.kwargs["user"] for c in ephemerals] == ["U1", "U1"], "acknowledgement, then answer"
-    assert "Only you see this" in ephemerals[0].kwargs["text"]
-    assert ANSWER in ephemerals[1].kwargs["text"]
-    share = ephemerals[1].kwargs["blocks"][-1]["elements"][-1]
-    assert share["action_id"] == "share_private_answer"
+    client.chat_postEphemeral.assert_not_awaited()
+    root = post.await_args_list[0].kwargs
+    assert root["channel"] == "U1" and root.get("thread_ts") is None
+    assert "https://slack/p100" in root["text"] and "<#C1>" in root["text"]
+    assert "why did deploy fail?" in root["text"], "a preview of the request"
+    replies = _in_dm_thread(post)
+    assert replies and all(r["channel"] == "D1" for r in replies)
+    answer = replies[-1]
+    assert ANSWER in answer["text"]
+    buttons = [e for b in answer["blocks"] if b["type"] == "actions" for e in b["elements"]]
+    assert "share_private_answer" in [e.get("action_id") for e in buttons]
+    dm_status = assistant.app.client.agents_sessions_setStatus.await_args.kwargs
+    assert (dm_status["channel_id"], dm_status["thread_ts"]) == ("D1", "200.1"), (
+        "the DM thread's session ends, so its stop button goes"
+    )
 
     session_id = assistant.get_session_id("C1", "100.1", private_for="U1")
     record = await assistant.session_store.get_session(session_id)  # type: ignore[union-attr]
     assert record is not None and not record.is_shared
     assert record.tenant_user_id != "slack_global", "the requester's, not the workspace's"
     assert record.metadata[PRIVATE_ANSWER_KEY] == ANSWER
+    assert record.metadata[PRIVATE_THREAD_KEY]["channel"] == "D1"
+    thread = await assistant._private_threads.find("org_bots", "D1", "200.1")
+    assert thread is not None and thread.session_id == session_id
     assert (
         await assistant.session_store.get_session(  # type: ignore[union-attr]
             assistant.get_session_id("C1", "100.1")
@@ -145,11 +183,106 @@ async def test_a_private_request_leaves_only_a_reaction_in_the_channel() -> None
     ), "no shared thread session"
 
 
+async def test_a_later_mention_is_announced_in_the_same_dm_thread() -> None:
+    assistant = _slack(_bot(response_mode="private"))
+    post = _dm_thread(assistant)
+    await _ask(assistant)
+
+    await _ask(assistant, "<@UBOT> and the staging one?")
+
+    roots = [c.kwargs for c in post.await_args_list if c.kwargs["channel"] == "U1"]
+    assert len(roots) == 1, "one DM thread per private session"
+    announced = [r for r in _in_dm_thread(post) if "New request" in str(r.get("text"))]
+    assert len(announced) == 1 and "and the staging one?" in announced[0]["text"]
+    calls = assistant.pipeline.calls  # type: ignore[attr-defined]
+    assert calls[0]["session_id"] == calls[1]["session_id"]
+
+
+async def test_a_reply_in_the_dm_thread_continues_the_private_session() -> None:
+    assistant = _slack(_bot(response_mode="private", router=_router(sticky=False)))
+    post = _dm_thread(assistant)
+    await _ask(assistant)
+    session_id = assistant.pipeline.calls[0]["session_id"]  # type: ignore[attr-defined]
+
+    handled = await assistant._on_private_thread_message(
+        {"channel": "D1", "thread_ts": "200.1", "ts": "201.1", "user": "U1", "text": "go on"}
+    )
+
+    assert handled
+    second = assistant.pipeline.calls[1]  # type: ignore[attr-defined]
+    assert second["session_id"] == session_id, "private, whatever the router now picks"
+    assert "go on" in second["prompt"]
+    assert assistant.app.client.reactions_add.await_count == 1, "no reaction in the DM"
+    assert ANSWER in _in_dm_thread(post)[-1]["text"]
+
+
+async def test_only_the_requester_continues_a_dm_thread() -> None:
+    assistant = _slack(_bot(response_mode="private"))
+    _dm_thread(assistant)
+    await _ask(assistant)
+
+    handled = await assistant._on_private_thread_message(
+        {"channel": "D1", "thread_ts": "200.1", "ts": "201.1", "user": "U2", "text": "hi"}
+    )
+
+    assert handled and len(assistant.pipeline.calls) == 1  # type: ignore[attr-defined]
+
+
+async def test_stop_in_the_dm_thread_stops_the_private_turn() -> None:
+    assistant = _slack(_bot(response_mode="private"))
+    _dm_thread(assistant)
+    await _ask(assistant)
+    session_id = assistant.pipeline.calls[0]["session_id"]  # type: ignore[attr-defined]
+    assistant.orchestrator.cancel_turn = AsyncMock()  # type: ignore[method-assign]
+    assistant._active_turns.add(session_id)
+
+    await assistant._stop_agent_session(
+        {"channel": "D1", "thread_ts": "200.1", "user": "U1"}, {"team_id": "T1"}
+    )
+    assistant.orchestrator.cancel_turn.assert_awaited_once_with(session_id)
+
+    assistant._active_turns.add(session_id)
+    await assistant._on_private_thread_message(
+        {"channel": "D1", "thread_ts": "200.1", "ts": "202.1", "user": "U1", "text": "stop"}
+    )
+    assert assistant.orchestrator.cancel_turn.await_count == 2
+    assert len(assistant.pipeline.calls) == 1, "a stop never becomes a request"  # type: ignore[attr-defined]
+
+
+async def test_a_stranger_cannot_stop_a_private_turn_from_its_dm_thread() -> None:
+    assistant = _slack(_bot(response_mode="private"))
+    _dm_thread(assistant)
+    await _ask(assistant)
+    session_id = assistant.pipeline.calls[0]["session_id"]  # type: ignore[attr-defined]
+    assistant.orchestrator.cancel_turn = AsyncMock()  # type: ignore[method-assign]
+    assistant._active_turns.add(session_id)
+
+    await assistant._stop_agent_session(
+        {"channel": "D1", "thread_ts": "200.1", "user": "U2"}, {"team_id": "T1"}
+    )
+
+    assistant.orchestrator.cancel_turn.assert_not_awaited()
+
+
+async def test_without_direct_messages_a_private_request_does_not_run() -> None:
+    assistant = _slack(_bot(response_mode="private"))
+    assistant.app.client.chat_postMessage.side_effect = RuntimeError("messages_tab_disabled")
+
+    await _ask(assistant)
+
+    assert assistant.pipeline.calls == []  # type: ignore[attr-defined]
+    notice = assistant.app.client.chat_postEphemeral.await_args.kwargs
+    assert notice["user"] == "U1" and notice["text"] == UNAVAILABLE_NOTICE
+    assistant.app.client.reactions_add.assert_not_awaited()
+
+
 async def test_only_the_requester_can_share_a_private_answer() -> None:
     assistant = _slack(_bot(response_mode="private"))
+    _dm_thread(assistant)
     await _ask(assistant)
     session_id = assistant.get_session_id("C1", "100.1", private_for="U1")
     client = assistant.app.client
+    client.chat_postMessage.reset_mock()
 
     await assistant._share_private_answer(
         {"actions": [{"value": session_id}], "user": {"id": "U2"}, "team": {"id": "T1"}}
@@ -196,6 +329,7 @@ async def test_an_unsure_decision_takes_the_fallback_and_a_route_can_be_private(
     assert unsure.pipeline.calls[0]["overlay"].default_agent_id == "agent-ops"  # type: ignore[attr-defined]
 
     sure = _slack(_bot(router=_router()), [RouteDecision("code", 0.9, "code")])
+    _dm_thread(sure)
     await _ask(sure)
     call = sure.pipeline.calls[0]  # type: ignore[attr-defined]
     assert call["overlay"].default_agent_id == "agent-code"
@@ -250,6 +384,7 @@ def test_bot_session_ids_fit_the_sessions_table(private_for: str | None) -> None
 async def test_a_channel_can_make_a_bot_private() -> None:
     channel = {"channel_profiles": {"C1": {"response_mode": "private"}}}
     assistant = _slack(_bot(policy=channel))
+    _dm_thread(assistant)
 
     await _ask(assistant)
 
@@ -373,44 +508,24 @@ async def test_a_bot_answers_its_command_and_the_legacy_one(command: str) -> Non
     assert handled is (command != "/other"), response.status
 
 
-async def test_with_dm_updates_a_private_request_reports_by_direct_message() -> None:
-    """Ephemeral messages vanish on reload and notify nobody; the requester gets DMs instead,
-    each saying which request it is about, and the result exactly once."""
-    assistant = _slack(
-        _bot(response_mode="private", private_dm_updates=True, private_dm_result=True)
-    )
-    client = assistant.app.client
-    client.chat_getPermalink = AsyncMock(return_value={"permalink": "https://slack/p100"})
-
-    say, _ = await _ask(assistant)
-
-    say.assert_not_awaited()
-    acknowledgement = client.chat_postEphemeral.await_args_list
-    assert len(acknowledgement) == 1 and "directly" in acknowledgement[0].kwargs["text"]
-    direct = client.chat_postMessage.await_args_list
-    assert len(direct) == 1 and direct[0].kwargs["channel"] == "U1"
-    assert ANSWER in direct[0].kwargs["text"]
-    origin = direct[0].kwargs["blocks"][-1]["elements"][0]["text"]
-    assert "https://slack/p100" in origin and "<#C1>" in origin
-
-
-async def test_a_gate_sent_by_direct_message_names_its_session() -> None:
+async def test_a_gate_in_a_dm_thread_names_its_session() -> None:
     from slack_assistant.block_kit import build_question_blocks
 
     from specifications.interfaces.agent import InteractiveQuestion
 
     assistant = _slack(_bot())
-    say = await assistant._direct_say("U1", "C1", "100.1", "session-private-1")
+    thread = PrivateThread("D1", "200.1", "session-private-1", "U1", "C1", "100.1")
+    say = assistant._private_thread_say(thread)
     question = InteractiveQuestion("q-1", "Which branch?", ["main", "beta"], False, "beta")
     await say(blocks=build_question_blocks(question), text="Which branch?", thread_ts="100.1")
 
     sent = assistant.app.client.chat_postMessage.await_args.kwargs
-    assert sent["channel"] == "U1" and "thread_ts" not in sent
+    assert sent["channel"] == "D1" and sent["thread_ts"] == "200.1"
     buttons = next(b for b in sent["blocks"] if b["type"] == "actions")
     click = {
         "actions": [{"value": "beta", "block_id": buttons["block_id"]}],
         "channel": {"id": "D1"},
-        "container": {},
+        "container": {"thread_ts": "200.1"},
         "user": {"id": "U1"},
     }
 

@@ -58,6 +58,37 @@ test.describe("Attachment upload", () => {
     await expect(page.getByTestId("attachment-chip")).toHaveCount(0);
   });
 
+  for (const reads of [false, true]) {
+    test(`an image attached for a model that ${reads ? "reads" : "cannot read"} images ${reads ? "is not warned about" : "is warned about"}`, async ({
+      page,
+      request,
+    }) => {
+      // Whatever model the turn runs on, the listing says whether it reads images.
+      await page.route(/\/v1\/models(\?.*)?$/, async (route) => {
+        const response = await route.fetch();
+        const body = (await response.json()) as { models: Record<string, unknown>[] };
+        await route.fulfill({ response, json: { ...body, models: body.models.map((m) => ({ ...m, accepts_images: reads })) } });
+      });
+      const sessionId = await createSession(request, `Image warning ${reads}`);
+      await openLoadedSession(page, sessionId, "bootstrap turn");
+      const warning = page.getByTestId("attachment-image-warning");
+
+      await page.getByTestId("attachment-input").setInputFiles({ name: "server.log", mimeType: "text/plain", buffer: Buffer.from("ERROR boom") });
+      await expect(page.getByTestId("attachment-chip").filter({ hasText: "server.log" })).toHaveAttribute("data-status", "ready");
+      await expect(warning).toHaveCount(0);
+
+      await page.getByTestId("attachment-input").setInputFiles({ name: "screenshot.png", mimeType: "image/png", buffer: PNG_BYTES });
+      await expect(page.getByTestId("attachment-chip").filter({ hasText: "screenshot.png" })).toHaveAttribute("data-status", "ready");
+      if (reads) {
+        await expect(warning).toHaveCount(0);
+      } else {
+        await expect(warning).toContainText("cannot read images");
+        await page.getByTestId("attachment-chip").filter({ hasText: "screenshot.png" }).getByTestId("attachment-remove").click();
+        await expect(warning).toHaveCount(0);
+      }
+    });
+  }
+
   test("carries a staged log attachment into the dispatched turn", async ({ page, request }) => {
     const sessionId = await createSession(request, "Attachment Dispatch Mission");
     await openLoadedSession(page, sessionId, "bootstrap turn");

@@ -11,12 +11,16 @@ export interface CatalogTool {
   toolset: string | null;
   /** read, edit, command or publish: the approval the tool needs. */
   permission: string;
+  /** A core tool: sent with every step whenever the agent may use it. */
+  core: boolean;
 }
 
 export interface SandboxType {
   id: string;
   name: string;
   is_default: boolean;
+  /** A team's type, which only the team's own agents may use. */
+  team_id?: string | null;
 }
 
 export interface AgentRegistries {

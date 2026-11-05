@@ -9,9 +9,15 @@ import { ConnectionStep } from "./form/ConnectionStep";
 import { PresetStep } from "./form/PresetStep";
 import { ToolsStep } from "./form/ToolsStep";
 import { STEP_LABELS, useMcpServerForm, type McpServerFormState, type Step } from "./form/useMcpServerForm";
+import { OwnerSelect } from "../Owner";
+import type { OwnerKey } from "../../../lib/ownership";
+import type { MoveTarget } from "../MoveDialog";
 
 interface McpServerFormProps {
-  scope: "user" | "org";
+  owner: OwnerKey;
+  /** The owners the person may register a server for. */
+  owners: OwnerKey[];
+  confirmMove?: (name: string, from: OwnerKey, to: OwnerKey, target?: MoveTarget) => Promise<boolean>;
   isAdmin: boolean;
   /** Whether command servers can run here; null while it is still being checked. */
   runner: McpRunnerStatus | null;
@@ -28,9 +34,10 @@ const STEP_COMPONENTS: Record<Step, React.FC<{ form: McpServerFormState }>> = {
   tools: ToolsStep,
 };
 
-function titleOf(scope: "user" | "org", editing?: McpServerConfig): string {
+function titleOf(owner: OwnerKey, editing?: McpServerConfig): string {
   if (editing) return `Edit ${editing.name}`;
-  return scope === "org" ? "Register an organization MCP server" : "Register a personal MCP server";
+  if (owner === "org") return "Register an organization MCP server";
+  return owner === "me" ? "Register a personal MCP server" : "Register a team MCP server";
 }
 
 const StepList: React.FC<{ form: McpServerFormState }> = ({ form }) => (
@@ -101,11 +108,14 @@ const Footer: React.FC<{ form: McpServerFormState; onCancel: () => void }> = ({ 
 
 /** Registers a new MCP server, or edits a registered one, as a wizard: a preset (new servers
  * only), the connection, its sign-in or variables, then the tools it offers and the guidance. */
-export const McpServerForm: React.FC<McpServerFormProps> = ({ scope, isAdmin, runner, onSaved, onCancel, editing }) => {
-  const form = useMcpServerForm({ scope, isAdmin, runner, editing, onSaved });
+export const McpServerForm: React.FC<McpServerFormProps> = ({ owner, owners, confirmMove, isAdmin, runner, onSaved, onCancel, editing }) => {
+  const form = useMcpServerForm({ owner, owners, confirmMove, isAdmin, runner, editing, onSaved });
   const CurrentStep = STEP_COMPONENTS[form.step];
   return (
-    <Modal title={titleOf(scope, editing)} onClose={onCancel} testId="mcp-server-modal">
+    <Modal title={titleOf(owner, editing)} onClose={onCancel} testId="mcp-server-modal">
+      {form.step !== "preset" && (
+        <OwnerSelect testId="mcp-owner" value={form.owner} options={form.owners} onChange={form.setOwner} />
+      )}
       <CurrentStep form={form} />
       {form.formError && (
         <p role="alert" data-testid="mcp-form-error" className="text-xs text-rose-600 dark:text-rose-400">

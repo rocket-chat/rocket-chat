@@ -28,7 +28,7 @@ from config_engine.cascading import model_is_allowed
 from llm_gateway.model_facts import facts_for
 
 from api.services.model_credentials import ModelCredentialStore
-from api.services.provider_catalogue import provider_catalogue
+from api.services.provider_catalogue import ProviderModel, provider_catalogue
 from api.services.settings import effective_settings
 from specifications.interfaces.llm import (
     ModelCatalogueProtocol,
@@ -119,7 +119,17 @@ def resolve_model_spec(model: str) -> ModelSpec:
         max_output_tokens=max_output_tokens,
         supports_reasoning=reasoning,
         context_source=context_source,
+        accepts_images=_accepts_images(live, info),
     )
+
+
+def _accepts_images(live: ProviderModel | None, info: dict[str, Any] | None) -> bool | None:
+    """The provider's word first: LiteLLM's table misses new models (DeepSeek V4.1 Flash)."""
+    if live is not None and live.accepts_images is not None:
+        return live.accepts_images
+    if info and "supports_vision" in info:
+        return bool(info["supports_vision"])
+    return None
 
 
 class ModelCatalogue(ModelCatalogueProtocol):

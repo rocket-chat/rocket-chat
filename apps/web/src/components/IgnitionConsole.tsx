@@ -176,6 +176,11 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
     useShallow((state) => ({ flightLog: state.flightLog, isExecuting: state.isExecuting, appendOwnUserMessage: state.appendOwnUserMessage, session: state.session, clearReasoning: state.clearReasoning, setIsExecuting: state.setIsExecuting, setStatusMessage: state.setStatusMessage, selectedModel: state.selectedModel, availableModels: state.availableModels, activeAgent: state.activeAgent, availableAgents: state.availableAgents, inferenceMode: state.inferenceMode, selectAgent: state.selectAgent, selectDirectModel: state.selectDirectModel, suggestedFollowup: state.suggestedFollowup, setSuggestedFollowup: state.setSuggestedFollowup, pendingAttachments: state.pendingAttachments, attachmentError: state.attachmentError, uploadAttachment: state.uploadAttachment, removeAttachment: state.removeAttachment, clearAttachments: state.clearAttachments, pendingMessages: state.pendingMessages, addPendingMessage: state.addPendingMessage }))
   );
   const { user } = useAuth();
+  // The model this message would run on: the agent's, else the one picked in the composer.
+  const turnModel = inferenceMode === "agent" ? activeAgent?.model || selectedModel : selectedModel;
+  const turnModelInfo = availableModels.find((m) => m.id === turnModel);
+  // Said before sending: the gateway would otherwise replace the image with a note to the model.
+  const imagesUnread = turnModelInfo?.accepts_images === false && pendingAttachments.some((a) => a.mime.startsWith("image/"));
   const realSessionId = session && !session.is_draft && session.session_id !== "draft" ? session.session_id : null;
   const mentionToken = mentionAt(prompt, caret);
   const mentionItems = useMentions(realSessionId, mentionToken);
@@ -491,6 +496,20 @@ export const IgnitionConsole: React.FC<IgnitionConsoleProps> = ({
               </div>
             )}
           </div>
+        )}
+
+        {imagesUnread && (
+          <p
+            role="status"
+            data-testid="attachment-image-warning"
+            className="mb-2 flex items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-200"
+          >
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+            <span>
+              {turnModelInfo?.name ?? "This model"} cannot read images: the attached images would not reach it. Choose a model that reads
+              images to have them looked at.
+            </span>
+          </p>
         )}
 
         {/* Messages sent during the turn, waiting for a turn to take them */}

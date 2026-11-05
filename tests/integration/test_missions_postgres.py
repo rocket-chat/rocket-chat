@@ -11,8 +11,10 @@ from collections.abc import AsyncIterator
 import pytest
 from api.db.models import OrganizationModel, UserModel
 from api.db.session import DatabaseSessionManager
-from api.services.missions import Mission, MissionStore, claim_due
+from api.services.missions import MissionStore
 from sqlalchemy import text
+
+from specifications.interfaces.automation import Mission, MissionTrigger
 
 TEST_DB_URL = os.getenv("TEST_DATABASE_URL", "")
 ADMIN_DB_URL = os.getenv("ADMIN_DATABASE_URL", "")
@@ -41,7 +43,15 @@ async def _tenant(admin_db: DatabaseSessionManager) -> tuple[str, str]:
 
 
 def _mission(org: str, user: str, name: str = "Nightly") -> Mission:
-    return Mission(id="", org_id=org, user_id=user, name=name, prompt="Triage", cron="0 3 * * *")
+    return Mission(
+        id="",
+        org_id=org,
+        name=name,
+        instructions="Triage",
+        scope="user",
+        user_id=user,
+        triggers=(MissionTrigger("schedule", schedule="0 3 * * *"),),
+    )
 
 
 async def test_missions_are_invisible_across_organizations(
@@ -50,10 +60,10 @@ async def test_missions_are_invisible_across_organizations(
     app_db, admin_db = managers
     (org_a, user_a), (org_b, user_b) = await _tenant(admin_db), await _tenant(admin_db)
     store = MissionStore(app_db)
-    created = await store.create(_mission(org_a, user_a))
-    await store.create(_mission(org_b, user_b, "Other"))
+    created = await store.create(_mission(org_a, user_a), {})
+    await store.create(_mission(org_b, user_b, "Other"), {})
 
-    assert [m.id for m in await store.list(org_a, None)] == [created.id]
+    assert [m.id for m in await store.all_for(org_a)] == [created.id]
     assert await store.get(org_b, created.id) is None
     assert await store.delete(org_b, created.id) is False
     assert await store.delete(org_a, created.id) is True
@@ -65,21 +75,21 @@ async def test_replicas_racing_for_a_due_mission_start_it_once(
     app_db, admin_db = managers
     org, user = await _tenant(admin_db)
     store = MissionStore(app_db)
-    mission = await store.create(_mission(org, user))
+    mission = await store.create(_mission(org, user), {})
     async with admin_db.session() as session:
         await session.execute(
-            text("UPDATE scheduled_missions SET next_run_at = :past WHERE id = :id"),
+            text("UPDATE missions SET next_run_at = :past WHERE id = :id"),
             {"past": int(time.time()) - 60, "id": mission.id},
         )
 
-    batches = await asyncio.gather(*(claim_due(admin_db, store) for _ in range(6)))
+    batches = await asyncio.gather(*(store.claim_due(admin_db) for _ in range(6)))
     mine = [m for batch in batches for m in batch if m.id == mission.id]
     assert len(mine) == 1
 
     reread = await store.get(org, mission.id)
     assert reread is not None and reread.next_run_at is not None
     assert reread.next_run_at > time.time()
-    assert not [m for m in await claim_due(admin_db, store) if m.id == mission.id]
+    assert not [m for m in await store.claim_due(admin_db) if m.id == mission.id]
 
 
 async def test_the_last_run_is_recorded_under_the_tenant(
@@ -88,7 +98,7 @@ async def test_the_last_run_is_recorded_under_the_tenant(
     app_db, admin_db = managers
     org, user = await _tenant(admin_db)
     store = MissionStore(app_db)
-    mission = await store.create(_mission(org, user))
+    mission = await store.create(_mission(org, user), {})
     await store.mark_run(org, mission.id, "session_abc", "started")
     reread = await store.get(org, mission.id)
     assert reread is not None

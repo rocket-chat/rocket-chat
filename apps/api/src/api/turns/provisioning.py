@@ -20,6 +20,7 @@ from api.services.settings import (
 )
 from api.services.skills_lookup import _find_visible_skill
 from api.services.slash_commands import expand_skill, parse_slash_command
+from api.services.teams import turn_teams
 from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
 from specifications.interfaces.sandbox import (
     ResourceLimits,
@@ -244,18 +245,21 @@ async def _sandbox_choice(
     """The session's image and sandbox type (refused when the catalogue does not offer it)."""
     sandbox_cfg = await effective_settings(db_mgr, org_id, "sandboxes")
     catalogue = SandboxCatalogue(db_mgr)
+    attribution = binding.policy.attribution
     chosen = await catalogue.chosen(
         org_id,
         session_sandbox_id=_session_metadata(s_rec).get("sandbox_id"),
         session_image=s_rec.container_image if s_rec else None,
         agent_sandbox_id=binding.sandbox_id,
+        teams=await turn_teams(db_mgr, org_id, attribution.requester_user_id, attribution.team_id),
     )
     image = (
         (chosen.image if chosen else None)
         or (s_rec.container_image if s_rec else None)
         or (await catalogue.default(org_id)).image
     )
-    if not await catalogue.image_is_offered(
+    # A chosen type is in the catalogue by definition (a team's image is offered to its team).
+    if chosen is None and not await catalogue.image_is_offered(
         org_id, image, [str(p) for p in sandbox_cfg.get("allowed_images") or ()]
     ):
         raise ValueError(

@@ -71,6 +71,43 @@ export function formatCount(value: number): string {
   return String(value);
 }
 
+const PROVIDER_NAMES: Record<string, string> = {
+  openrouter: "OpenRouter",
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  gemini: "Google",
+  vertex_ai: "Vertex AI",
+  bedrock: "Bedrock",
+  azure: "Azure",
+  mistral: "Mistral",
+  deepseek: "DeepSeek",
+  groq: "Groq",
+  ollama: "Ollama",
+};
+
+/** "OpenRouter" for `openrouter/anthropic/claude-…`: the provider the call went through. */
+export function providerName(modelId: string): string {
+  const provider = modelId.includes("/") ? modelId.split("/")[0] : "";
+  return PROVIDER_NAMES[provider] ?? (provider ? provider[0].toUpperCase() + provider.slice(1) : "");
+}
+
+/**
+ * A short name for each model in a list: its last two segments, and the provider as well when two
+ * models would otherwise read the same (the same Claude through OpenRouter and from Anthropic).
+ */
+export function modelLabels(modelIds: string[]): Map<string, string> {
+  const short = (id: string) => id.split("/").slice(-2).join("/");
+  const counts = new Map<string, number>();
+  for (const id of modelIds) counts.set(short(id), (counts.get(short(id)) ?? 0) + 1);
+  return new Map(
+    modelIds.map((id) => {
+      const name = short(id);
+      const provider = providerName(id);
+      return [id, (counts.get(name) ?? 0) > 1 && provider ? `${name} · ${provider}` : name];
+    }),
+  );
+}
+
 /** Dollars with the precision that matters at that size: $0.0042, $0.42, $12.34. */
 export function formatUsd(value: number): string {
   if (value <= 0) return "$0";

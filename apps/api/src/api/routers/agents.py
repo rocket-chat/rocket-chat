@@ -1,6 +1,7 @@
 """Agent personas and organization subagent roles."""
 
 import logging
+from typing import Any
 
 from agent_core.subagents import DEFAULT_SUBAGENT_CONFIGS
 from fastapi import (
@@ -14,7 +15,6 @@ from pydantic import BaseModel, Field
 from api.auth.access import _get_request_identity, _require_admin
 from api.auth.capabilities import Capability, has_capability
 from api.auth.roles import ROLES, can_write
-from api.auth.roles import is_admin as holds_admin
 from api.models import (
     AgentLimitsResponse,
     AgentPersonaModel,
@@ -29,6 +29,12 @@ from api.services.agent_access import (
     templates_blocked_by,
 )
 from api.services.audit import AuditService
+from api.services.default_agent import (
+    DEFAULT_AGENT_DOMAIN,
+    DEFAULT_AGENT_KEY,
+    resolve_default_agent,
+)
+from api.services.ownership import request_viewer
 from api.services.persona_lint import PersonaWarning, lint_persona
 from api.services.personas import (
     PersonaError,
@@ -39,13 +45,16 @@ from api.services.personas import (
     stored_bindings,
 )
 from api.services.session_templates import template_store
+from api.services.settings import load_user_config
 from api.services.subagents import (
     ROLE_ID_PATTERN,
     delete_subagent_config,
     list_subagent_configs,
     save_subagent_config,
 )
+from api.services.teams import list_teams
 from api.services.turn_limits import organization_max_turns
+from specifications.interfaces.agent import DefaultAgentChoice
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Agents"])
@@ -58,6 +67,64 @@ async def list_agents(request: Request) -> list[AgentPersonaModel]:
     org_id, user_id, roles = _get_request_identity(request)
     return await list_personas(
         getattr(request.app.state, "db_manager", None), org_id, user_id, roles
+    )
+
+
+class DefaultAgentLevel(BaseModel):
+    agent_id: str | None = Field(description="The agent; null: none applies (the platform's)")
+    agent_name: str = ""
+    source: str = Field(description="member, team:<id>, org or platform")
+    skipped: list[str] = Field(
+        default_factory=list, description="Levels whose agent the caller may not use"
+    )
+
+
+class DefaultAgentResponse(DefaultAgentLevel):
+    team_id: str | None = Field(
+        default=None, description="The caller's only team, whose default counts; else null"
+    )
+    locked: bool = Field(default=False, description="The organization locked its default")
+    own_agent_id: str | None = Field(
+        default=None, description="The caller's own stored choice, usable or not"
+    )
+    inherited: DefaultAgentLevel = Field(description="What applies without the caller's own choice")
+
+
+async def _level(
+    db_mgr: Any, org_id: str, user_id: str, choice: DefaultAgentChoice
+) -> DefaultAgentLevel:
+    name = ""
+    if choice.agent_id:
+        agent = await get_persona(db_mgr, org_id, user_id, choice.agent_id, enforce_access=False)
+        name = agent.name if agent is not None else ""
+    return DefaultAgentLevel(
+        agent_id=choice.agent_id,
+        agent_name=name,
+        source=choice.source,
+        skipped=list(choice.skipped),
+    )
+
+
+@router.get("/me/default-agent", response_model=DefaultAgentResponse)
+async def my_default_agent(request: Request) -> DefaultAgentResponse:
+    """The agent the caller's new sessions start with when none is chosen, and which level
+    chose it: their own, their team's (when they belong to exactly one team), the
+    organization's, else none (the platform's). A level whose agent they may not use is
+    skipped."""
+    org_id, user_id, roles = _get_request_identity(request)
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    choice = await resolve_default_agent(db_mgr, org_id, user_id, roles)
+    inherited = await resolve_default_agent(db_mgr, org_id, user_id, roles, include_member=False)
+    own = (await load_user_config(db_mgr, org_id, user_id, DEFAULT_AGENT_DOMAIN)).get(
+        DEFAULT_AGENT_KEY
+    )
+    level = await _level(db_mgr, org_id, user_id, choice)
+    return DefaultAgentResponse(
+        **level.model_dump(),
+        team_id=choice.team_id,
+        locked=choice.locked,
+        own_agent_id=str(own) if own else None,
+        inherited=await _level(db_mgr, org_id, user_id, inherited),
     )
 
 
@@ -74,7 +141,8 @@ async def agent_limits(request: Request) -> AgentLimitsResponse:
 
 @router.post("/agents", response_model=AgentPersonaModel)
 async def create_or_update_agent(persona: AgentPersonaModel, request: Request) -> AgentPersonaModel:
-    """Create or update a custom agent persona, enforcing scope boundaries.
+    """Create or update a custom agent owned by the caller, one of their teams or the
+    organization; changing the owner moves it (the caller manages both sides).
 
     A non-administrator who does not name a scope gets a personal persona. The returned
     persona carries the stored id, which can differ from the proposed one.
@@ -82,8 +150,12 @@ async def create_or_update_agent(persona: AgentPersonaModel, request: Request) -
     org_id, user_id, roles = _get_request_identity(request)
     if not can_write(roles):
         raise HTTPException(status_code=403, detail="Forbidden: viewers cannot edit agents")
-    is_admin = holds_admin(roles)
-    if persona.scope == "org" and not is_admin and "scope" not in persona.model_fields_set:
+    _, viewer = await request_viewer(request)
+    if (
+        persona.scope == "org"
+        and not viewer.is_org_admin
+        and "scope" not in persona.model_fields_set
+    ):
         persona.scope = "user"
     db_mgr = getattr(request.app.state, "db_manager", None)
     if persona.scope == "user" and not await has_capability(
@@ -96,7 +168,13 @@ async def create_or_update_agent(persona: AgentPersonaModel, request: Request) -
     before = await stored_bindings(db_mgr, org_id, persona.id)
     try:
         saved = await save_persona(
-            db_mgr, org_id, user_id, is_admin, persona, credentials=credential_store(request)
+            db_mgr,
+            org_id,
+            user_id,
+            viewer.is_org_admin,
+            persona,
+            credentials=credential_store(request),
+            viewer=viewer,
         )
     except PersonaError as err:
         raise HTTPException(status_code=err.status_code, detail=err.detail) from err
@@ -171,13 +249,17 @@ async def put_agent_access(
     org_id, admin_id, roles = _require_admin(request)
     db_mgr = getattr(request.app.state, "db_manager", None)
     agent = await get_persona(db_mgr, org_id, admin_id, persona_id, roles=roles)
-    if agent is None or agent.scope == "user" or agent.user_id:
+    # A team's agent serves the team's members; grants shape who uses an organization agent.
+    if agent is None or agent.scope != "org" or agent.user_id:
         raise HTTPException(status_code=404, detail="Organization agent not found")
+    team_ids = {team.id for team in await list_teams(db_mgr, org_id)}
     for grant in body.grants:
-        if grant.principal_kind in ("member", "role") and not grant.principal_id:
+        if grant.principal_kind in ("member", "role", "team") and not grant.principal_id:
             raise HTTPException(status_code=422, detail=f"A {grant.principal_kind} grant names one")
         if grant.principal_kind == "role" and grant.principal_id not in ROLES:
             raise HTTPException(status_code=422, detail=f"Unknown role {grant.principal_id!r}")
+        if grant.principal_kind == "team" and grant.principal_id not in team_ids:
+            raise HTTPException(status_code=422, detail=f"Unknown team {grant.principal_id!r}")
     saved = await set_grants(
         db_mgr,
         org_id,
@@ -255,15 +337,16 @@ async def delete_agent(
     org_id, user_id, roles = _get_request_identity(request)
     if not can_write(roles):
         raise HTTPException(status_code=403, detail="Forbidden: viewers cannot edit agents")
-    is_admin = holds_admin(roles)
+    _, viewer = await request_viewer(request)
     try:
         await delete_persona(
             getattr(request.app.state, "db_manager", None),
             org_id,
             user_id,
-            is_admin,
+            viewer.is_org_admin,
             persona_id,
             disable=disable,
+            viewer=viewer,
         )
     except PersonaError as err:
         raise HTTPException(status_code=err.status_code, detail=err.detail) from err

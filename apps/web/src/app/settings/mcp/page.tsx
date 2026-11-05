@@ -16,14 +16,18 @@ import {
   UserScopeSection,
   ScopeDivider,
   OrgScopeSection,
+  TeamScopeSection,
 } from "../../../components/settings/ScopedSettingsSection";
-import { useAccess } from "../../../lib/access";
+import { useMoveConfirmation } from "../../../components/settings/Owner";
+import { hasCapability } from "../../../lib/access";
+import { useOwnedSections } from "../../../lib/useOwnedSections";
+import { ownerKey, type OwnerKey } from "../../../lib/ownership";
 
 const SIGN_IN_MESSAGE = "rocket-mcp-sign-in";
 
 export default function McpSettingsPage() {
   const [confirm, confirmDialog] = useConfirm();
-  const { isAdmin } = useAccess();
+  const [confirmMove, moveDialog] = useMoveConfirmation();
 
   const [servers, setServers] = useState<McpServerConfig[]>([]);
   const [runner, setRunner] = useState<McpRunnerStatus | null>(null);
@@ -33,7 +37,7 @@ export default function McpSettingsPage() {
   // The registration form is mounted fresh each time it opens, so it needs no reset.
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingServer, setEditingServer] = useState<McpServerConfig | null>(null);
-  const [formScope, setFormScope] = useState<"user" | "org">("user");
+  const [formOwner, setFormOwner] = useState<OwnerKey>("me");
 
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [successBanner, setSuccessBanner] = useState<string | null>(null);
@@ -103,11 +107,14 @@ export default function McpSettingsPage() {
       .catch(() => setRunner(null));
   }, []);
 
-  const userServers = servers.filter((s) => s.scope === "user" || !s.scope || s.user_id != null);
-  const orgServers = servers.filter((s) => s.scope === "org" && s.user_id == null);
+  const sections = useOwnedSections(servers);
+  const { access } = sections;
+  const isAdmin = access.isAdmin;
+  // Registering a personal server needs the capability; a team's or the organization's needs managing it.
+  const owners = sections.creatable.filter((key) => key !== "me" || hasCapability(access, "register_mcp") || isAdmin);
 
-  const handleOpenAddForm = (scope: "user" | "org") => {
-    setFormScope(scope);
+  const handleOpenAddForm = (owner: OwnerKey) => {
+    setFormOwner(owner);
     setShowAddForm(true);
   };
 
@@ -203,6 +210,7 @@ export default function McpSettingsPage() {
   return (
     <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
       {confirmDialog}
+      {moveDialog}
       <PageHeader
         title="MCP servers"
         icon={<Server className="h-5 w-5" aria-hidden="true" />}
@@ -226,7 +234,9 @@ export default function McpSettingsPage() {
       {editingServer && (
         <McpServerForm
           key={editingServer.id}
-          scope={editingServer.scope === "user" ? "user" : "org"}
+          owner={ownerKey(editingServer)}
+          owners={owners}
+          confirmMove={confirmMove}
           isAdmin={isAdmin}
           runner={runner}
           editing={editingServer}
@@ -237,7 +247,8 @@ export default function McpSettingsPage() {
 
       {showAddForm && (
         <McpServerForm
-          scope={formScope}
+          owner={formOwner}
+          owners={owners}
           isAdmin={isAdmin}
           runner={runner}
           onSaved={handleServerAdded}
@@ -246,58 +257,75 @@ export default function McpSettingsPage() {
       )}
 
 
-      {/* TIER 1: USER-SPECIFIC CONFIGURATION */}
-      <UserScopeSection
-        title="Personal MCP Servers"
-        description="Connect your private tool providers and API credentials. These tools are available to your sessions and custom agents."
-        action={
-          <Button size="sm" variant="secondary" onClick={() => handleOpenAddForm("user")}>
+      {sections.mine && (
+        <UserScopeSection
+          title="Personal MCP Servers"
+          description="Connect your private tool providers and API credentials. These tools are available to your sessions and custom agents."
+          action={
+            <Button size="sm" variant="secondary" onClick={() => handleOpenAddForm("me")}>
+              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+              Add server
+            </Button>
+          }
+        >
+          {sections.mine.length > 0 ? (
+            <div className="space-y-2.5">{sections.mine.map((s) => renderCard(s, true))}</div>
+          ) : (
+            <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-2">
+              <Server className="w-6 h-6 mx-auto text-neutral-500" />
+              <p className="text-xs text-muted-foreground">You haven&apos;t added any personal MCP servers yet.</p>
+            </div>
+          )}
+        </UserScopeSection>
+      )}
+
+      {sections.teamSections.map((section) => (
+        <React.Fragment key={section.key}>
+          <ScopeDivider label={`Team ${section.team.name}`} />
+          <TeamScopeSection
+            title={`Team · ${section.team.name}`}
+            description="Tool providers the team's members use; its administrators manage them."
+            canManage={section.canManage}
+            action={
+              <Button size="sm" variant="secondary" data-testid={`new-team-mcp-${section.team.id}`} onClick={() => handleOpenAddForm(section.key)}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                Add server
+                Add team server
               </Button>
-        }
-      >
-        {userServers.length > 0 ? (
-          <div className="space-y-2.5">
-            {userServers.map((s) => renderCard(s, true))}
-          </div>
-        ) : (
-          <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-2">
-            <Server className="w-6 h-6 mx-auto text-neutral-500" />
-            <p className="text-xs text-muted-foreground">
-              You haven&apos;t added any personal MCP servers yet.
-            </p>
-          </div>
-        )}
-      </UserScopeSection>
+            }
+          >
+            {section.items.length > 0 ? (
+              <div className="space-y-2.5">{section.items.map((s) => renderCard(s, section.canManage))}</div>
+            ) : (
+              <p className="text-xs text-muted-foreground">The team has no MCP server yet.</p>
+            )}
+          </TeamScopeSection>
+        </React.Fragment>
+      ))}
 
-      {/* VISUAL SEPARATOR */}
-      <ScopeDivider label="Organization Scope" />
-
-      {/* TIER 2: ORGANIZATION-WIDE CONFIGURATION */}
-      <OrgScopeSection
-        title="Organization MCP Servers"
-        description="Shared tool providers accessible to all organization members and default fleet agents."
-        action={
-          <Button size="sm" variant="secondary" onClick={() => handleOpenAddForm("org")}>
+      {sections.org && (
+        <>
+          {(sections.mine || sections.teamSections.length > 0) && <ScopeDivider label="Organization Scope" />}
+          <OrgScopeSection
+            title="Organization MCP Servers"
+            description="Shared tool providers accessible to all organization members and default fleet agents."
+            action={
+              <Button size="sm" variant="secondary" onClick={() => handleOpenAddForm("org")}>
                 <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                 Add org server
               </Button>
-        }
-      >
-        {orgServers.length > 0 ? (
-          <div className="space-y-2.5">
-            {orgServers.map((s) => renderCard(s, isAdmin))}
-          </div>
-        ) : (
-          <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-2">
-            <Shield className="w-6 h-6 mx-auto text-neutral-500" />
-            <p className="text-xs text-muted-foreground">
-              No organization-wide MCP servers registered.
-            </p>
-          </div>
-        )}
-      </OrgScopeSection>
+            }
+          >
+            {sections.org.length > 0 ? (
+              <div className="space-y-2.5">{sections.org.map((s) => renderCard(s, isAdmin))}</div>
+            ) : (
+              <div className="p-6 rounded-lg border border-dashed border-border text-center space-y-2">
+                <Shield className="w-6 h-6 mx-auto text-neutral-500" />
+                <p className="text-xs text-muted-foreground">No organization-wide MCP servers registered.</p>
+              </div>
+            )}
+          </OrgScopeSection>
+        </>
+      )}
 
       {isAdmin && (
         <SchemaSettingsForm

@@ -238,7 +238,8 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
   const chip = (active: boolean) =>
     `rounded-full border px-2.5 py-1 text-[11px] cursor-pointer transition-colors ${
       active
-        ? "border-brand/50 bg-brand/10 text-brand"
+        ? // On the tint, the darker shade keeps the label at 4.5:1 in light mode.
+          "border-brand/50 bg-brand/10 text-brand-hover dark:text-brand"
         : "border-surface-border text-neutral-600 hover:text-foreground dark:text-neutral-300"
     }`;
 

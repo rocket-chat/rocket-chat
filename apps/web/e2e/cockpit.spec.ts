@@ -72,7 +72,7 @@ test.describe("Agent Cockpit E2E Verification", () => {
     await expect(page).toHaveURL(/\/settings/);
 
     // Navigate to Agents tab
-    await page.getByRole("navigation", { name: "Organization" }).getByRole("link", { name: /^Agents/ }).click();
+    await page.getByRole("navigation", { name: "Build" }).getByRole("link", { name: /^Agents/ }).click();
     await expect(page).toHaveURL(/\/settings\/agents/);
     await expect(page.getByRole("heading", { level: 1, name: "Agents" })).toBeVisible();
     await expect(page.getByText("General Software Engineer").first()).toBeVisible();

@@ -1,7 +1,7 @@
 """Agent persona storage and visibility.
 
 Built-in personas are immutable code. Custom personas belong to one organization and are
-either organization-wide (``scope="org"``) or personal; they are always read from the store
+owned by the organization (``scope="org"``), a team or a member; they are always read from the store
 (no process-wide cache), so one tenant's persona can never be seen, resolved or shadowed by
 another's, and edits are visible on every replica immediately. Without a database
 (development only) they live in per-organization memory.
@@ -23,10 +23,20 @@ from api.db.models import AgentPersonaEntityModel
 from api.models import AgentPersonaModel, CredentialBindingModel
 from api.services.agent_access import AgentAccessDenied, may_use, principal_for
 from api.services.model_credentials import ModelCredentialStore
+from api.services.ownership import (
+    OwnershipError,
+    manageable,
+    owner_for_write,
+    owner_of,
+    visible,
+    visible_clause,
+)
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.settings import effective_settings, resolve_settings
+from api.services.teams import note_memory_owned
 from api.services.turn_limits import organization_max_turns
 from specifications.interfaces.agent import NO_STEP_LIMIT
+from specifications.interfaces.ownership import Owner, Viewer
 
 # The default agent's prompt, also used when a session's agent has none. Model-agnostic: the
 # environment (sandbox, tools, git) is described by the platform's own system prompt sections.
@@ -178,6 +188,7 @@ def _as_builtin(persona: AgentPersonaModel, builtin_id: str) -> AgentPersonaMode
             "customized": True,
             "scope": "org",
             "user_id": None,
+            "team_id": None,
         }
     )
 
@@ -225,6 +236,7 @@ def _from_entity(entity: AgentPersonaEntityModel) -> AgentPersonaModel:
         default_permission_mode=getattr(entity, "default_permission_mode", None),
         scope=entity.scope,
         user_id=entity.user_id,
+        team_id=entity.team_id,
     )
 
 
@@ -247,6 +259,7 @@ _COPIED_FIELDS = (
     "enabled",
     "default_permission_mode",
     "scope",
+    "team_id",
 )
 
 
@@ -257,35 +270,28 @@ def _fields(persona: AgentPersonaModel) -> dict[str, Any]:
     return fields
 
 
-def _visible(scope: str, owner: str | None, user_id: str) -> bool:
-    return scope == "org" or owner == user_id
-
-
 async def list_personas(
     db_mgr: Any, org_id: str, user_id: str, roles: list[str] | None = None
 ) -> list[AgentPersonaModel]:
     """The agents this member may use: built-in (as the organization edited them),
-    the organization's (per their grants) and the member's own."""
+    the organization's (per their grants), their teams' and their own."""
     principal = await principal_for(db_mgr, org_id, user_id, roles)
     return [
         persona
-        for persona in await _listed_personas(db_mgr, org_id, user_id)
+        for persona in await _listed_personas(db_mgr, org_id, principal.viewer)
         if await may_use(db_mgr, org_id, principal, persona)
         or (principal.is_admin and persona.enabled is False)
     ]
 
 
-async def _listed_personas(db_mgr: Any, org_id: str, user_id: str) -> list[AgentPersonaModel]:
+async def _listed_personas(db_mgr: Any, org_id: str, viewer: Viewer) -> list[AgentPersonaModel]:
     custom: list[AgentPersonaModel]
     if db_mgr is not None:
         async with db_mgr.session(tenant_org_id=org_id) as session:
             rows = await session.execute(
                 select(AgentPersonaEntityModel).where(
                     AgentPersonaEntityModel.org_id == org_id,
-                    or_(
-                        AgentPersonaEntityModel.scope == "org",
-                        AgentPersonaEntityModel.user_id == user_id,
-                    ),
+                    visible_clause(AgentPersonaEntityModel, viewer),
                 )
             )
             entities = rows.scalars().all()
@@ -296,9 +302,7 @@ async def _listed_personas(db_mgr: Any, org_id: str, user_id: str) -> list[Agent
                 if row.overrides_builtin
             }
     else:
-        custom = [
-            p for p in _memory.get(org_id, {}).values() if _visible(p.scope, p.user_id, user_id)
-        ]
+        custom = [p for p in _memory.get(org_id, {}).values() if visible(p, viewer)]
         overrides = dict(_memory_overrides.get(org_id, {}))
     return [*_apply_overrides(overrides), *custom]
 
@@ -317,17 +321,36 @@ async def get_persona(
 
     ``enforce_access=False`` is for the platform's own use of an agent (a Slack bot's router).
     """
-    persona = await _find_persona(db_mgr, org_id, user_id, persona_id)
+    principal = await principal_for(db_mgr, org_id, user_id, roles)
+    persona = await _find_persona(db_mgr, org_id, principal.viewer, persona_id)
     if persona is None or not enforce_access:
         return persona
-    principal = await principal_for(db_mgr, org_id, user_id, roles)
     if not await may_use(db_mgr, org_id, principal, persona):
         raise AgentAccessDenied(persona.id, persona.name, disabled=persona.enabled is False)
     return persona
 
 
+async def listed_agents(db_mgr: Any, org_id: str, viewer: Viewer) -> list[AgentPersonaModel]:
+    """The agents ``viewer`` sees, whatever their grants (bookkeeping: what depends on what)."""
+    return await _listed_personas(db_mgr, org_id, viewer)
+
+
+async def find_agent(
+    db_mgr: Any, org_id: str, viewer: Viewer, persona_id: str | None
+) -> AgentPersonaModel | None:
+    """The agent ``persona_id`` if ``viewer`` sees it, whatever its grants."""
+    return await _find_persona(db_mgr, org_id, viewer, persona_id)
+
+
+async def agent_owner(db_mgr: Any, org_id: str, persona_id: str | None) -> Owner | None:
+    """The owner of an organization or team agent, whoever asks (platform bookkeeping: which
+    team's limits count it). A member's personal agent is nobody else's business: ``None``."""
+    found = await _find_persona(db_mgr, org_id, Viewer(user_id="", is_org_admin=True), persona_id)
+    return owner_of(found) if found is not None else None
+
+
 async def _find_persona(
-    db_mgr: Any, org_id: str, user_id: str, persona_id: str | None
+    db_mgr: Any, org_id: str, viewer: Viewer, persona_id: str | None
 ) -> AgentPersonaModel | None:
     if not persona_id:
         return None
@@ -342,10 +365,7 @@ async def _find_persona(
                         select(AgentPersonaEntityModel).where(
                             AgentPersonaEntityModel.id == persona_id,
                             AgentPersonaEntityModel.org_id == org_id,
-                            or_(
-                                AgentPersonaEntityModel.scope == "org",
-                                AgentPersonaEntityModel.user_id == user_id,
-                            ),
+                            visible_clause(AgentPersonaEntityModel, viewer),
                         )
                     )
                 )
@@ -354,7 +374,7 @@ async def _find_persona(
             )
             return _from_entity(entity) if entity is not None else None
     found = _memory.get(org_id, {}).get(persona_id)
-    return found if found is not None and _visible(found.scope, found.user_id, user_id) else None
+    return found if found is not None and visible(found, viewer) else None
 
 
 async def _builtin_for_org(
@@ -452,13 +472,17 @@ async def _reset_builtin_override(
             await session.commit()
 
 
-def _check_may_write(scope: str, owner: str | None, user_id: str, is_admin: bool) -> None:
-    if scope == "org" and not is_admin:
+def _check_may_write(record: Any, viewer: Viewer) -> None:
+    if manageable(record, viewer):
+        return
+    scope = owner_of(record).scope
+    if scope == "org":
         raise PersonaError(
             403, "Only Organization Administrators can change organization personas."
         )
-    if scope == "user" and owner != user_id and not is_admin:
-        raise PersonaError(403, "Forbidden")
+    if scope == "team":
+        raise PersonaError(403, "Only the team's administrators can change its agents.")
+    raise PersonaError(403, "Forbidden")
 
 
 async def _validate_step_limit(db_mgr: Any, org_id: str, persona: AgentPersonaModel) -> None:
@@ -476,7 +500,14 @@ async def _validate_step_limit(db_mgr: Any, org_id: str, persona: AgentPersonaMo
 async def _validate_sandbox_type(db_mgr: Any, org_id: str, persona: AgentPersonaModel) -> None:
     if not persona.sandbox_id:
         return
-    if await SandboxCatalogue(db_mgr).resolve(org_id, sandbox_id=persona.sandbox_id) is None:
+    # A team's agent may start in its team's types; any other agent in the organization's.
+    teams = (
+        frozenset({persona.team_id}) if persona.scope == "team" and persona.team_id else frozenset()
+    )
+    found = await SandboxCatalogue(db_mgr).resolve(
+        org_id, sandbox_id=persona.sandbox_id, teams=teams
+    )
+    if found is None:
         raise PersonaError(422, "That sandbox type is not in the organization's catalogue.")
 
 
@@ -503,17 +534,25 @@ async def _validate_bindings(
     is_admin: bool,
     persona: AgentPersonaModel,
     credentials: ModelCredentialStore | None,
+    kept: frozenset[tuple[str, str]] = frozenset(),
 ) -> None:
     """Who may bind which credential (``model_credentials`` resolves them at call time):
 
     * an organization agent: administrators, with organization credentials or member
       credentials whose owner shared them with this agent;
+    * a team's agent: its managers, with the team's credentials, member credentials whose owner
+      shared them with this agent, and organization credentials only when an organization
+      administrator binds them;
     * a personal agent: its owner, with their own credentials only;
     * never a member credential while ``models.member_keys`` is ``off``.
+
+    ``kept`` are the (provider, credential id) pairs already stored on the agent: whoever bound
+    them, a team administrator's later edit of the agent keeps them without rebinding them.
     """
     if not persona.credential_bindings:
         return
     org_agent = persona.scope == "org" or persona.id in RESERVED_IDS
+    shared_agent = org_agent or persona.scope == "team"
     if org_agent and not is_admin:
         raise PersonaError(403, "Only administrators bind credentials to organization agents.")
     store = credentials or ModelCredentialStore(db_mgr)
@@ -530,14 +569,21 @@ async def _validate_bindings(
             if member_keys == "off":
                 raise PersonaError(422, "Your organization does not use members' own keys.")
             shared = persona.id in found.shared_with_org_agents
-            if org_agent and not shared:
+            if shared_agent and not shared:
                 raise PersonaError(
                     422, f"The owner of {found.label!r} has not shared it with this agent."
                 )
-            if not org_agent and found.owner_user_id != user_id:
+            if not shared_agent and found.owner_user_id != user_id:
                 raise PersonaError(403, "A personal agent can only use its owner's credentials.")
-        elif not org_agent:
+        elif found.owner_kind == "team":
+            if persona.scope != "team" or found.team_id != persona.team_id:
+                raise PersonaError(403, "A team's credential serves that team's agents only.")
+        elif not shared_agent:
             raise PersonaError(403, "A personal agent cannot use organization credentials.")
+        elif not is_admin and (binding.provider, binding.credential_id) not in kept:
+            raise PersonaError(
+                403, "Only organization administrators bind organization credentials."
+            )
 
 
 async def _validate(
@@ -551,7 +597,8 @@ async def _validate(
     await _validate_step_limit(db_mgr, org_id, persona)
     await _validate_sandbox_type(db_mgr, org_id, persona)
     await _validate_permission_mode(db_mgr, org_id, user_id, persona)
-    await _validate_bindings(db_mgr, org_id, user_id, is_admin, persona, credentials)
+    kept = frozenset(await stored_bindings(db_mgr, org_id, persona.id))
+    await _validate_bindings(db_mgr, org_id, user_id, is_admin, persona, credentials, kept)
 
 
 async def stored_bindings(db_mgr: Any, org_id: str, persona_id: str) -> list[tuple[str, str]]:
@@ -586,6 +633,37 @@ async def stored_bindings(db_mgr: Any, org_id: str, persona_id: str) -> list[tup
     ]
 
 
+async def _stored_owner(db_mgr: Any, org_id: str, persona_id: str) -> Owner | None:
+    """The owner of the stored custom persona ``persona_id`` of this organization, if any."""
+    if db_mgr is None:
+        found = _memory.get(org_id, {}).get(persona_id)
+        return owner_of(found) if found is not None else None
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        entity = (
+            (
+                await session.execute(
+                    select(AgentPersonaEntityModel).where(
+                        AgentPersonaEntityModel.id == persona_id,
+                        AgentPersonaEntityModel.org_id == org_id,
+                        AgentPersonaEntityModel.overrides_builtin.is_(None),
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+    return owner_of(entity) if entity is not None else None
+
+
+async def _writer(db_mgr: Any, org_id: str, user_id: str, is_admin: bool) -> Viewer:
+    """The ownership view of a caller known only by id and administrator flag (platform code
+    and tests); routes pass the viewer their request proved."""
+    principal = await principal_for(
+        db_mgr, org_id, user_id, ["admin", "member"] if is_admin else ["member"]
+    )
+    return principal.viewer
+
+
 async def save_persona(
     db_mgr: Any,
     org_id: str,
@@ -593,30 +671,45 @@ async def save_persona(
     is_admin: bool,
     persona: AgentPersonaModel,
     credentials: ModelCredentialStore | None = None,
+    *,
+    viewer: Viewer | None = None,
 ) -> AgentPersonaModel:
     """Create or update a custom persona; the stored id is returned on the result.
 
     The client proposes an id, but ids are global primary keys: a taken or reserved id is
     replaced by a generated one, so a tenant can neither overwrite a built-in nor collide
-    with (and thereby probe) another tenant's persona.
+    with (and thereby probe) another tenant's persona. The owner is the one the request names
+    (moving it needs the right to manage it on both sides), or the stored one when the request
+    keeps its scope, so an administrator's edit never takes a member's agent over.
     """
+    viewer = viewer or await _writer(db_mgr, org_id, user_id, is_admin)
     if persona.id in RESERVED_IDS:
-        await _validate(db_mgr, org_id, user_id, is_admin, persona, credentials)
-        return await _save_builtin_override(db_mgr, org_id, is_admin, persona)
-    if persona.scope == "org" and not is_admin:
-        raise PersonaError(
-            403, "Only Organization Administrators can configure organization-wide agent personas."
+        await _validate(db_mgr, org_id, user_id, viewer.is_org_admin, persona, credentials)
+        return await _save_builtin_override(db_mgr, org_id, viewer.is_org_admin, persona)
+    try:
+        owner = await owner_for_write(
+            db_mgr,
+            org_id,
+            viewer,
+            scope=persona.scope,
+            team_id=persona.team_id,
+            current=await _stored_owner(db_mgr, org_id, persona.id),
+            what="agents",
         )
-    await _validate(db_mgr, org_id, user_id, is_admin, persona, credentials)
-    persona.user_id = user_id if persona.scope == "user" else None
+    except OwnershipError as err:
+        raise PersonaError(err.status_code, err.detail) from err
+    persona.scope, persona.user_id, persona.team_id = owner.scope, owner.user_id, owner.team_id
+    await _validate(db_mgr, org_id, user_id, viewer.is_org_admin, persona, credentials)
     persona.built_in = False
     now = int(time.time())
 
     if db_mgr is None:
         bucket = _memory.setdefault(org_id, {})
-        existing = bucket.get(persona.id)
-        if existing is not None:
-            _check_may_write(existing.scope, existing.user_id, user_id, is_admin)
+        previous = bucket.get(persona.id)
+        if previous is not None and previous.team_id:
+            note_memory_owned(org_id, previous.team_id, "agents", -1)
+        if persona.team_id:
+            note_memory_owned(org_id, persona.team_id, "agents", 1)
         bucket[persona.id] = persona
         return persona
 
@@ -627,6 +720,8 @@ async def save_persona(
                     select(AgentPersonaEntityModel).where(
                         AgentPersonaEntityModel.id == persona.id,
                         AgentPersonaEntityModel.org_id == org_id,
+                        # An edit of a built-in is reached through the built-in's id only.
+                        AgentPersonaEntityModel.overrides_builtin.is_(None),
                     )
                 )
             )
@@ -634,7 +729,6 @@ async def save_persona(
             .first()
         )
         if entity is not None:
-            _check_may_write(entity.scope, entity.user_id, user_id, is_admin)
             for name, value in _fields(persona).items():
                 setattr(entity, name, value)
             entity.user_id = persona.user_id
@@ -674,7 +768,11 @@ async def delete_persona(
     is_admin: bool,
     persona_id: str,
     disable: bool = False,
+    *,
+    viewer: Viewer | None = None,
 ) -> None:
+    viewer = viewer or await _writer(db_mgr, org_id, user_id, is_admin)
+    is_admin = viewer.is_org_admin
     if persona_id in RESERVED_IDS:
         if disable:
             # Disable the built-in agent for this organization: store an override with enabled=False.
@@ -690,7 +788,9 @@ async def delete_persona(
         existing = _memory.get(org_id, {}).get(persona_id)
         if existing is None:
             raise PersonaError(404, "Agent persona not found")
-        _check_may_write(existing.scope, existing.user_id, user_id, is_admin)
+        _check_may_write(existing, viewer)
+        if existing.team_id:
+            note_memory_owned(org_id, existing.team_id, "agents", -1)
         del _memory[org_id][persona_id]
         return
     async with db_mgr.session(tenant_org_id=org_id) as session:
@@ -708,6 +808,6 @@ async def delete_persona(
         )
         if entity is None:
             raise PersonaError(404, "Agent persona not found")
-        _check_may_write(entity.scope, entity.user_id, user_id, is_admin)
+        _check_may_write(entity, viewer)
         await session.delete(entity)
         await session.commit()

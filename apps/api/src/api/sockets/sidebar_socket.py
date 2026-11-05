@@ -19,6 +19,7 @@ from api.auth.identity import (
 from api.auth.roles import with_live_roles
 from api.db.session import current_tenant_org_id
 from api.services.metrics import websocket_connection_closed, websocket_connection_opened
+from api.services.teams import bind_caller_teams
 from specifications.interfaces.events import (
     EventBusProtocol,
     EventType,
@@ -90,6 +91,7 @@ class SidebarSocket:
         # The tenant middleware does not run for WebSockets: without this, row-level security
         # hides every session from the access check.
         current_tenant_org_id.set(caller.org_id)
+        await bind_caller_teams(self._db, caller.org_id, caller.user_id)
         self._user_id = caller.user_id
         self._org_id = caller.org_id
         self._roles = list(caller.roles)

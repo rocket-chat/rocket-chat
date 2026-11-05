@@ -59,7 +59,9 @@ export function describeToolCall(call: ToolCallData): StepDescription {
 
   if (RUN_TOOLS.has(name)) {
     const { command, where } = splitCommand(asText(args.command) || asText(args.cmd), asText(args.cwd));
-    return { kind: "run", done: "Ran", doing: "Running", target: clip(command), where: where || undefined };
+    // The folder the server ran it in wins: with no folder in the call, only the server knows it.
+    const ranIn = call.cwd ? shortFolder(call.cwd) : where;
+    return { kind: "run", done: "Ran", doing: "Running", target: clip(command), where: ranIn || undefined };
   }
   if (name in CHECK_TOOLS) {
     return { kind: "run", done: "Ran", doing: "Running", target: CHECK_TOOLS[name] };

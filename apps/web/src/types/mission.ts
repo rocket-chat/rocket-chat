@@ -1,3 +1,4 @@
+import type { OwnerScope } from "../lib/ownership";
 export type EventType =
   | "token"
   | "reasoning_token"
@@ -105,6 +106,7 @@ export interface RunningTurnData {
     redacted?: number;
     seq?: number;
     created_at?: number;
+    cwd?: string;
     /** The reasoning that led to this call (on the first call of its step). */
     reasoning?: string;
     /** Step intent text emitted immediately before this tool call. */
@@ -251,6 +253,8 @@ export interface ToolCallData {
   reasoning?: string;
   /** Step intent text emitted immediately before this tool call. */
   preface?: string;
+  /** The folder a command ran in, as the server resolved it (the arguments may name none). */
+  cwd?: string;
 }
 
 /**
@@ -278,6 +282,8 @@ export interface ModelOption {
   context_window: number;
   provider: string;
   description?: string;
+  /** Whether the model reads image input; absent when the platform does not know. */
+  accepts_images?: boolean;
 }
 
 /** One thing a subagent found (its report's `findings`). */
@@ -307,6 +313,8 @@ export interface SubagentStep {
   status: "pending" | "success" | "error";
   result?: string;
   duration_ms?: number;
+  /** The folder a command ran in, as the server resolved it (the arguments may name none). */
+  cwd?: string;
 }
 
 export interface SubagentExecutionData {
@@ -503,8 +511,9 @@ export interface McpServerConfig {
   name: string;
   transport: "stdio" | "http" | "sse" | "streamable_http" | "websocket";
   endpoint_or_command: string;
-  scope?: "org" | "user";
+  scope?: OwnerScope;
   user_id?: string | null;
+  team_id?: string | null;
   built_in?: boolean;
   org_id?: string | null;
   guidance?: string;
@@ -577,8 +586,9 @@ export interface CustomSkillConfig {
   title: string;
   description: string;
   body: string;
-  scope?: "org" | "user";
+  scope?: OwnerScope;
   user_id?: string | null;
+  team_id?: string | null;
   org_id?: string | null;
   created_at?: string;
   updated_at?: string;
@@ -588,8 +598,9 @@ export interface KnowledgeBaseConfig {
   id: string;
   name: string;
   description?: string;
-  scope?: "org" | "user";
+  scope?: OwnerScope;
   user_id?: string | null;
+  team_id?: string | null;
   org_id?: string | null;
   vector_index?: string;
   documents_count?: number;
@@ -607,8 +618,9 @@ export interface AgentPersonaConfig {
   whitelisted_tools?: string[];
   skill_ids?: string[];
   knowledge_base_ids?: string[];
-  scope?: "org" | "user";
+  scope?: OwnerScope;
   user_id?: string | null;
+  team_id?: string | null;
   org_id?: string | null;
   built_in?: boolean;
   /** A built-in agent whose organization edit is in effect. */

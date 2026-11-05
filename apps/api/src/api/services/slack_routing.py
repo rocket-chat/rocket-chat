@@ -8,11 +8,20 @@ import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any
 
 from llm_gateway.structured import generate_structured
 from pydantic import BaseModel, Field
-from slack_assistant.bot import DISMISS, ClassifyRequest, RouteDecision, SlackBot
+from slack_assistant.bot import (
+    DISMISS,
+    IGNORE,
+    RESPOND,
+    ClassifyRequest,
+    FollowUpRequest,
+    RouteDecision,
+    SlackBot,
+)
 from sqlalchemy import delete, desc, select
 
 from api.db.models import SlackRouteDecisionModel
@@ -41,53 +50,67 @@ DECISION_RETENTION_SECONDS = 30 * 24 * 3600
 class RouterClassification(BaseModel):
     """The structured decision returned by the model classifier."""
 
-    route: str = Field(description="The chosen route name, or 'dismiss' if allowed")
+    route: str = Field(description="The chosen option's name")
     confidence: float = Field(ge=0.0, le=1.0, description="Confidence score between 0.0 and 1.0")
     reason: str = Field(description="Concise rationale for this classification")
 
 
-def _build_criteria(bot: SlackBot) -> dict[str, str]:
+@dataclass(frozen=True)
+class _Question:
+    """What a classifier is asked: pick one of ``choices`` (name -> when to pick it)."""
+
+    key: str
+    instructions: str
+    choices: dict[str, str]
+
+
+def _route_question(bot: SlackBot) -> _Question:
     router = bot.router
     assert router is not None
-    criteria: dict[str, str] = {}
+    choices: dict[str, str] = {}
     for r in router.active_routes():
         desc = r.description
         if r.examples:
             desc += f" (Examples: {', '.join(r.examples)})"
-        criteria[r.name] = desc
+        choices[r.name] = desc
     if router.allow_dismiss:
-        criteria[DISMISS] = (
+        choices[DISMISS] = (
             router.dismiss_description or "Irrelevant message, small talk, or out of scope."
         )
-    return criteria
+    return _Question("route", "Select the appropriate route for this user request.", choices)
 
 
-def _build_classification_messages(bot: SlackBot, text: str, excerpt: str) -> list[ChatMessage]:
-    router = bot.router
-    assert router is not None
+def _follow_up_question(bot: SlackBot) -> _Question:
+    name = bot.name or "the bot"
+    return _Question(
+        "respond",
+        f"Someone replied in a Slack thread where the assistant {name} works, without "
+        f"mentioning it. Decide whether the reply asks {name} for something or is meant for "
+        "the other people of the thread.",
+        {
+            RESPOND: f"The reply asks {name} to do, answer or change something: a new request, "
+            f"a correction, an answer to a question {name} asked, or more work on its answer.",
+            IGNORE: f"The reply is for the other people: it summarises or relays {name}'s "
+            "answer, discusses among people, thanks or acknowledges, or comments without "
+            f"asking {name} for anything.",
+        },
+    )
+
+
+def _build_classification_messages(
+    question: _Question, text: str, excerpt: str
+) -> list[ChatMessage]:
     lines = [
         "You are an incoming message classifier for a Slack bot assistant.",
-        "Your task is to classify an incoming user message to exactly one route from the list below.",
-        "\nAvailable routes:",
+        question.instructions,
+        "\nOptions:",
+        *(f"- '{name}': {when}" for name, when in question.choices.items()),
+        f"\nYou must respond with JSON selecting one of these options: [{', '.join(question.choices)}].",
     ]
-    for r in router.active_routes():
-        desc_line = f"- Route '{r.name}': {r.description}"
-        if r.examples:
-            desc_line += f" (Examples: {', '.join(r.examples)})"
-        lines.append(desc_line)
-    if router.allow_dismiss:
-        dismiss_desc = (
-            router.dismiss_description or "Irrelevant message, small talk, or out of scope."
-        )
-        lines.append(f"- Route '{DISMISS}': {dismiss_desc}")
-    allowed = ", ".join(router.choices())
-    lines.append(f"\nYou must respond with JSON selecting one of these routes: [{allowed}].")
-
     user_content = ""
     if excerpt.strip():
         user_content += f"Recent thread context:\n{excerpt.strip()}\n\n"
     user_content += f"Incoming message to classify:\n{text}"
-
     return [
         ChatMessage(role="system", content="\n".join(lines)),
         ChatMessage(role="user", content=user_content),
@@ -98,11 +121,13 @@ async def _resolve_classifier_model(
     db_mgr: DatabaseSessionManager | None,
     bot: SlackBot,
     default_model: str,
+    preferred: str = "",
 ) -> str:
-    """The router's model, else its classifier agent's, else the organization's default;
-    always checked against the organization's allowed and forbidden models."""
+    """``preferred``, else the router's model, else its classifier agent's, else the
+    organization's default; always checked against the organization's allowed and forbidden
+    models."""
     router = bot.router
-    chosen = router.classifier_model if router else ""
+    chosen = preferred or (router.classifier_model if router else "")
     if router and not chosen and router.classifier_agent_id:
         persona = await get_persona(
             db_mgr, bot.org_id, "", router.classifier_agent_id, enforce_access=False
@@ -121,7 +146,7 @@ async def _resolve_classifier_model(
 
 @asynccontextmanager
 async def _billed_to(
-    db_mgr: DatabaseSessionManager | None, bot: SlackBot, org_id: str
+    db_mgr: DatabaseSessionManager | None, bot: SlackBot, org_id: str, call_role: str
 ) -> AsyncIterator[ModelScope]:
     """Bill the classification to the bot's organization, with its keys and limits, and with
     its classifier agent's credential bindings: it runs before any session or turn exists,
@@ -140,7 +165,7 @@ async def _billed_to(
         if persona
         else (),
         strict_binding=bool(persona.strict_binding) if persona else False,
-        call_role="slack_router",
+        call_role=call_role,
     )
     token = current_model_scope.set(scope)
     try:
@@ -165,19 +190,18 @@ async def _resolve_openrouter_key(
 async def _classify_via_systemone(
     api_key: str,
     model_name: str,
-    bot: SlackBot,
+    question: _Question,
     text: str,
     thread_excerpt: str,
 ) -> tuple[RouteDecision, int]:
-    criteria = _build_criteria(bot)
     res = await call_systemone_choice(
         model=model_name,
         api_key=api_key,
         message=text,
         thread_excerpt=thread_excerpt,
-        question_key="route",
-        instructions="Select the appropriate route for this user request.",
-        criteria=criteria,
+        question_key=question.key,
+        instructions=question.instructions,
+        criteria=question.choices,
     )
     probs_summary = ", ".join(f"{k}: {v:.0%}" for k, v in res.probabilities.items())
     reason = f"System One decision ({res.confidence:.0%}). Probabilities: [{probs_summary}]"
@@ -193,11 +217,11 @@ async def _classify_via_systemone(
 async def _classify_via_structured(
     gateway: LLMGatewayProtocol,
     model_name: str,
-    bot: SlackBot,
+    question: _Question,
     text: str,
     thread_excerpt: str,
 ) -> RouteDecision:
-    messages = _build_classification_messages(bot, text, thread_excerpt)
+    messages = _build_classification_messages(question, text, thread_excerpt)
     model_req = ModelRequest(messages=messages, model=model_name, temperature=0.0)
     structured = await generate_structured(gateway, model_req, RouterClassification)
     return RouteDecision(
@@ -213,21 +237,25 @@ async def _dispatch_classification(
     bot: SlackBot,
     org_id: str,
     model_name: str,
+    question: _Question,
     text: str,
     thread_excerpt: str,
 ) -> RouteDecision:
-    async with _billed_to(db_mgr, bot, org_id) as scope:
+    role = "slack_router" if question.key == "route" else "slack_follow_up"
+    async with _billed_to(db_mgr, bot, org_id, role) as scope:
         if is_systemone_model(model_name):
-            decision = await _try_systemone(gateway, scope, bot, model_name, text, thread_excerpt)
+            decision = await _try_systemone(
+                gateway, scope, question, model_name, text, thread_excerpt
+            )
             if decision is not None:
                 return decision
-        return await _classify_via_structured(gateway, model_name, bot, text, thread_excerpt)
+        return await _classify_via_structured(gateway, model_name, question, text, thread_excerpt)
 
 
 async def _try_systemone(
     gateway: LLMGatewayProtocol,
     scope: ModelScope,
-    bot: SlackBot,
+    question: _Question,
     model_name: str,
     text: str,
     thread_excerpt: str,
@@ -246,7 +274,7 @@ async def _try_systemone(
             await guard.settle(reservation, actual_usd=0.0)
     try:
         decision, input_tokens = await _classify_via_systemone(
-            api_key, model_name, bot, text, thread_excerpt
+            api_key, model_name, question, text, thread_excerpt
         )
     except Exception as err:
         logger.warning("System One failed for %s, using structured output: %s", model_name, err)
@@ -379,7 +407,14 @@ async def classify_slack_message(
     t0 = time.perf_counter()
     try:
         decision = await _dispatch_classification(
-            gateway, db_mgr, bot, request.org_id, model_name, request.text, request.thread_excerpt
+            gateway,
+            db_mgr,
+            bot,
+            request.org_id,
+            model_name,
+            _route_question(bot),
+            request.text,
+            request.thread_excerpt,
         )
     except Exception as err:
         logger.warning("Classifier failed for bot %s: %s", bot.id, err)
@@ -421,7 +456,7 @@ async def try_classify(
 
     t0 = time.perf_counter()
     decision = await _dispatch_classification(
-        gateway, db_mgr, bot, org_id, model_name, text, thread_excerpt
+        gateway, db_mgr, bot, org_id, model_name, _route_question(bot), text, thread_excerpt
     )
     latency_ms = int((time.perf_counter() - t0) * 1000)
     applied = router.resolve(decision)
@@ -434,3 +469,51 @@ async def try_classify(
         "model": model_name,
         "latency_ms": latency_ms,
     }
+
+
+async def classify_follow_up(
+    gateway: LLMGatewayProtocol,
+    request: FollowUpRequest,
+    db_mgr: DatabaseSessionManager | None,
+    default_model: str = "",
+) -> RouteDecision | None:
+    """Whether a thread reply without a mention asks the bot for something (``RESPOND``) or
+    is for the others (``IGNORE``); ``None`` when the classifier could not decide. Each
+    decision joins the bot's routing log, where its prompts are tuned."""
+    bot = request.bot
+    model_name = await _resolve_classifier_model(db_mgr, bot, default_model, request.model)
+    t0 = time.perf_counter()
+    try:
+        decision = await _dispatch_classification(
+            gateway,
+            db_mgr,
+            bot,
+            request.org_id,
+            model_name,
+            _follow_up_question(bot),
+            request.text,
+            request.thread_excerpt,
+        )
+    except Exception as err:
+        logger.warning("Follow-up classifier failed for bot %s: %s", bot.id, err)
+        return None
+    if decision.route not in (RESPOND, IGNORE):
+        logger.info("Follow-up classifier of bot %s answered %r", bot.id, decision.route)
+        return None
+    await record_route_decision(
+        db_mgr,
+        org_id=request.org_id,
+        bot_id=bot.id,
+        channel_id=request.channel_id,
+        thread_ts=request.thread_ts,
+        slack_user_id=request.slack_user_id,
+        # The reply first: the log keeps an excerpt's first 2,000 characters.
+        excerpt=f"Reply: {request.text}\n\n{request.thread_excerpt}".strip(),
+        route=decision.route,
+        applied=decision.route,
+        confidence=decision.confidence,
+        reason=decision.reason,
+        model=model_name,
+        latency_ms=int((time.perf_counter() - t0) * 1000),
+    )
+    return decision

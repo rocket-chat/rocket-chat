@@ -5,7 +5,7 @@ description: Members, roles and capabilities, model credentials, spend limits, a
 
 # Organization settings
 
-Open **Settings → Organization** (administrators only: these pages are hidden from other members). Each page shows a few main settings and folds the rest under *Advanced*; the complete list, with defaults and who decides each one, is the [settings reference](/administer/settings-reference).
+Organization pages live in **Settings** under *Resources* and *Governance*; they are shown to administrators only (*Members & teams* also to anyone in a team). The **Showing** filter at the top of the settings list narrows it to one owner: *Everything*, *Me*, a team, or *Organization* (see [Teams](#teams)). Each page shows a few main settings and folds the rest under *Advanced*; the complete list, with defaults and who decides each one, is the [settings reference](/administer/settings-reference).
 
 ## Who decides a setting
 
@@ -16,6 +16,7 @@ Every setting has a **policy**, and each field shows where its value comes from:
 | **Default** | The platform's default; nobody changed it. |
 | **Set by operator** | An environment variable of the deployment sets it (for example `AGENT_MAX_TURNS`, `GIT_BOT_NAME`). It is read-only in the product, or the default under your own value when the setting says *operator default*. |
 | **From organization** | Your organization's value. |
+| **From team "X"** | The team's default, in the turns of its agents (see [Teams](#teams)). |
 | **Yours** | A member's own value (with a reset button back to the organization's). |
 | **Locked by admin** | An organization default an administrator locked: members, sessions and agents keep the organization's value. |
 | **From agent "X"** / **From Slack bot "X"** | Chosen at session level, by the agent or the bot, within the organization's policy. |
@@ -32,9 +33,9 @@ The **Organization** card at the top renames the organization (administrators an
 
 Organization name, how visible new sessions are by default (private to the creator, or shared with the organization), sign-in domains, steps per turn, and the defaults of members' personal settings (each one lockable).
 
-## Members & roles
+## Members & teams
 
-People can belong to several organizations and switch between them from the organization menu at the top of the sidebar. In **Members & roles**:
+People can belong to several organizations and switch between them from the organization menu at the top of the sidebar. **Settings → Members & teams** has two tabs, *Members* and [*Teams*](#teams). In *Members*:
 
 * **Roles**: `owner`, `admin`, `member` and `viewer`. A viewer can open what is shared with them but change nothing. Only an owner can make someone an owner, and the last administrator cannot be demoted. A role change applies to the person's open sessions within 15 seconds. (`developer` and `readonly` from earlier versions are read as `member` and `viewer`.)
 * **Invite people**: enter an e-mail address, a role (only an owner can invite an owner) and a lifetime (7 days by default, 30 at most), then copy the link, which is shown once, and send it to the person: Rocket Chat does not send e-mail. The link works once, only for that address. The person signs in with an account that has that address (with SSO, the first sign-in creates it), accepts, and the organization is added to theirs. Pending invitations are listed, and can be withdrawn, on the same page.
@@ -42,7 +43,7 @@ People can belong to several organizations and switch between them from the orga
 
 | Capability | Default | What it allows |
 | :--- | :--- | :--- |
-| `create_personal_agents` | admin, member | Agents of their own (*Settings → My agents*). |
+| `create_personal_agents` | admin, member | Agents of their own (*Settings → Agents*, owner *Me*). |
 | `bring_own_keys` | admin, member | Provider keys of their own (*Settings → My keys*). |
 | `register_mcp` | admin, member | Personal remote MCP servers. |
 | `publish_as_bot` | admin | Choosing to publish as the GitHub App. |
@@ -50,6 +51,29 @@ People can belong to several organizations and switch between them from the orga
 | `manage_spend_limits` | admin | Creating and changing spend limits. |
 
 With SSO, members are created at first sign-in in the organization the sign-in maps to (see [SSO](/administer/sso)). Someone who already belongs to another organization becomes a member of this one too; their role elsewhere never applies here.
+
+## Teams
+
+A **team** is a group of the organization's members that owns things of its own: agents, skills, MCP servers and knowledge bases. Every such object has one **owner**, shown as a pill on its card:
+
+| Owner | Who uses it | Who changes it |
+| :--- | :--- | :--- |
+| **You** (personal) | you | you (administrators may change or delete it, but never see it listed) |
+| **A team** | the team's members | the team's administrators, and the organization's |
+| **Organization** | every member (agents: per their *Access*) | organization administrators |
+
+* **Creating teams.** Organization administrators create, rename and delete teams in **Settings → Members & teams → Teams**, and add the first members.
+* **Running a team.** A team's **administrators** (team role *admin*) rename it, add members of the organization, make them administrators or members, remove them, and create and change everything the team owns, without being organization administrators. Anyone can leave a team. A *viewer* administers no team, whatever their team role.
+* **Moving.** The **Owner** field of an object's form moves it: from you to a team, from a team to the organization, and back. You need to manage the object where it is and where it goes (a team administrator moves their own agent into the team, an organization administrator moves a team's agent to the organization). The form says who will be able to use it after the move. Nobody but an administrator hands an object to another member.
+* **Deleting a team** is refused while it still owns something: the message says what, so it can be moved or deleted first.
+* **Agents.** A team's agent serves the team's members. An organization agent can also be granted to a team in its *Access* section. A team agent's credentials: the team's keys and members' keys shared with that agent, bound by the team's administrators; organization keys, bound by organization administrators only.
+* **Keys.** With the **Showing** filter on a team, *Models & keys* holds the **team's provider keys** (its administrators add, rotate and remove them). In the turns of the team's agents, the team's key is used before the organization's (a member's own key still comes first when your organization prefers members' keys); everywhere else the team's keys are never used.
+* **Defaults.** In **Members & teams → Teams**, a team's administrators set the team's own defaults for what members may choose themselves (permission mode, reasoning level, publishing identity, ...). They apply to the turns of the team's agents: a member's own choice still wins, and a setting the organization locked keeps the organization's value. Each value shows *From team X* when the team set it. The exception is the **default agent**, the agent new sessions start with: a team's applies to its members who belong to no other team (a member of several teams follows the organization's), under their own choice.
+* **Sandboxes.** With the **Showing** filter on a team, *Sandboxes* holds the team's own sandbox types (image, capabilities, variables and secrets, sizing). Only the team's members and agents can start one; a team's type is never the organization's default, takes no placement profile, and cannot ask for more CPU, memory or disk than the organization's sandbox settings.
+* **Spend.** A turn of a team's agent counts against the **team's** limits as well as the organization's. Organization administrators set limits on a team (*Spend & usage*, subject *Team*); a team's administrators add limits of their own on the team or its agents, which can only tighten what the organization set, and see the organization's limits on their team without being able to change them.
+* **In a session**, an agent sees the skills, MCP servers and knowledge bases of the organization, of the person's own teams, and their own. An organization administrator manages every team's objects but does not work with another team's in their own sessions.
+
+Teams never span organizations: everything a team owns stays inside its organization. Team changes and moves are recorded in the [audit log](#audit).
 
 ## Models & credentials
 
@@ -65,7 +89,7 @@ Spend is what the provider billed when it reports it (OpenRouter does, for every
 
 **Spend limits** cap what is spent, by subject and period:
 
-* subjects: the organization; each member (or one member); an agent; an agent for each member (or for one); a Slack workspace;
+* subjects: the organization; a team (the turns of its agents); each member (or one member); an agent; an agent for each member (or for one); a Slack workspace;
 * periods: per day, week or month (UTC), rolling 24 hours or 7 days, per session, per turn;
 * modes: **block** refuses the model call that would cross the limit, before anything is bought; **warn** tells the member in the session when the limit is nearly used (at its warning percentage).
 
@@ -77,11 +101,12 @@ Below the limits, **this month's spend** groups the organization's spend by agen
 
 ## Agents
 
-**Settings → Organization → Agents** lists the organization's agents and the **subagent roles** they delegate to, in one editor: identity and prompt, model and credentials, tools and knowledge, sandbox type, access (organization agents) and limits. **Export** saves an agent as `.rocket/agents/<id>.md` (front matter and the prompt, never credentials); **Import** reads one back.
+**Settings → Agents** lists every agent you can use, grouped by owner (yours, each team's, the organization's), and the organization's agents and the **subagent roles** they delegate to, in one editor: identity and prompt, model and credentials, tools and knowledge, sandbox type, access (organization agents) and limits. **Export** saves an agent as `.rocket/agents/<id>.md` (front matter and the prompt, never credentials); **Import** reads one back.
 
 * **Model & credentials**: the model, one **Reasoning** level (the thinking budget follows from it), and the agent's own **credentials**: a call on a bound provider uses the bound key. With **strict**, a call on any other provider is refused instead of billed elsewhere. Administrators bind organization agents (organization keys, or members' keys their owners shared with that agent); a personal agent binds its owner's keys only. If a bound key is deleted or no longer shared, the agent's next call fails with "credential withdrawn". For an administrator, the agent's model list includes the models of keys restricted to agents. A binding applies to calls on its own provider: `openrouter/anthropic/…` is an OpenRouter call, so an Anthropic key bound to the agent stays unused (the editor says so) until the agent's model is an `anthropic/…` one.
 * **Sandbox**: the sandbox type its sessions start in; the type holds the image, CPU and memory (see [Sandboxes](/administer/sandboxes)).
 * **Access**: everyone (the default), or only some people and roles, and whether guests (Slack users who have not paired, guest API tokens) may use it. Administrators can always use every agent. Someone who loses access finishes the turn already running; their next one fails with a prompt to pick another agent, and their scheduled missions with that agent are paused. A Slack bot's agent must allow guests.
+* **Default agent**: the agent new sessions start with when nobody picks one (the cockpit's new-session picker, a session created through the API without an agent, a Slack direct message to a bot without an agent of its own; a bot's or a channel's agent still wins). Organization administrators set the organization's in **Settings → Organization → Member defaults** (lock it to stop teams and members from changing it), a team's administrators set their team's in its defaults, and each member sets their own in *Preferences*. A member's own wins, then their team's when they belong to exactly one team, then the organization's. A personal agent cannot be an organization's or a team's default, and a default naming an agent a member can no longer use is skipped for them, never an error.
 * **Limits**: steps per turn (at most the organization's), the default permission mode (shown *Locked by admin* when the organization locked it), and the agent's spend limits.
 
 The built-in agents are **General**, **Backend**, **Reviewer** (read-only plus pull request tools, reviews a change), **Architect** (the frontier model, starts in plan mode) and **Security Auditor**. The built-in subagent roles are explorer, researcher, reviewer, qa_verifier, security_auditor and implementer.
@@ -105,7 +130,7 @@ See [Sandboxes](/administer/sandboxes).
 
 ## Audit
 
-Approvals, tool calls, credential changes (organization and member keys: created, rotated, deleted, bound to an agent, unbound), settings changes, invitations, access changes and logins are recorded with the actor, the session and a redacted summary. Read them in **Settings → Organization → Audit log**, or at `GET /v1/admin/audit`; retention is a governance setting.
+Approvals, tool calls, credential changes (organization and member keys: created, rotated, deleted, bound to an agent, unbound), settings changes, invitations, access changes and logins are recorded with the actor, the session and a redacted summary. Read them in **Settings → Audit log**, or at `GET /v1/admin/audit`; retention is a governance setting.
 
 ## Starter content
 

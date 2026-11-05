@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import { Bot, Building2, Lock, MessageSquare, RotateCcw, Server, User } from "lucide-react";
+import { Bot, Building2, Lock, MessageSquare, RotateCcw, Server, User, Users } from "lucide-react";
+import { useTeams } from "../../lib/teams";
 
 /** Where a setting's value comes from, as the API reports it (`provenance`). */
 export interface Provenance {
@@ -12,7 +13,7 @@ export interface Provenance {
 
 interface InheritanceBadgeProps {
   provenance: Provenance;
-  /** Shown on a member's own value: back to the organization's. */
+  /** Shown on a member's own value, or a team's in its own form: back to the organization's. */
   onReset?: () => void;
   /** Names for `agent:<id>` / `slack_bot:<id>` sources. */
   presetNames?: Record<string, string>;
@@ -31,7 +32,40 @@ function presetLabel(source: string, names: Record<string, string> | undefined):
   return source;
 }
 
-/** Default / From organization / Yours / Locked by admin / Set by operator / From agent "X". */
+const ResetButton: React.FC<{ onReset: () => void }> = ({ onReset }) => (
+  <button
+    type="button"
+    onClick={(e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onReset();
+    }}
+    className="rounded p-0.5 transition-colors hover:bg-primary/20"
+    aria-label="Use the organization's value"
+    title="Use the organization's value"
+  >
+    <RotateCcw className="h-2.5 w-2.5" aria-hidden="true" />
+  </button>
+);
+
+/** `From team "<name>"`: the value a team set for its agents' turns. */
+const TeamBadge: React.FC<{ teamId: string; onReset?: () => void; className: string }> = ({ teamId, onReset, className }) => {
+  const { teams } = useTeams();
+  const name = teams.find((t) => t.id === teamId)?.name ?? teamId;
+  return (
+    <span
+      data-provenance="team"
+      className={`${base} border-cyan/30 bg-surface-card text-foreground ${className}`}
+      title="The team's value, for the turns of its agents"
+    >
+      <Users className="h-2.5 w-2.5" aria-hidden="true" />
+      From team &quot;{name}&quot;
+      {onReset && <ResetButton onReset={onReset} />}
+    </span>
+  );
+};
+
+/** Default / From organization / From team "X" / Yours / Locked by admin / Set by operator / From agent "X". */
 export const InheritanceBadge: React.FC<InheritanceBadgeProps> = ({
   provenance,
   onReset,
@@ -101,6 +135,9 @@ export const InheritanceBadge: React.FC<InheritanceBadgeProps> = ({
         From organization
       </span>
     );
+  }
+  if (source.startsWith("team:")) {
+    return <TeamBadge teamId={source.slice(5)} onReset={onReset} className={className} />;
   }
   if (source.startsWith("agent:") || source.startsWith("slack_bot:") || source === "session") {
     const Icon = source.startsWith("slack_bot:") ? MessageSquare : Bot;

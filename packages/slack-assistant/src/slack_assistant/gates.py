@@ -15,6 +15,7 @@ from slack_assistant.block_kit import (
     build_other_answer_modal,
     session_of_block,
 )
+from slack_assistant.shortcuts import is_stop_request
 from slack_assistant.state import SlackAssistantState
 from specifications.interfaces.events import EventType, SessionEvent
 
@@ -287,13 +288,17 @@ class SlackGatesMixin(SlackAssistantState):
 
         Only the person who asked stops the turn; the turn then ends saying who stopped it.
         Slack leaves the session "processing" until the app moves it, so with nothing to stop
-        (or a stranger's click) the session is set back to what it really is.
+        (or a stranger's click) the session is set back to what it really is. In a private DM
+        thread the button stops the private session that thread runs.
         """
         channel, thread_ts = str(event.get("channel", "")), str(event.get("thread_ts", ""))
         clicker = str(event.get("user", ""))
-        self._bind_tenant(await self._workspace_org(str(body.get("team_id") or self.team_id or "")))
+        team = str(body.get("team_id") or self.team_id or "")
+        private = await self._private_thread_at(channel, thread_ts, team)
+        self._bind_tenant(await self._workspace_org(team))
         running = False
         for session_id in (
+            *((private.session_id,) if private is not None else ()),
             self.get_session_id(channel, thread_ts, private_for=clicker),
             self.get_session_id(channel, thread_ts),
         ):
@@ -301,10 +306,75 @@ class SlackGatesMixin(SlackAssistantState):
                 continue
             running = True
             if await self._durable_requester(session_id) == clicker:
-                self._stopped_by[session_id] = clicker
-                await self.orchestrator.cancel_turn(session_id)
+                await self._stop_session(session_id, clicker)
                 return
         await self._set_session_status(channel, thread_ts, "processing" if running else "active")
+
+    async def _stop_from_message(self, event: dict[str, Any], *, addressed: bool) -> bool:
+        """A message that only says stop (``stop``, ``arrête``...): whether it was taken as one.
+
+        It stops its sender's turn in the thread, as Slack's stop button does, and never becomes
+        a request, which would be queued behind the very turn it means to stop. Unaddressed (no
+        mention, outside a DM) it counts only when its sender has a turn to stop: otherwise the
+        word is for the people of the thread.
+        """
+        user = str(event.get("user") or "")
+        channel = str(event.get("channel", ""))
+        thread_ts = str(event.get("thread_ts") or event.get("ts") or "")
+        if not (user and channel and thread_ts and is_stop_request(str(event.get("text", "")))):
+            return False
+        self._bind_tenant(await self._workspace_org(str(event.get("team") or self.team_id or "")))
+        for session_id in self._stoppable_sessions(event, channel, thread_ts, user):
+            if (
+                session_id in self._active_turns
+                and await self._durable_requester(session_id) == user
+            ):
+                await self._stop_session(session_id, user)
+                return True
+        if addressed:
+            await self._tell_in_thread(
+                channel, user, thread_ts, "Nothing of yours is running here."
+            )
+        return addressed
+
+    def _stoppable_sessions(
+        self, event: dict[str, Any], channel: str, thread_ts: str, user: str
+    ) -> list[str]:
+        """The sessions a stop in this thread may mean: the sender's private one, the shared
+        one, and for a top-level direct message every session of that conversation (it
+        continues an earlier thread)."""
+        found = [
+            self.get_session_id(channel, thread_ts, private_for=user),
+            self.get_session_id(channel, thread_ts),
+        ]
+        if event.get("channel_type") == "im" and not event.get("thread_ts"):
+            found += [
+                s for s in self._active_turns if self._session_meta.get(s, ("",))[0] == channel
+            ]
+        return found
+
+    async def _stop_session(self, session_id: str, stopped_by: str) -> None:
+        """Stop the session's turn and what would start the work again: the messages queued
+        behind it and its open waits. Those go first, as the ending turn starts whatever is
+        still queued."""
+        if self._stop_session_fn is not None:
+            try:
+                await self._stop_session_fn(session_id)
+            except Exception as err:
+                logger.warning("Could not clear what follows the turn of %s: %s", session_id, err)
+        self._stopped_by[session_id] = stopped_by
+        await self.orchestrator.cancel_turn(session_id)
+
+    async def _tell_in_thread(self, channel: str, user: str, thread_ts: str, text: str) -> None:
+        """A note only ``user`` sees, under the thread."""
+        if not self._slack_api_ready:
+            return
+        try:
+            await self.app.client.chat_postEphemeral(
+                channel=channel, user=user, text=text, thread_ts=thread_ts
+            )
+        except Exception as err:
+            logger.debug("Ephemeral note not sent in %s: %s", channel, err)
 
     async def _set_session_status(self, channel_id: str, thread_ts: str, status: str) -> None:
         """Slack's agent session state of a thread: "processing" shows its working indicator

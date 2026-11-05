@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { AlertCircle, Plus, Trash2 } from "lucide-react";
 import { Field, Input, Select } from "../ui/Field";
 import { hasCapability, useAccess } from "../../lib/access";
+import { useTeams } from "../../lib/teams";
 
 export interface SpendLimit {
   id: string;
@@ -18,15 +19,20 @@ export interface SpendLimit {
   label: string;
   spent_usd: number | null;
   resets_at: number | null;
+  /** The team that set the limit; null: the organization. */
+  team_id?: string | null;
 }
 
 interface Named {
   id: string;
   name: string;
+  scope?: string;
+  team_id?: string | null;
 }
 
 const SUBJECTS: { value: string; label: string }[] = [
   { value: "org", label: "The organization" },
+  { value: "team", label: "A team" },
   { value: "member", label: "Each member" },
   { value: "agent", label: "An agent" },
   { value: "agent_member", label: "An agent, for each member" },
@@ -48,13 +54,28 @@ function used(limit: SpendLimit): string {
   return `$${limit.spent_usd.toFixed(2)} (${percent}%)`;
 }
 
-/** The organization's spend limits: subject, period, amount, mode and what is used. */
-export const SpendLimitsPanel: React.FC = () => {
+// What a team may limit: itself, or one of its agents.
+const TEAM_SUBJECTS: { value: string; label: string }[] = [
+  { value: "team", label: "The team" },
+  { value: "agent", label: "One of its agents" },
+  { value: "agent_member", label: "One of its agents, for each member" },
+];
+
+/**
+ * Spend limits: subject, period, amount, mode and what is used. The organization's (no
+ * ``team``), or those that count a team (``team``): the organization's are read-only there, the
+ * team's own are changed by the team's administrators.
+ */
+export const SpendLimitsPanel: React.FC<{ team?: { id: string; name: string } }> = ({ team }) => {
   const access = useAccess();
-  const canManage = hasCapability(access, "manage_spend_limits");
+  const { teams } = useTeams();
+  const managesTeam = !!team && access.canWrite && teams.some((t) => t.id === team.id && t.can_manage);
+  const canManage = team ? managesTeam : hasCapability(access, "manage_spend_limits");
+  const base = team ? `/v1/teams/${encodeURIComponent(team.id)}/spend-limits` : "/v1/admin/spend-limits";
+  const subjects = team ? TEAM_SUBJECTS : SUBJECTS;
   const [limits, setLimits] = useState<SpendLimit[]>([]);
   const [agents, setAgents] = useState<Named[]>([]);
-  const [subject, setSubject] = useState("org");
+  const [subject, setSubject] = useState(team ? "team" : "org");
   const [subjectId, setSubjectId] = useState("");
   const [period, setPeriod] = useState("month");
   const [amount, setAmount] = useState("100");
@@ -63,32 +84,40 @@ export const SpendLimitsPanel: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await fetch("/v1/admin/spend-limits");
+    const res = await fetch(base);
     if (res.ok) setLimits(await res.json());
     const list = await fetch("/v1/agents");
-    if (list.ok) setAgents(((await list.json()) as Named[]).map((a) => ({ id: a.id, name: a.name })));
-  }, []);
+    if (list.ok) {
+      const all = (await list.json()) as Named[];
+      setAgents(all.filter((a) => !team || (a.scope === "team" && a.team_id === team.id)).map((a) => ({ id: a.id, name: a.name })));
+    }
+  }, [base, team]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
   const agentName = (id: string | null) => agents.find((a) => a.id === id)?.name ?? id ?? "";
+  const teamName = (id: string | null) => teams.find((t) => t.id === id)?.name ?? id ?? "";
+  const subjectName = (limit: SpendLimit) =>
+    limit.subject_kind === "team" ? teamName(limit.subject_id) : limit.subject_kind.startsWith("agent") ? agentName(limit.subject_id) : limit.subject_id;
+  // In a team's view, the organization's limits on the team are shown but not changed.
+  const editable = (limit: SpendLimit) => canManage && (!team || limit.team_id === team.id);
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
-    const needsSubject = ["agent", "agent_member", "slack_workspace"].includes(subject);
-    const res = await fetch("/v1/admin/spend-limits", {
+    const needsSubject = ["team", "agent", "agent_member", "slack_workspace"].includes(subject);
+    const res = await fetch(base, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         subject_kind: subject,
-        subject_id: needsSubject ? subjectId : null,
+        subject_id: team && subject === "team" ? team.id : needsSubject ? subjectId : null,
         period,
         amount_usd: Number(amount),
         mode,
-        is_ceiling: ceiling && (subject === "member" || subject === "agent_member"),
+        is_ceiling: !team && ceiling && (subject === "member" || subject === "agent_member"),
       }),
     });
     if (!res.ok) {
@@ -101,12 +130,12 @@ export const SpendLimitsPanel: React.FC = () => {
   };
 
   const remove = async (id: string) => {
-    await fetch(`/v1/admin/spend-limits/${id}`, { method: "DELETE" });
+    await fetch(`${base}/${id}`, { method: "DELETE" });
     await load();
   };
 
   const toggleMode = async (limit: SpendLimit) => {
-    await fetch(`/v1/admin/spend-limits/${limit.id}`, {
+    await fetch(`${base}/${limit.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ mode: limit.mode === "block" ? "warn" : "block" }),
@@ -115,12 +144,13 @@ export const SpendLimitsPanel: React.FC = () => {
   };
 
   return (
-    <section className="space-y-4" data-testid="spend-limits-panel">
+    <section className="space-y-4" data-testid={team ? `spend-limits-panel-team-${team.id}` : "spend-limits-panel"}>
       <div>
-        <h2 className="font-display text-base font-semibold text-foreground">Spend limits</h2>
+        <h2 className="font-display text-base font-semibold text-foreground">{team ? `Team spend limits · ${team.name}` : "Spend limits"}</h2>
         <p className="mt-1 text-xs text-neutral-600 dark:text-neutral-400">
-          A block limit refuses the model call that would cross it, before anything is bought; a warn
-          limit tells the member. Calls on a member&apos;s own key count against no limit.
+          {team
+            ? "The limits that count this team: what its agents spend. The organization's apply too and are changed by its administrators."
+            : "A block limit refuses the model call that would cross it, before anything is bought; a warn limit tells the member. Calls on a member's own key count against no limit."}
         </p>
       </div>
       {error && (
@@ -152,20 +182,23 @@ export const SpendLimitsPanel: React.FC = () => {
               <tr key={limit.id} className="border-t border-surface-border/60" data-testid={`spend-limit-${limit.id}`}>
                 <td className="px-4 py-2 text-foreground">
                   {SUBJECTS.find((s) => s.value === limit.subject_kind)?.label ?? limit.subject_kind}
-                  {limit.subject_id && (
-                    <span className="text-neutral-500">
-                      {" "}
-                      · {limit.subject_kind.startsWith("agent") ? agentName(limit.subject_id) : limit.subject_id}
+                  {limit.subject_id && <span className="text-neutral-500"> · {subjectName(limit)}</span>}
+                  {limit.is_ceiling && <span className="ml-1 text-[10px] text-neutral-500">(ceiling)</span>}
+                  {team && !limit.team_id && (
+                    <span data-testid="spend-limit-org-note" className="ml-1 text-[10px] text-neutral-600 dark:text-neutral-400">
+                      Set by the organization
                     </span>
                   )}
-                  {limit.is_ceiling && <span className="ml-1 text-[10px] text-neutral-500">(ceiling)</span>}
+                  {!team && limit.team_id && (
+                    <span className="ml-1 text-[10px] text-neutral-600 dark:text-neutral-400">Set by the team {teamName(limit.team_id)}</span>
+                  )}
                 </td>
                 <td className="px-4 py-2">{PERIODS.find((p) => p.value === limit.period)?.label ?? limit.period}</td>
                 <td className="px-4 py-2 text-right font-mono">${limit.amount_usd.toFixed(2)}</td>
                 <td className="px-4 py-2">
                   <button
                     type="button"
-                    disabled={!canManage}
+                    disabled={!editable(limit)}
                     onClick={() => void toggleMode(limit)}
                     className="rounded border border-surface-border px-1.5 py-0.5 text-[10px] capitalize disabled:opacity-60"
                   >
@@ -174,7 +207,7 @@ export const SpendLimitsPanel: React.FC = () => {
                 </td>
                 <td className="px-4 py-2 text-right text-neutral-500">{used(limit)}</td>
                 <td className="px-4 py-2 text-right">
-                  {canManage && (
+                  {editable(limit) && (
                     <button
                       type="button"
                       onClick={() => void remove(limit.id)}
@@ -198,8 +231,16 @@ export const SpendLimitsPanel: React.FC = () => {
         >
           <Field label="Subject">
             {(control) => (
-              <Select {...control} value={subject} data-testid="spend-limit-subject" onChange={(e) => setSubject(e.target.value)}>
-                {SUBJECTS.map((s) => (
+              <Select
+                {...control}
+                value={subject}
+                data-testid="spend-limit-subject"
+                onChange={(e) => {
+                  setSubject(e.target.value);
+                  setSubjectId("");
+                }}
+              >
+                {subjects.map((s) => (
                   <option key={s.value} value={s.value}>
                     {s.label}
                   </option>
@@ -210,11 +251,25 @@ export const SpendLimitsPanel: React.FC = () => {
           {(subject === "agent" || subject === "agent_member") && (
             <Field label="Agent">
               {(control) => (
-                <Select {...control} value={subjectId} onChange={(e) => setSubjectId(e.target.value)}>
+                <Select {...control} value={subjectId} data-testid="spend-limit-agent" onChange={(e) => setSubjectId(e.target.value)}>
                   <option value="">Choose an agent</option>
                   {agents.map((a) => (
                     <option key={a.id} value={a.id}>
                       {a.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          )}
+          {subject === "team" && !team && (
+            <Field label="Team">
+              {(control) => (
+                <Select {...control} value={subjectId} data-testid="spend-limit-team" onChange={(e) => setSubjectId(e.target.value)}>
+                  <option value="">Choose a team</option>
+                  {teams.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
                     </option>
                   ))}
                 </Select>
@@ -258,7 +313,7 @@ export const SpendLimitsPanel: React.FC = () => {
               </Select>
             )}
           </Field>
-          {(subject === "member" || subject === "agent_member") && (
+          {!team && (subject === "member" || subject === "agent_member") && (
             <label className="flex items-center gap-2 text-xs text-foreground">
               <input type="checkbox" checked={ceiling} onChange={(e) => setCeiling(e.target.checked)} />
               A ceiling: a limit for one member may only be lower

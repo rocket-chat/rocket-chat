@@ -1,4 +1,4 @@
-"""Requests revisited: Retry, a suggested follow-up, an edited or deleted request, and a direct
+"""Requests revisited: Retry, an edited or deleted request, and a direct
 message that continues the last conversation.
 
 Each one ends in ``process_incoming_request`` like any message, so admission, routing, quotas
@@ -45,7 +45,7 @@ class SlackRevisitsMixin(SlackAssistantState):
     async def _durable_requester(self, session_id: str) -> str | None:
         raise NotImplementedError
 
-    # -- Retry and suggested follow-ups -----------------------------------------------------
+    # -- Retry --------------------------------------------------------------------------------
 
     async def _retry_request(self, body: dict[str, Any]) -> None:
         """Run a failed turn's request again; only its requester may."""
@@ -66,22 +66,6 @@ class SlackRevisitsMixin(SlackAssistantState):
             thread_ts=str(metadata.get("slack_thread_ts") or ""),
             prompt=str(request["text"]),
             user_id=clicker,
-            team_id=_team_of(body) or None,
-        )
-
-    async def _run_followup(self, body: dict[str, Any]) -> None:
-        """Send a suggested next step as the clicker's own message in the thread."""
-        suggestion = str(((body.get("actions") or [{}])[0]).get("value") or "").strip()
-        channel_id = str((body.get("channel") or {}).get("id", ""))
-        container = body.get("container") or {}
-        thread_ts = str(container.get("thread_ts") or container.get("message_ts") or "")
-        if not (suggestion and channel_id and thread_ts):
-            return
-        await self._run_in_thread(
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            prompt=suggestion,
-            user_id=str((body.get("user") or {}).get("id", "")),
             team_id=_team_of(body) or None,
         )
 

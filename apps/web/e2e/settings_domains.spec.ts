@@ -51,6 +51,29 @@ test.describe("Schema-driven settings forms", () => {
     await expect(page.getByTestId("settings-field-sandboxes-default_image")).toHaveCount(0);
   });
 
+  test("a stored value arriving late does not overwrite what was typed", async ({ page }) => {
+    // The form loads more than once (twice in development, again after a save); the first
+    // reply is held until the field has been edited, so only a superseded load could undo it.
+    let releaseFirst: () => void = () => {};
+    const firstHeld = new Promise<void>((resolve) => (releaseFirst = resolve));
+    let replies = 0;
+    await page.route("**/v1/admin/settings/sandboxes", async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      const response = await route.fetch();
+      if (replies++ === 0) await firstHeld;
+      await route.fulfill({ response });
+    });
+    await page.goto("/settings/org/sandboxes");
+    const memory = page.getByTestId("settings-field-sandboxes-memory_limit");
+    await memory.fill("6Gi");
+    expect(replies).toBeGreaterThan(1);
+    const lateReply = page.waitForResponse((res) => res.url().endsWith("/v1/admin/settings/sandboxes"));
+    releaseFirst();
+    await lateReply;
+    await expect(memory).toHaveValue("6Gi");
+    await expect(page.getByTestId("settings-unsaved")).toContainText("1 unsaved change");
+  });
+
   test("a locked member default is shown as locked on the member's page", async ({ page }) => {
     await page.goto("/settings/org");
     const memberDefault = page.getByTestId("settings-field-user_preferences-suggest_next_questions");

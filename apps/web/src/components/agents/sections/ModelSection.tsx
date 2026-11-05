@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { ChevronRight, KeyRound, Trash2 } from "lucide-react";
 import { Field, Input, Select } from "../../ui/Field";
 import { ModelPicker } from "../../ui/ModelPicker";
 import type { ReasoningEffort } from "../draft";
 import type { SectionProps } from "./types";
+import type { Credential } from "../../settings/CredentialsPanel";
 import { SubagentTierField } from "./SubagentFields";
 
 const EFFORTS: { value: ReasoningEffort | ""; label: string }[] = [
@@ -25,15 +26,45 @@ export const ModelSection: React.FC<SectionProps> = (props) => {
   const [advanced, setAdvanced] = useState(false);
   const [provider, setProvider] = useState("");
   const [credentialId, setCredentialId] = useState("");
-  // Only administrators bind organization agents; a personal agent binds its owner's keys.
-  const mayBind = draft.kind === "agent" && canEdit && (draft.scope === "user" || isAdmin);
-  const bindable = registries.credentials.filter(
-    (c) =>
-      (draft.scope === "user" ? c.owner === "user" : c.owner === "org" || c.shared_with_org_agents.includes(draft.id)) &&
-      (!provider || c.provider === provider),
-  );
-  const providers = Array.from(new Set(registries.credentials.map((c) => c.provider))).sort();
-  const labelOf = (id: string) => registries.credentials.find((c) => c.id === id)?.label ?? id;
+  // Only administrators bind organization agents; a personal agent binds its owner's keys; a
+  // team's agent is bound by those who manage the team (``canEdit``), with members' keys shared
+  // with it, and with organization keys only by an organization administrator.
+  const teamAgent = draft.scope === "team";
+  const mayBind = draft.kind === "agent" && canEdit && (draft.scope === "user" || teamAgent || isAdmin);
+  // The API says what this person may bind on the stored agent (its team's keys, keys shared
+  // with it, the organization's for an administrator); a new agent not saved yet has no answer,
+  // so the editor's own lists stand in until it is.
+  const [fromApi, setFromApi] = useState<Credential[] | null>(null);
+  useEffect(() => {
+    if (!mayBind) {
+      setFromApi(null);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/v1/agents/${encodeURIComponent(draft.id)}/bindable-credentials`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((list: unknown) => {
+        if (!cancelled) setFromApi(Array.isArray(list) ? (list as Credential[]) : null);
+      })
+      .catch(() => {
+        if (!cancelled) setFromApi(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [draft.id, mayBind]);
+  const ownerAllows = (c: Credential) => {
+    if (draft.scope === "user") return c.owner === "user";
+    if (c.shared_with_org_agents.includes(draft.id)) return true;
+    return c.owner === "org" && (!teamAgent || isAdmin);
+  };
+  const candidates = fromApi ?? registries.credentials.filter(ownerAllows);
+  const bindable = candidates.filter((c) => !provider || c.provider === provider);
+  // A key on a team agent that this person may not bind (an organization key an administrator
+  // bound) stays; only someone who may bind it changes it.
+  const lockedBinding = (credentialId: string) => teamAgent && !isAdmin && !candidates.some((c) => c.id === credentialId);
+  const providers = Array.from(new Set(candidates.map((c) => c.provider))).sort();
+  const labelOf = (id: string) => [...candidates, ...registries.credentials].find((c) => c.id === id)?.label ?? id;
   // A binding applies to calls on its provider only: `openrouter/anthropic/…` is an OpenRouter
   // call, so an Anthropic key bound to the agent would sit unused.
   const modelProvider = draft.model.includes("/") ? draft.model.split("/")[0] : "";
@@ -42,7 +73,7 @@ export const ModelSection: React.FC<SectionProps> = (props) => {
     : [];
 
   const bind = () => {
-    const chosen = registries.credentials.find((c) => c.id === credentialId);
+    const chosen = candidates.find((c) => c.id === credentialId);
     if (!chosen) return;
     const others = draft.credential_bindings.filter((b) => b.provider !== chosen.provider);
     patch({ credential_bindings: [...others, { provider: chosen.provider, credential_id: chosen.id }] });
@@ -107,7 +138,7 @@ export const ModelSection: React.FC<SectionProps> = (props) => {
               <li key={binding.provider} className="flex items-center gap-2 text-xs" data-testid={`agent-binding-${binding.provider}`}>
                 <span className="rounded border border-surface-border px-1.5 py-0.5 text-[10px]">{binding.provider}</span>
                 <span className="text-foreground">{labelOf(binding.credential_id)}</span>
-                {mayBind && (
+                {mayBind && !lockedBinding(binding.credential_id) && (
                   <button
                     type="button"
                     aria-label={`Unbind the ${binding.provider} credential`}
@@ -122,6 +153,12 @@ export const ModelSection: React.FC<SectionProps> = (props) => {
               </li>
             ))}
           </ul>
+          {mayBind && teamAgent && !isAdmin && (
+            <p data-testid="agent-team-binding-note" className="text-[11px] text-neutral-600 dark:text-neutral-400">
+              Organization keys are bound by organization administrators. You can bind members&apos; keys their owners
+              shared with this agent.
+            </p>
+          )}
           {mayBind && (
             <div className="flex flex-wrap items-end gap-2">
               <Field label="Provider">

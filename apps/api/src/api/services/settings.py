@@ -1,4 +1,4 @@
-"""Settings persistence: the one loader for organization and member settings.
+"""Settings persistence: the one loader for organization, team and member settings.
 
 Reads and writes go to PostgreSQL under the tenant's RLS context. Only a deployment without
 a database (local development, e2e) uses the process-local store, and that is decided by the
@@ -13,14 +13,14 @@ import logging
 import os
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from config_engine import CascadingSettingsResolver, Preset, Resolved, ResolvedSettings
 from config_engine.registry import legacy_keys_for, specs_for, writable_keys
 from sqlalchemy import select
 
-from api.db.models import OrgSettingModel, UserSettingModel
+from api.db.models import OrgSettingModel, TeamSettingModel, UserSettingModel
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ _resolver = CascadingSettingsResolver()
 # Used only when no database is configured.
 _memory_org: dict[tuple[str, str], tuple[dict[str, Any], list[str]]] = {}
 _memory_user: dict[tuple[str, str, str], dict[str, Any]] = {}
+_memory_team: dict[tuple[str, str, str], dict[str, Any]] = {}
 
 
 def _has_database(db_mgr: Any) -> bool:
@@ -39,6 +40,7 @@ def reset_memory_settings() -> None:
     """Forget the process-local settings (tests)."""
     _memory_org.clear()
     _memory_user.clear()
+    _memory_team.clear()
 
 
 async def load_org_config(
@@ -91,6 +93,56 @@ async def save_org_config(
         else:
             record.config = config
             record.locked_keys = locked_keys
+            record.updated_at = now
+
+
+async def load_team_config(db_mgr: Any, org_id: str, team_id: str, domain: str) -> dict[str, Any]:
+    """The team's stored defaults for ``domain``."""
+    if not _has_database(db_mgr):
+        return dict(_memory_team.get((org_id, team_id, domain), {}))
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        record = (
+            await session.execute(
+                select(TeamSettingModel).where(
+                    TeamSettingModel.org_id == org_id,
+                    TeamSettingModel.team_id == team_id,
+                    TeamSettingModel.domain == domain,
+                )
+            )
+        ).scalar_one_or_none()
+        return dict(record.config or {}) if record is not None else {}
+
+
+async def save_team_config(
+    db_mgr: Any, org_id: str, team_id: str, domain: str, config: dict[str, Any]
+) -> None:
+    if not _has_database(db_mgr):
+        _memory_team[(org_id, team_id, domain)] = dict(config)
+        return
+    now = int(time.time())
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        record = (
+            await session.execute(
+                select(TeamSettingModel).where(
+                    TeamSettingModel.org_id == org_id,
+                    TeamSettingModel.team_id == team_id,
+                    TeamSettingModel.domain == domain,
+                )
+            )
+        ).scalar_one_or_none()
+        if record is None:
+            session.add(
+                TeamSettingModel(
+                    id=f"team_cfg_{uuid.uuid4().hex[:12]}",
+                    org_id=org_id,
+                    team_id=team_id,
+                    domain=domain,
+                    config=config,
+                    updated_at=now,
+                )
+            )
+        else:
+            record.config = config
             record.updated_at = now
 
 
@@ -206,9 +258,13 @@ async def resolve_settings(
     domain: str,
     user_id: str | None = None,
     presets: Sequence[Preset] = (),
+    team_id: str | None = None,
+    accept: Mapping[str, Callable[[Any], bool]] | None = None,
 ) -> ResolvedSettings:
-    """Each key by its policy: platform -> instance -> organization -> member -> presets."""
+    """Each key by its policy: platform -> instance -> organization -> team (in a team's
+    context) -> member -> presets; a candidate ``accept`` refuses for its key is skipped."""
     org_config, locked = await load_org_config(db_mgr, org_id, domain)
+    team_config = await load_team_config(db_mgr, org_id, team_id, domain) if team_id else {}
     org_config = await _with_legacy_keys(db_mgr, org_id, domain, org_config)
     overrides = await load_user_config(db_mgr, org_id, user_id, domain) if user_id else {}
     # Keys retired from the registry may linger in old rows; they must not resurface.
@@ -217,13 +273,18 @@ async def resolve_settings(
     org_keys, member_keys = writable_keys(domain, "org"), writable_keys(domain, "member")
     org_config = {k: v for k, v in org_config.items() if k in org_keys}
     overrides = {k: v for k, v in overrides.items() if k in member_keys}
-    locked = [k for k in locked if k in org_keys and k in member_keys]
+    team_keys = writable_keys(domain, "team")
+    team_config = {k: v for k, v in team_config.items() if k in team_keys}
+    locked = [k for k in locked if k in org_keys and (k in member_keys or k in team_keys)]
     return _resolver.resolve(
         domain=domain,
         org_config=org_config,
         locked_keys=locked,
         user_overrides=overrides,
         presets=presets,
+        team_config=team_config,
+        team_source=f"team:{team_id}",
+        accept=accept,
     )
 
 
@@ -235,9 +296,14 @@ async def resolve_setting(
     *,
     user_id: str | None = None,
     presets: Sequence[Preset] = (),
+    team_id: str | None = None,
+    accept: Callable[[Any], bool] | None = None,
 ) -> Resolved:
-    """One key's value and provenance, with the session's presets (agent, bot, session choice)."""
-    resolved = await resolve_settings(db_mgr, org_id, domain, user_id, presets)
+    """One key's value and provenance, with the session's presets (agent, bot, session choice)
+    and, in a team's context, the team's defaults. ``accept`` refuses candidates of this key."""
+    resolved = await resolve_settings(
+        db_mgr, org_id, domain, user_id, presets, team_id, {key: accept} if accept else None
+    )
     if key not in resolved.provenance:
         raise UndeclaredSettingError(f"{domain}.{key} is not declared in the settings registry")
     return resolved.provenance[key]
@@ -284,8 +350,13 @@ _reported_undeclared: set[tuple[str, str]] = set()
 
 
 async def effective_settings(
-    db_mgr: Any, org_id: str, domain: str, user_id: str | None = None
+    db_mgr: Any,
+    org_id: str,
+    domain: str,
+    user_id: str | None = None,
+    *,
+    team_id: str | None = None,
 ) -> DeclaredSettings:
     """Just the effective values of :func:`resolve_settings`."""
-    resolved = await resolve_settings(db_mgr, org_id, domain, user_id)
+    resolved = await resolve_settings(db_mgr, org_id, domain, user_id, team_id=team_id)
     return DeclaredSettings(domain, resolved.effective)

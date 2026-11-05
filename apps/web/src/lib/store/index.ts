@@ -3,6 +3,7 @@ import { createAgentsSlice } from "./agents";
 import { createComposerSlice } from "./composer";
 import { createLayoutSlice } from "./layout";
 import { createSessionsSlice } from "./sessions";
+import { createSettingsSlice } from "./settings";
 import { createStreamSlice } from "./stream";
 import type { MissionStore } from "./types";
 
@@ -16,4 +17,5 @@ export const useMissionStore = create<MissionStore>()((...args) => ({
   ...createStreamSlice(...args),
   ...createComposerSlice(...args),
   ...createLayoutSlice(...args),
+  ...createSettingsSlice(...args),
 }));

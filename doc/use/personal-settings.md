@@ -5,7 +5,7 @@ description: Your identity, preferences, keys, agents, GitHub account and notifi
 
 # Your settings
 
-Open **Settings** from the sidebar (or the **View** menu in a session). The list has three groups: *Personal* (only affects you), *Integrations* (MCP servers, skills, knowledge bases) and *Organization* (shown to administrators only; see [Administer](/administer/index)). A page you need a capability for (*My keys*, *My agents*) shows when your role holds it. Each setting shows where its value comes from: **Default**, **From organization**, **Yours** (with a reset back to the organization's), **Locked by admin** (you cannot change it), or **Set by operator**. The organization menu at the top of the list (and of the sidebar) shows which organization you work in and switches to another one you belong to. The foot of the list shows the version of the running server (`v0.5.0`), a development build shows `dev` and, for a published dev image, the date and time (UTC) it was built, such as `dev-21102026-1036`.
+Open **Settings** from the sidebar (or the **View** menu in a session). The list is grouped by topic: *Build* (agents, skills, MCP servers, knowledge bases), *Resources* (models and keys, sandboxes, Git, Slack), *Governance* (organization, members and teams, spend, automation, security, audit; mostly for administrators) and *You* (profile, preferences, Git identity, API tokens). If you belong to a team, or are an administrator, the **Showing** filter at the top narrows the list to one owner: *Everything*, *Me*, one of your teams, or *Organization*; **New** then creates for that owner. A page you need a capability for (*My keys*) shows when your role holds it. Each setting shows where its value comes from: **Default**, **From organization**, **Yours** (with a reset back to the organization's), **Locked by admin** (you cannot change it), or **Set by operator**. The organization menu at the top of the list (and of the sidebar) shows which organization you work in and switches to another one you belong to. The foot of the list shows the version of the running server (`v0.5.0`), a development build shows `dev` and, for a published dev image, the date and time (UTC) it was built, such as `dev-21102026-1036`.
 
 **Saving.** A page never has a Save button per section. Edit as many fields as you like and a bar at the bottom shows how many changes are unsaved, with one **Save changes** and one **Discard**. Rarely changed settings are folded under **Advanced**, a number shows what it counts (minutes, USD, tokens), and **Reset to default** puts a changed value back.
 
@@ -26,9 +26,10 @@ An administrator invites you with a link for your e-mail address. Open it, sign 
 
 ## Preferences
 
+* **Default agent.** The agent your new sessions start with: the one preselected when you open a new session, the agent of a session created through the API without one, and the agent of your direct messages with a Slack bot that has no agent of its own. Until you pick one you follow your team's default (only when you belong to exactly one team), else the organization's; the field says which applies and where it comes from. A default naming an agent you can no longer use (deleted, disabled, moved, or no longer granted to you) is skipped and the page says so; it never stops a session from starting.
 * **Preferred model.** The model your sessions use unless the agent or the organization decides otherwise.
 * **Default permission mode.** How closely the agent is supervised when you do not pick a mode for a session (*Read-only*, *Ask first*, *Auto-edit*, *Auto*, *No approvals*). *No approvals* needs the `use_bypass_mode` capability. See [How sessions work](/use/sessions#supervision).
-* **Suggest next prompts.** The ghost text in the composer that you accept with **Tab**; turn it off if it distracts you.
+* **Suggest next prompts.** The ghost text in the composer that you accept with **Tab**; turn it off if it distracts you. It appears only when the answer leads to a clear next message (your answer to a question the agent asked, a step it said remains, a choice it offered), in the language you write in; otherwise there is none.
 * **Branch prefix.** New branches the agent creates start with it (for example `alex/rocket-`).
 * **Notifications.** A browser notification or a sound when a turn ends or waits for you while its tab is in the background.
 * **Appearance.** Light, dark or the system's theme.
@@ -49,9 +50,9 @@ If your role holds `bring_own_keys` you can add **your own provider keys** (Anth
 
 **Sign in with OpenRouter** adds an OpenRouter key without copying one: approve on OpenRouter, and the key it issues is stored like the others (marked *Signed in*). Administrators can do the same for an organization key. Consumer subscriptions such as Claude Pro or ChatGPT Plus cannot be used: their providers do not allow third-party applications to use them.
 
-## My agents
+## Agents you own
 
-If your role holds `create_personal_agents`, **My agents** edits agents only you can use, in the same editor as the organization's agents (see [Organization settings](/administer/organization#agents)). A personal agent can be bound to your own keys only.
+**Settings → Agents** lists every agent you can use, grouped as *Yours*, each of your teams' and the organization's. If your role holds `create_personal_agents`, **New agent** with the owner *Me* creates one only you can use, in the same editor as the organization's agents (see [Organization settings](/administer/organization#agents)). A personal agent can be bound to your own keys only. If you administer a team, you can create agents for it, or move one of yours into it with the **Owner** field (see [Teams](/administer/organization#teams)).
 
 ## Usage
 
@@ -72,4 +73,4 @@ If your role holds `create_personal_agents`, **My agents** edits agents only you
 
 ## Your own tools
 
-Personal [skills, connectors, knowledge bases and agents](/use/extend) have their own pages in the same list. Anything you create there is private to you unless you are an administrator sharing it with the organization.
+Personal [skills, connectors, knowledge bases and agents](/use/extend) have their own pages in the same list. Anything you create with the owner *Me* is private to you; a team administrator can give it to the team, and an organization administrator to the organization.

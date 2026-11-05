@@ -5,6 +5,8 @@ import { MAX_GUIDANCE_CHARS } from "../../../../lib/mcp-guidance";
 import type { McpRunnerStatus, McpServerConfig, McpToolSchema } from "../../../../types/mission";
 import { MCP_PRESETS, type McpPreset } from "../presets";
 import { useMcpAuthFields } from "./useMcpAuthFields";
+import { ownerFields, ownerKey, type OwnerKey } from "../../../../lib/ownership";
+import type { MoveTarget } from "../../MoveDialog";
 
 export type Transport = McpServerConfig["transport"];
 export type SignIn = "automatic" | "needs_client";
@@ -28,7 +30,11 @@ export interface ValidationResult {
 }
 
 export interface McpServerFormOptions {
-  scope: "user" | "org";
+  /** Who owns the server; the form lets the person choose among ``owners``. */
+  owner: OwnerKey;
+  owners: OwnerKey[];
+  /** Asked before an edit saves the server under another owner. */
+  confirmMove?: (name: string, from: OwnerKey, to: OwnerKey, target?: MoveTarget) => Promise<boolean>;
   isAdmin: boolean;
   runner: McpRunnerStatus | null;
   editing?: McpServerConfig;
@@ -48,7 +54,11 @@ async function postJson(url: string, body: unknown): Promise<Response> {
 }
 
 /** Everything the MCP server wizard holds, shared by its steps. */
-export function useMcpServerForm({ scope, isAdmin, runner, editing, onSaved }: McpServerFormOptions) {
+export function useMcpServerForm({ owner: initialOwner, owners, confirmMove, isAdmin, runner, editing, onSaved }: McpServerFormOptions) {
+  const [owner, setOwner] = useState<OwnerKey>(initialOwner);
+  const { scope } = ownerFields(owner);
+  // A team's or the organization's server is shared: each member may connect their own account.
+  const shared = scope !== "user";
   const steps: Step[] = editing ? ["connection", "auth", "tools"] : ["preset", "connection", "auth", "tools"];
   const [step, setStep] = useState<Step>(steps[0]);
   const [preset, setPreset] = useState<McpPreset | null>(null);
@@ -65,7 +75,7 @@ export function useMcpServerForm({ scope, isAdmin, runner, editing, onSaved }: M
   const [validating, setValidating] = useState(false);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const auth = useMcpAuthFields(editing, scope);
+  const auth = useMcpAuthFields(editing, shared);
 
   const isCommand = transport === "stdio";
   const canUseCommands = isAdmin && scope === "org";
@@ -106,7 +116,7 @@ export function useMcpServerForm({ scope, isAdmin, runner, editing, onSaved }: M
     if (isCommand || editing || !/^https?:\/\//.test(address.trim())) return;
     if (auth.authType !== "none" && auth.authType !== "oauth2") return;
     try {
-      const body = { transport, endpoint_or_command: address.trim(), scope, auth: { auth_type: "none" } };
+      const body = { transport, endpoint_or_command: address.trim(), ...ownerFields(owner), auth: { auth_type: "none" } };
       const res = await postJson("/v1/mcp/servers/validate", body);
       if (res.ok) adoptSignIn(((await res.json()) as ValidationResult).sign_in);
     } catch {
@@ -140,7 +150,7 @@ export function useMcpServerForm({ scope, isAdmin, runner, editing, onSaved }: M
     setValidating(true);
     setValidation(null);
     try {
-      const body = { id: editing?.id, transport, endpoint_or_command: endpoint, scope, auth: auth.buildAuth(isCommand) };
+      const body = { id: editing?.id, transport, endpoint_or_command: endpoint, ...ownerFields(owner), auth: auth.buildAuth(isCommand) };
       const res = await postJson("/v1/mcp/servers/validate", body);
       const data = (await res.json()) as ValidationResult & { detail?: string };
       if (!res.ok) {
@@ -169,6 +179,7 @@ export function useMcpServerForm({ scope, isAdmin, runner, editing, onSaved }: M
     const problem = problemBeforeSave();
     setFormError(problem);
     if (problem) return;
+    if (editing && confirmMove && !(await confirmMove(serverName.trim(), ownerKey(editing), owner, { kind: "mcp_server", id: editing.id }))) return;
     // Opened now, while the click still counts as the person's gesture (a tab opened after the
     // save would be blocked as a pop-up), and pointed at the sign-in once the server exists.
     const signInTab = signsIn ? window.open("", "_blank") : null;
@@ -178,7 +189,7 @@ export function useMcpServerForm({ scope, isAdmin, runner, editing, onSaved }: M
         name: serverName.trim(),
         transport,
         endpoint_or_command: endpoint.trim(),
-        scope,
+        ...ownerFields(owner),
         guidance: guidance.trim() || undefined,
         auth: auth.buildAuth(isCommand),
       });
@@ -188,7 +199,7 @@ export function useMcpServerForm({ scope, isAdmin, runner, editing, onSaved }: M
       }
       const created: McpServerConfig = await res.json();
       if (signInTab) signInTab.location.href = `/v1/mcp/servers/${created.id}/oauth/authorize`;
-      onSaved(created, editing ? `Updated MCP server '${created.name}'` : `Registered MCP server '${created.name}' (${scope} scope)`);
+      onSaved(created, editing ? `Updated MCP server '${created.name}'` : `Registered MCP server '${created.name}' (${scope === "user" ? "personal" : scope === "team" ? "team" : "organization"})`);
     } catch (err: unknown) {
       signInTab?.close();
       setFormError(err instanceof Error ? err.message : "Error saving MCP server");
@@ -197,6 +208,10 @@ export function useMcpServerForm({ scope, isAdmin, runner, editing, onSaved }: M
 
   return {
     scope,
+    shared,
+    owner,
+    owners,
+    setOwner,
     isAdmin,
     editing,
     steps,

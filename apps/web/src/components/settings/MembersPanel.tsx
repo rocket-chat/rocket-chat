@@ -2,10 +2,9 @@
 
 import React, { useEffect, useState } from "react";
 import { ShieldCheck, AlertCircle, RefreshCw } from "lucide-react";
-import { useAccess } from "../../../../lib/access";
-import { SettingsPage } from "../../../../components/settings/SettingsPage";
-import { InvitesPanel } from "../../../../components/settings/InvitesPanel";
-import { CapabilitiesPanel } from "../../../../components/settings/CapabilitiesPanel";
+import { useAccess } from "../../lib/access";
+import { InvitesPanel } from "./InvitesPanel";
+import { CapabilitiesPanel } from "./CapabilitiesPanel";
 
 interface OrgUser {
   id: string;
@@ -24,7 +23,8 @@ const ROLE_LABEL: Record<string, string> = {
   viewer: "Viewer",
 };
 
-export default function OrgUsersPage() {
+/** The organization's members and their roles, invitations, and what each role may do. */
+export function MembersPanel() {
   const { isAdmin } = useAccess();
 
   const [users, setUsers] = useState<OrgUser[]>([]);
@@ -77,11 +77,7 @@ export default function OrgUsersPage() {
   };
 
   return (
-    <SettingsPage
-      section="Organization"
-      title="Members & roles"
-      description="Who belongs to this organization, their role, invitations, and what each role may do."
-    >
+    <div className="space-y-10">
       <div className="flex justify-end">
         <button
           type="button"
@@ -94,15 +90,15 @@ export default function OrgUsersPage() {
       </div>
 
       {error && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
+        <div className="flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-700 dark:text-rose-300">
           <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>{error}</span>
+          <span role="alert">{error}</span>
         </div>
       )}
       {notice && (
         <div
           data-testid="role-change-notice"
-          className="flex items-center gap-2 p-3 rounded-lg bg-amber-950/50 border border-amber-800/60 text-amber-300 text-xs"
+          className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-300"
         >
           <ShieldCheck className="w-4 h-4 shrink-0" />
           <span>{notice}</span>
@@ -166,6 +162,6 @@ export default function OrgUsersPage() {
 
       <InvitesPanel />
       <CapabilitiesPanel />
-    </SettingsPage>
+    </div>
   );
 }

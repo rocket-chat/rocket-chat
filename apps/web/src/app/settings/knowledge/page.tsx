@@ -15,14 +15,18 @@ import {
   CheckCircle2,
   AlertCircle,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import {
   UserScopeSection,
   ScopeDivider,
   OrgScopeSection,
+  TeamScopeSection,
 } from "../../../components/settings/ScopedSettingsSection";
-import { useAccess } from "../../../lib/access";
 import { KnowledgeIngestDialog } from "../../../components/settings/KnowledgeIngestDialog";
+import { OwnerBadge, OwnerSelect, useMoveConfirmation } from "../../../components/settings/Owner";
+import { useOwnedSections } from "../../../lib/useOwnedSections";
+import { canManageOwner, ownerFields, ownerKey, ownerLabel, type OwnerKey } from "../../../lib/ownership";
 
 interface ChunkResult {
   id: string;
@@ -33,7 +37,7 @@ interface ChunkResult {
 
 export default function KnowledgeSettingsPage() {
   const [confirm, confirmDialog] = useConfirm();
-  const { isAdmin } = useAccess();
+  const [confirmMove, moveDialog] = useMoveConfirmation();
 
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseConfig[]>([]);
   const [selectedKbId, setSelectedKbId] = useState<string>("");
@@ -43,10 +47,12 @@ export default function KnowledgeSettingsPage() {
 
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createScope, setCreateScope] = useState<"user" | "org">("user");
+  const [createOwner, setCreateOwner] = useState<OwnerKey>("me");
   const [newKbName, setNewKbName] = useState("");
   const [newKbDesc, setNewKbDesc] = useState("");
   const [newKbIndex, setNewKbIndex] = useState("");
+  // The collection the modal edits (its name, description and owner); null when it creates one.
+  const [editingKb, setEditingKb] = useState<KnowledgeBaseConfig | null>(null);
 
   const [showIngestModal, setShowIngestModal] = useState(false);
 
@@ -74,20 +80,57 @@ export default function KnowledgeSettingsPage() {
     fetchKnowledgeBases();
   }, [fetchKnowledgeBases]);
 
-  const userKbs = knowledgeBases.filter((k) => k.scope === "user" || !k.scope || k.user_id != null);
-  const orgKbs = knowledgeBases.filter((k) => k.scope === "org" && k.user_id == null);
+  const sections = useOwnedSections(knowledgeBases);
+  const { access, teams } = sections;
+  const isAdmin = access.isAdmin;
+  const createLabel = createOwner === "org" ? "Organization" : createOwner === "me" ? "Personal" : `Team ${ownerLabel(createOwner, teams)}`;
 
-  const handleOpenCreateModal = (scope: "user" | "org") => {
-    setCreateScope(scope);
+  const handleOpenCreateModal = (owner: OwnerKey) => {
+    setEditingKb(null);
+    setCreateOwner(owner);
     setNewKbName("");
     setNewKbDesc("");
     setNewKbIndex("");
     setShowCreateModal(true);
   };
 
+  const handleOpenEditModal = (kb: KnowledgeBaseConfig, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingKb(kb);
+    setCreateOwner(ownerKey(kb));
+    setNewKbName(kb.name);
+    setNewKbDesc(kb.description ?? "");
+    setShowCreateModal(true);
+  };
+
+  const handleUpdateKb = async (kb: KnowledgeBaseConfig) => {
+    if (!(await confirmMove(newKbName.trim(), ownerKey(kb), createOwner, { kind: "knowledge_base", id: kb.id }))) return;
+    setErrorBanner(null);
+    const res = await fetch(`/v1/knowledge/bases/${encodeURIComponent(kb.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newKbName.trim(), description: newKbDesc.trim(), ...ownerFields(createOwner) }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      setErrorBanner(typeof err.detail === "string" ? err.detail : "Failed to update knowledge base");
+      return;
+    }
+    const updated: KnowledgeBaseConfig = await res.json();
+    setKnowledgeBases((prev) => prev.map((k) => (k.id === updated.id ? updated : k)));
+    setShowCreateModal(false);
+    setEditingKb(null);
+    setSuccessBanner(`Updated knowledge base '${updated.name}'`);
+    setTimeout(() => setSuccessBanner(null), 3500);
+  };
+
   const handleCreateKb = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newKbName.trim()) return;
+    if (editingKb) {
+      await handleUpdateKb(editingKb);
+      return;
+    }
     setErrorBanner(null);
     try {
       const res = await fetch("/v1/knowledge/bases", {
@@ -96,7 +139,7 @@ export default function KnowledgeSettingsPage() {
         body: JSON.stringify({
           name: newKbName.trim(),
           description: newKbDesc.trim() || undefined,
-          scope: createScope,
+          ...ownerFields(createOwner),
           vector_index: newKbIndex.trim() || undefined,
           embedding_model: "text-embedding-3-small",
           hybrid_search: true,
@@ -110,7 +153,7 @@ export default function KnowledgeSettingsPage() {
       setKnowledgeBases((prev) => [...prev, created]);
       setSelectedKbId(created.id);
       setShowCreateModal(false);
-      setSuccessBanner(`Created vector knowledge base '${created.name}' (${createScope} scope)`);
+      setSuccessBanner(`Created vector knowledge base '${created.name}' (${createLabel.toLowerCase()})`);
       setTimeout(() => setSuccessBanner(null), 3500);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error creating knowledge base";
@@ -190,6 +233,7 @@ export default function KnowledgeSettingsPage() {
             <span className="px-1.5 py-0.2 rounded-lg text-[9px] bg-surface border border-border text-neutral-400">
               {kb.documents_count ?? 0} docs
             </span>
+            <OwnerBadge owned={kb} />
           </div>
           {kb.description && (
             <p className="text-[10px] text-muted-foreground truncate mt-0.5">
@@ -199,6 +243,16 @@ export default function KnowledgeSettingsPage() {
         </div>
 
         {canManage && (
+          <span className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            onClick={(e) => handleOpenEditModal(kb, e)}
+            data-testid={`kb-edit-${kb.id}`}
+            aria-label={`Edit ${kb.name}`}
+            className="p-1 rounded-lg hover:bg-surface-elevated text-neutral-500 hover:text-brand transition-colors"
+          >
+            <Pencil className="w-3.5 h-3.5" aria-hidden="true" />
+          </button>
           <button
             type="button"
             onClick={(e) => handleDeleteKb(kb.id, kb.name, e)}
@@ -207,6 +261,7 @@ export default function KnowledgeSettingsPage() {
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
+          </span>
         )}
       </div>
     );
@@ -215,6 +270,7 @@ export default function KnowledgeSettingsPage() {
   return (
     <div className="max-w-6xl mx-auto space-y-6 px-4 py-8 sm:px-8">
       {confirmDialog}
+      {moveDialog}
       {/* Page Header */}
       <PageHeader
         title="Knowledge bases"
@@ -240,49 +296,73 @@ export default function KnowledgeSettingsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column: Two-Tier Knowledge Collections */}
         <div className="space-y-6">
-          <UserScopeSection
-            title="Personal Collections"
-            description="Private vector documents accessible to your sessions."
-            action={
-              <Button size="sm" variant="secondary" onClick={() => handleOpenCreateModal("user")}>
-                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                New collection
-              </Button>
-            }
-          >
-            {userKbs.length > 0 ? (
-              <div className="space-y-2">
-                {userKbs.map((kb) => renderKbCard(kb, true))}
-              </div>
-            ) : (
-              <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs text-muted-foreground">
-                No personal collections yet.
-              </div>
-            )}
-          </UserScopeSection>
+          {sections.mine && (
+            <UserScopeSection
+              title="Personal Collections"
+              description="Private vector documents accessible to your sessions."
+              action={
+                <Button size="sm" variant="secondary" onClick={() => handleOpenCreateModal("me")}>
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                  New collection
+                </Button>
+              }
+            >
+              {sections.mine.length > 0 ? (
+                <div className="space-y-2">{sections.mine.map((kb) => renderKbCard(kb, true))}</div>
+              ) : (
+                <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs text-muted-foreground">
+                  No personal collections yet.
+                </div>
+              )}
+            </UserScopeSection>
+          )}
 
-          <ScopeDivider label="Organization Scope" />
+          {sections.teamSections.map((section) => (
+            <React.Fragment key={section.key}>
+              <ScopeDivider label={`Team ${section.team.name}`} />
+              <TeamScopeSection
+                title={`Team · ${section.team.name}`}
+                description="Collections the team's members search; its administrators manage them."
+                canManage={section.canManage}
+                action={
+                  <Button size="sm" variant="secondary" onClick={() => handleOpenCreateModal(section.key)}>
+                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                    New team collection
+                  </Button>
+                }
+              >
+                {section.items.length > 0 ? (
+                  <div className="space-y-2">{section.items.map((kb) => renderKbCard(kb, section.canManage))}</div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">The team has no collection yet.</p>
+                )}
+              </TeamScopeSection>
+            </React.Fragment>
+          ))}
 
-          <OrgScopeSection
-            title="Organization Collections"
-            description="Shared knowledge collections available across the entire workspace."
-            action={
-              <Button size="sm" variant="secondary" onClick={() => handleOpenCreateModal("org")}>
-                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-                New org collection
-              </Button>
-            }
-          >
-            {orgKbs.length > 0 ? (
-              <div className="space-y-2">
-                {orgKbs.map((kb) => renderKbCard(kb, isAdmin))}
-              </div>
-            ) : (
-              <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs text-muted-foreground">
-                No organization collections registered.
-              </div>
-            )}
-          </OrgScopeSection>
+          {sections.org && (
+            <>
+              {(sections.mine || sections.teamSections.length > 0) && <ScopeDivider label="Organization Scope" />}
+              <OrgScopeSection
+                title="Organization Collections"
+                description="Shared knowledge collections available across the entire workspace."
+                action={
+                  <Button size="sm" variant="secondary" onClick={() => handleOpenCreateModal("org")}>
+                    <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                    New org collection
+                  </Button>
+                }
+              >
+                {sections.org.length > 0 ? (
+                  <div className="space-y-2">{sections.org.map((kb) => renderKbCard(kb, isAdmin))}</div>
+                ) : (
+                  <div className="p-4 rounded-lg border border-dashed border-border text-center text-xs text-muted-foreground">
+                    No organization collections registered.
+                  </div>
+                )}
+              </OrgScopeSection>
+            </>
+          )}
         </div>
 
         {/* Right Column: Collection Inspector & Query Engine */}
@@ -295,15 +375,15 @@ export default function KnowledgeSettingsPage() {
                     <h2 className="text-sm font-semibold text-foreground">
                       {currentKb.name}
                     </h2>
-                    <span className="px-1.5 py-0.5 rounded-lg text-[9px] bg-surface border border-border text-neutral-400">
-                      {currentKb.scope || "user"}
-                    </span>
+                    <OwnerBadge owned={currentKb} />
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {currentKb.description || "Vector knowledge repository for RAG context injection."}
                   </p>
                 </div>
 
+                {/* Adding documents changes the collection: those who manage its owner do it. */}
+                {canManageOwner(access, teams, ownerKey(currentKb)) && (
                 <button
                   type="button"
                   onClick={() => setShowIngestModal(true)}
@@ -312,6 +392,7 @@ export default function KnowledgeSettingsPage() {
                   <UploadCloud className="w-3.5 h-3.5" />
                   <span>Ingest document</span>
                 </button>
+                )}
               </div>
 
               {/* Live Search & Hybrid Test */}
@@ -380,7 +461,7 @@ export default function KnowledgeSettingsPage() {
           <div className="w-full max-w-md p-5 rounded-lg border border-border bg-surface space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-border/60 pb-2">
               <span className="text-xs font-bold text-cyan">
-                Create {createScope === "org" ? "Organization" : "Personal"} Knowledge Base
+                {editingKb ? `Edit ${editingKb.name}` : `Create ${createLabel} Knowledge Base`}
               </span>
               <button
                 type="button"
@@ -392,6 +473,12 @@ export default function KnowledgeSettingsPage() {
             </div>
 
             <form onSubmit={handleCreateKb} className="space-y-3">
+              <OwnerSelect testId="knowledge-owner" value={createOwner} options={sections.creatable} onChange={setCreateOwner} />
+              {editingKb && (
+                <p className="text-[11px] text-neutral-600 dark:text-neutral-400">
+                  Another owner moves the collection with its documents.
+                </p>
+              )}
               <Field label="Collection Name *">
                 {(control) => (
                   <Input {...control}
@@ -423,9 +510,10 @@ export default function KnowledgeSettingsPage() {
                 </button>
                 <button
                   type="submit"
+                  data-testid="kb-submit"
                   className="px-4 py-1.5 rounded-lg border border-cyan/40 bg-cyan text-slate-950 hover:bg-cyan/90 text-xs font-semibold transition-all cursor-pointer"
                 >
-                  CREATE COLLECTION
+                  {editingKb ? "SAVE COLLECTION" : "CREATE COLLECTION"}
                 </button>
               </div>
             </form>

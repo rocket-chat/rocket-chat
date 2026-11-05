@@ -166,3 +166,74 @@ async def test_session_usage_recovers_tokens_from_recent_event(client: TestClien
     await _record(app.state.usage_ledger, session_id)
     body = client.get(f"/v1/sessions/{session_id}/usage", headers=OWNER).json()
     assert body["active_context"]["tokens"] == 4000
+
+
+async def _with_snapshot(session_id: str, snapshot: dict[str, Any]) -> None:
+    def keep(record: Any) -> None:
+        record.metadata = {**(record.metadata or {}), "active_context": snapshot}
+
+    await app.state.session_store.mutate_session(session_id, "usage_org", keep)
+
+
+LARGE_WINDOW = {"tokens": 300_000, "limit": 1_048_576, "model_limit": 1_048_576}
+
+
+@pytest.mark.parametrize("recorded_model", ["gemini/gemini-2.5-pro", None])
+def test_a_turn_on_a_larger_window_is_not_read_against_the_selections(
+    client: TestClient, recorded_model: str | None
+) -> None:
+    """The turn ran on its agent's 1M-token model; the session selects none (the default has
+    200k). Measured against the default's window the figure read as over 100%."""
+    created = client.post("/v1/sessions", json={"title": "Big window"}, headers=OWNER)
+    session_id = created.json()["session_id"]
+    snapshot = {**LARGE_WINDOW, **({"model": recorded_model} if recorded_model else {})}
+    # On the app's own event loop: a PostgreSQL store is bound to it.
+    assert client.portal is not None
+    client.portal.call(_record, app.state.usage_ledger, session_id)
+    client.portal.call(_with_snapshot, session_id, snapshot)
+
+    context = client.get(f"/v1/sessions/{session_id}/usage", headers=OWNER).json()["active_context"]
+
+    assert context["tokens"] == 300_000
+    assert context["limit"] == 1_048_576
+
+
+async def _call_on(ledger: UsageLedger, session_id: str, model: str, prompt: int) -> None:
+    await ledger.record(
+        UsageEvent(
+            "usage_org", "owner", model, prompt, 500, 0.01, session_id, 0, 0, "platform", 1000
+        )
+    )
+
+
+def test_a_session_without_a_snapshot_is_read_against_its_last_calls_model(
+    client: TestClient,
+) -> None:
+    """Sessions from before the snapshot recorded its model: 281k tokens on a 1M-token DeepSeek
+    read as '281K / 200k (100%)' against the platform default's window."""
+    created = client.post("/v1/sessions", json={"title": "No snapshot"}, headers=OWNER)
+    session_id = created.json()["session_id"]
+    assert client.portal is not None
+    client.portal.call(
+        _call_on, app.state.usage_ledger, session_id, "gemini/gemini-2.5-pro", 281_000
+    )
+
+    context = client.get(f"/v1/sessions/{session_id}/usage", headers=OWNER).json()["active_context"]
+
+    assert context["tokens"] == 281_000
+    assert context["limit"] == 1_048_576
+
+
+def test_a_session_with_no_calls_is_read_against_its_selected_model(client: TestClient) -> None:
+    created = client.post("/v1/sessions", json={"title": "Selected"}, headers=OWNER)
+    session_id = created.json()["session_id"]
+
+    def select(record: Any) -> None:
+        record.metadata = {**(record.metadata or {}), "selected_model": "gemini/gemini-2.5-pro"}
+
+    assert client.portal is not None
+    client.portal.call(app.state.session_store.mutate_session, session_id, "usage_org", select)
+
+    context = client.get(f"/v1/sessions/{session_id}/usage", headers=OWNER).json()["active_context"]
+
+    assert context["limit"] == 1_048_576

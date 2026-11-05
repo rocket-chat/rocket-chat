@@ -24,8 +24,6 @@ export interface BotForm {
   respondInDms: boolean;
   listenChannels: string;
   privateReaction: string;
-  privateDmResult: boolean;
-  privateDmUpdates: boolean;
   /** The bot's overrides of the organization's Slack policy, without the channel rows. */
   policy: Record<string, unknown>;
   rows: RoutingRow[];
@@ -44,8 +42,6 @@ function formFromBot(bot: SlackBot | null, fallbackAgent: string): BotForm {
     respondInDms: bot?.respond_in_dms ?? true,
     listenChannels: bot?.listen_channels?.join(", ") ?? "",
     privateReaction: bot?.private_reaction || "white_check_mark",
-    privateDmResult: bot?.private_dm_result ?? false,
-    privateDmUpdates: bot?.private_dm_updates ?? false,
     policy,
     rows: rowsFromBot(bot, fallbackAgent),
     classifier: classifierFromBot(bot),
@@ -63,8 +59,6 @@ function payloadOf(form: BotForm): Record<string, unknown> {
     respond_in_dms: form.respondInDms,
     listen_channels: form.listenChannels.split(",").map((c) => c.trim()).filter(Boolean),
     private_reaction: form.privateReaction.trim() || "white_check_mark",
-    private_dm_result: form.privateDmResult,
-    private_dm_updates: form.privateDmUpdates,
     router: routerOf(form.rows, form.classifier, defaultAgent),
     policy: Object.keys(profiles).length > 0 ? { ...form.policy, channel_profiles: profiles } : form.policy,
   };

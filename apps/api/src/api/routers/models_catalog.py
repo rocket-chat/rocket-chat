@@ -21,7 +21,7 @@ from llm_gateway.model_facts import facts_for
 from api.auth.access import _get_request_identity
 from api.auth.roles import is_admin
 from api.routers.credentials import credential_store
-from api.services.model_catalogue import build_catalogue
+from api.services.model_catalogue import build_catalogue, default_catalogue
 from api.services.provider_catalogue import parse_openrouter, provider_catalogue
 
 logger = logging.getLogger(__name__)
@@ -159,5 +159,12 @@ async def list_available_models(
     return {
         "default_model": default_model,
         "active_driver": driver_name,
-        "models": catalogue,
+        "models": [_with_image_input(entry) for entry in catalogue],
     }
+
+
+def _with_image_input(entry: dict[str, Any]) -> dict[str, Any]:
+    """The entry with ``accepts_images`` when known: the composer warns before an image is sent
+    to a model that cannot read it (the gateway decides from the same facts)."""
+    accepts = default_catalogue.get_model_spec(str(entry.get("id") or "")).accepts_images
+    return {**entry, "accepts_images": accepts} if accepts is not None else entry

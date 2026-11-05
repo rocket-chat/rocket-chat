@@ -18,6 +18,7 @@ import type {
   WaitEntry,
   WaitStartedPayload,
 } from "../../types/mission";
+import type { OwnerFilter } from "../ownership";
 
 export type InspectorPreference = "open" | "closed" | null;
 
@@ -124,6 +125,8 @@ export interface AgentsSlice {
   setPermissionMode: (mode: PermissionMode) => void;
   setSelectedSandboxId: (id: string) => void;
   fetchAgents: () => Promise<void>;
+  /** The agent new sessions start with (`GET /v1/me/default-agent`); "" when none applies. */
+  defaultAgentId: string;
   /** The full catalogue arrived (the placeholder list is shown until then). */
   modelsLoaded: boolean;
   fetchModels: () => Promise<void>;
@@ -313,10 +316,17 @@ export interface LayoutSlice {
   adjustRunningProcesses: (delta: number) => void;
 }
 
+/** The settings' owner filter (``?owner=``): every owner, or only yours, a team's or the organization's. */
+export interface SettingsSlice {
+  settingsOwner: OwnerFilter;
+  setSettingsOwner: (owner: OwnerFilter) => void;
+}
+
 export type InspectorTab = "changes" | "git" | "files" | "processes" | "subagents" | "artifacts" | "preview";
 
 export type MissionStore = SessionsSlice &
   AgentsSlice &
   StreamSlice &
   ComposerSlice &
-  LayoutSlice;
+  LayoutSlice &
+  SettingsSlice;

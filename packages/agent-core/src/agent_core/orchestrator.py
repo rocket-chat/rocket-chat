@@ -893,6 +893,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 agent_id=attribution.agent_id,
                 credential_bindings=attribution.credential_bindings,
                 strict_binding=attribution.strict_binding,
+                team_id=attribution.team_id,
                 turn_id=attribution.turn_id,
                 call_role="react",
             )
@@ -1395,6 +1396,8 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             needed |= LOADING_TOOLS
         if ctx is not None and ctx.plan_mode:
             needed.add("exit_plan_mode")
+        if self._registry.enabled_for_this_turn("deliver"):
+            needed.add("deliver")
         # An agent's list never takes away what a platform gate sends it to (ESSENTIAL_TOOLS).
         allowed += [
             t for t in all_tools if t.name in needed & ESSENTIAL_TOOLS and t.name not in listed

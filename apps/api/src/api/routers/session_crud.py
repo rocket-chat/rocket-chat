@@ -26,6 +26,8 @@ from api.models import (
     UpdateSessionRequest,
 )
 from api.services.agent_access import AgentAccessDenied, require_usable_agent
+from api.services.default_agent import resolve_default_agent
+from api.services.ownership import request_viewer
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.session_support import (
     _CLIENT_PATCHABLE_METADATA,
@@ -76,7 +78,8 @@ async def _choose_sandbox(
     db_mgr = getattr(request.app.state, "db_manager", None)
     catalogue = SandboxCatalogue(db_mgr)
     if req.sandbox_id:
-        entry = await catalogue.resolve(org_id, sandbox_id=req.sandbox_id)
+        _, viewer = await request_viewer(request)
+        entry = await catalogue.resolve(org_id, sandbox_id=req.sandbox_id, teams=viewer.teams)
         if entry is None:
             raise HTTPException(status_code=422, detail="That sandbox is not in the catalogue.")
         metadata["sandbox_id"] = entry.id
@@ -125,9 +128,7 @@ async def create_session(req: CreateSessionRequest, request: Request) -> Session
             status_code=422,
             detail=f"permission_mode must be one of: {', '.join(PERMISSION_MODES)}",
         )
-    if req.agent_id:
-        await _usable_agent(request, effective_org, req_user, roles, req.agent_id)
-        metadata["agent_id"] = req.agent_id
+    await _bind_agent(request, effective_org, req_user, roles, req, metadata)
     chosen_image = await _choose_sandbox(request, effective_org, req, metadata)
     # An explicit choice wins; otherwise the organization's privacy default applies.
     is_shared = req.is_shared
@@ -366,6 +367,29 @@ def _check_patch_rights(req: UpdateSessionRequest, is_owner_or_admin: bool) -> N
             status_code=403,
             detail="Forbidden: Only the session owner or an admin can change the permission mode",
         )
+
+
+async def _bind_agent(
+    request: Request,
+    org_id: str,
+    user_id: str,
+    roles: list[str],
+    req: CreateSessionRequest,
+    metadata: dict[str, Any],
+) -> None:
+    """The new session's agent: the one asked for (403 if the caller may not use it), else the
+    caller's default agent (``default_agent``), else none (the platform's). A raw session has
+    no agent to default to."""
+    if req.agent_id:
+        await _usable_agent(request, org_id, user_id, roles, req.agent_id)
+        metadata["agent_id"] = req.agent_id
+        return
+    if req.mode == "direct" or metadata.get("agent_id"):
+        return
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    choice = await resolve_default_agent(db_mgr, org_id, user_id, roles)
+    if choice.agent_id:
+        metadata["agent_id"] = choice.agent_id
 
 
 async def _usable_agent(

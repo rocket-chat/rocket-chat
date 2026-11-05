@@ -16,6 +16,8 @@ from slack_assistant.policy import SlackOrgPolicy, _as_list, _profiles
 
 RESPONSE_MODES = ("thread", "private")
 DISMISS = "dismiss"
+# The follow-up classifier's two answers.
+RESPOND, IGNORE = "respond", "ignore"
 DEFAULT_COMMAND = "/rocket"
 
 
@@ -135,6 +137,22 @@ class ClassifyRequest:
 
 
 @dataclass(frozen=True)
+class FollowUpRequest:
+    """A thread reply that does not mention the bot, for the classifier that decides whether
+    it asks the bot for something (``RESPOND``) or is meant for the others (``IGNORE``)."""
+
+    bot: SlackBot
+    org_id: str
+    text: str
+    thread_excerpt: str
+    channel_id: str
+    thread_ts: str
+    slack_user_id: str
+    # The policy's classifier model; empty: the router's classifier model, else the default.
+    model: str = ""
+
+
+@dataclass(frozen=True)
 class SlackBot:
     """Everything one bot needs to connect and behave."""
 
@@ -149,13 +167,8 @@ class SlackBot:
     respond_in_dms: bool = True
     # Channels where the bot also reads messages that do not mention it (routing on each one).
     listen_channels: frozenset[str] = frozenset()
-    # Private mode: the reaction marking a request taken, and whether the result is also sent
-    # as a direct message (the ephemeral reply disappears when Slack is reloaded).
+    # Private mode: the reaction marking a request taken (its work runs in the requester's DMs).
     private_reaction: str = "white_check_mark"
-    private_dm_result: bool = False
-    # Private mode: questions, approvals, errors and the result go to the requester's DMs
-    # (with a link to the thread) instead of ephemeral messages a reload makes disappear.
-    private_dm_updates: bool = False
     # Overrides of the organization's Slack policy (the ``slack`` settings), key by key.
     policy: Mapping[str, Any] = field(default_factory=dict)
     command: str = DEFAULT_COMMAND

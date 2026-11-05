@@ -8,18 +8,27 @@ import { ArrowLeft, X } from "lucide-react";
 import { AppVersion } from "./AppVersion";
 import { useMissionStore } from "../../lib/store";
 import { SettingsSearchButton } from "./SettingsSearch";
-import { NAV_SECTIONS, type NavItem } from "./nav-data";
+import { NAV_SECTIONS, type NavItem, type NavOwner } from "./nav-data";
+import { OwnerFilterControl } from "./OwnerFilterControl";
 import { OrgSwitcher } from "../OrgSwitcher";
 import { hasCapability, type Access } from "../../lib/access";
 import { useAccess } from "../../lib/access";
+import { useTeams, type Team } from "../../lib/teams";
+import { useOwnerFilter, useOwnerFilterSync } from "../../lib/useOwnerFilter";
+import type { OwnerFilter } from "../../lib/ownership";
 
 export const SettingsNav: React.FC = () => {
   const pathname = usePathname();
   const access = useAccess();
+  const { teams } = useTeams();
+  useOwnerFilterSync();
+  const [owner] = useOwnerFilter();
   const sections = NAV_SECTIONS.map((section) => ({
     ...section,
-    items: section.items.filter((item) => visible(item, access)),
+    items: section.items.filter((item) => visible(item, access, teams) && followsOwner(item, owner)),
   })).filter((section) => section.items.length > 0);
+  // The filter travels with the links, so moving between pages keeps the owner in view.
+  const hrefOf = (item: NavItem) => (owner !== "all" && item.owners ? `${item.href}?owner=${encodeURIComponent(owner)}` : item.href);
 
   const missionSession = useMissionStore((s) => s.session);
   const isSettingsNavOpen = useMissionStore((s) => s.isSettingsNavOpen);
@@ -82,6 +91,8 @@ export const SettingsNav: React.FC = () => {
 
           <SettingsSearchButton />
 
+          <OwnerFilterControl />
+
           {sections.map((section) => (
             <div key={section.title}>
               <div className="flex items-baseline justify-between px-2.5 pb-1.5">
@@ -95,7 +106,7 @@ export const SettingsNav: React.FC = () => {
                   return (
                     <Link
                       key={item.href}
-                      href={item.href}
+                      href={hrefOf(item)}
                       onClick={handleNavClick}
                       aria-current={isActive ? "page" : undefined}
                       className={`group flex items-center justify-between rounded-lg px-2.5 py-2 text-xs transition-colors ${
@@ -109,7 +120,7 @@ export const SettingsNav: React.FC = () => {
                         <span>{item.label}</span>
                       </span>
                       {/* Marked for administrators too: what they change here applies to everyone. */}
-                      {item.requiresAdmin && (
+                      {item.requiresAdmin && access.isAdmin && (
                         <span
                           data-testid="nav-admin-only"
                           title="Administrators only: applies to the whole organization"
@@ -134,9 +145,19 @@ export const SettingsNav: React.FC = () => {
   );
 };
 
-/** Admin-only pages are hidden from everyone else, and capability pages from roles without it. */
-export function visible(item: NavItem, access: Access): boolean {
+/** Admin-only pages are hidden from everyone else (a team page from those in no team), and
+ * capability pages from roles without it. */
+export function visible(item: NavItem, access: Access, teams: Team[] = []): boolean {
   if (!access.loaded) return !item.requiresAdmin && !item.capability;
-  if (item.requiresAdmin && !access.isAdmin) return false;
+  const teamMember = item.orTeamMember && teams.some((t) => t.my_role !== null);
+  const teamManager = item.orTeamManager && access.canWrite && teams.some((t) => t.can_manage);
+  if (item.requiresAdmin && !access.isAdmin && !teamMember && !teamManager) return false;
   return !item.capability || hasCapability(access, item.capability);
+}
+
+/** Whether a page is about the owner the filter names (pages that follow no owner always are). */
+export function followsOwner(item: NavItem, owner: OwnerFilter): boolean {
+  if (owner === "all" || !item.owners) return true;
+  const kind: NavOwner = owner === "me" || owner === "org" ? owner : "team";
+  return item.owners.includes(kind);
 }

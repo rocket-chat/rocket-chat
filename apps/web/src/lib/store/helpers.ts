@@ -47,6 +47,12 @@ export const DEFAULT_AGENTS: AgentPersonaConfig[] = [
   },
 ];
 
+/** The member's default agent among those listed, when it is there and enabled. */
+export function usableDefaultAgent(agents: AgentPersonaConfig[], defaultAgentId: string): AgentPersonaConfig | undefined {
+  if (!defaultAgentId) return undefined;
+  return agents.find((a) => a.id === defaultAgentId && a.enabled !== false);
+}
+
 /**
  * Whether a broadcast `user_message` is the echo of a prompt this tab submitted.
  *
