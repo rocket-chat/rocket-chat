@@ -30,6 +30,18 @@ for (const scheme of ["light", "dark"] as const) {
         expect(blocking.map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
       });
     }
+
+    test("the agent tool picker, with a group open, has no serious or critical violations", async ({ page }) => {
+      await page.goto("/settings/agents");
+      await page.getByTestId("agent-new").click();
+      await page.getByTestId("agent-section-tools").click();
+      await page.getByTestId("agent-allow-all").uncheck();
+      await page.getByTestId("agent-add-core").click();
+      await page.getByTestId("agent-tool-group-header-git").click();
+      const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa"]).analyze();
+      const blocking = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+      expect(blocking.map((v) => `${v.id}: ${v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(" | ")}`)).toEqual([]);
+    });
   });
 }
 

@@ -1,19 +1,19 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronRight, Pin } from "lucide-react";
-import { Field, Textarea } from "../../ui/Field";
+import { ChevronRight, Pin, Zap } from "lucide-react";
+import { Field, Input, Textarea } from "../../ui/Field";
+import { Button } from "../../ui/Button";
 import { ToolLoadBadge, ToolLoadSummary } from "../../settings/ToolLoadState";
 import { useToolLoadingPreview } from "../../../lib/useToolLoadingPreview";
-import { mcpToolName } from "../useAgentRegistries";
+import { buildToolGroups, matchesQuery, ToolGroupSection, type PickableTool } from "./ToolGroups";
 import type { SectionProps } from "./types";
 
-const CLASSES: { key: string; label: string; hint: string }[] = [
-  { key: "read", label: "Read", hint: "Change nothing; allowed even in plan mode" },
-  { key: "edit", label: "Edit", hint: "Change files in the workspace" },
-  { key: "command", label: "Commands", hint: "Run programs in the sandbox" },
-  { key: "publish", label: "Publish", hint: "Push, open pull requests, act on GitHub" },
-];
+const PERMISSION_LABELS: Record<string, { label: string; hint: string }> = {
+  edit: { label: "Edit", hint: "Changes files in the workspace" },
+  command: { label: "Command", hint: "Runs programs in the sandbox" },
+  publish: { label: "Publish", hint: "Pushes, opens pull requests, acts on GitHub" },
+};
 
 function toggle(list: string[], item: string): string[] {
   return list.includes(item) ? list.filter((value) => value !== item) : [...list, item];
@@ -22,33 +22,72 @@ function toggle(list: string[], item: string): string[] {
 /** Which tools, MCP servers, skills and knowledge bases the agent may use. */
 export const ToolsSection: React.FC<SectionProps> = ({ draft, patch, canEdit, registries }) => {
   const [advanced, setAdvanced] = useState(false);
+  const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  // While filtering, every group with a match is open unless the person closes it.
+  const [closedWhileFiltering, setClosedWhileFiltering] = useState<Set<string>>(() => new Set());
   const allowAll = draft.whitelisted_tools.includes("*");
-  const mcpTools = registries.mcpServers.flatMap((s) => (s.tools ?? []).map((t) => mcpToolName(s.name, t.name)));
-  const everyTool = [...registries.tools.map((t) => t.name), ...mcpTools];
+  const groups = buildToolGroups(registries);
+  const everyTool = groups.flatMap((g) => g.tools.map((t) => t.name));
   const allowed = allowAll ? everyTool : draft.whitelisted_tools;
   const { preview, deferred, failed } = useToolLoadingPreview({
     activeTools: draft.active_tools,
     toolNames: allowed,
   });
   const core = new Set(preview?.core ?? []);
+  const coreTools = registries.tools.filter((t) => t.core).map((t) => t.name);
+  const isSelected = (name: string) => allowAll || draft.whitelisted_tools.includes(name);
+  const selectedCount = everyTool.filter(isSelected).length;
+  const missingCore = coreTools.filter((name) => !isSelected(name));
+  const filtering = query.trim() !== "";
 
   const toggleTool = (name: string) => {
     if (!canEdit) return;
     patch({ whitelisted_tools: allowAll ? everyTool.filter((t) => t !== name) : toggle(draft.whitelisted_tools, name) });
   };
 
-  const renderTool = (name: string, description: string) => {
-    const checked = allowAll || draft.whitelisted_tools.includes(name);
+  const setTools = (names: string[], on: boolean) => {
+    if (!canEdit) return;
+    if (allowAll) {
+      if (!on) patch({ whitelisted_tools: everyTool.filter((t) => !names.includes(t)) });
+      return;
+    }
+    const kept = draft.whitelisted_tools.filter((t) => !names.includes(t));
+    patch({ whitelisted_tools: on ? [...kept, ...names] : kept });
+  };
+
+  const flip = (set: Set<string>, key: string) => {
+    const next = new Set(set);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next;
+  };
+
+  const renderTool = ({ name, description, permission }: PickableTool) => {
+    const checked = isSelected(name);
+    const approval = permission ? PERMISSION_LABELS[permission] : undefined;
+    const hintId = `agent-tool-hint-${name}`;
     return (
       <label
         key={name}
         data-testid={`agent-tool-${name}`}
-        className={`flex cursor-pointer items-start gap-2 rounded-lg border p-2 text-xs ${checked ? "border-brand/40 bg-brand/5" : "border-border/60"}`}
+        className={`group relative flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-surface-subnav/60 ${checked ? "bg-brand/5" : ""}`}
       >
-        <input type="checkbox" className="mt-0.5" disabled={!canEdit} checked={checked} onChange={() => toggleTool(name)} />
+        <input
+          type="checkbox"
+          disabled={!canEdit}
+          checked={checked}
+          onChange={() => toggleTool(name)}
+          aria-describedby={description ? hintId : undefined}
+        />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1">
-            <span className="truncate font-medium text-foreground">{name}</span>
+            <span className={`truncate ${checked ? "font-medium text-foreground" : "text-foreground/90"}`}>{name}</span>
+            {approval && (
+              <span title={approval.hint} className="shrink-0 text-[10px] text-neutral-600 dark:text-neutral-400">
+                · {approval.label}
+              </span>
+            )}
             {checked && preview && <ToolLoadBadge deferred={deferred.has(name)} core={core.has(name)} />}
             {checked && advanced && preview && !core.has(name) && (
               <button
@@ -67,8 +106,18 @@ export const ToolsSection: React.FC<SectionProps> = ({ draft, patch, canEdit, re
               </button>
             )}
           </span>
-          {description && <span className="block text-[10px] leading-tight text-neutral-500">{description}</span>}
         </span>
+        {description && (
+          // The description stays out of the list so a group reads as names; it shows on hover
+          // and on keyboard focus, and screen readers get it through aria-describedby.
+          <span
+            id={hintId}
+            role="tooltip"
+            className="pointer-events-none absolute left-6 top-full z-20 mt-0.5 hidden w-72 max-w-[80vw] rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-[11px] leading-snug text-foreground shadow-lg group-focus-within:block group-hover:block"
+          >
+            {description}
+          </span>
+        )}
       </label>
     );
   };
@@ -87,32 +136,66 @@ export const ToolsSection: React.FC<SectionProps> = ({ draft, patch, canEdit, re
       </label>
       <ToolLoadSummary preview={preview} failed={failed} />
 
-      {CLASSES.map((group) => {
-        const tools = registries.tools.filter((t) => (t.permission || "command") === group.key);
-        if (tools.length === 0) return null;
-        return (
-          <section key={group.key} aria-label={`${group.label} tools`} className="space-y-2">
-            <h4 className="text-xs font-semibold text-foreground">
-              {group.label} <span className="font-normal text-neutral-500">· {group.hint}</span>
-            </h4>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{tools.map((t) => renderTool(t.name, t.description))}</div>
-          </section>
-        );
-      })}
+      <div className="flex flex-wrap items-end gap-3">
+        <Field label="Filter tools" className="min-w-[12rem] flex-1">
+          {(control) => (
+            <Input
+              {...control}
+              type="search"
+              data-testid="agent-tool-filter"
+              placeholder="Name or description"
+              value={query}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setClosedWhileFiltering(new Set());
+              }}
+            />
+          )}
+        </Field>
+        <Button
+          size="sm"
+          data-testid="agent-add-core"
+          disabled={!canEdit || missingCore.length === 0}
+          title={allowAll ? "Every tool is already allowed" : "The tools sent with every step of every agent"}
+          onClick={() => setTools(missingCore, true)}
+        >
+          <Zap className="h-3.5 w-3.5" aria-hidden="true" />
+          {missingCore.length === 0 ? "Core tools added" : `Add core tools (${missingCore.length})`}
+        </Button>
+      </div>
+      <p data-testid="agent-tool-selected-count" aria-live="polite" className="text-xs text-neutral-600 dark:text-neutral-400">
+        {selectedCount} of {everyTool.length} tools selected
+      </p>
 
-      {registries.mcpServers.length > 0 && (
-        <section aria-label="MCP servers" className="space-y-2">
-          <h4 className="text-xs font-semibold text-foreground">MCP servers</h4>
-          {registries.mcpServers.map((server) => (
-            <div key={server.id} className="space-y-2 rounded-lg border border-border/70 p-3">
-              <p className="text-xs font-medium text-foreground">{server.name}</p>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                {(server.tools ?? []).map((t) => renderTool(mcpToolName(server.name, t.name), t.description ?? ""))}
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
+      <div className="space-y-2">
+        {groups.map((group) => {
+          const visible = group.tools.filter((t) => matchesQuery(t, query));
+          if (filtering && visible.length === 0) return null;
+          const open = filtering ? !closedWhileFiltering.has(group.key) : expanded.has(group.key);
+          const names = group.tools.map((t) => t.name);
+          const groupSelected = names.filter(isSelected).length;
+          return (
+            <ToolGroupSection
+              key={group.key}
+              group={group}
+              visible={visible}
+              selectedCount={groupSelected}
+              open={open}
+              canEdit={canEdit}
+              onToggleOpen={() =>
+                filtering
+                  ? setClosedWhileFiltering((set) => flip(set, group.key))
+                  : setExpanded((set) => flip(set, group.key))
+              }
+              onToggleAll={() => setTools(names, groupSelected < names.length)}
+              renderTool={renderTool}
+            />
+          );
+        })}
+        {filtering && groups.every((g) => !g.tools.some((t) => matchesQuery(t, query))) && (
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">No tool matches “{query.trim()}”.</p>
+        )}
+      </div>
 
       {draft.kind === "agent" && (
         <>

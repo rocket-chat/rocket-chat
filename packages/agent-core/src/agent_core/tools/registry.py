@@ -34,7 +34,7 @@ from agent_core.permissions import (
 from agent_core.standing import put_skill_in_effect
 from agent_core.tool_loading import ESSENTIAL_TOOLS, MCP_PREFIX, server_of
 from agent_core.tools import git_tools, memory_tools
-from agent_core.tools.builtin import register_all
+from agent_core.tools.builtin import domain_title, register_all
 from agent_core.tools.gate_repository import repository_of_folder
 from agent_core.tools.schema import definition_from_tool
 from specifications.interfaces.agent import (
@@ -96,6 +96,7 @@ class ToolRegistry:
         self._dynamic_tool_toolsets: dict[str, str] = {}
         self._mcp: FastMCP = FastMCP("rocket-chat-tools")
         self._builtin_tools: dict[str, FunctionTool] = {}
+        self._builtin_domains: dict[str, str] = {}
         self._register_tools()
 
     @property
@@ -352,6 +353,7 @@ class ToolRegistry:
             tool = FunctionTool.from_function(handler, description=description)
             self._mcp.add_tool(tool)
             self._builtin_tools[tool.name] = tool
+            self._builtin_domains[tool.name] = domain_title(handler.__module__)
             return tool
 
         return register
@@ -971,3 +973,7 @@ class ToolRegistry:
     def toolset_of(self, name: str) -> str | None:
         """The toolset a dynamic tool belongs to, if any (e.g. ``"slack"``)."""
         return self._dynamic_tool_toolsets.get(name)
+
+    def domain_of(self, name: str) -> str | None:
+        """The domain a built-in tool is declared in (e.g. ``"Git"``); ``None`` for any other."""
+        return self._builtin_domains.get(name)
