@@ -198,6 +198,15 @@ scheduled missions of people who lost it are paused.
 
 **Responses:** `200`
 
+### `GET /v1/me/default-agent`
+
+The agent the caller's new sessions start with when none is chosen, and which level
+chose it: their own, their team's (when they belong to exactly one team), the
+organization's, else none (the platform's). A level whose agent they may not use is
+skipped.
+
+**Responses:** `200`
+
 ### `GET /v1/subagents`
 
 List the organization's subagent roles (built-in defaults plus its overrides).
@@ -2444,7 +2453,7 @@ Create a new agent session with optional sandbox provisioning.
 | title | string | no | Session title or task name |
 | tenant_org_id | string | no | Organization ID |
 | tenant_user_id | string | no | User ID |
-| agent_id | string | no | Active custom agent persona ID |
+| agent_id | string | no | The session's agent; omitted, the caller's default agent (their own, their team's, the organization's) when one is set and usable |
 | model | string | no | Optional model override |
 | mode | `agent` / `direct` | no | 'direct' runs the first turn without an agent, on `model` with every tool |
 | initial_prompt | string | no | Initial prompt to ignite the first turn on creation |
@@ -3084,8 +3093,6 @@ Register a new Slack bot with its encrypted tokens and identity.
 | respond_in_dms | boolean | no |  |
 | listen_channels | list of string | no |  |
 | private_reaction | string | no |  |
-| private_dm_result | boolean | no |  |
-| private_dm_updates | boolean | no | Private requests: send questions, approvals, errors and the result by direct message, with a link to the thread |
 | router | object | no |  |
 | policy | object | no |  |
 | enabled | boolean | no |  |
@@ -3127,8 +3134,6 @@ Update a Slack bot's configuration or rotate its tokens.
 | respond_in_dms | boolean | no |  |
 | listen_channels | list of string | no |  |
 | private_reaction | string | no |  |
-| private_dm_result | boolean | no |  |
-| private_dm_updates | boolean | no |  |
 | router | object | no |  |
 | policy | object | no |  |
 | enabled | boolean | no |  |
@@ -3642,7 +3647,8 @@ while the template is blocked.
 
 ### `GET /v1/tools`
 
-The full tool catalog (name, description, category, toolset).
+The full tool catalog: each tool's name, description, group (its built-in domain or
+toolset), the approval it needs and whether it is a core tool.
 
 **Responses:** `200`
 

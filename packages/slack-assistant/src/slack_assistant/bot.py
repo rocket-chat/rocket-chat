@@ -167,13 +167,8 @@ class SlackBot:
     respond_in_dms: bool = True
     # Channels where the bot also reads messages that do not mention it (routing on each one).
     listen_channels: frozenset[str] = frozenset()
-    # Private mode: the reaction marking a request taken, and whether the result is also sent
-    # as a direct message (the ephemeral reply disappears when Slack is reloaded).
+    # Private mode: the reaction marking a request taken (its work runs in the requester's DMs).
     private_reaction: str = "white_check_mark"
-    private_dm_result: bool = False
-    # Private mode: questions, approvals, errors and the result go to the requester's DMs
-    # (with a link to the thread) instead of ephemeral messages a reload makes disappear.
-    private_dm_updates: bool = False
     # Overrides of the organization's Slack policy (the ``slack`` settings), key by key.
     policy: Mapping[str, Any] = field(default_factory=dict)
     command: str = DEFAULT_COMMAND

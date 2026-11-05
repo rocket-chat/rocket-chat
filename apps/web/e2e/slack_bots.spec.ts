@@ -29,11 +29,8 @@ test("administrator views slack bots, opens editor and configures routing", asyn
   await page.getByRole("tab", { name: "Behaviour" }).click();
   await page.getByTestId("bot-response-mode-select").selectOption("private");
   await expect(page.getByText("Acknowledgement Reaction")).toBeVisible();
-  // Private requests can report by direct message instead of messages a reload removes.
-  const dmUpdates = page.getByTestId("private-dm-updates");
-  await expect(dmUpdates).not.toBeChecked();
-  await dmUpdates.check();
-  await expect(dmUpdates).toBeChecked();
+  // Private requests run in the requester's direct messages: nothing to switch on.
+  await expect(page.getByText("thread of the requester's direct messages")).toBeVisible();
   // Thread replies without a mention: the classifier mode asks for its model.
   const followUps = page.getByTestId("bot-thread-follow-ups");
   await expect(followUps).toHaveValue("");

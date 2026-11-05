@@ -1631,7 +1631,7 @@
                 "type": "null"
               }
             ],
-            "description": "Active custom agent persona ID",
+            "description": "The session's agent; omitted, the caller's default agent (their own, their team's, the organization's) when one is set and usable",
             "title": "Agent Id"
           },
           "collaborators": {
@@ -2502,6 +2502,121 @@
           "duration_ms"
         ],
         "title": "CustomSkillTestResponse",
+        "type": "object"
+      },
+      "DefaultAgentLevel": {
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent; null: none applies (the platform's)",
+            "title": "Agent Id"
+          },
+          "agent_name": {
+            "default": "",
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "skipped": {
+            "description": "Levels whose agent the caller may not use",
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "source": {
+            "description": "member, team:<id>, org or platform",
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "source"
+        ],
+        "title": "DefaultAgentLevel",
+        "type": "object"
+      },
+      "DefaultAgentResponse": {
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent; null: none applies (the platform's)",
+            "title": "Agent Id"
+          },
+          "agent_name": {
+            "default": "",
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "inherited": {
+            "$ref": "#/components/schemas/DefaultAgentLevel",
+            "description": "What applies without the caller's own choice"
+          },
+          "locked": {
+            "default": false,
+            "description": "The organization locked its default",
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "own_agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The caller's own stored choice, usable or not",
+            "title": "Own Agent Id"
+          },
+          "skipped": {
+            "description": "Levels whose agent the caller may not use",
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped",
+            "type": "array"
+          },
+          "source": {
+            "description": "member, team:<id>, org or platform",
+            "title": "Source",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The caller's only team, whose default counts; else null",
+            "title": "Team Id"
+          }
+        },
+        "required": [
+          "agent_id",
+          "source",
+          "inherited"
+        ],
+        "title": "DefaultAgentResponse",
         "type": "object"
       },
       "DeliveryBody": {
@@ -7554,17 +7669,6 @@
             "title": "Policy",
             "type": "object"
           },
-          "private_dm_result": {
-            "default": false,
-            "title": "Private Dm Result",
-            "type": "boolean"
-          },
-          "private_dm_updates": {
-            "default": false,
-            "description": "Private requests: send questions, approvals, errors and the result by direct message, with a link to the thread",
-            "title": "Private Dm Updates",
-            "type": "boolean"
-          },
           "private_reaction": {
             "default": "white_check_mark",
             "title": "Private Reaction",
@@ -7720,17 +7824,6 @@
             "additionalProperties": true,
             "title": "Policy",
             "type": "object"
-          },
-          "private_dm_result": {
-            "default": false,
-            "title": "Private Dm Result",
-            "type": "boolean"
-          },
-          "private_dm_updates": {
-            "default": false,
-            "description": "Private requests: send questions, approvals, errors and the result by direct message, with a link to the thread",
-            "title": "Private Dm Updates",
-            "type": "boolean"
           },
           "private_reaction": {
             "default": "white_check_mark",
@@ -7891,28 +7984,6 @@
               }
             ],
             "title": "Policy"
-          },
-          "private_dm_result": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Private Dm Result"
-          },
-          "private_dm_updates": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Private Dm Updates"
           },
           "private_reaction": {
             "anyOf": [
@@ -9338,8 +9409,15 @@
       "ToolCatalogEntry": {
         "properties": {
           "category": {
+            "description": "The tool's group: its built-in domain (e.g. Git), toolset (e.g. Slack) or Other",
             "title": "Category",
             "type": "string"
+          },
+          "core": {
+            "default": false,
+            "description": "A core tool: sent with every step whenever the agent may use it",
+            "title": "Core",
+            "type": "boolean"
           },
           "description": {
             "title": "Description",
@@ -15044,6 +15122,28 @@
         "summary": "My Access",
         "tags": [
           "Organizations"
+        ]
+      }
+    },
+    "/v1/me/default-agent": {
+      "get": {
+        "description": "The agent the caller's new sessions start with when none is chosen, and which level\nchose it: their own, their team's (when they belong to exactly one team), the\norganization's, else none (the platform's). A level whose agent they may not use is\nskipped.",
+        "operationId": "my_default_agent_v1_me_default_agent_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefaultAgentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "My Default Agent",
+        "tags": [
+          "Agents"
         ]
       }
     },
@@ -21834,7 +21934,7 @@
     },
     "/v1/tools": {
       "get": {
-        "description": "The full tool catalog (name, description, category, toolset).",
+        "description": "The full tool catalog: each tool's name, description, group (its built-in domain or\ntoolset), the approval it needs and whether it is a core tool.",
         "operationId": "list_tools_v1_tools_get",
         "responses": {
           "200": {

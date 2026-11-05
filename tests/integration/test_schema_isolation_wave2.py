@@ -27,6 +27,7 @@ from api.db.models import (
     SessionModel,
     SessionSummaryModel,
     SlackBotModel,
+    SlackPrivateThreadModel,
     SlackRouteDecisionModel,
     SlackWorkspaceQuotaModel,
     SubagentTranscriptModel,
@@ -51,6 +52,8 @@ NEW_WAVE2_TABLES: tuple[str, ...] = (
     "subagent_transcripts",
     "slack_bots",
     "slack_route_decisions",
+    # Migration 066: a private DM thread names its session.
+    "slack_private_threads",
 )
 RLS_TABLES: tuple[str, ...] = ("sessions", *NEW_WAVE2_TABLES)
 
@@ -293,6 +296,18 @@ async def test_new_wave2_tables_deny_cross_tenant_reads(
             )
         )
         session.add(
+            SlackPrivateThreadModel(
+                org_id=org_a,
+                dm_channel_id="D_MAIN",
+                dm_thread_ts=f"1700000000.{suffix}",
+                session_id=session_a,
+                slack_user_id="U_MAIN",
+                origin_channel_id="C_MAIN",
+                origin_thread_ts="1700000000.1",
+                created_at=now,
+            )
+        )
+        session.add(
             SessionGoalModel(
                 id=f"goal_{suffix}",
                 session_id=session_a,
@@ -332,6 +347,7 @@ async def test_new_wave2_tables_deny_cross_tenant_reads(
         SlackWorkspaceQuotaModel,
         SlackBotModel,
         SlackRouteDecisionModel,
+        SlackPrivateThreadModel,
         SessionGoalModel,
         SubagentTranscriptModel,
     ):
@@ -402,3 +418,28 @@ async def test_session_messages_roundtrip_ordering_and_isolation(
 
     await store.delete(sess_a, org_a)
     assert await store.load(sess_a, org_a) == []
+
+
+@pytest.mark.asyncio
+async def test_a_private_dm_thread_finds_its_session_and_only_in_its_organization(
+    admin_manager: Any, app_manager: Any
+) -> None:
+    """A stop or a reply in a private DM thread finds its session on any replica; saving the
+    thread again replaces it, and another organization never reads it."""
+    from api.services.slack_private_threads import SqlPrivateThreads
+    from slack_assistant.private_threads import PrivateThread
+
+    await _grant_application_role(admin_manager)
+    await _ensure_wave2_rls(admin_manager)
+    tag = uuid.uuid4().hex[:8]
+    org_a, org_b = f"pt_org_a_{tag}", f"pt_org_b_{tag}"
+    await _seed_tenant(admin_manager, org_a, f"pt_user_a_{tag}", f"pt_sess_a_{tag}")
+    await _seed_tenant(admin_manager, org_b, f"pt_user_b_{tag}", f"pt_sess_b_{tag}")
+    store = SqlPrivateThreads(app_manager)
+    thread = PrivateThread("D1", f"200.{tag}", f"pt_sess_a_{tag}", "U1", "C1", "100.1", "group")
+
+    await store.remember(org_a, thread)
+    await store.remember(org_a, thread)
+
+    assert await store.find(org_a, "D1", f"200.{tag}") == thread
+    assert await store.find(org_b, "D1", f"200.{tag}") is None

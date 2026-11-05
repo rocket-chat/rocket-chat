@@ -92,7 +92,8 @@ class TurnView:
     stream: TurnStream | None = None
     link_url: str | None = None
     screenshots: list[str] = field(default_factory=list)
-    # Private response mode: every message goes to the requester alone (ephemeral).
+    # Private response mode: the turn is shown in the requester's DM thread (``channel_id`` and
+    # ``thread_ts`` are that thread's), and its answer can be shared in the channel thread.
     private: bool = False
     org_id: str = ""
     # The id this view's turn records its user message under: events before that message
@@ -388,7 +389,6 @@ class SlackTurnStreamMixin(SlackAssistantState):
             and content
             and len(content) <= ARTIFACT_UPLOAD_CHARS
             and self._slack_api_ready
-            and not view.private
             and await upload_file(
                 self.app.client,
                 channel_id=view.channel_id,
@@ -434,6 +434,8 @@ class SlackTurnStreamMixin(SlackAssistantState):
         turn's summary card; then a card for each pull request it opened."""
         outcome = view.outcome
         final_text = outcome.text or self._empty_answer(outcome)
+        if view.private:
+            await self._keep_private_answer(view.session_id, view.org_id, outcome.text.strip())
         use_files = org_policy.long_output_to_file and self._slack_api_ready
         footer: list[dict[str, Any]] | None = self._summary_blocks(view)
         stream = view.stream
@@ -503,7 +505,12 @@ class SlackTurnStreamMixin(SlackAssistantState):
             ),
             link_url=view.link_url,
             retry_value=view.session_id if failed and view.request_text else None,
+            share_value=view.session_id if view.private and not failed and outcome.text else None,
         )
+
+    async def _keep_private_answer(self, session_id: str, org_id: str, text: str) -> None:
+        """Hook: the assistant keeps a private answer for **Share in thread**."""
+        return None
 
     async def _post_pull_request_cards(self, view: TurnView) -> None:
         """Hook: the assistant posts a card per pull request the turn opened."""
