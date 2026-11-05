@@ -46,6 +46,7 @@ from api.services.slack_link import (
     slack_guest_id,
     workspace_org,
 )
+from api.services.slack_private_threads import SqlPrivateThreads
 from api.services.slack_routing import classify_follow_up, classify_slack_message
 from api.services.waits import WaitStoreProtocol, get_wait_store, settle_waits
 from api.turns.context import TurnSelection
@@ -271,6 +272,9 @@ def _build_assistant(
         classify_fn=classify_fn,
         follow_up_fn=callbacks.classify_follow_up,
         stop_session_fn=callbacks.stop_session,
+        private_thread_store=(
+            SqlPrivateThreads(core.db_manager) if core.db_manager is not None else None
+        ),
     )
 
 
@@ -453,12 +457,12 @@ class _SlackCallbacks:
         """Run a Slack message through the same guarded turn the web cockpit uses. A shortcut's
         effort and agent are the turn's choices, resolved and checked like the web app's."""
         core = self._core
+        if not agent_id and not overlay.default_agent_id:
+            overlay = await self._with_member_default(session_id, overlay, author_user_id)
         await run_guarded_turn(
             session_id=session_id,
             prompt=prompt,
             message_id=message_id,
-        if not agent_id and not overlay.default_agent_id:
-            overlay = await self._with_member_default(session_id, overlay, author_user_id)
             orchestrator=core.orchestrator,
             event_bus=core.event_bus,
             driver=core.sandbox_driver,
@@ -475,10 +479,6 @@ class _SlackCallbacks:
             selection=TurnSelection(agent_id=agent_id) if agent_id else None,
         )
 
-    async def answer_stored_question(
-        self, session_id: str, question_id: str, options: list[str], text: str | None
-    ) -> str | None:
-        """Continue a Slack thread whose turn died while it waited for an answer."""
     async def _with_member_default(
         self, session_id: str, overlay: TurnOverlay, requester_id: str
     ) -> TurnOverlay:
@@ -493,6 +493,10 @@ class _SlackCallbacks:
         )
         return replace(overlay, default_agent_id=choice.agent_id) if choice.agent_id else overlay
 
+    async def answer_stored_question(
+        self, session_id: str, question_id: str, options: list[str], text: str | None
+    ) -> str | None:
+        """Continue a Slack thread whose turn died while it waited for an answer."""
         core = self._core
         record = await core.session_store.get_session(session_id)
         if record is None:

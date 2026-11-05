@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent_core.tools.registry import ToolRegistry
 from slack_bolt.adapter.socket_mode.async_handler import AsyncSocketModeHandler
@@ -27,6 +27,9 @@ from specifications.interfaces.agent import AgentOrchestratorProtocol
 from specifications.interfaces.events import EventBusProtocol
 from specifications.interfaces.sandbox import SandboxDriverProtocol
 from specifications.interfaces.session import SessionStoreProtocol
+
+if TYPE_CHECKING:
+    from slack_assistant.private_threads import PrivateThread
 
 RunTurnFn = Callable[..., Awaitable[None]]
 HoldMessageFn = Callable[..., Awaitable[bool]]
@@ -124,6 +127,12 @@ class SlackAssistantState:
     def _web_base(self, org_policy: SlackOrgPolicy) -> str:
         raise NotImplementedError
 
+    # Implemented by the private threads mixin; declared so the gates can call it.
+    async def _private_thread_at(
+        self, channel_id: str, thread_ts: str, team_id: str
+    ) -> PrivateThread | None:
+        raise NotImplementedError
+
     # Implemented by the toolset mixin; declared so the directory tools can call them.
     def _current_slack_context(self) -> tuple[str, str] | None:
         raise NotImplementedError
@@ -148,6 +157,7 @@ class SlackAssistantState:
         ephemeral_fn: Callable[..., Any] | None = None,
         message_ts: str | None = None,
         session_thread_ts: str | None = None,
+        private_thread: PrivateThread | None = None,
     ) -> None:
         raise NotImplementedError
 

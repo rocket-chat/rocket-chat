@@ -1236,8 +1236,6 @@ class SlackBotModel(Base):
     private_reaction: Mapped[str] = mapped_column(
         String(64), nullable=False, default="white_check_mark"
     )
-    private_dm_result: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    private_dm_updates: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # The router (classifier agent, routes, dismiss, fallback); NULL answers with ``agent_id``.
     router: Mapped[dict[str, Any] | None] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=True
@@ -1249,6 +1247,28 @@ class SlackBotModel(Base):
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class SlackPrivateThreadModel(Base):
+    """The private session a thread of a requester's direct messages runs.
+
+    A stop or a reply in that thread carries only the DM channel and thread, so this row names
+    the session (and the channel thread it was asked in). Protected by RLS.
+    """
+
+    __tablename__ = "slack_private_threads"
+
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True
+    )
+    dm_channel_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    dm_thread_ts: Mapped[str] = mapped_column(String(64), primary_key=True)
+    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    slack_user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    origin_channel_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    origin_thread_ts: Mapped[str] = mapped_column(String(64), nullable=False)
+    origin_channel_type: Mapped[str] = mapped_column(String(20), nullable=False, default="channel")
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 class SlackRouteDecisionModel(Base):

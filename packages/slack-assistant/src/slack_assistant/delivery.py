@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from slack_assistant.policy import SlackOrgPolicy
+from slack_assistant.private_threads import PrivateThread
 from slack_assistant.refusals import failure_notice
 from slack_assistant.turn_stream import SlackTurnStreamMixin, TurnOutcome, TurnView
 from specifications.interfaces.agent import TurnOverlay
@@ -62,7 +63,22 @@ class SlackDeliveryMixin(SlackTurnStreamMixin):
     def _session_link(self, org_policy: SlackOrgPolicy, session_id: str) -> str | None:
         raise NotImplementedError
 
-    def _ephemeral_say(self, channel_id: str, user_id: str) -> Callable[..., Awaitable[Any]]:
+    async def _private_thread_for(
+        self,
+        *,
+        session_id: str,
+        org_id: str,
+        origin_channel_id: str,
+        origin_thread_ts: str,
+        origin_channel_type: str,
+        user_id: str,
+        request_text: str,
+        request_ts: str,
+        announce: bool,
+    ) -> PrivateThread | None:
+        raise NotImplementedError
+
+    def _private_thread_say(self, thread: PrivateThread) -> Callable[..., Awaitable[Any]]:
         raise NotImplementedError
 
     # -- a turn a Slack request starts -------------------------------------------------------
@@ -234,7 +250,7 @@ class SlackDeliveryMixin(SlackTurnStreamMixin):
     # -- turns no Slack request is waiting on ------------------------------------------------
 
     async def _thread_view(self, session_id: str, org_id: str) -> TurnView | None:
-        """A view posting into the session's stored thread (privately for a private request)."""
+        """A view posting into the session's stored thread: a private session's DM thread."""
         if self.session_store is None or not self._slack_api_ready:
             return None
         try:
@@ -252,7 +268,24 @@ class SlackDeliveryMixin(SlackTurnStreamMixin):
         requester = (
             str(metadata.get("slack_turn_requester") or metadata.get("slack_user_id") or "") or None
         )
-        private = bool(metadata.get("slack_private")) and requester is not None
+        private = None
+        if metadata.get("slack_private"):
+            request = metadata.get("slack_last_request")
+            request = request if isinstance(request, dict) else {}
+            # A private session from before DM threads gets one now, for this turn.
+            private = await self._private_thread_for(
+                session_id=session_id,
+                org_id=org_id or (record.tenant_org_id if record else ""),
+                origin_channel_id=channel_id,
+                origin_thread_ts=thread_ts,
+                origin_channel_type="channel",
+                user_id=str(metadata.get("slack_user_id") or ""),
+                request_text=str(request.get("text") or ""),
+                request_ts=str(request.get("ts") or ""),
+                announce=False,
+            )
+            if private is None:
+                return None
         client = self.app.client
 
         async def in_thread(**kwargs: Any) -> Any:
@@ -260,13 +293,13 @@ class SlackDeliveryMixin(SlackTurnStreamMixin):
 
         return TurnView(
             session_id=session_id,
-            channel_id=channel_id,
-            thread_ts=thread_ts,
-            requester_slack_id=requester,
-            say_fn=self._ephemeral_say(channel_id, requester or "") if private else in_thread,
+            channel_id=private.dm_channel_id if private else channel_id,
+            thread_ts=private.dm_thread_ts if private else thread_ts,
+            requester_slack_id=private.slack_user_id if private else requester,
+            say_fn=self._private_thread_say(private) if private else in_thread,
             status_fn=None,
             outcome=TurnOutcome(),
-            private=private,
+            private=private is not None,
             org_id=org_id or (record.tenant_org_id if record else ""),
             own_turn_started=True,
         )

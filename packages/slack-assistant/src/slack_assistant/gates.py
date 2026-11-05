@@ -288,13 +288,17 @@ class SlackGatesMixin(SlackAssistantState):
 
         Only the person who asked stops the turn; the turn then ends saying who stopped it.
         Slack leaves the session "processing" until the app moves it, so with nothing to stop
-        (or a stranger's click) the session is set back to what it really is.
+        (or a stranger's click) the session is set back to what it really is. In a private DM
+        thread the button stops the private session that thread runs.
         """
         channel, thread_ts = str(event.get("channel", "")), str(event.get("thread_ts", ""))
         clicker = str(event.get("user", ""))
-        self._bind_tenant(await self._workspace_org(str(body.get("team_id") or self.team_id or "")))
+        team = str(body.get("team_id") or self.team_id or "")
+        private = await self._private_thread_at(channel, thread_ts, team)
+        self._bind_tenant(await self._workspace_org(team))
         running = False
         for session_id in (
+            *((private.session_id,) if private is not None else ()),
             self.get_session_id(channel, thread_ts, private_for=clicker),
             self.get_session_id(channel, thread_ts),
         ):

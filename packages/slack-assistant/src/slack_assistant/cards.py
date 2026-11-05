@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 RETRY_ACTION_ID = "retry_request"
+SHARE_ACTION_ID = "share_private_answer"
 # Retired: the suggested-next-step button of earlier answers.
 FOLLOWUP_ACTION_ID = "run_followup"
 OPEN_SESSION_ACTION_ID = "open_session"
@@ -143,8 +144,10 @@ def build_summary_card(
     *,
     link_url: str | None,
     retry_value: str | None = None,
+    share_value: str | None = None,
 ) -> list[dict[str, Any]]:
-    """One context line (status · time · changes · cost · PR) and the session's buttons."""
+    """One context line (status · time · changes · cost · PR) and the session's buttons;
+    ``share_value`` (a private answer's session) adds **Share in thread**."""
     label = _STATUS_LABELS.get(summary.status, summary.status)
     if summary.elapsed_seconds is None:
         parts = [label]
@@ -174,6 +177,15 @@ def build_summary_card(
                 "text": {"type": "plain_text", "text": "Retry"},
                 "action_id": RETRY_ACTION_ID,
                 "value": retry_value[:_VALUE_CHARS],
+            }
+        )
+    if share_value:
+        buttons.append(
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "Share in thread"},
+                "action_id": SHARE_ACTION_ID,
+                "value": share_value[:_VALUE_CHARS],
             }
         )
     if buttons:

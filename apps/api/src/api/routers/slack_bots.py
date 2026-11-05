@@ -56,12 +56,6 @@ class SlackBotResponse(BaseModel):
     respond_in_dms: bool = True
     listen_channels: list[str] = Field(default_factory=list)
     private_reaction: str = "white_check_mark"
-    private_dm_result: bool = False
-    private_dm_updates: bool = Field(
-        False,
-        description="Private requests: send questions, approvals, errors and the result by "
-        "direct message, with a link to the thread",
-    )
     router: dict[str, Any] | None = None
     policy: dict[str, Any] = Field(default_factory=dict)
     created_at: int
@@ -80,12 +74,6 @@ class SlackBotCreateRequest(BaseModel):
     respond_in_dms: bool = True
     listen_channels: list[str] = Field(default_factory=list)
     private_reaction: str = "white_check_mark"
-    private_dm_result: bool = False
-    private_dm_updates: bool = Field(
-        False,
-        description="Private requests: send questions, approvals, errors and the result by "
-        "direct message, with a link to the thread",
-    )
     router: dict[str, Any] | None = None
     policy: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
@@ -103,8 +91,6 @@ class SlackBotUpdateRequest(BaseModel):
     respond_in_dms: bool | None = None
     listen_channels: list[str] | None = None
     private_reaction: str | None = None
-    private_dm_result: bool | None = None
-    private_dm_updates: bool | None = None
     router: dict[str, Any] | None = None
     policy: dict[str, Any] | None = None
     enabled: bool | None = None
@@ -183,8 +169,6 @@ def _as_response(record: SlackBotRecord) -> SlackBotResponse:
         respond_in_dms=record.respond_in_dms,
         listen_channels=record.listen_channels,
         private_reaction=record.private_reaction,
-        private_dm_result=record.private_dm_result,
-        private_dm_updates=record.private_dm_updates,
         router=record.router,
         policy=record.policy,
         created_at=record.created_at,
@@ -245,8 +229,6 @@ async def create_bot(body: SlackBotCreateRequest, request: Request) -> SlackBotR
         respond_in_dms=body.respond_in_dms,
         listen_channels=body.listen_channels,
         private_reaction=body.private_reaction,
-        private_dm_result=body.private_dm_result,
-        private_dm_updates=body.private_dm_updates,
         router=body.router,
         policy=body.policy,
         created_by=admin_id,
