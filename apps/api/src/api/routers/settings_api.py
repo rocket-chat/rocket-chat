@@ -21,6 +21,7 @@ from api.models import (
 from api.services.audit import (
     AuditService,
 )
+from api.services.default_agent import default_agent_errors
 from api.services.settings import (
     delete_user_config,
     load_org_config,
@@ -108,11 +109,23 @@ async def update_user_domain_settings(
         raise _settings_validation_error(checked.errors)
 
     db_mgr = getattr(request.app.state, "db_manager", None)
+    current = await load_user_config(db_mgr, org_id, user_id, domain)
+    references = await default_agent_errors(
+        db_mgr,
+        org_id,
+        user_id,
+        roles,
+        domain=domain,
+        writer="member",
+        values=checked.values,
+        stored=current,
+    )
+    if references:
+        raise _settings_validation_error(references)
     _, locked_keys = await load_org_config(db_mgr, org_id, domain)
     allowed, rejected = _settings_resolver.filter_valid_user_overrides(
         domain, checked.values, locked_keys
     )
-    current = await load_user_config(db_mgr, org_id, user_id, domain)
     current.update(allowed)
     await save_user_config(db_mgr, org_id, user_id, domain, current)
     await AuditService(db_mgr).record(
@@ -189,14 +202,25 @@ async def update_org_admin_settings(
     request: Request,
 ) -> dict[str, Any]:
     """Replace the organization's defaults and locked keys for a domain (admin only)."""
-    org_id, admin_user, _ = _require_admin(request)
+    org_id, admin_user, roles = _require_admin(request)
     _require_known_domain(domain)
     checked = validate_setting(domain, body.config, writer="org")
-    errors = [*checked.errors, *validate_locked_keys(domain, body.locked_keys)]
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    stored, _ = await load_org_config(db_mgr, org_id, domain)
+    references = await default_agent_errors(
+        db_mgr,
+        org_id,
+        admin_user,
+        roles,
+        domain=domain,
+        writer="org",
+        values=checked.values,
+        stored=stored,
+    )
+    errors = [*checked.errors, *validate_locked_keys(domain, body.locked_keys), *references]
     if errors:
         raise _settings_validation_error(errors)
 
-    db_mgr = getattr(request.app.state, "db_manager", None)
     await save_org_config(db_mgr, org_id, domain, checked.values, body.locked_keys)
     # Settings-mutation audit: keep the admin change (keys only, not values)
     # for the "who changed what policy, when" question.

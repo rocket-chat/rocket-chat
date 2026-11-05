@@ -3,6 +3,7 @@
 import React from "react";
 import { SchemaSettingsForm, type CustomControl } from "../../../../components/settings/SchemaSettingsForm";
 import { RememberedApprovalsPanel } from "../../../../components/settings/RememberedApprovalsPanel";
+import { DefaultAgentPanel } from "../../../../components/settings/DefaultAgentPanel";
 import { SettingsPage } from "../../../../components/settings/SettingsPage";
 import { ThemeToggle } from "../../../../components/Theme/ThemeToggle";
 import { ModelPicker } from "../../../../components/ui/ModelPicker";
@@ -25,8 +26,9 @@ export default function Page() {
     <SettingsPage
       section="Personal"
       title="Preferences"
-      description="Your model, how much the agent waits for you, notifications and appearance."
+      description="Your default agent and model, how much the agent waits for you, notifications and appearance."
     >
+      <DefaultAgentPanel />
       <SchemaSettingsForm
         domain="user_preferences"
         mode="user"

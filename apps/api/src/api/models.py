@@ -110,7 +110,11 @@ class CreateSessionRequest(BaseModel):
     title: str = Field(default="New Session", description="Session title or task name")
     tenant_org_id: str = Field(default="default_org", description="Organization ID")
     tenant_user_id: str = Field(default="dev_user", description="User ID")
-    agent_id: str | None = Field(default=None, description="Active custom agent persona ID")
+    agent_id: str | None = Field(
+        default=None,
+        description="The session's agent; omitted, the caller's default agent (their own, their "
+        "team's, the organization's) when one is set and usable",
+    )
     model: str | None = Field(default=None, description="Optional model override")
     mode: Literal["agent", "direct"] = Field(
         default="agent",

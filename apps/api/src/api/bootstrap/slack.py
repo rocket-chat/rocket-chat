@@ -8,7 +8,7 @@ import json
 import logging
 import os
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from agent_core.context import current_execution_ctx
@@ -27,6 +27,7 @@ from api.services.audit import AuditService
 from api.services.budgets import BudgetService
 from api.services.cluster import LeaderElection
 from api.services.decision_answer import decision_answer_prompt
+from api.services.default_agent import resolve_default_agent
 from api.services.memberships import member_display_name
 from api.services.personas import list_personas
 from api.services.queued_messages import QueuedMessageStore, hold_for_running_turn
@@ -456,6 +457,8 @@ class _SlackCallbacks:
             session_id=session_id,
             prompt=prompt,
             message_id=message_id,
+        if not agent_id and not overlay.default_agent_id:
+            overlay = await self._with_member_default(session_id, overlay, author_user_id)
             orchestrator=core.orchestrator,
             event_bus=core.event_bus,
             driver=core.sandbox_driver,
@@ -476,6 +479,20 @@ class _SlackCallbacks:
         self, session_id: str, question_id: str, options: list[str], text: str | None
     ) -> str | None:
         """Continue a Slack thread whose turn died while it waited for an answer."""
+    async def _with_member_default(
+        self, session_id: str, overlay: TurnOverlay, requester_id: str
+    ) -> TurnOverlay:
+        """A direct message to a bot without an agent (of its own, or routed) runs the
+        requester's default agent (``default_agent``), unless the session already has one."""
+        record = await self._core.session_store.get_session(session_id, include_history=False)
+        metadata = record.metadata if record is not None else {}
+        if record is None or not metadata.get("slack_is_dm") or metadata.get("agent_id"):
+            return overlay
+        choice = await resolve_default_agent(
+            self._core.db_manager, record.tenant_org_id, requester_id
+        )
+        return replace(overlay, default_agent_id=choice.agent_id) if choice.agent_id else overlay
+
         core = self._core
         record = await core.session_store.get_session(session_id)
         if record is None:

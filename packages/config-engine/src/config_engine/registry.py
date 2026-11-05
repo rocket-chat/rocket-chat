@@ -124,6 +124,7 @@ _TURN_RUNNER = "apps/api/src/api/turns/runner.py"
 _CAPABILITIES = "apps/api/src/api/auth/capabilities.py"
 _MODEL_DEFAULTS = "apps/api/src/api/services/model_defaults.py"
 _MEMORY = "apps/api/src/api/services/memory.py"
+_DEFAULT_AGENT = "apps/api/src/api/services/default_agent.py"
 
 # The roles a member can hold, highest first (``api.auth.capabilities``).
 ROLES = ("owner", "admin", "member", "viewer")
@@ -1213,6 +1214,20 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "wiping the workspace), bypass (nothing waits). The organization sets the default and "
             "can lock it; otherwise members and sessions choose.",
             choices=("plan", "ask", "auto_edit", "auto", "bypass"),
+        ),
+        _spec(
+            "default_agent",
+            "str",
+            # Empty: no preference, so the level above decides (see ``preferred_model``).
+            "",
+            "org_default",
+            _DEFAULT_AGENT,
+            "The agent new sessions start with when none is chosen: the cockpit's new-session "
+            "picker, a session created through the API without an agent, and a Slack direct "
+            "message to a bot without an agent of its own. A member's own choice wins, then their "
+            "team's (only for a member of exactly one team), then the organization's; one that "
+            "points at an agent the member may not use is skipped.",
+            label="Default agent",
         ),
         _spec(
             "full_name",

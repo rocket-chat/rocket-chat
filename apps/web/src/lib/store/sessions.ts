@@ -6,7 +6,7 @@ import type {
   PermissionMode,
   SessionData,
 } from "../../types/mission";
-import { convertHistoryToFlightLogs } from "./helpers";
+import { convertHistoryToFlightLogs, usableDefaultAgent } from "./helpers";
 import type { MissionStore, SessionsSlice } from "./types";
 
 // Listing requests overlap (switching scope or the archived view while a CLEAR re-lists): only
@@ -361,7 +361,9 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
     }
   },
   initDraftSession: () => {
-    const active = get().activeAgent;
+    // A new session starts with the member's default agent when one applies, else the last one.
+    const preferred = usableDefaultAgent(get().availableAgents, get().defaultAgentId);
+    const active = preferred ?? get().activeAgent;
     const draft: SessionData = {
       session_id: "draft",
       title: "New Conversation",
@@ -373,6 +375,8 @@ export const createSessionsSlice: StateCreator<MissionStore, [], [], SessionsSli
     };
     set({
       session: draft,
+      activeAgent: active,
+      ...(preferred ? { selectedModel: preferred.model || get().selectedModel } : {}),
       hydratedSessionId: null,
       artifacts: [],
       selectedArtifactId: null,

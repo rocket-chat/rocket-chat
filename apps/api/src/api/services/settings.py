@@ -13,7 +13,7 @@ import logging
 import os
 import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 from config_engine import CascadingSettingsResolver, Preset, Resolved, ResolvedSettings
@@ -259,9 +259,10 @@ async def resolve_settings(
     user_id: str | None = None,
     presets: Sequence[Preset] = (),
     team_id: str | None = None,
+    accept: Mapping[str, Callable[[Any], bool]] | None = None,
 ) -> ResolvedSettings:
     """Each key by its policy: platform -> instance -> organization -> team (in a team's
-    context) -> member -> presets."""
+    context) -> member -> presets; a candidate ``accept`` refuses for its key is skipped."""
     org_config, locked = await load_org_config(db_mgr, org_id, domain)
     team_config = await load_team_config(db_mgr, org_id, team_id, domain) if team_id else {}
     org_config = await _with_legacy_keys(db_mgr, org_id, domain, org_config)
@@ -283,6 +284,7 @@ async def resolve_settings(
         presets=presets,
         team_config=team_config,
         team_source=f"team:{team_id}",
+        accept=accept,
     )
 
 
@@ -295,10 +297,13 @@ async def resolve_setting(
     user_id: str | None = None,
     presets: Sequence[Preset] = (),
     team_id: str | None = None,
+    accept: Callable[[Any], bool] | None = None,
 ) -> Resolved:
     """One key's value and provenance, with the session's presets (agent, bot, session choice)
-    and, in a team's context, the team's defaults."""
-    resolved = await resolve_settings(db_mgr, org_id, domain, user_id, presets, team_id)
+    and, in a team's context, the team's defaults. ``accept`` refuses candidates of this key."""
+    resolved = await resolve_settings(
+        db_mgr, org_id, domain, user_id, presets, team_id, {key: accept} if accept else None
+    )
     if key not in resolved.provenance:
         raise UndeclaredSettingError(f"{domain}.{key} is not declared in the settings registry")
     return resolved.provenance[key]

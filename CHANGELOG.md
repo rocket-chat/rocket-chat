@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `api`, `web`: **Default agent** at three levels, each unset to follow the one above: a member's own (*Preferences*), their team's (the team's defaults, for a member of exactly one team) and the organization's (*Organization → Member defaults*, lockable). It is the setting `user_preferences.default_agent`; `GET /v1/me/default-agent` says which agent applies and where it comes from. New sessions in the cockpit start with it, `POST /v1/sessions` without `agent_id` uses it, and a Slack direct message to a bot without an agent of its own runs it. A level whose agent the member may no longer use is skipped, never an error; saving a default that names an agent the writer cannot see, or a personal agent as a team's or the organization's, is refused (422).
 - `orchestrator`:
 - `sandboxes`:
 - `api`: **Teams** inside an organization (`/v1/teams`, `teams` and `team_memberships` with forced row-level security, migration `061_teams`). Organization administrators create and delete teams; a team's administrators rename it and manage its members (`admin` or `member`). Agents, skills, MCP servers and knowledge bases can be owned by a team (`scope: "team"`, `team_id`): its members use them, its administrators change them. Re-saving an object with another owner moves it, which needs the right to manage both owners; a team that still owns objects cannot be deleted. Organization agents can be granted to a team. Team changes and moves are audited (`team.*`).

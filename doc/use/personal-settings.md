@@ -26,6 +26,7 @@ An administrator invites you with a link for your e-mail address. Open it, sign 
 
 ## Preferences
 
+* **Default agent.** The agent your new sessions start with: the one preselected when you open a new session, the agent of a session created through the API without one, and the agent of your direct messages with a Slack bot that has no agent of its own. Until you pick one you follow your team's default (only when you belong to exactly one team), else the organization's; the field says which applies and where it comes from. A default naming an agent you can no longer use (deleted, disabled, moved, or no longer granted to you) is skipped and the page says so; it never stops a session from starting.
 * **Preferred model.** The model your sessions use unless the agent or the organization decides otherwise.
 * **Default permission mode.** How closely the agent is supervised when you do not pick a mode for a session (*Read-only*, *Ask first*, *Auto-edit*, *Auto*, *No approvals*). *No approvals* needs the `use_bypass_mode` capability. See [How sessions work](/use/sessions#supervision).
 * **Suggest next prompts.** The ghost text in the composer that you accept with **Tab**; turn it off if it distracts you. It appears only when the answer leads to a clear next message (your answer to a question the agent asked, a step it said remains, a choice it offered), in the language you write in; otherwise there is none.
