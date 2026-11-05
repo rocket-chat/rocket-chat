@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from api.auth.access import _get_request_identity
 from api.auth.access import _require_admin as require_admin
 from api.services.audit import AuditService
+from api.services.default_agent import default_agent_errors
 from api.services.memberships import members
 from api.services.settings import (
     load_org_config,
@@ -323,8 +324,19 @@ async def put_team_settings(
     db_mgr = _database(request)
     checked = validate_setting(domain, body.config, writer="team")
     _, locked = await load_org_config(db_mgr, org_id, domain)
+    _, _, roles = _get_request_identity(request)
+    references = await default_agent_errors(
+        db_mgr,
+        org_id,
+        viewer.user_id,
+        roles,
+        domain=domain,
+        writer="team",
+        values=checked.values,
+        stored=await load_team_config(db_mgr, org_id, team_id, domain),
+    )
     errors = [
-        *(f"{e.key}: {e.message}" for e in checked.errors),
+        *(f"{e.key}: {e.message}" for e in [*checked.errors, *references]),
         *(f"{key}: locked by the organization" for key in body.config if key in locked),
     ]
     if errors:

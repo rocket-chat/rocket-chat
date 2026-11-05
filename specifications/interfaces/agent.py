@@ -666,6 +666,27 @@ class TurnOverlay:
 
 
 @dataclass(frozen=True)
+class DefaultAgentChoice:
+    """The agent a member's sessions start with when none is chosen (the setting
+    ``user_preferences.default_agent``), and which level chose it.
+
+    Levels, highest first: the member's own (``member``), their team's when they belong to
+    exactly one (``team:<id>``), the organization's (``org``); ``platform`` when none applies
+    (``agent_id`` is then ``None`` and the transport keeps its own default). A level whose
+    agent the member may not use (deleted, disabled, moved, not granted) is skipped and named
+    in ``skipped``.
+    """
+
+    agent_id: str | None
+    source: str
+    skipped: tuple[str, ...] = ()
+    # The member's only team (the team level applies), else None.
+    team_id: str | None = None
+    # The organization locked the key: no member or team value applies.
+    locked: bool = False
+
+
+@dataclass(frozen=True)
 class ReasoningPolicy:
     """Reasoning effort or thinking budget configuration for frontier models."""
 

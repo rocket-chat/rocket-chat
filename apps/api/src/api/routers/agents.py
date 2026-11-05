@@ -1,6 +1,7 @@
 """Agent personas and organization subagent roles."""
 
 import logging
+from typing import Any
 
 from agent_core.subagents import DEFAULT_SUBAGENT_CONFIGS
 from fastapi import (
@@ -28,6 +29,11 @@ from api.services.agent_access import (
     templates_blocked_by,
 )
 from api.services.audit import AuditService
+from api.services.default_agent import (
+    DEFAULT_AGENT_DOMAIN,
+    DEFAULT_AGENT_KEY,
+    resolve_default_agent,
+)
 from api.services.ownership import request_viewer
 from api.services.persona_lint import PersonaWarning, lint_persona
 from api.services.personas import (
@@ -39,6 +45,7 @@ from api.services.personas import (
     stored_bindings,
 )
 from api.services.session_templates import template_store
+from api.services.settings import load_user_config
 from api.services.subagents import (
     ROLE_ID_PATTERN,
     delete_subagent_config,
@@ -47,6 +54,7 @@ from api.services.subagents import (
 )
 from api.services.teams import list_teams
 from api.services.turn_limits import organization_max_turns
+from specifications.interfaces.agent import DefaultAgentChoice
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1", tags=["Agents"])
@@ -59,6 +67,64 @@ async def list_agents(request: Request) -> list[AgentPersonaModel]:
     org_id, user_id, roles = _get_request_identity(request)
     return await list_personas(
         getattr(request.app.state, "db_manager", None), org_id, user_id, roles
+    )
+
+
+class DefaultAgentLevel(BaseModel):
+    agent_id: str | None = Field(description="The agent; null: none applies (the platform's)")
+    agent_name: str = ""
+    source: str = Field(description="member, team:<id>, org or platform")
+    skipped: list[str] = Field(
+        default_factory=list, description="Levels whose agent the caller may not use"
+    )
+
+
+class DefaultAgentResponse(DefaultAgentLevel):
+    team_id: str | None = Field(
+        default=None, description="The caller's only team, whose default counts; else null"
+    )
+    locked: bool = Field(default=False, description="The organization locked its default")
+    own_agent_id: str | None = Field(
+        default=None, description="The caller's own stored choice, usable or not"
+    )
+    inherited: DefaultAgentLevel = Field(description="What applies without the caller's own choice")
+
+
+async def _level(
+    db_mgr: Any, org_id: str, user_id: str, choice: DefaultAgentChoice
+) -> DefaultAgentLevel:
+    name = ""
+    if choice.agent_id:
+        agent = await get_persona(db_mgr, org_id, user_id, choice.agent_id, enforce_access=False)
+        name = agent.name if agent is not None else ""
+    return DefaultAgentLevel(
+        agent_id=choice.agent_id,
+        agent_name=name,
+        source=choice.source,
+        skipped=list(choice.skipped),
+    )
+
+
+@router.get("/me/default-agent", response_model=DefaultAgentResponse)
+async def my_default_agent(request: Request) -> DefaultAgentResponse:
+    """The agent the caller's new sessions start with when none is chosen, and which level
+    chose it: their own, their team's (when they belong to exactly one team), the
+    organization's, else none (the platform's). A level whose agent they may not use is
+    skipped."""
+    org_id, user_id, roles = _get_request_identity(request)
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    choice = await resolve_default_agent(db_mgr, org_id, user_id, roles)
+    inherited = await resolve_default_agent(db_mgr, org_id, user_id, roles, include_member=False)
+    own = (await load_user_config(db_mgr, org_id, user_id, DEFAULT_AGENT_DOMAIN)).get(
+        DEFAULT_AGENT_KEY
+    )
+    level = await _level(db_mgr, org_id, user_id, choice)
+    return DefaultAgentResponse(
+        **level.model_dump(),
+        team_id=choice.team_id,
+        locked=choice.locked,
+        own_agent_id=str(own) if own else None,
+        inherited=await _level(db_mgr, org_id, user_id, inherited),
     )
 
 

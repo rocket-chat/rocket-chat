@@ -4,7 +4,8 @@ import type {
   PermissionMode,
   SessionData,
 } from "../../types/mission";
-import { DEFAULT_AGENTS } from "./helpers";
+import { fetchDefaultAgent } from "../default-agent";
+import { DEFAULT_AGENTS, usableDefaultAgent } from "./helpers";
 import type { MissionStore, AgentsSlice } from "./types";
 
 export const createAgentsSlice: StateCreator<MissionStore, [], [], AgentsSlice> = (set, get) => ({
@@ -17,6 +18,7 @@ export const createAgentsSlice: StateCreator<MissionStore, [], [], AgentsSlice> 
     try { return localStorage.getItem("rocket_selected_sandbox_id") || ""; } catch { return ""; }
   })(),
   modelsLoaded: false,
+  defaultAgentId: "",
   availableModels: [
     { id: "openrouter/deepseek/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", context_window: 1048576, provider: "DeepSeek" },
     { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet", context_window: 200000, provider: "Anthropic" },
@@ -122,21 +124,32 @@ export const createAgentsSlice: StateCreator<MissionStore, [], [], AgentsSlice> 
   },
   fetchAgents: async () => {
     try {
-      const res = await fetch("/v1/agents", {
-        signal: AbortSignal.timeout(5000),
-      });
+      const [res, defaultAgent] = await Promise.all([
+        fetch("/v1/agents", { signal: AbortSignal.timeout(5000) }),
+        fetchDefaultAgent(AbortSignal.timeout(5000)),
+      ]);
+      const knownDefault = get().defaultAgentId;
+      const defaultAgentId = defaultAgent?.agent_id ?? "";
+      set({ defaultAgentId });
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
           set({ availableAgents: data });
           // The open session's agent wins: it may have been restored before the list arrived,
-          // when only the defaults were known.
+          // when only the defaults were known. A new session opened before the member's default
+          // was known takes it now; one whose agent was already picked keeps that choice.
           const session = get().session;
+          const freshDefault =
+            session?.is_draft && defaultAgentId !== knownDefault ? usableDefaultAgent(data, defaultAgentId) : undefined;
           const wanted =
-            session?.agent_id || (session?.metadata?.agent_id as string | undefined) || get().activeAgent.id;
+            freshDefault?.id ||
+            session?.agent_id ||
+            (session?.metadata?.agent_id as string | undefined) ||
+            get().activeAgent.id;
           const matching = data.find((a: AgentPersonaConfig) => a.id === wanted && a.enabled !== false);
           if (matching) {
-            set({ activeAgent: matching });
+            const draft = get().session;
+            set({ activeAgent: matching, ...(draft?.is_draft ? { session: { ...draft, agent_id: matching.id } } : {}) });
           } else {
             const firstActive = data.find((a: AgentPersonaConfig) => a.enabled !== false);
             if (firstActive) {

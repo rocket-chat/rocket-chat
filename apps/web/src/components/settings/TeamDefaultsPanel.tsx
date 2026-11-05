@@ -4,12 +4,16 @@ import React, { useEffect, useState } from "react";
 import { SlidersHorizontal } from "lucide-react";
 import { Field, Select } from "../ui/Field";
 import { SchemaSettingsForm } from "./SchemaSettingsForm";
+import { defaultAgentControl } from "./DefaultAgentPicker";
 import { humanize } from "../../lib/settings-labels";
 import type { Team } from "../../lib/teams";
 
 interface SchemaField {
   policy: string;
 }
+
+// A team's default agent applies to its members who belong to no other team.
+const CONTROLS = { default_agent: defaultAgentControl("Follow the organization's default") };
 
 /**
  * A team's defaults: organization defaults the team sets for the turns of its own agents,
@@ -59,7 +63,7 @@ export const TeamDefaultsPanel: React.FC<{ team: Team }> = ({ team }) => {
             <SlidersHorizontal className="h-3.5 w-3.5 text-brand" aria-hidden="true" /> Team defaults
           </h3>
           <p className="text-[11px] text-neutral-600 dark:text-neutral-400">
-            Used in the turns of the team&apos;s agents, above the organization&apos;s value; a member&apos;s own choice still wins and the organization&apos;s locks still hold.
+            Used in the turns of the team&apos;s agents, above the organization&apos;s value; a member&apos;s own choice still wins and the organization&apos;s locks still hold. The default agent is the one new sessions start with, for members of no other team.
           </p>
         </div>
         <Field label="Settings area">
@@ -82,6 +86,7 @@ export const TeamDefaultsPanel: React.FC<{ team: Team }> = ({ team }) => {
           team={{ id: team.id, name: team.name, canManage: team.can_manage }}
           idScope={`team-${team.id}`}
           title={`${humanize(domain)} for ${team.name}`}
+          controls={CONTROLS}
         />
       )}
     </section>

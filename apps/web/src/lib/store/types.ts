@@ -125,6 +125,8 @@ export interface AgentsSlice {
   setPermissionMode: (mode: PermissionMode) => void;
   setSelectedSandboxId: (id: string) => void;
   fetchAgents: () => Promise<void>;
+  /** The agent new sessions start with (`GET /v1/me/default-agent`); "" when none applies. */
+  defaultAgentId: string;
   /** The full catalogue arrived (the placeholder list is shown until then). */
   modelsLoaded: boolean;
   fetchModels: () => Promise<void>;

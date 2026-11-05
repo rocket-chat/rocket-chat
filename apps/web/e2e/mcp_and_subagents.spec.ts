@@ -164,8 +164,10 @@ test.describe("MCP Servers & Subagents Settings E2E Verification", () => {
     const picker = mainContent.getByTestId("preferred-model");
     await expect(picker).toBeEnabled();
     await picker.click();
-    await expect(mainContent.getByRole("option").first()).toBeVisible();
-    await mainContent.getByRole("option").nth(1).click();
+    // The page has other choices (the default agent); the models are the picker's own list.
+    const models = mainContent.getByRole("listbox", { name: "Models" });
+    await expect(models.getByRole("option").first()).toBeVisible();
+    await models.getByRole("option").nth(1).click();
 
     await expect(page.getByTestId("settings-unsaved")).toBeVisible();
     await page.getByTestId("settings-save-all").click();

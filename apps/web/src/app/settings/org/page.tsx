@@ -4,6 +4,9 @@ import React from "react";
 import { SchemaSettingsForm } from "../../../components/settings/SchemaSettingsForm";
 import { OrganizationNameCard } from "../../../components/settings/OrganizationNameCard";
 import { SetupHealthCard } from "../../../components/settings/SetupHealthCard";
+import { defaultAgentControl } from "../../../components/settings/DefaultAgentPicker";
+
+const MEMBER_DEFAULT_CONTROLS = { default_agent: defaultAgentControl("None: the platform's default") };
 
 export default function Page() {
   return (
@@ -40,6 +43,7 @@ export default function Page() {
             mode="org"
             title="Member defaults"
             description="Defaults for personal settings. Lock a setting to stop members from overriding it."
+            controls={MEMBER_DEFAULT_CONTROLS}
           />
         </div>
       </div>
