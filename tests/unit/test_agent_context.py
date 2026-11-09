@@ -110,5 +110,6 @@ async def test_the_agent_is_pointed_to_the_search_and_read_tools_and_told_what_n
     assert "Search, read and list with `grep_search`" in prompt
     assert "not `grep`/`cat`/`sed -n`/`find` in `bash_exec`" in prompt
     assert "never decode tokens, rewrite remotes" in prompt
-    assert "a workaround of more than a few steps is the person's decision" in prompt
+    assert "try another source for the same answer" in prompt
+    assert "without a long workaround" in prompt
     assert "resolving a reviewer's thread" in prompt

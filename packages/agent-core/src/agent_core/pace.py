@@ -136,16 +136,18 @@ def _environment_notice(conversation: Sequence[ChatMessage]) -> str | None:
         return None
     return (
         f"{after} of your last {len(results)} tool results failed on the environment (a refused "
-        "credential, the network, a permission), not on your code. Stop working around it. "
-        "State in two lines what is blocked and what you tried, then use `ask_question`, or "
-        "finish the part that does not depend on it."
+        "credential, the network, a permission), not on your code. Stop working around it: use "
+        "another tool or source that can answer the same question; if none can, state in two "
+        "lines what is blocked and what you tried, then use `ask_question`, or finish the part "
+        "that does not depend on it."
     )
 
 
 def pace_notice(conversation: Sequence[ChatMessage], *, may_edit: bool = True) -> str | None:
     """A reminder when this turn has researched for long without changing anything, or has read
-    files one per step for a while; ``None`` otherwise. ``may_edit`` is false in a read-only mode,
-    where not changing anything is the point."""
+    files one per step for a while; ``None`` otherwise. ``may_edit`` is false in a read-only mode
+    or before any repository is active: an investigation in logs and tools has nothing to change,
+    and telling it to stop researching cut it short of its root cause."""
     start = find_turn_user_index(conversation)
     assistant_steps = [
         m for m in conversation[start + 1 :] if m.role == "assistant" and m.tool_calls
@@ -167,7 +169,7 @@ def pace_notice(conversation: Sequence[ChatMessage], *, may_edit: bool = True) -
                 "approach that meets the goal, then build and test it here in the sandbox and let "
                 "the compiler and the tests show what is wrong. Do not read a library's source "
                 "to confirm a behaviour it documents: assume the documented behaviour and check "
-                "it with a test. If the task needs no change, answer now."
+                "it with a test."
             )
 
     streak = 0

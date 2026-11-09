@@ -239,9 +239,9 @@ def working_style_guidance(tools: PromptTools) -> str:
         "fastest feedback loop. Prepare the repository's tooling first as its instructions say.",
         "- When an edit, write or rebase step succeeds, trust the tool output and move on. Do "
         "not repeat `git status` or re-read a file you just wrote without a change in between.",
-        "- When a call fails on the environment, not your code (a refused credential, no "
-        "network, a permission), say what is blocked in two lines and ask; a workaround of more "
-        "than a few steps is the person's decision.",
+        "- When a call fails on the environment (a refused credential, no network, a "
+        "permission), try another source for the same answer; if none has it, say what is "
+        "blocked in two lines and ask, without a long workaround.",
     ]
     if tools.can("bash_exec"):
         lines.append(
