@@ -93,7 +93,9 @@ async def test_the_reminders_reach_the_model_at_the_end_of_the_request() -> None
         ("file_read", {"path": f"/workspace/f{i}.go"}) for i in range(RESEARCH_REMINDER_EVERY + 1)
     ]
 
-    outcome = await run_turn("org_pace", script=reads)
+    outcome = await run_turn(
+        "org_pace", script=reads, metadata={"active_repository": "/workspace/api"}
+    )
 
     requests = [r for r in outcome.model.requests if r.tools]
     tail = [(r.messages[-1].content or "") for r in requests]
@@ -101,6 +103,22 @@ async def test_the_reminders_reach_the_model_at_the_end_of_the_request() -> None
     assert "ONE step" in tail[BATCH_REMINDER_EVERY], "after four single reads"
     assert "without changing anything" not in tail[RESEARCH_REMINDER_EVERY - 1]
     assert "without changing anything" in tail[RESEARCH_REMINDER_EVERY], "after ten steps"
+    assert "answer now" not in tail[RESEARCH_REMINDER_EVERY], "it never cuts an answer short"
+
+
+async def test_an_investigation_without_a_repository_is_never_told_to_stop_researching() -> None:
+    # Logs, traces and tickets: nothing to change, and the root cause may take many steps.
+    lookups: list[tuple[str, dict[str, Any]]] = [
+        ("think", {"thought": f"query {i}"}) for i in range(2 * RESEARCH_REMINDER_EVERY + 1)
+    ]
+
+    outcome = await run_turn("org_pace_investigation", script=lookups)
+
+    requests = [r for r in outcome.model.requests if r.tools]
+    assert len(requests) > 2 * RESEARCH_REMINDER_EVERY
+    assert not any(
+        "without changing anything" in (m.content or "") for r in requests for m in r.messages
+    )
 
 
 def _reading(path: str, count: int) -> list[ChatMessage]:
@@ -164,6 +182,7 @@ def test_a_turn_that_keeps_failing_on_its_environment_is_asked_to_hand_back() ->
     notice = pace_notice(_results(steps))
 
     assert notice is not None and "failed on the environment" in notice
+    assert "another tool or source" in notice, "a failed source is a reason to switch, not stop"
     assert "ask_question" in notice
     assert pace_notice(_results(steps[:-1])) is None, "five failures are not yet a pattern"
     assert pace_notice(_results([*steps, refused])) is None, "not on every step"

@@ -1881,8 +1881,12 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
             )
         if reminder := stale_notice(run.conversation):
             run.next_notes.append(reminder)
-        plan_mode = run.exec_ctx is not None and run.exec_ctx.plan_mode
-        if pace := pace_notice(run.conversation, may_edit=not plan_mode):
+        may_edit = (
+            run.exec_ctx is not None
+            and not run.exec_ctx.plan_mode
+            and bool(run.exec_ctx.active_repository)
+        )
+        if pace := pace_notice(run.conversation, may_edit=may_edit):
             run.next_notes.append(pace)
         try:
             reply = await self._model_step(run)

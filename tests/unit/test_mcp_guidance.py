@@ -65,6 +65,15 @@ def test_the_trigger_is_the_first_line_in_plain_words() -> None:
     assert trigger_of("   \n ") == ""
 
 
+def test_the_trigger_keeps_the_underscores_of_identifiers() -> None:
+    assert trigger_of("Use whenever the user gives a trip id (tr_…) or a `trip_id`") == (
+        "Use whenever the user gives a trip id (tr_…) or a trip_id"
+    )
+    assert trigger_of("Use for _firmware_ logs, __not__ backend") == (
+        "Use for firmware logs, not backend"
+    )
+
+
 def test_a_long_first_line_is_cut_to_the_trigger_size() -> None:
     trigger = trigger_of("word " * 100)
 

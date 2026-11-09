@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `api`: `/v1/admin/triggers` and `POST /v1/triggers/{id}/run` are gone: what starts work on its own is a mission (`/v1/missions`, `POST /v1/missions/{id}/run`). Settings → Automation keeps the outbound webhooks. The old mission fields (`prompt`, `cron`, `timezone`, `slack_channel`) are a mission's `instructions`, a `schedule` trigger and a `chat` delivery; mission templates became presets.
 
 ### Fixed
+- `agent`: The "stop researching" reminder (every 10 steps without a change) no longer reaches a turn with no active repository, such as an investigation in logs, traces and tickets, and no longer tells the agent to "answer now": it cut investigations short right after their first useful result.
+- `agent`: When a tool fails on its environment, the agent is told to try another source for the same answer before reporting what is blocked; a failing secondary source made it stop instead of switching.
+- `mcp`: A server's guidance trigger keeps the underscores of identifiers (`tr_…`, `trip_id`); only paired `_emphasis_` is stripped.
 - `slack`: In a thread where the bot answered privately, a message its requester wrote for the others (a summary of the answer) continued the private session, and an English keyword test ("fix", "run", "check"…) took most messages for requests.
 - `slack`: Telling the bot to stop queued "stop" as a request for after the running turn. Every stop from Slack (button, command, message) now also withdraws the messages queued behind the turn and closes its waits, as a stop from the web app closes them.
 - `slack`: A message with a file (an image, a log) sent to a bot was ignored: Slack sends it as a `file_share` message, which was dropped with system messages, so neither the file nor the words with it reached the agent.

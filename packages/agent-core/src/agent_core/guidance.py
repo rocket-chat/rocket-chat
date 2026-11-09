@@ -36,7 +36,10 @@ TRIGGER_CHARS = 200
 
 _CLOSING_TAG = re.compile(r"</\s*server_guidance", re.IGNORECASE)
 _LINE_MARKER = re.compile(r"^\s*(?:#{1,6}\s+|>+\s*|[-*+]\s+|\d+[.)]\s+)+")
-_INLINE_MARKUP = re.compile(r"(\*\*|__|`|\*|_(?=\S))")
+_INLINE_MARKUP = re.compile(r"(\*\*|__|`|\*)")
+# Underscores are emphasis only in pairs around words: ``tr_…`` and ``trip_id`` keep theirs,
+# as they are the identifiers a trigger asks the agent to recognise.
+_UNDERSCORE_EMPHASIS = re.compile(r"(?<!\w)_(\S(?:[^_]*\S)?)_(?!\w)")
 
 
 def trigger_of(text: str) -> str:
@@ -46,7 +49,8 @@ def trigger_of(text: str) -> str:
     with ``# When to use`` or ``**Use for** issues`` reads the same in the tool list.
     """
     for line in text.splitlines():
-        plain = " ".join(_INLINE_MARKUP.sub("", _LINE_MARKER.sub("", line)).split())
+        unmarked = _INLINE_MARKUP.sub("", _LINE_MARKER.sub("", line))
+        plain = " ".join(_UNDERSCORE_EMPHASIS.sub(r"\1", unmarked).split())
         if plain:
             return (
                 plain if len(plain) <= TRIGGER_CHARS else plain[: TRIGGER_CHARS - 1].rstrip() + "…"
