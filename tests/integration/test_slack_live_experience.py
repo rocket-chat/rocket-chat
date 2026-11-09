@@ -30,7 +30,7 @@ def _live(stack: Stack, **policy: Any) -> AsyncMock:
 
 
 @pytest.mark.asyncio
-async def test_a_turn_streams_its_current_step_then_the_answer_in_the_same_reply(
+async def test_a_turn_streams_its_current_step_then_replaces_it_with_the_answer(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Every step goes out here; merging steps that come too fast is test_slack_stream_throttle's.
@@ -55,19 +55,18 @@ async def test_a_turn_streams_its_current_step_then_the_answer_in_the_same_reply
     assert "details" not in first, "Slack appends details on every update"
     second = client.chat_appendStream.call_args.kwargs["chunks"][0]
     assert second["id"] == first["id"], "one card, updated in place: no list of finished steps"
-    stop = client.chat_stopStream.call_args.kwargs
-    summary, answer = stop["chunks"]
-    assert summary["id"] == first["id"] and summary["status"] == "complete"
-    assert summary["title"].startswith("Done in") and summary["title"].endswith("2 steps")
-    assert stop["ts"] == "9.9" and answer == {"type": "markdown_text", "text": "All done here."}
-    footer = json.dumps(stop["blocks"])
-    assert f"https://rocket.example/chat/{SESSION_ID}" in footer and "Done in" in footer
-    assert "stop_turn" not in footer, "no Stop button: the slash command stops a turn"
-    # The answer is in the streamed reply: the thread gets no other message after it (no
-    # suggested next step).
-    stack.say.assert_not_awaited()
-    client.chat_postMessage.assert_not_awaited()
-    assert "Turn complete" not in json.dumps([c.kwargs for c in client.mock_calls]), "no notice"
+    (closed,) = client.chat_stopStream.call_args.kwargs["chunks"]
+    assert closed["id"] == first["id"] and closed["status"] == "complete"
+    # Slack notifies of new messages only: the progress message goes, the answer is a new reply.
+    client.chat_delete.assert_awaited_once_with(channel=THREAD[0], ts="9.9")
+    answer = stack.say.call_args.kwargs
+    assert answer["text"] == "All done here." and answer["thread_ts"] == THREAD[1]
+    blocks = answer["blocks"]
+    assert [b["type"] for b in blocks] == ["section", "context"], "no buttons under an answer"
+    footer = blocks[-1]["elements"][0]["text"]
+    assert "Done in" in footer
+    assert f"<https://rocket.example/chat/{SESSION_ID}|Open in Rocket Chat>" in footer
+    assert stack.say.await_count == 1, "one reply: no suggested next step, no notice"
     client.agents_sessions_setStatus.assert_awaited_with(
         channel_id=THREAD[0], thread_ts=THREAD[1], status="active"
     )
@@ -76,7 +75,7 @@ async def test_a_turn_streams_its_current_step_then_the_answer_in_the_same_reply
 
 
 @pytest.mark.asyncio
-async def test_an_answer_that_mentions_someone_is_posted_as_a_new_message() -> None:
+async def test_a_progress_message_slack_will_not_delete_is_left_closed() -> None:
     stack = Stack(
         ScriptedModel(
             script=[("think", {"thought": "plan"})],
@@ -85,14 +84,14 @@ async def test_an_answer_that_mentions_someone_is_posted_as_a_new_message() -> N
     )
     client = _live(stack)
     client.chat_startStream.return_value = {"ts": "9.9"}
+    client.chat_delete.side_effect = RuntimeError("cant_delete_message")
 
     await stack.send()
 
-    summary, answer = client.chat_stopStream.call_args.kwargs["chunks"]
-    assert summary["status"] == "complete" and "subteam" not in answer["text"]
+    (closed,) = client.chat_stopStream.call_args.kwargs["chunks"]
+    assert closed["status"] == "complete", "not a step that looks still running"
     posted = stack.say.call_args.kwargs
     assert "<!subteam^SC3TQP58T>" in posted["text"] and posted["thread_ts"] == THREAD[1]
-    assert f"https://rocket.example/chat/{SESSION_ID}" in json.dumps(posted["blocks"])
 
 
 @pytest.mark.asyncio

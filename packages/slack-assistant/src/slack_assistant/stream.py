@@ -1,14 +1,15 @@
 """A turn's reply in its thread, streamed with Slack's agent streaming API.
 
-One message per turn: a single task card shows the step the turn is on (Slack's "thinking
-steps"), and when the turn ends it becomes a one-line summary and the answer is written into the
-same message. One card rather than one per tool call: an agent can call dozens of tools, and a
-card per call buried the answer under a list of finished steps. It replaces a separate progress message: the thread gets one reply, and Slack's status
-line under it says the bot is working. The stream opens on the first tool call, so a turn that
-only answers posts a plain reply. Step updates are merged (one every ``UPDATE_INTERVAL_SECONDS``
-at most): an agent can call several tools a second, and Slack rate-limits ``appendStream``.
+One progress message per turn: a single task card shows the step the turn is on (Slack's
+"thinking steps"). When the turn ends the message is deleted and the answer is posted as a new
+reply: Slack notifies of new messages, never of text written into one that already exists. One
+card rather than one per tool call: an agent can call dozens of tools, and a card per call
+buried the answer under a list of finished steps. Slack's status line under the message says
+the bot is working. The stream opens on the first tool call, so a turn that only answers posts
+a plain reply. Step updates are merged (one every ``UPDATE_INTERVAL_SECONDS`` at most): an
+agent can call several tools a second, and Slack rate-limits ``appendStream``.
 A failure is retried by the client's handlers; failures that last turn the stream off and the
-answer is posted the usual way; it never fails the turn.
+answer is posted the same way; it never fails the turn.
 """
 
 from __future__ import annotations
@@ -22,9 +23,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Slack's limits: 256 characters per task chunk, 12,000 per markdown text.
+# Slack's limit on a task chunk.
 TASK_CHARS = 256
-ANSWER_CHARS = 11_500
 STEP_CARD = "steps"
 # Slack allows about one chat.appendStream per second per message; stay well under it.
 UPDATE_INTERVAL_SECONDS = 2.0
@@ -106,40 +106,30 @@ class TurnStream:
         if card is not None:
             await self._task(card)
 
-    async def finish(
-        self, answer: str, blocks: list[dict[str, Any]], *, failed: bool = False
-    ) -> bool:
-        """Close the step card with the turn's summary and write the answer; False when the
-        stream cannot take it (the caller then posts the answer itself)."""
+    async def remove(self, *, failed: bool = False) -> None:
+        """Take the progress message out of the thread: the answer is posted as a new reply,
+        because Slack notifies nobody of text written into a message that already exists.
+
+        The stream is closed first, then deleted; a message Slack refuses to delete stays as
+        the closed step card rather than a step that looks still running."""
         if self._flush is not None:
             self._flush.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._flush
             self._flush, self._pending = None, None
         if not self.started:
-            return False
-        # A stopped turn's card keeps the step it stopped on; the answer says who stopped it.
+            return
+        self._broken = True
+        # A stopped turn's card keeps the step it stopped on.
         if failed:
             card = _card(self._current or "Stopped", "error")
         else:
             card = _card(f"{self.outcome_line()} · {_plural(self._steps, 'step')}", "complete")
-        chunks = [
-            card,
-            {"type": "markdown_text", "text": answer[:ANSWER_CHARS] or "Done."},
-        ]
         try:
-            await self._client.chat_stopStream(
-                channel=self._channel,
-                ts=self.ts,
-                chunks=chunks,
-                **({"blocks": blocks} if blocks else {}),
-            )
+            await self._client.chat_stopStream(channel=self._channel, ts=self.ts, chunks=[card])
+            await self._client.chat_delete(channel=self._channel, ts=self.ts)
         except Exception as err:
-            logger.info("Could not finish the streamed reply: %s", err)
-            self._broken = True
-            return False
-        self.ts = None
-        return True
+            logger.info("Could not remove the progress message: %s", err)
 
     async def plan(self, tasks: list[dict[str, Any]]) -> None:
         """The agent's checklist as task items, each updated in place by its position. Sent

@@ -2,8 +2,9 @@
 
 The pull request card is posted once when ``git_open_pr`` succeeds and updated in place as CI
 reports (the platform calls ``SlackAssistant.update_pull_request_cards`` on each GitHub event of
-the pull request). The summary card closes every answer: how the turn ended, what it changed,
-its time and cost, and buttons to open the session or retry a failed request.
+the pull request). The summary closes every answer: one small line with how the turn ended, what
+it changed, its time and cost and a link to the session, and a button to retry a failed request
+or share a private answer.
 """
 
 from __future__ import annotations
@@ -146,8 +147,8 @@ def build_summary_card(
     retry_value: str | None = None,
     share_value: str | None = None,
 ) -> list[dict[str, Any]]:
-    """One context line (status · time · changes · cost · PR) and the session's buttons;
-    ``share_value`` (a private answer's session) adds **Share in thread**."""
+    """One context line (status · time · changes · cost · PR · session link), then **Retry**
+    (``retry_value``) or **Share in thread** (``share_value``, a private answer's session)."""
     label = _STATUS_LABELS.get(summary.status, summary.status)
     if summary.elapsed_seconds is None:
         parts = [label]
@@ -161,6 +162,8 @@ def build_summary_card(
         parts.append(f"${summary.cost_usd:.2f}")
     if summary.pull_request_url:
         parts.append(f"<{summary.pull_request_url}|pull request>")
+    if link_url:
+        parts.append(f"<{link_url}|Open in Rocket Chat>")
     blocks: list[dict[str, Any]] = []
     if summary.wait_notice:
         blocks.append(
@@ -168,8 +171,6 @@ def build_summary_card(
         )
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(parts)}]})
     buttons: list[dict[str, Any]] = []
-    if link_url:
-        buttons.append(_url_button("Open in Rocket Chat", link_url, OPEN_SESSION_ACTION_ID))
     if retry_value:
         buttons.append(
             {

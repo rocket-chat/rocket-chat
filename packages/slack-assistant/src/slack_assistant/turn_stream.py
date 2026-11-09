@@ -1,7 +1,6 @@
 """Running a shared turn and rendering its live events into Slack."""
 
 import logging
-import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
@@ -32,7 +31,7 @@ from slack_assistant.cards import (
 from slack_assistant.policy import SlackOrgPolicy
 from slack_assistant.refusals import access_denied_text, budget_blocked_text
 from slack_assistant.state import SlackAssistantState
-from slack_assistant.stream import ANSWER_CHARS, TurnStream
+from slack_assistant.stream import TurnStream
 from specifications.interfaces.agent import (
     FileDiff,
     InteractiveQuestion,
@@ -438,36 +437,28 @@ class SlackTurnStreamMixin(SlackAssistantState):
             await self._keep_private_answer(view.session_id, view.org_id, outcome.text.strip())
         use_files = org_policy.long_output_to_file and self._slack_api_ready
         footer: list[dict[str, Any]] | None = self._summary_blocks(view)
-        stream = view.stream
-        posted = False
-        if stream is not None and stream.started:
-            if _MENTION.search(markdown_to_slack_mrkdwn(final_text)):
-                # Slack notifies the mentions of a new message, not those written into the
-                # reply the stream opened: the card closes and the answer follows it.
-                await stream.finish("", [])
-            elif await self._finish_stream(view, stream, final_text, footer, use_files, org_policy):
-                posted = True
-        if not posted:
-            if outcome.diffs:
-                await self._post_changes(
-                    view, final_text, use_files and diff_is_large(outcome.diffs), footer or []
-                )
-                footer = None
-            elif final_text and use_files and len(final_text) > org_policy.long_output_chars:
-                await self._post_long_answer(view, final_text, org_policy.long_output_chars)
-            elif final_text:
-                *head, last = chunk_slack_message(markdown_to_slack_mrkdwn(final_text))
-                for chunk in head:
-                    await view.say_fn(text=chunk, thread_ts=view.thread_ts)
-                # The summary rides under the answer, not in a message of its own.
-                await view.say_fn(
-                    text=last, blocks=_with_footer(last, footer), thread_ts=view.thread_ts
-                )
-                footer = None
-            if use_files:
-                await self._upload_screenshots(view)
-            if footer:
-                await view.say_fn(blocks=footer, text="Turn summary", thread_ts=view.thread_ts)
+        if view.stream is not None:
+            await view.stream.remove()
+        if outcome.diffs:
+            await self._post_changes(
+                view, final_text, use_files and diff_is_large(outcome.diffs), footer or []
+            )
+            footer = None
+        elif final_text and use_files and len(final_text) > org_policy.long_output_chars:
+            await self._post_long_answer(view, final_text, org_policy.long_output_chars)
+        elif final_text:
+            *head, last = chunk_slack_message(markdown_to_slack_mrkdwn(final_text))
+            for chunk in head:
+                await view.say_fn(text=chunk, thread_ts=view.thread_ts)
+            # The summary rides under the answer, not in a message of its own.
+            await view.say_fn(
+                text=last, blocks=_with_footer(last, footer), thread_ts=view.thread_ts
+            )
+            footer = None
+        if use_files:
+            await self._upload_screenshots(view)
+        if footer:
+            await view.say_fn(blocks=footer, text="Turn summary", thread_ts=view.thread_ts)
         await self._post_pull_request_cards(view)
 
     @staticmethod
@@ -515,44 +506,6 @@ class SlackTurnStreamMixin(SlackAssistantState):
     async def _post_pull_request_cards(self, view: TurnView) -> None:
         """Hook: the assistant posts a card per pull request the turn opened."""
         return None
-
-    async def _finish_stream(
-        self,
-        view: TurnView,
-        stream: TurnStream,
-        text: str,
-        footer: list[dict[str, Any]] | None,
-        use_files: bool,
-        org_policy: SlackOrgPolicy,
-    ) -> bool:
-        """Write the answer into the turn's streamed reply; then what does not fit a message
-        (the full long answer, the diffs, screenshots) follows in the thread."""
-        too_long = len(text) > (org_policy.long_output_chars if use_files else ANSWER_CHARS)
-        shown = head_of(text, min(org_policy.long_output_chars, 1500)) if too_long else text
-        if not await stream.finish(shown, footer or []):
-            return False
-        if too_long:
-            await self._post_overflow(view, text, use_files)
-        if view.outcome.diffs:
-            await self._post_diffs(view, use_files and diff_is_large(view.outcome.diffs))
-        if use_files:
-            await self._upload_screenshots(view)
-        return True
-
-    async def _post_overflow(self, view: TurnView, text: str, as_file: bool) -> None:
-        if as_file:
-            await upload_file(
-                self.app.client,
-                channel_id=view.channel_id,
-                thread_ts=view.thread_ts,
-                filename="answer.md",
-                content=text,
-                title="Full answer",
-                comment="The full answer, as it is too long for a message.",
-            )
-            return
-        for chunk in chunk_slack_message(markdown_to_slack_mrkdwn(text)):
-            await view.say_fn(text=chunk, thread_ts=view.thread_ts)
 
     async def _post_diffs(self, view: TurnView, as_file: bool) -> None:
         diffs = view.outcome.diffs
@@ -624,12 +577,6 @@ class SlackTurnStreamMixin(SlackAssistantState):
                 content=data,
                 title="Screenshot",
             )
-
-
-# A user, a user group or @here, @channel, @everyone, as Slack mrkdwn writes them.
-_MENTION = re.compile(
-    r"<@[UW][A-Z0-9]+(?:\|[^>]*)?>|<!subteam\^S[A-Z0-9]+(?:\|[^>]*)?>|<!(?:here|channel|everyone)\b"
-)
 
 
 def _with_footer(text: str, footer: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
