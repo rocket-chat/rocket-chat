@@ -1132,12 +1132,13 @@ class SlackAssistant(
             self._failures.record_failure(admitted.team_scope, self._clock())
             notice = failure_notice(error, shared=not (admitted.is_dm or view.private))
             footer = self._summary_blocks(view, failed=True)
-        if view.stream is None or not await view.stream.finish(notice, footer):
-            await view.say_fn(
-                text=notice,
-                blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": notice}}, *footer],
-                thread_ts=view.thread_ts,
-            )
+        if view.stream is not None:
+            await view.stream.remove(failed=True)
+        await view.say_fn(
+            text=notice,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": notice}}, *footer],
+            thread_ts=view.thread_ts,
+        )
 
     async def _thread_permalink(self, channel_id: str, thread_ts: str) -> str:
         """The thread's link in Slack, for "Open in Slack" in the web app."""
@@ -1159,10 +1160,10 @@ class SlackAssistant(
         reason = self._stop_notices.pop(view.session_id, None)
         if stopped_by is None and reason is None:
             return False
-        # A streamed reply is markdown, where Slack does not turn ":stop_button:" into an emoji.
         notice = reason or f"⏹️ Stopped by <@{stopped_by}>."
-        if view.stream is None or not await view.stream.finish(notice, [], failed=True):
-            await view.say_fn(text=notice, thread_ts=view.thread_ts)
+        if view.stream is not None:
+            await view.stream.remove(failed=True)
+        await view.say_fn(text=notice, thread_ts=view.thread_ts)
         await self._set_session_status(view.channel_id, view.thread_ts, "active")
         return True
 

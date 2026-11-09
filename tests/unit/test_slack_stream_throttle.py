@@ -26,6 +26,9 @@ class _Client:
     async def chat_stopStream(self, **kwargs: Any) -> None:
         self.calls.append(("stop", kwargs))
 
+    async def chat_delete(self, **kwargs: Any) -> None:
+        self.calls.append(("delete", kwargs))
+
 
 def _titles(client: _Client, kind: str) -> list[str]:
     return [c[1]["chunks"][0]["title"] for c in client.calls if c[0] == kind]
@@ -59,4 +62,21 @@ async def test_a_passing_failure_does_not_end_the_stream_but_lasting_ones_do() -
     for i in range(MAX_FAILURES):
         await stream.tool_started("bash_exec", {}, f"Fails {i}")
     assert not stream.started
-    assert await stream.finish("answer", []) is False, "the answer is posted the usual way"
+    await stream.remove()
+    assert not [c for c in client.calls if c[0] in ("stop", "delete")], "nothing left to remove"
+
+
+async def test_a_stopped_turn_closes_its_card_on_the_step_it_stopped_then_deletes_it() -> None:
+    client = _Client()
+    stream = TurnStream(
+        client, "C", "1.0", recipient_user_id="U", recipient_team_id="T", update_interval=0
+    )
+    await stream.tool_started("bash_exec", {}, "Running tests")
+
+    await stream.remove(failed=True)
+
+    stop, delete = client.calls[-2:]
+    assert stop[0] == "stop" and stop[1]["chunks"][0]["title"] == "Running tests"
+    assert stop[1]["chunks"][0]["status"] == "error"
+    assert delete == ("delete", {"channel": "C", "ts": "1.0"})
+    assert not stream.started
