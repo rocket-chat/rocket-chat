@@ -10,9 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- `api`, `web`: **Default agent** at three levels, each unset to follow the one above: a member's own (*Preferences*), their team's (the team's defaults, for a member of exactly one team) and the organization's (*Organization → Member defaults*, lockable). It is the setting `user_preferences.default_agent`; `GET /v1/me/default-agent` says which agent applies and where it comes from. New sessions in the cockpit start with it, `POST /v1/sessions` without `agent_id` uses it, and a Slack direct message to a bot without an agent of its own runs it. A level whose agent the member may no longer use is skipped, never an error; saving a default that names an agent the writer cannot see, or a personal agent as a team's or the organization's, is refused (422).
 - `orchestrator`:
 - `sandboxes`:
+- `api`:
+- `web`:
+- `settings`:
+- `git`:
+- `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.9.0] - 2026-11-09
+
+### Added
+- `api`, `web`: **Default agent** at three levels, each unset to follow the one above: a member's own (*Preferences*), their team's (the team's defaults, for a member of exactly one team) and the organization's (*Organization → Member defaults*, lockable). It is the setting `user_preferences.default_agent`; `GET /v1/me/default-agent` says which agent applies and where it comes from. New sessions in the cockpit start with it, `POST /v1/sessions` without `agent_id` uses it, and a Slack direct message to a bot without an agent of its own runs it. A level whose agent the member may no longer use is skipped, never an error; saving a default that names an agent the writer cannot see, or a personal agent as a team's or the organization's, is refused (422).
 - `api`: **Teams** inside an organization (`/v1/teams`, `teams` and `team_memberships` with forced row-level security, migration `061_teams`). Organization administrators create and delete teams; a team's administrators rename it and manage its members (`admin` or `member`). Agents, skills, MCP servers and knowledge bases can be owned by a team (`scope: "team"`, `team_id`): its members use them, its administrators change them. Re-saving an object with another owner moves it, which needs the right to manage both owners; a team that still owns objects cannot be deleted. Organization agents can be granted to a team. Team changes and moves are audited (`team.*`).
 - `api`: A team's agent runs in its **team's context** (`ModelScope.team_id`, `ModelAttribution.team_id`). Teams own **provider keys** (`/v1/teams/{id}/credentials`): in their agents' turns the team's key pays before the organization's (after the member's own under `member_keys: preferred`), and a team's key binds to that team's agents only. Teams are a **spend limit subject** (`subject_kind: "team"`, counting the calls made in the team's context), and a team's administrators add limits the team owns on the team and its agents (`/v1/teams/{id}/spend-limits`): every limit applies, so theirs only tighten the organization's. `GET /v1/agents/{id}/bindable-credentials` lists the keys the caller may bind on an agent. Migration `062_team_keys_and_limits`.
 - `api`, `config-engine`: **Team defaults** (`/v1/teams/{id}/settings/{domain}`, `team_settings` with forced row-level security): a team's administrators set organization defaults (`org_default` keys) for their team's agents' turns, between the organization's value and the member's own choice; the organization's locks and ceilings still hold, and the resolver reports the source as `team:<id>`. **Team sandbox types** (`/v1/teams/{id}/sandboxes`, `sandbox_catalogue.team_id`): a team's members and agents use them and nobody else sees them (a type's id alone opens nothing); a team administrator chooses no placement profile and no more CPU, memory or disk than the organization's sandbox settings. Migration `063_team_settings_and_sandboxes`.
@@ -25,10 +40,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `slack`, `settings`: **Thread replies without a mention** follow `slack.thread_follow_ups`, per organization or per bot: `mention` (the default: only a mention starts a turn), `auto` (a reply that reads like a request) or `classifier`, where a classifier model (`slack.follow_up_classifier_model`, System One models included) reads the thread and the reply and decides whether it asks the bot for something; its decisions are logged with the bot's routing decisions. A private session is never continued from the public thread without a mention.
 - `slack`: **A message that only says stop** (`stop`, `@bot stop`, `arrête`, `annule`, `cancel`, `!stop`) stops its sender's turn in the thread, as Slack's stop button does.
 - `slack`: **Private requests run in a thread of the requester's direct messages.** The channel keeps only the reaction; the DM thread opens with a link to the request and its first words, and behaves like any thread: live progress, Slack's status and stop button, questions, approvals, the answer with **Share in thread**, and replies that continue the session. `slack_private_threads` (forced row-level security, migration `066_slack_private_threads`) maps each DM thread to its session.
-- `web`:
-- `settings`:
-- `git`:
-- `helm`:
 
 ### Changed
 - `slack`, `web`: The bot settings *Also send completion summary as a direct message* and *Send questions, approvals, errors and the result by direct message* (`private_dm_result`, `private_dm_updates`) are removed: a private request always runs in the requester's DMs, and leaves no ephemeral message in the channel.
