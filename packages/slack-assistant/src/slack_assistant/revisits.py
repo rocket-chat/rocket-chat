@@ -72,9 +72,17 @@ class SlackRevisitsMixin(SlackAssistantState):
     # -- edited and deleted requests --------------------------------------------------------
 
     async def _on_message_changed(self, event: dict[str, Any]) -> None:
-        """An edited request runs again with its new text (a running turn is stopped first)."""
+        """An edited request runs again with its new text (a running turn is stopped first).
+
+        Slack also sends ``message_changed`` when the text did not change: a link unfurled,
+        a reply updating a thread root's reply count, file metadata. Only a new text is an
+        edit; ``edited`` alone is not enough, since it stays on every later change.
+        """
         message = event.get("message") or {}
         if message.get("bot_id") or not message.get("user"):
+            return
+        previous = event.get("previous_message") or {}
+        if str(message.get("text") or "") == str(previous.get("text") or ""):
             return
         ts = str(message.get("ts") or "")
         found = await self._session_of_request(event, message, ts)
