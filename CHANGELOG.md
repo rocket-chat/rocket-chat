@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- `slack`: a running turn is no longer stopped and re-run ("Stopped: the request was edited") when Slack updates its request without changing the text: a link unfurled, a reply in its thread, file metadata. Only a new text counts as an edit.
 
 ### Security
 

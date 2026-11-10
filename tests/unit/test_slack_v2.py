@@ -583,6 +583,57 @@ async def test_deleting_the_request_of_a_running_turn_stops_it() -> None:
     assert "deleted" in assistant._stop_notices[session_id]
 
 
+def _running_request(text: str) -> tuple[Any, _Orchestrator, str]:
+    orchestrator = _Orchestrator()
+    assistant = _assistant(orchestrator=orchestrator)
+    session_id = assistant.get_session_id("C1", "1.0")
+    record = _record(
+        session_id, slack_turn_requester="U1", slack_last_request={"text": text, "ts": "1.0"}
+    )
+    assistant.session_store = _Store(record)  # type: ignore[assignment]
+    assistant._active_turns.add(session_id)
+    assistant.process_incoming_request = AsyncMock()  # type: ignore[method-assign]
+    return assistant, orchestrator, session_id
+
+
+async def test_editing_the_request_of_a_running_turn_runs_it_again() -> None:
+    assistant, orchestrator, session_id = _running_request("do it")
+    await assistant._on_message_changed(
+        {
+            "channel": "C1",
+            "message": {"ts": "1.0", "user": "U1", "text": "do it now", "edited": {"ts": "2.0"}},
+            "previous_message": {"ts": "1.0", "user": "U1", "text": "do it"},
+        }
+    )
+    assert orchestrator.cancelled == [session_id]
+    assert "edited" in assistant._stop_notices[session_id]
+    assistant.process_incoming_request.assert_awaited_once()
+    assert assistant.process_incoming_request.await_args.kwargs["raw_text"] == "do it now"
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        pytest.param({"attachments": [{"title": "PR #3825"}]}, id="link unfurled"),
+        pytest.param({"reply_count": 3, "latest_reply": "5.0"}, id="thread reply added"),
+        pytest.param({"edited": {"ts": "2.0"}, "attachments": [{}]}, id="unfurl after an edit"),
+    ],
+)
+async def test_a_change_that_keeps_the_text_does_not_stop_the_turn(change: dict[str, Any]) -> None:
+    text = "Take feedbacks on https://github.com/acme/api/pull/7"
+    assistant, orchestrator, session_id = _running_request(text)
+    await assistant._on_message_changed(
+        {
+            "channel": "C1",
+            "message": {"ts": "1.0", "user": "U1", "text": text, **change},
+            "previous_message": {"ts": "1.0", "user": "U1", "text": text},
+        }
+    )
+    assert orchestrator.cancelled == []
+    assert session_id not in assistant._stop_notices
+    assistant.process_incoming_request.assert_not_awaited()
+
+
 async def test_retry_is_only_for_the_requester() -> None:
     assistant = _assistant()
     session_id = "slack_C1_1_0"
