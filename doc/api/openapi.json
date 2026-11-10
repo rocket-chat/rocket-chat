@@ -11021,7 +11021,7 @@
   "info": {
     "description": "FastAPI service hosting the ReAct agent engine and embedded Slack Assistant.",
     "title": "Rocket Chat Control Plane",
-    "version": "0.9.0"
+    "version": "0.9.1"
   },
   "openapi": "3.1.0",
   "paths": {
