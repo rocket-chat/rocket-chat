@@ -83,6 +83,7 @@ from api.routers.version import router as version_router
 from api.routers.webhooks import router as webhooks_router
 from api.routers.workspace import router as workspace_router
 from api.routers.workspace_snapshots import router as workspace_snapshots_router
+from api.sandbox_mcp.server import sandbox_mcp_http_app
 from api.security_guards import enforce_production_config
 from api.services.metrics import (
     drain_endpoint,
@@ -92,6 +93,7 @@ from api.services.metrics import (
 from api.services.shutdown import begin_shutdown
 from api.telemetry import setup_tracing
 from specifications.interfaces.sandbox import SandboxDriverProtocol
+from specifications.interfaces.sandbox_mcp import SANDBOX_MCP_PATH
 
 load_dotenv()
 log_level = setup_logging()
@@ -111,7 +113,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     slack = start_slack(app, core, SlackAssistantSettings())
     chat = start_chat_bridges(app, core)
 
-    yield
+    # The mounted MCP application's own lifespan (its session manager) is not run by Starlette.
+    async with sandbox_mcp_app.lifespan(sandbox_mcp_app):
+        yield
 
     await chat.stop()
     await _shut_down(app, core, background, slack)
@@ -177,6 +181,7 @@ app = FastAPI(
     version="0.9.1",
     lifespan=lifespan,
 )
+sandbox_mcp_app = sandbox_mcp_http_app(app.state)
 
 cors_origins = [
     origin.strip()
@@ -355,6 +360,8 @@ app.include_router(approval_rules_router)
 app.include_router(workspace_router)
 app.include_router(webhooks_router, prefix="/v1")
 app.include_router(webhooks_router, prefix="/api/v1")
+# Behind the same authentication and tenant middlewares as every route.
+app.mount(SANDBOX_MCP_PATH, sandbox_mcp_app)
 
 
 @app.get("/health")

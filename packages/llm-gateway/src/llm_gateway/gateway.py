@@ -40,6 +40,7 @@ from specifications.interfaces.llm import (
     UsageEvent,
     UsageSinkProtocol,
     current_model_scope,
+    refuse_model_call_in_model_free_scope,
 )
 
 # Completion tokens a spend reservation assumes when the request sets no ``max_tokens``: the
@@ -704,6 +705,8 @@ class LiteLLMGateway(LLMGatewayProtocol):
         substituted for the platform key when one applies, and the call's tokens and cost
         are written to the usage ledger when the stream ends.
         """
+        # Before keys and spend reservations: a model-free scope buys nothing, not even a hold.
+        refuse_model_call_in_model_free_scope()
         scope = current_model_scope.get()
         if scope is not None and (scope.zero_retention or scope.region):
             request = dataclasses.replace(

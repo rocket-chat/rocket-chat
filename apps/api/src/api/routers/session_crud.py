@@ -5,7 +5,6 @@ import uuid
 from typing import Any
 
 from agent_core.orchestrator import AsyncReActOrchestrator
-from agent_core.tools.offload import forget_session_offloads
 from agent_core.tools.registry import ToolRegistry
 from fastapi import (
     APIRouter,
@@ -29,6 +28,7 @@ from api.services.agent_access import AgentAccessDenied, require_usable_agent
 from api.services.default_agent import resolve_default_agent
 from api.services.ownership import request_viewer
 from api.services.sandbox_catalogue import SandboxCatalogue
+from api.services.session_purge import purge_session
 from api.services.session_support import (
     _CLIENT_PATCHABLE_METADATA,
     _to_response,
@@ -481,38 +481,8 @@ async def delete_session(session_id: str, request: Request) -> dict[str, Any]:
             detail="Forbidden: Only session owner or admin can delete session",
         )
 
-    deleted = await _purge_session(request, record)
+    deleted = await purge_session(request.app.state, record)
     return {"deleted": deleted, "session_id": session_id}
-
-
-async def _purge_session(request: Request, record: SessionRecord) -> bool:
-    """Delete one session with its sandbox workspace, transcript and cached derivatives."""
-    store: SessionStoreProtocol = request.app.state.session_store
-    driver: SandboxDriverProtocol | None = getattr(request.app.state, "sandbox_driver", None)
-    session_id = record.session_id
-    if driver:
-        try:
-            await driver.destroy_workspace(session_id)
-        except Exception as err:
-            logger.warning("Error destroying workspace for deleted session %s: %s", session_id, err)
-
-    # Release the session's cached semantic index: the workspace it described is gone,
-    # and holding it would keep derived data alive for a session that no longer exists.
-    code_index_cache = getattr(request.app.state, "code_index_cache", None)
-    if code_index_cache is not None:
-        code_index_cache.invalidate(session_id)
-    forget_session_offloads(session_id)
-
-    # Drop the replay history and sequence counter for the deleted session.
-    event_bus = getattr(request.app.state, "event_bus", None)
-    if event_bus is not None and hasattr(event_bus, "evict"):
-        event_bus.evict(session_id)
-
-    transcripts = getattr(request.app.state, "transcript_store", None)
-    if transcripts is not None:
-        await transcripts.delete(session_id, record.tenant_org_id)
-
-    return await store.delete_session(session_id, tenant_org_id=record.tenant_org_id)
 
 
 @router.post("/sessions/cleanup")
@@ -560,7 +530,7 @@ async def reset_all_sessions(request: Request) -> ResetSessionsResponse:
             break
         for record in batch:
             attempted.add(record.session_id)
-            if await _purge_session(request, record):
+            if await purge_session(request.app.state, record):
                 deleted_count += 1
 
     new_session_id = f"session_{uuid.uuid4().hex[:10]}"

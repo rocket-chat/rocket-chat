@@ -121,6 +121,7 @@ _TURN_CONTINUATION = "apps/api/src/api/turns/continuation.py"
 _DISPATCHER = "packages/agent-core/src/agent_core/dispatcher.py"
 _MODEL_CREDENTIALS = "apps/api/src/api/services/model_credentials.py"
 _TURN_RUNNER = "apps/api/src/api/turns/runner.py"
+_SANDBOX_MCP = "apps/api/src/api/sandbox_mcp/service.py"
 _CAPABILITIES = "apps/api/src/api/auth/capabilities.py"
 _MODEL_DEFAULTS = "apps/api/src/api/services/model_defaults.py"
 _MEMORY = "apps/api/src/api/services/memory.py"
@@ -640,6 +641,28 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             "room for a monorepo, its dependencies and the language caches. Applies to "
             "workspaces created afterwards (Kubernetes).",
             label="Workspace disk",
+        ),
+        _spec(
+            "mcp_enabled",
+            "bool",
+            False,
+            "org",
+            _SANDBOX_MCP,
+            "Let members open sandboxes from their own agents (Claude Code, Cursor, ...) through "
+            "the sandbox MCP with a personal API token: sandbox, git and GitHub tools only, no "
+            "model of the platform's.",
+            label="Sandbox MCP",
+        ),
+        _spec(
+            "mcp_max_open_sandboxes",
+            "int",
+            10,
+            "org",
+            _SANDBOX_MCP,
+            "Most sandboxes one member may keep open through the sandbox MCP; closing one frees "
+            "a place. 0 means no limit.",
+            minimum=0,
+            maximum=1000,
         ),
         _spec(
             "allow_terminal",

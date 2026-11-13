@@ -41,6 +41,8 @@ The agent can set its own variables for a session with `env_set` (they last for 
 
 The settings menu marks these pages **ADMIN**: what you change applies to every member.
 
+**Agents outside Rocket Chat.** With **`mcp_enabled`** on, members open sandboxes from their own agents through the [sandbox MCP](/use/sandbox-mcp), with a personal API token; **`mcp_max_open_sandboxes`** (10 by default) caps how many each keeps open. Those agents run commands with a type's variables like the platform's agent does, so they can read a secret's value: offer a type with secrets only to the teams allowed to hold them. No model of the platform's is called for them.
+
 ## Capabilities
 
 | Capability | What it enables | What the image must contain |
