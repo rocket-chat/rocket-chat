@@ -89,7 +89,13 @@ class SandboxMcpService(SandboxMcpServiceProtocol):
         """The caller's open MCP sandboxes, newest first."""
         with _tenant(caller):
             await self._settings(caller)
-            return [_view(record) for record in await self._own_sandboxes(caller)]
+            driver = self._platform.driver
+            # The driver's word, not the record's: the idle reaper pauses a sandbox without
+            # rewriting its session.
+            return [
+                _view(record, await driver.get_status(record.session_id))
+                for record in await self._own_sandboxes(caller)
+            ]
 
     async def close_sandbox(self, caller: McpCaller, sandbox_id: str) -> bool:
         """Delete the sandbox's session and its workspace (what was not pushed is lost)."""
@@ -186,9 +192,9 @@ def _summary(entry: SandboxEntry) -> SandboxTypeSummary:
     )
 
 
-def _view(record: SessionRecord) -> McpSandbox:
+def _view(record: SessionRecord, status: SandboxStatus | None = None) -> McpSandbox:
     metadata = record.metadata if isinstance(record.metadata, dict) else {}
-    status = record.sandbox_status
+    status = status or record.sandbox_status
     return McpSandbox(
         sandbox_id=record.session_id,
         title=record.title,

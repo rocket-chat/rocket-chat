@@ -34,6 +34,7 @@ from api.services.settings import effective_settings, load_org_config
 from api.services.teams import turn_teams
 from api.services.turn_service import parse_hooks, permission_mode_for
 from api.services.turn_trace import LEASE_HEARTBEAT_SECONDS, LEASE_TTL_SECONDS
+from api.services.workspace_release import RELEASED_AT, released_notice
 from api.turns.events import PUBLISHING_TOOLS, published_result
 from specifications.interfaces.agent import AgentEvent, ModelAttribution, TurnPolicy
 from specifications.interfaces.llm import MODEL_FREE_CALL_ROLE, ModelScope, current_model_scope
@@ -93,10 +94,29 @@ async def run_tool_call(
     scope_token = current_model_scope.set(model_scope)
     try:
         async with _kept_awake(platform, record):
-            return await _dispatch(platform, exec_ctx, name, arguments)
+            outcome = await _dispatch(platform, exec_ctx, name, arguments)
     finally:
         current_model_scope.reset(scope_token)
         current_execution_ctx.reset(ctx_token)
+    if note := await _take_released_notice(platform, record):
+        return replace(outcome, text=f"{note}\n\n{outcome.text}")
+    return outcome
+
+
+async def _take_released_notice(platform: Platform, record: SessionRecord) -> str:
+    """Tell the caller once that the workspace was released while the sandbox sat idle, as a
+    turn tells the agent: otherwise its clones would be gone without a word."""
+    metadata = record.metadata if isinstance(record.metadata, dict) else {}
+    note = released_notice(metadata)
+    if not note:
+        return ""
+
+    def delivered(stored: SessionRecord) -> None:
+        known = stored.metadata if isinstance(stored.metadata, dict) else {}
+        stored.metadata = {k: v for k, v in known.items() if k != RELEASED_AT}
+
+    await platform.store.mutate_session(record.session_id, record.tenant_org_id, delivered)
+    return note
 
 
 def forget_session(session_id: str) -> None:

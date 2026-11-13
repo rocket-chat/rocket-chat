@@ -13,19 +13,44 @@ An administrator turns it on under **Settings → Sandboxes** (`mcp_enabled`, of
 
 ## Connect
 
-1. Create a personal API token (see [API tokens](/api/index#personal-api-tokens)).
-2. Add the server to your client as a remote (streamable HTTP) MCP server:
+1. Create a personal API token: **Settings → API tokens** in the cockpit (or the [API](/api/index#personal-api-tokens)). Copy it when it is shown; it is not shown again.
+2. Add a remote (streamable HTTP) MCP server to your client:
    - URL: `https://<host>/v1/sandbox-mcp/`
    - Header: `Authorization: Bearer <token>`
 
-For Claude Code:
+The token acts as you: the sandbox types you may open, and the GitHub account your pushes use, are yours. Keep it in an environment variable rather than in a file you share. In the examples below it is `ROCKET_TOKEN`.
+
+**Claude Code**
 
 ```bash
 claude mcp add --transport http rocket-sandboxes https://<host>/v1/sandbox-mcp/ \
-  --header "Authorization: Bearer rcpat_..."
+  --header "Authorization: Bearer $ROCKET_TOKEN"
 ```
 
-The token acts as you: what you may open, and the GitHub account your pushes use, are yours.
+**Codex** (`~/.codex/config.toml`; Codex reads the token from the named variable when it starts)
+
+```toml
+[mcp_servers.rocket-sandboxes]
+url = "https://<host>/v1/sandbox-mcp/"
+bearer_token_env_var = "ROCKET_TOKEN"
+```
+
+**Pi** (`pi mcp add`, or `url` and `headers` in `~/.pi/agent/mcp.json`)
+
+```bash
+pi mcp add rocket-sandboxes --url https://<host>/v1/sandbox-mcp/ --bearer-token-env-var ROCKET_TOKEN
+```
+
+**OpenCode**
+
+```bash
+opencode mcp add rocket-sandboxes --url https://<host>/v1/sandbox-mcp/ \
+  --header "Authorization=Bearer $ROCKET_TOKEN"
+```
+
+**Cursor, VS Code and other clients:** a remote server with `url` and a `headers` entry for `Authorization`.
+
+A client that connects without the header, or with a token that was revoked or has expired, is refused (`401`). Some clients then try to sign in with OAuth and report that it failed. The sandbox MCP does not offer an OAuth sign-in yet, so clients that only connect that way (web chat apps' connectors) cannot use it; set the header instead.
 
 ## Work in a sandbox
 
@@ -46,7 +71,7 @@ Every other tool takes the `sandbox_id` and runs in that sandbox:
 
 A typical session: `sandbox_open`, `clone_repository`, edit and test, `git_commit`, `git_open_pr`, then `sandbox_close`.
 
-* **The sandbox starts on the first call that needs it**, blank: clone what you need. It pauses after the idle period and resumes on the next call with its workspace as it was. After `workspace_release_days` without a call, the workspace is deleted, as for any session ([Sleeping and cleanup](/administer/sandboxes#sleeping-and-cleanup)).
+* **The sandbox starts on the first call that needs it**, blank: clone what you need. It pauses after the idle period (`sandbox_list` then says `hibernated`) and resumes on the next call with its workspace and variables as they were. After `workspace_release_days` without a call, the workspace is deleted, as for any session ([Sleeping and cleanup](/administer/sandboxes#sleeping-and-cleanup)); the next call's result starts by saying so. A background process keeps the sandbox awake for `process_keepalive_minutes`, until a process tool sees that it ended.
 * **Publish with `git_push` or `git_open_pr`.** A plain `git push` is refused inside the sandbox: the platform publishes the branch with your organization's signing and publishing rules. Clones and fetches go through the platform's git gateway; the sandbox holds no GitHub credential.
 * **Long commands:** start them with `process_start` and follow them with `process_output` or `process_wait`, rather than holding one call open for many minutes.
 * **Results are bounded** like the agent's: a long output is cut, and the full text is saved in the sandbox at a path the result names.

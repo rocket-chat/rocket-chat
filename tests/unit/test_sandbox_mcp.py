@@ -24,6 +24,7 @@ from api.services.compaction import InMemoryCompactionStore
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.settings import save_org_config
 from api.services.transcript import InMemoryTranscriptStore
+from api.services.workspace_release import RELEASED_AFTER_DAYS, RELEASED_AT
 from api.store import InMemorySessionStore
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
@@ -169,6 +170,34 @@ async def test_a_paused_sandbox_resumes_on_the_next_call(org: str) -> None:
     assert await platform.driver.get_status(opened.sandbox_id) == SandboxStatus.RUNNING
     assert "kept" in outcome.text, "the workspace survives the pause"
     assert platform.model.requests == []
+
+
+async def test_the_list_says_when_a_sandbox_is_paused(org: str) -> None:
+    platform = await _enabled(org)
+    opened = await platform.service.open_sandbox(_member(org), None, None)
+    await platform.service.call_tool(
+        _member(org), opened.sandbox_id, "file_write", {"path": "a.txt", "content": "x"}
+    )
+
+    await platform.driver.hibernate_sandbox(opened.sandbox_id)
+
+    (listed,) = await platform.service.list_sandboxes(_member(org))
+    assert listed.status == SandboxStatus.HIBERNATED.value, "the driver's state, not the record's"
+
+
+async def test_the_first_call_after_a_release_says_the_workspace_is_gone(org: str) -> None:
+    platform = await _enabled(org)
+    opened = await platform.service.open_sandbox(_member(org), None, None)
+
+    def released(record: SessionRecord) -> None:
+        record.metadata = {**record.metadata, RELEASED_AT: 1_700_000_000, RELEASED_AFTER_DAYS: 7}
+
+    await platform.store.mutate_session(opened.sandbox_id, org, released)
+    first = await platform.service.call_tool(_member(org), opened.sandbox_id, "env_list", {})
+    second = await platform.service.call_tool(_member(org), opened.sandbox_id, "env_list", {})
+
+    assert first.text.startswith("This session's workspace was released after 7 idle day(s)")
+    assert "released" not in second.text, "said once"
 
 
 async def test_only_the_owner_reaches_a_sandbox_and_only_an_mcp_one(org: str) -> None:
