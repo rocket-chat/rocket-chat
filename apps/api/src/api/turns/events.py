@@ -45,10 +45,11 @@ def _parse_arguments(raw: Any) -> Any:
 
 
 # Tools whose success means commits left the sandbox: each publication is audited on its own.
-_PUBLISHING_TOOLS = frozenset({"git_push", "git_open_pr"})
+PUBLISHING_TOOLS = frozenset({"git_push", "git_open_pr"})
 
 
-def _published(result: object) -> bool:
+def published_result(result: object) -> bool:
+    """Whether a publishing tool's result says a branch or pull request left the sandbox."""
     text = str(result or "")
     return text.startswith(("Published ", "Pushed ", "Pull request opened"))
 
@@ -391,7 +392,7 @@ class TurnEventHandlers:
             redacted=bool(total_redacted > 0),
             redaction_count=total_redacted,
         )
-        if tool_name in _PUBLISHING_TOOLS and _published(result_output):
+        if tool_name in PUBLISHING_TOOLS and published_result(result_output):
             await ctx.audit.record_git_publish(
                 org_id=ctx.session.tenant_org_id,
                 actor_user_id=ctx.session.tenant_user_id,

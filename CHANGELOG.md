@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - `orchestrator`:
 - `sandboxes`:
-- `api`:
+- `api`: **Sandbox MCP** (`/v1/sandbox-mcp/`, streamable HTTP, a personal API token): a member's own agent (Claude Code, Cursor, any MCP client) opens sandboxes of the organization's types (`sandbox_types`, `sandbox_open`, `sandbox_list`, `sandbox_close`) and runs the platform's sandbox, git and GitHub tools in them, each with a `sandbox_id`. A sandbox is a session of the member (source `mcp`): its type's image and variables, pause and resume on the next call, workspace release, the git gateway and `git_push` with the organization's publishing rules, and its permission mode, hooks, redaction and audit trail. It never calls a model: calls run under a model-free scope (`MODEL_FREE_CALL_ROLE`) that the gateway and embeddings refuse, outside any turn (no trace, title, summary or follow-up). Settings `sandboxes.mcp_enabled` (off by default) and `sandboxes.mcp_max_open_sandboxes` (10 per member).
 - `web`:
 - `settings`:
 - `git`:

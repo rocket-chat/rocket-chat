@@ -17,6 +17,7 @@ from api.bootstrap.runtime import cluster_bus_enabled
 from api.db.models import McpServerEntityModel
 from api.db.session import DatabaseSessionManager, current_tenant_org_id
 from api.db.store import TurnTraceStore
+from api.sandbox_mcp.activity import latest_activity, sandbox_mcp_activity
 from api.services import mission_delivery, outbound_webhooks
 from api.services.audit import RetentionPolicy, RetentionSweeper
 from api.services.budgets import BudgetService
@@ -202,7 +203,12 @@ class BackgroundServices:
                 await active_turn_sessions(admin_manager) if admin_manager is not None else None
             )
             session_idleness = (
-                await session_turn_activity(admin_manager) if admin_manager is not None else None
+                latest_activity(
+                    await session_turn_activity(admin_manager),
+                    await sandbox_mcp_activity(admin_manager),
+                )
+                if admin_manager is not None
+                else None
             )
             await driver.reconcile_inactivity(
                 is_live=_session_is_live,

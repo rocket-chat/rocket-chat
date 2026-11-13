@@ -23,6 +23,9 @@ class SessionSource(str, Enum):
     SCHEDULED = "scheduled"
     # Microsoft Teams or Mattermost (``metadata.chat_platform``).
     CHAT = "chat"
+    # A sandbox opened through the sandbox MCP by an agent that runs elsewhere: tool calls only,
+    # no model of the platform's (see ``specifications/interfaces/sandbox_mcp.py``).
+    MCP = "mcp"
 
 
 @dataclass

@@ -71,6 +71,8 @@ Every setting declares who decides it (**Policy**), its type, its default and th
 | `cpu_limit` | Organization | min 0.1 | `2.0` | CPU cores per sandbox when its sandbox type sets none. |
 | `memory_limit` | Organization | str | `4Gi` | Memory limit per sandbox (e.g. 4Gi) when its sandbox type sets none. |
 | `disk_size` | Organization | str | `30Gi` | Workspace volume size per session (e.g. 30Gi) when its sandbox type sets none: room for a monorepo, its dependencies and the language caches. Applies to workspaces created afterwards (Kubernetes). |
+| `mcp_enabled` | Organization | bool | `False` | Let members open sandboxes from their own agents (Claude Code, Cursor, ...) through the sandbox MCP with a personal API token: sandbox, git and GitHub tools only, no model of the platform's. |
+| `mcp_max_open_sandboxes` | Organization | min 0, max 1000 | `10` | Most sandboxes one member may keep open through the sandbox MCP; closing one frees a place. 0 means no limit. |
 | `allow_terminal` | Organization | bool | `True` | Let members open an interactive shell in their session's running sandbox from the cockpit (it runs with the same limits, network rules and user as the agent). |
 | `max_running_sandboxes` | Organization | min 0, max 10000 | `0` | Most sandboxes the organization may have running at once; a new session waits for an idle sandbox to be hibernated instead of starting another. 0 means no limit. |
 | `max_background_processes` | Organization | min 1, max 50 | `5` | Most background processes (dev servers, watchers, long builds) one session may run at once; the agent is told to stop one before starting another. |

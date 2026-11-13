@@ -40,6 +40,7 @@
               "use/teams-and-mattermost",
               "use/automation",
               "use/extend",
+              "use/sandbox-mcp",
               "use/personal-settings"
             ]
           }

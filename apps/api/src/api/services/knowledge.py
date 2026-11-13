@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.db.models import KnowledgeBaseModel, KnowledgeChunkModel, KnowledgeDocumentModel
 from api.services.ownership import visible_clause
+from specifications.interfaces.llm import refuse_model_call_in_model_free_scope
 from specifications.interfaces.ownership import Viewer
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,8 @@ def generate_deterministic_embedding(text: str, dim: int = 1536) -> list[float]:
 
 async def compute_embedding(text: str, model_name: str = "text-embedding-3-small") -> list[float]:
     """Compute text embedding vector via LiteLLM or deterministic fallback."""
+    # Outside the try: the fallback below must not hide a refused call.
+    refuse_model_call_in_model_free_scope()
     try:
         import litellm
 

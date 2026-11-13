@@ -74,6 +74,25 @@ class ModelScope:
 
 current_model_scope: ContextVar[ModelScope | None] = ContextVar("current_model_scope", default=None)
 
+# The ``call_role`` of work that must never reach a model: the sandbox MCP serves tools to an
+# agent that runs elsewhere, so it buys no tokens of its own. Every place that calls a provider
+# (completions in the gateway, embeddings) refuses a call made under this role.
+MODEL_FREE_CALL_ROLE = "model_free"
+
+
+class ModelCallForbidden(RuntimeError):
+    """A model or embedding call was attempted in a scope that must not make one."""
+
+
+def refuse_model_call_in_model_free_scope() -> None:
+    """Raise before a provider is called when the current scope forbids model calls."""
+    scope = current_model_scope.get()
+    if scope is not None and scope.call_role == MODEL_FREE_CALL_ROLE:
+        raise ModelCallForbidden(
+            "This work runs without a model (the sandbox MCP); a model or embedding call was "
+            "refused before reaching the provider."
+        )
+
 
 @dataclass
 class UsageEvent:

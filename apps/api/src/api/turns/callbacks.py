@@ -11,17 +11,14 @@ from collections.abc import Awaitable, Callable
 from typing import Any, TypedDict
 
 from agent_core.context import current_execution_ctx
-from git_engine.engine import pick_installation
 
 from api.services import repository_skills
 from api.services.artifacts import get_artifact_store
 from api.services.git_credentials import (
     GitCredentialBundle,
-    app_may_act_on,
     inject_git_credentials_into_sandbox,
 )
 from api.services.git_gateway_env import github_api_url_of
-from api.services.github_installations import installations_for_org
 from api.services.github_read_access import github_read_access
 from api.services.github_watches import (
     AUTO_FIX_KEY,
@@ -30,6 +27,7 @@ from api.services.github_watches import (
     remember_pushed_head,
     watch_callbacks,
 )
+from api.services.github_write_access import github_write_access
 from api.services.knowledge import search_knowledge
 from api.services.mcp_runtime import McpToolProvider
 from api.services.memory import MemoryService, configured_embedding_model
@@ -1023,33 +1021,17 @@ def _github_read_access(
 def _github_write_access(
     ctx: TurnContext, git_bundle: GitCredentialBundle
 ) -> Callable[[str], Awaitable[GithubAccess]]:
-    """Who changes things on GitHub for this turn: the member when the organization's pull
-    request policy says so, else the organization's App installation for that repository, else
-    the member's own account. Resolved on the platform, never handed to the sandbox."""
-    engine, api_url = ctx.req.git_engine, github_api_url_of(ctx.req.git_engine)
-    member = git_bundle.user_token
-    login = str(git_bundle.source_details.get("username") or "")
-    as_member = GithubAccess(member, api_url, f"@{login}" if login else "your GitHub account")
+    """Who changes things on GitHub for this turn (``services/github_write_access.py``)."""
 
     async def access(repository: str) -> GithubAccess:
-        if member and ctx.binding.policy.git.publishes_as_member:
-            return as_member
-        org = ctx.session.tenant_org_id
-        if engine is not None and app_may_act_on(
-            await effective_settings(ctx.req.db_mgr, org, "github"), repository
-        ):
-            mapped = await installations_for_org(ctx.req.db_mgr, org)
-            token = await engine.get_github_access_token(
-                repo=repository,
-                repositories=[repository.rsplit("/", 1)[-1]],
-                installation_id=pick_installation(
-                    [(i.installation_id, i.account_login) for i in mapped], repository
-                ),
-                inherit_permissions=True,
-            )
-            if token:
-                return GithubAccess(token, api_url, "the organization's GitHub App")
-        return as_member if member else GithubAccess(None, api_url, "")
+        return await github_write_access(
+            repository,
+            engine=ctx.req.git_engine,
+            db_mgr=ctx.req.db_mgr,
+            org=ctx.session.tenant_org_id,
+            publishes_as_member=ctx.binding.policy.git.publishes_as_member,
+            git_bundle=git_bundle,
+        )
 
     return access
 
