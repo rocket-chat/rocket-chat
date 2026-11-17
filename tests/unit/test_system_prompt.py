@@ -18,7 +18,7 @@ from api.store import InMemorySessionStore
 from api.turns import prompt
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
-from specifications.interfaces.agent import GitPolicy, ToolLoading
+from specifications.interfaces.agent import GitPolicy, ToolLoading, TurnPolicy
 from specifications.interfaces.sandbox import SandboxStatus
 from specifications.interfaces.session import SessionRecord
 from tests.turn_harness import run_turn
@@ -195,7 +195,7 @@ async def test_a_denied_publishing_tool_is_explained_not_recommended() -> None:
             )
         ),
         binding=SimpleNamespace(
-            whitelisted_tools=["*"], policy=SimpleNamespace(tool_loading=ToolLoading())
+            whitelisted_tools=["*"], policy=TurnPolicy(tool_loading=ToolLoading())
         ),
     )
 

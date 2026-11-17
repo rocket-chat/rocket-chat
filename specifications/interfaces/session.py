@@ -349,3 +349,81 @@ class ArtifactStoreProtocol(ABC):
     async def delete_artifacts(self, session_id: str, tenant_org_id: str) -> None:
         """Delete all artifacts for a session (and their versions)."""
         pass
+
+
+# Where a session's files live when the sandbox does not hold them: offloaded tool outputs and
+# the scratch files of an agent that runs without a sandbox. Paths are workspace-relative.
+SESSION_FILE_OUTPUT_DIRECTORY = ".rocket/outputs"
+
+
+@dataclass
+class SessionFile:
+    """One file kept with the session, independently of the sandbox lifecycle.
+
+    ``kind`` is ``output`` (a tool result too large for the conversation) or ``scratch`` (a
+    file an agent without a sandbox wrote). ``content`` is empty in listings.
+    """
+
+    path: str
+    size: int
+    kind: str = "output"
+    content: str = ""
+    created_at: int = field(default_factory=lambda: int(time.time()))
+    updated_at: int = field(default_factory=lambda: int(time.time()))
+
+
+@dataclass(frozen=True)
+class SessionFileWrite:
+    """What a write kept: the stored size, whether it was cut, and the files evicted for room."""
+
+    path: str
+    size: int
+    truncated: bool = False
+    evicted: tuple[str, ...] = ()
+
+
+class SessionFileStoreProtocol(ABC):
+    """Durable, bounded storage for a session's files (PostgreSQL in production).
+
+    Every implementation enforces a per-file and a per-session byte ceiling: a write past the
+    session ceiling evicts the least recently written files of the session, never the one being
+    written, so no single producer can grow the store without a bound.
+    """
+
+    @abstractmethod
+    async def put(
+        self, session_id: str, tenant_org_id: str, path: str, content: str, kind: str = "output"
+    ) -> SessionFileWrite:
+        """Create or replace one file."""
+
+    @abstractmethod
+    async def get(self, session_id: str, tenant_org_id: str, path: str) -> SessionFile | None:
+        """One file with its content, or None."""
+
+    @abstractmethod
+    async def list_files(self, session_id: str, tenant_org_id: str) -> list[SessionFile]:
+        """The session's files without their content, most recently written first."""
+
+    @abstractmethod
+    async def delete(self, session_id: str, tenant_org_id: str, path: str) -> bool:
+        """Remove one file; False when it did not exist."""
+
+
+class SessionFilesProtocol(ABC):
+    """A session file store bound to one turn's session and organization (what tools see)."""
+
+    @abstractmethod
+    async def put(self, path: str, content: str, kind: str = "output") -> SessionFileWrite:
+        """Create or replace one file of the turn's session."""
+
+    @abstractmethod
+    async def get(self, path: str) -> SessionFile | None:
+        """One file of the turn's session, or None."""
+
+    @abstractmethod
+    async def list_files(self) -> list[SessionFile]:
+        """The turn's session files without content, most recently written first."""
+
+    @abstractmethod
+    async def delete(self, path: str) -> bool:
+        """Remove one file of the turn's session."""

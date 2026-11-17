@@ -41,6 +41,8 @@ Application-level `WHERE org_id = …` is not trusted. Isolation is enforced by 
 * Sandbox placement (node selectors, tolerations, runtime and priority classes) is defined only by the operator as named profiles; organization administrators choose a profile, never its contents, so no organization can schedule onto nodes a shared cluster reserves.
 * Tests that need RLS run against a real PostgreSQL (`tests/security`, `tests/integration`; `test_schema_ownership.py` checks that tables are owned and forced correctly), so a missing policy is a test failure, not a review comment.
 
+**Cross-session reads by an agent.** An agent with `reads_agent_sessions` reads other members' sessions of its organization, but only those it answered in. Direct messages and private threads are excluded by the service whoever asks. Tool payloads never leave the session, and every read is audited. The table `session_agents` is under forced RLS. **Proposals** (`change_proposals`, forced RLS) never change anything by themselves: the change is saved by the reviewer's own save, under ownership checks (`manageable`, `save_persona`), and a proposal containing what looks like a credential is refused.
+
 ## 4. Secrets
 
 * **At rest:** `CredentialCipher` (`config-engine/crypto.py`) seals secrets with AES-256-GCM. The key is `SHA-256(ENCRYPTION_MASTER_KEY)`, each value gets a fresh random 96-bit nonce, and the stored form is base64(`nonce ‖ ciphertext+tag`); tampering raises `CredentialDecryptionError`. `ENCRYPTION_PREVIOUS_KEYS` lets old values be read during a rotation; new values always use the primary key (`scripts/rotate_master_key.py` re-seals the database). The development key is refused in production.

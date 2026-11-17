@@ -54,6 +54,7 @@ from api.routers.ownership import router as ownership_router
 from api.routers.plan import router as plan_router
 from api.routers.preview import router as preview_router
 from api.routers.processes import router as processes_router
+from api.routers.proposals import router as proposals_router
 from api.routers.provider_oauth import router as provider_oauth_router
 from api.routers.repository_setups import router as repository_setups_router
 from api.routers.sandboxes import router as sandboxes_router
@@ -308,6 +309,7 @@ app.include_router(session_search_router)
 app.include_router(fork_router)
 app.include_router(github_app_router)
 app.include_router(memory_router)
+app.include_router(proposals_router)
 app.include_router(preview_router)
 app.include_router(processes_router)
 app.include_router(sandboxes_router)

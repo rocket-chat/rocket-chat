@@ -57,6 +57,9 @@ export interface AgentDraft {
   default_permission_mode: PermissionMode | "";
   credential_bindings: CredentialBinding[];
   strict_binding: boolean;
+  sandbox_enabled: boolean;
+  reads_agent_sessions: boolean;
+  proposes_changes: boolean;
   enabled: boolean;
   built_in: boolean;
   customized: boolean;
@@ -88,6 +91,9 @@ export function fromAgent(agent: AgentPersonaConfig): AgentDraft {
     default_permission_mode: agent.default_permission_mode ?? "",
     credential_bindings: agent.credential_bindings ?? [],
     strict_binding: agent.strict_binding ?? false,
+    sandbox_enabled: agent.sandbox_enabled !== false,
+    reads_agent_sessions: agent.reads_agent_sessions ?? false,
+    proposes_changes: agent.proposes_changes ?? false,
     enabled: agent.enabled !== false,
     built_in: !!agent.built_in,
     customized: !!agent.customized,
@@ -117,6 +123,9 @@ export function toAgent(draft: AgentDraft): AgentPersonaConfig {
     default_permission_mode: draft.default_permission_mode || null,
     credential_bindings: draft.credential_bindings,
     strict_binding: draft.strict_binding,
+    sandbox_enabled: draft.sandbox_enabled,
+    reads_agent_sessions: draft.reads_agent_sessions,
+    proposes_changes: draft.proposes_changes,
     enabled: draft.enabled,
     built_in: draft.built_in,
     scope: draft.scope,

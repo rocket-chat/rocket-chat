@@ -18,7 +18,9 @@ from agent_core.tools.builtin import (
     git,
     github,
     knowledge,
+    proposals,
     repository,
+    sessions,
     wait,
     web,
     workspace,
@@ -41,6 +43,8 @@ _DOMAINS = (
     background,
     git,
     wait,
+    sessions,
+    proposals,
 )
 
 
@@ -61,6 +65,8 @@ DOMAIN_TITLES: dict[str, str] = {
     "background": "Background processes",
     "git": "Git",
     "wait": "Waits",
+    "sessions": "Agent sessions",
+    "proposals": "Change proposals",
 }
 
 

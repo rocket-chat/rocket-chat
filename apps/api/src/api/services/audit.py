@@ -38,6 +38,7 @@ from api.db.models import (
     AuditEventModel,
     MemoryModel,
     OrganizationModel,
+    SessionFileModel,
     SessionModel,
     TurnTraceModel,
 )
@@ -88,6 +89,10 @@ AUDIT_EVENT_TYPES: tuple[str, ...] = (
     "team.deleted",
     "team.member_changed",
     "ownership.moved",
+    "agent_session.read",
+    "proposal.created",
+    "proposal.approved",
+    "proposal.rejected",
 )
 APPROVAL_DECISIONS: tuple[str, ...] = ("approved", "denied")
 APPROVAL_RISK_LEVELS: tuple[str, ...] = ("low", "medium", "high", "critical")
@@ -101,6 +106,7 @@ _RETENTION_KEY_BY_TABLE: dict[str, str] = {
     "sessions": "session_retention_days",
     "turn_traces": "trace_retention_days",
     "memories": "memory_retention_days",
+    "session_files": "session_file_retention_days",
     "attachments": "attachment_retention_days",
     "audit_events": "audit_retention_days",
 }
@@ -253,6 +259,7 @@ class RetentionPolicy:
     session_days: int | None = None
     trace_days: int | None = None
     memory_days: int | None = None
+    session_file_days: int | None = None
     attachment_days: int | None = None
     audit_days: int | None = None
 
@@ -265,6 +272,7 @@ class RetentionPolicy:
             "session_retention_days": self.session_days,
             "trace_retention_days": self.trace_days,
             "memory_retention_days": self.memory_days,
+            "session_file_retention_days": self.session_file_days,
             "attachment_retention_days": self.attachment_days,
             "audit_retention_days": self.audit_days,
         }[key]
@@ -290,6 +298,7 @@ class RetentionPolicy:
             session_days=_days("session_retention_days"),
             trace_days=_days("trace_retention_days"),
             memory_days=_days("memory_retention_days"),
+            session_file_days=_days("session_file_retention_days"),
             attachment_days=_days("attachment_retention_days"),
             audit_days=_days("audit_retention_days"),
         )
@@ -606,6 +615,7 @@ class AuditService:
 _SWEEP_TABLES: tuple[tuple[str, Any, str], ...] = (
     ("turn_traces", TurnTraceModel, "started_at"),
     ("memories", MemoryModel, "created_at"),
+    ("session_files", SessionFileModel, "updated_at"),
     ("attachments", AttachmentModel, "created_at"),
     ("audit_events", AuditEventModel, "created_at"),
     ("sessions", SessionModel, "updated_at"),

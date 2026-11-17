@@ -15,6 +15,7 @@ Every setting declares who decides it (**Policy**), its type, its default and th
 | `public_session_links` | Organization | bool | `False` | Let members create read-only public links to a session's conversation (anyone with the link can read it; turning this off disables links already issued). |
 | `max_turns` | Organization (ceiling: may only be lowered); operator default `AGENT_MAX_TURNS` | min 0, max 500 | `100` | Maximum reasoning steps per turn (0: no limit, the turn runs until the agent answers, is cancelled or reaches a cost cap). It is the default for agents, and the ceiling for an agent that sets its own limit. |
 | `output_offload_threshold` | Organization | min 500, max 100000 | `6000` | Character threshold above which tool execution outputs are offloaded to /workspace/.rocket/outputs with head and tail preserved in context. |
+| `session_files_max_mb` | Organization | min 1, max 1024 | `64` | Megabytes of files kept with one session outside its sandbox (offloaded tool outputs, the scratch files of an agent without a sandbox). The oldest are evicted past it; one file is at most a sixteenth of it, up to 4 MB. |
 | `plan_critic` | Organization | bool | `False` | Before a person decides on a plan the agent proposes (exit_plan_mode), a 'reviewer' subagent reads it and its notes are shown on the plan card and given to the agent. Costs one subagent run per proposed plan. |
 | `sso_allowed_domains` | Organization | list | empty | E-mail domains allowed to sign in (enforced when sso_enforce_domain_match is on). |
 | `sso_enforce_domain_match` | Organization | bool | `False` | Block sign-in from e-mail domains outside sso_allowed_domains. |
@@ -128,6 +129,8 @@ Every setting declares who decides it (**Policy**), its type, its default and th
 | `approval_policy` | Organization | dict | `{}` | Risk levels to auto-approve or deny: \{auto_approve: [...], deny: [...]\}. |
 | `remembered_approvals` | Organization | `session_and_repository` / `session` / `off` | `session_and_repository` | Whether members may answer an approval once for good: session_and_repository ("Allow for this session" and "Always for this command in this repository"), session (only the first) or off. Never applies to irreversible actions, to risk levels the approval policy denies or auto-approves, or while the permission mode is locked. Switching it off stops existing rules from applying. |
 | `question_timeout_seconds` | Organization | min 1 | unset | How long a question the agent asks (ask_question) waits for an answer. Past it, the question closes unanswered and the agent continues with its recommended option or its best judgement, stating the assumption. Empty waits until someone answers; set it for sessions nobody watches, such as ones driven through the API. |
+| `proposal_max_pending` | Organization | min 1, max 100 | `5` | How many change proposals one agent may have waiting for review at once; past it, the agent is told to wait for a decision. |
+| `proposal_max_change_chars` | Organization | min 200, max 64000 | `8000` | Characters one change proposal may add or replace in an agent's instructions or a skill; a larger change is refused and the agent asked to split it. |
 | `egress_allowlist` | Organization | list | empty | Sandbox egress destinations: CIDR blocks, IPs, host names or *.suffix patterns; empty means unrestricted. Docker sandboxes reach only these through an allow-listing proxy (checked after DNS resolution); Kubernetes resolves host names when the sandbox starts and enforces the addresses with a NetworkPolicy. |
 | `block_internal_subnets` | Organization | bool | `False` | Block sandbox access to private and link-local ranges. |
 | `redaction_enabled` | Organization | bool | `True` | Redact secrets from tool output, traces and logs. |
@@ -136,6 +139,7 @@ Every setting declares who decides it (**Policy**), its type, its default and th
 | `session_retention_days` | Organization | min 1 | unset | Delete session data older than this many days; empty keeps it. |
 | `trace_retention_days` | Organization | min 1 | unset | Delete trace data older than this many days; empty keeps it. |
 | `memory_retention_days` | Organization | min 1 | unset | Delete memory data older than this many days; empty keeps it. |
+| `session_file_retention_days` | Organization | min 1 | unset | Delete session_file data older than this many days; empty keeps it. |
 | `attachment_retention_days` | Organization | min 1 | unset | Delete attachment data older than this many days; empty keeps it. |
 | `audit_retention_days` | Organization | min 1 | unset | Delete audit data older than this many days; empty keeps it. |
 

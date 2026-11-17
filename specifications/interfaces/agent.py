@@ -17,8 +17,9 @@ from specifications.interfaces.llm import (
     ModelRouterProtocol,
     ToolDefinition,
 )
+from specifications.interfaces.proposals import ProposalsProtocol
 from specifications.interfaces.sandbox import WorkspaceSpec
-from specifications.interfaces.session import SessionArtifact
+from specifications.interfaces.session import SessionArtifact, SessionFilesProtocol
 
 
 class SubAgentRole(str, Enum):
@@ -500,6 +501,51 @@ class WaitOutcome:
     registered: bool
 
 
+@dataclass(frozen=True)
+class AgentSessionSummary:
+    """One session the turn's agent answered in, as ``agent_sessions_list`` names it."""
+
+    session_id: str
+    title: str
+    source: str
+    updated_at: int
+    messages: int
+    # Where it happened, for a person: a Slack channel id, "web", "mission".
+    place: str = ""
+
+
+@dataclass(frozen=True)
+class AgentSessionExcerpt:
+    """A window of a session's conversation: the person's and the agent's words, no tool data."""
+
+    session_id: str
+    title: str
+    total_messages: int
+    first_index: int
+    text: str
+    truncated: bool = False
+    # How many messages the window shows, from ``first_index``.
+    shown: int = 0
+
+
+class AgentSessionsProtocol(ABC):
+    """The other sessions of the turn's agent, bound to the turn (``reads_agent_sessions``).
+
+    Only sessions of the turn's organization where this agent answered at least once, never
+    a direct message or a private thread. Every read is audited; results are bounded.
+    """
+
+    @abstractmethod
+    async def list_sessions(self, query: str, limit: int) -> list[AgentSessionSummary]:
+        """The agent's sessions, most recent first; ``query`` filters on the title."""
+
+    @abstractmethod
+    async def read_session(
+        self, session_id: str, first_index: int, limit: int
+    ) -> AgentSessionExcerpt | None:
+        """A window of one session's conversation, or None when the agent may not read it."""
+
+
 @dataclass
 class TurnCallbacks:
     """Collaborators one turn's tools need, scoped to that turn (never shared state).
@@ -596,6 +642,13 @@ class TurnCallbacks:
     update_artifact: Callable[[str, str, str, str], Awaitable[SessionArtifact | None]] | None = None
     get_artifact: Callable[[str, str, str], Awaitable[SessionArtifact | None]] | None = None
     list_artifacts: Callable[[str, str], Awaitable[list[SessionArtifact]]] | None = None
+    # The session's durable files (offloaded outputs, a sandbox-free agent's scratch files),
+    # bound to the turn's session and organization. None: the in-process cache only.
+    session_files: SessionFilesProtocol | None = None
+    # The other sessions this agent answered in (None: the agent may not read them).
+    agent_sessions: AgentSessionsProtocol | None = None
+    # Staging changes to the agent's instructions and skills (None: the agent may not propose).
+    proposals: ProposalsProtocol | None = None
     # Called with (session id, epoch seconds the plan was proposed) once its approval gate is
     # answered: what the person decided on the plan card (mode, edited checklist, feedback), or
     # None when the gate was answered without one (a plain approval, Slack).
@@ -933,6 +986,13 @@ class TurnPolicy:
     # Tools that raise a human gate on every call whatever the permission mode, and that no
     # remembered approval answers (``TurnOverlay.gated_tools``).
     gated_tools: frozenset[str] = frozenset()
+    # The agent runs without a sandbox: its sandbox tools are removed from the turn, nothing
+    # may start one, and the file tools work on the session's files instead.
+    sandbox_enabled: bool = True
+    # The agent may list and read its other sessions (``agent_sessions_list``/``_read``).
+    reads_agent_sessions: bool = False
+    # The agent may propose changes to its instructions and skills (``propose_change``).
+    proposes_changes: bool = False
 
 
 @dataclass(frozen=True)

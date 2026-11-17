@@ -27,6 +27,8 @@ async def test_large_output_offloaded_to_file_with_head_and_tail_preserved() -> 
     ]
     large_output = "\n".join(lines)
     assert len(large_output) > 20_000
+    # The copy into the workspace is made only into a running sandbox.
+    await driver.start_sandbox("s1")
 
     res = await offload_tool_output(
         large_output,

@@ -8,6 +8,7 @@ import {
   Cpu,
   Database,
   GitPullRequest,
+  GitPullRequestDraft,
   KeyRound,
   MessageSquare,
   ScrollText,
@@ -60,6 +61,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { href: "/settings/skills", label: "Skills", icon: Code2, owners: EVERY_OWNER },
       { href: "/settings/mcp", label: "MCP servers", icon: Server, owners: EVERY_OWNER },
       { href: "/settings/knowledge", label: "Knowledge bases", icon: Database, owners: EVERY_OWNER },
+      { href: "/settings/proposals", label: "Proposals", icon: GitPullRequestDraft, owners: EVERY_OWNER },
     ],
   },
   {

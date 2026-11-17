@@ -59,6 +59,18 @@ FOLDER_COMMAND_TOOLS = frozenset(
 )
 
 
+# Built-in domains (``DOMAIN_TITLES``) whose tools need a sandbox. An agent that runs without
+# one loses them, except the file tools below, which then work on the session's own files.
+SANDBOX_DOMAINS = frozenset(
+    {"Repositories", "Workspace", "Files", "Commands", "Environment", "Background processes", "Git"}
+)
+SANDBOX_FREE_FILE_TOOLS = frozenset({"file_read", "file_write", "file_edit", "list_dir"})
+
+
+class SandboxDisabledError(RuntimeError):
+    """A tool needed a sandbox in a turn whose agent runs without one."""
+
+
 class ToolRegistry:
     """Two-tier tool registry registering FastMCP tools for LLM agent execution."""
 
@@ -211,7 +223,7 @@ class ToolRegistry:
             return ""
         _, session_id = target
         ctx = current_execution_ctx.get()
-        if ctx is not None and ctx.plan_mode:
+        if ctx is not None and (ctx.plan_mode or not ctx.policy.sandbox_enabled):
             return ""
         try:
             paths = await self._workspace_repository_paths(session_id)
@@ -315,6 +327,13 @@ class ToolRegistry:
             await changed(session_id)
 
     async def _ensure_sandbox(self, session_id: str) -> None:
+        ctx = current_execution_ctx.get()
+        if ctx is not None and not ctx.policy.sandbox_enabled:
+            raise SandboxDisabledError(
+                "This agent runs without a sandbox: there is no shell, git or workspace. Use "
+                "the tools you have; file_read, file_write, file_edit and list_dir work on the "
+                "session's files."
+            )
         ensure = self._turn_callback("ensure_sandbox")
         if ensure and session_id:
             await ensure(session_id)
@@ -659,6 +678,12 @@ class ToolRegistry:
             # Enforced, not advisory: an unauthenticated Slack caller cannot reach a tool
             # the workspace restricted, even if the model asks for it directly.
             ctx = current_execution_ctx.get()
+            if ctx is not None and not ctx.policy.sandbox_enabled and name in self.sandbox_tools():
+                return (
+                    f"Blocked: '{name}' needs a sandbox, and this agent runs without one. Use "
+                    "the tools you have; file_read, file_write, file_edit and list_dir work on "
+                    "the session's files."
+                )
             if ctx is not None and name in ctx.denied_tools:
                 return (
                     f"Blocked: the tool '{name}' is not permitted in this Slack workspace. "
@@ -973,6 +998,14 @@ class ToolRegistry:
     def toolset_of(self, name: str) -> str | None:
         """The toolset a dynamic tool belongs to, if any (e.g. ``"slack"``)."""
         return self._dynamic_tool_toolsets.get(name)
+
+    def sandbox_tools(self) -> frozenset[str]:
+        """Built-in tools that need a sandbox and have no sandbox-free form."""
+        return frozenset(
+            name
+            for name, domain in self._builtin_domains.items()
+            if domain in SANDBOX_DOMAINS and name not in SANDBOX_FREE_FILE_TOOLS
+        )
 
     def domain_of(self, name: str) -> str | None:
         """The domain a built-in tool is declared in (e.g. ``"Git"``); ``None`` for any other."""

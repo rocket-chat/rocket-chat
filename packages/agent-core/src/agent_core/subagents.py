@@ -1218,7 +1218,12 @@ class _SubagentExecution:
             return f"Tool execution error: {err}", "error"
         output = self._redact(raw_out) if isinstance(raw_out, str) else str(raw_out)
         if name not in ("file_read", "read_file"):
+            ctx = current_execution_ctx.get()
             output = await offload_tool_output(
-                output, self._sandbox_id, call_id, driver=self._runner.registry._driver
+                output,
+                self._sandbox_id,
+                call_id,
+                driver=self._runner.registry._driver,
+                session_files=ctx.callbacks.session_files if ctx and ctx.callbacks else None,
             )
         return clamp_output(output), "completed"

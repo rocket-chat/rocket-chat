@@ -20,6 +20,7 @@ from git_engine.engine import GitEngine
 from api.db.store import _auto_provision_tenants_enabled
 from api.services import outbound_webhooks, ticket_trackers
 from api.services.agent_access import AgentAccessDenied
+from api.services.agent_sessions import record_participation
 from api.services.audit import AuditService, GovernancePolicy
 from api.services.budgets import BudgetService
 from api.services.git_credentials import (
@@ -335,6 +336,7 @@ class TurnRunner:
             session.metadata = {**known, **choice}
 
         await req.store.mutate_session(req.session_id, ctx.session.tenant_org_id, record)
+        await record_participation(req.db_mgr, ctx.session.tenant_org_id, req.session_id, agent_id)
 
     async def _record_user_message(self, session: SessionRecord) -> None:
         req = self.req

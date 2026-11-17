@@ -76,6 +76,7 @@ from agent_core.summarizer import model_summarizer
 from agent_core.tool_loading import ALWAYS_LOADED, ESSENTIAL_TOOLS, catalogue, deferred_names
 from agent_core.tool_slot import human_wait
 from agent_core.tools.registry import ToolRegistry
+from agent_core.tools.switches import switched_off_tools
 from agent_core.transcript import RecordingList, repair_tool_pairs
 from agent_core.truncation import (
     MAX_EMPTY_RETRIES,
@@ -859,7 +860,7 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 if whitelisted_tools is not None and "*" not in whitelisted_tools
                 else None
             ),
-            denied_tools=denied_tools or frozenset(),
+            denied_tools=self._denied_for(denied_tools, policy),
             zero_retention=zero_retention,
             region=region,
             enabled_toolsets=enabled_toolsets or frozenset(),
@@ -1373,6 +1374,20 @@ class AsyncReActOrchestrator(AgentOrchestratorProtocol):
                 },
             )
         )
+
+    def sandbox_tools(self) -> frozenset[str]:
+        """The tools an agent without a sandbox does not get."""
+        return self._registry.sandbox_tools()
+
+    def _denied_for(
+        self, denied_tools: frozenset[str] | None, policy: TurnPolicy | None
+    ) -> frozenset[str]:
+        """The transport's denied tools, plus the tools the agent's switches leave out."""
+        denied = denied_tools or frozenset()
+        policy = policy or TurnPolicy()
+        if not policy.sandbox_enabled:
+            denied |= self._registry.sandbox_tools()
+        return denied | switched_off_tools(policy)
 
     def _allowed_tools(self, whitelisted_tools: list[str] | None) -> list[ToolDefinition]:
         """Every tool the turn may use, loaded or not."""

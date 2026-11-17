@@ -13,6 +13,7 @@ from typing import Any, TypedDict
 from agent_core.context import current_execution_ctx
 
 from api.services import repository_skills
+from api.services.agent_sessions import BoundAgentSessions, session_agents_store
 from api.services.artifacts import get_artifact_store
 from api.services.git_credentials import (
     GitCredentialBundle,
@@ -33,11 +34,13 @@ from api.services.mcp_runtime import McpToolProvider
 from api.services.memory import MemoryService, configured_embedding_model
 from api.services.plan_approval import plan_decision_reader
 from api.services.process_tracker import ProcessTracker
+from api.services.proposals import BoundProposals
 from api.services.repo_setup import repository_devcontainer_image
 from api.services.repository_setups import RepositorySetupStore
 from api.services.repository_setups import prepare_folder as prepare_repository_folder
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.session_env import remember_agent_env
+from api.services.session_files import BoundSessionFiles, turn_session_file_store
 from api.services.session_support import choose_active_repository, remember_active_repository
 from api.services.session_updates import publish_session_update
 from api.services.settings import effective_settings
@@ -772,6 +775,42 @@ async def _switch_to_devcontainer_image(
     )
 
 
+async def turn_session_files(db_mgr: Any, session_id: str, org_id: str) -> BoundSessionFiles:
+    """The session's durable files, bounded by ``general.session_files_max_mb``."""
+    return BoundSessionFiles(await turn_session_file_store(db_mgr, org_id), session_id, org_id)
+
+
+def _agent_sessions(ctx: TurnContext) -> BoundAgentSessions | None:
+    """The agent's other sessions, when its ``reads_agent_sessions`` switch is on."""
+    agent_id = ctx.binding.id
+    if not ctx.binding.policy.reads_agent_sessions or not agent_id:
+        return None
+    return BoundAgentSessions(
+        participation=session_agents_store(ctx.req.db_mgr),
+        sessions=ctx.req.store,
+        audit=ctx.audit,
+        org_id=ctx.session.tenant_org_id,
+        agent_id=agent_id,
+        current_session_id=ctx.session_id,
+        actor_user_id=publisher_of(ctx),
+    )
+
+
+def _proposals(ctx: TurnContext) -> BoundProposals | None:
+    """Staging changes to the agent's instructions and skills, when its switch is on."""
+    agent_id = ctx.binding.id
+    if not ctx.binding.policy.proposes_changes or not agent_id:
+        return None
+    return BoundProposals(
+        db_mgr=ctx.req.db_mgr,
+        org_id=ctx.session.tenant_org_id,
+        agent_id=agent_id,
+        session_id=ctx.session_id,
+        requested_by=publisher_of(ctx),
+        audit=ctx.audit,
+    )
+
+
 async def build_turn_callbacks(
     ctx: TurnContext, git_bundle: GitCredentialBundle, mcp_tools: McpToolProvider | None
 ) -> TurnCallbacks:
@@ -887,6 +926,9 @@ async def build_turn_callbacks(
     _create_artifact, _update_artifact = _make_artifact_callbacks(
         art_store, event_bus, ctx.session_id
     )
+    session_files = await turn_session_files(db_mgr, ctx.session_id, session.tenant_org_id)
+    agent_sessions = _agent_sessions(ctx)
+    proposals = _proposals(ctx)
 
     # (`bind_context_memory_callbacks` in main.py); it resolves the tenant from the turn's
     # execution context, so every path (web, Slack, webhooks) shares it.
@@ -905,6 +947,9 @@ async def build_turn_callbacks(
         update_artifact=_update_artifact,
         get_artifact=art_store.get_artifact,
         list_artifacts=art_store.list_artifacts,
+        session_files=session_files,
+        agent_sessions=agent_sessions,
+        proposals=proposals,
         plan_decision=plan_decision_reader(
             store,
             db_mgr,

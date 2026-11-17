@@ -81,6 +81,13 @@ A sandbox with no activity for the idle period is stopped and its workspace volu
 
 A kept volume still costs storage. After **`workspace_release_days`** (Settings → Sandboxes, 7 days by default, 0 = keep it as long as the session exists) without activity in the session, the volume is deleted too; a sandbox type can set its own delay. The session stays: its next turn starts with a blank sandbox, and the agent is told the workspace was released, so it clones again (work that was not pushed is gone). Workspaces are also removed with their session.
 
+## Files kept with a session
+
+A tool result too long for the conversation (over `general.output_offload_threshold`, 6,000 characters by default) reaches the agent as its beginning and its end, and is saved whole as `/workspace/.rocket/outputs/<turn>_<call>.txt`, which the agent reads a range at a time with `file_read`. The file is kept with the session in the database, not only in the sandbox: it is there for a tool that needs no sandbox (an MCP server's large answer), after a restart and on every replica, and it is copied into the workspace when a sandbox starts later, so `grep_search` or a command finds it too. An agent that [runs without a sandbox](/use/extend#agent-switches) keeps its notes and plans the same way.
+
+* **`general.session_files_max_mb`** (64 MB by default) bounds what one session keeps: past it, its least recently written files are removed. One file keeps at most a sixteenth of that, up to 4 MB; a longer one keeps its beginning and its end, and says what was cut.
+* **`governance.session_file_retention_days`** (empty by default) removes files not written for that many days; otherwise they go with their session.
+
 ## Snapshots of a whole workspace
 
 A session's whole workspace (every repository it cloned, uncommitted work included) can be saved and restored: `POST /v1/sessions/{id}/snapshots`, then `…/snapshots/{snapshot}/restore`, which replaces the workspace and restarts the sandbox on it at the next command. On Kubernetes a snapshot is a CSI `VolumeSnapshot` (the operator sets the class); with Docker, an archive of the session's volume. **Snapshot before pausing** (`sandboxes.snapshot_before_hibernate`) takes one each time the idle reaper pauses a sandbox; a session keeps the newest `sandboxes.workspace_snapshots_kept`.

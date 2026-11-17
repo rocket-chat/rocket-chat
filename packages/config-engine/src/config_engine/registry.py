@@ -209,6 +209,18 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             maximum=100000,
         ),
         _spec(
+            "session_files_max_mb",
+            "int",
+            64,
+            "org",
+            "apps/api/src/api/services/session_files.py",
+            "Megabytes of files kept with one session outside its sandbox (offloaded tool "
+            "outputs, the scratch files of an agent without a sandbox). The oldest are evicted "
+            "past it; one file is at most a sixteenth of it, up to 4 MB.",
+            minimum=1,
+            maximum=1024,
+        ),
+        _spec(
             "plan_critic",
             "bool",
             False,
@@ -1043,6 +1055,28 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             minimum=1,
         ),
         _spec(
+            "proposal_max_pending",
+            "int",
+            5,
+            "org",
+            "apps/api/src/api/services/proposals.py",
+            "How many change proposals one agent may have waiting for review at once; past it, "
+            "the agent is told to wait for a decision.",
+            minimum=1,
+            maximum=100,
+        ),
+        _spec(
+            "proposal_max_change_chars",
+            "int",
+            8000,
+            "org",
+            "apps/api/src/api/services/proposals.py",
+            "Characters one change proposal may add or replace in an agent's instructions or a "
+            "skill; a larger change is refused and the agent asked to split it.",
+            minimum=200,
+            maximum=64000,
+        ),
+        _spec(
             "egress_allowlist",
             "list",
             [],
@@ -1095,7 +1129,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
                 f"Delete {name} data older than this many days; empty keeps it.",
                 minimum=1,
             )
-            for name in ("session", "trace", "memory", "attachment", "audit")
+            for name in ("session", "trace", "memory", "session_file", "attachment", "audit")
         ),
     ),
     "memory": (
@@ -1331,7 +1365,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
 
 # Presentation only: which settings a form folds under "Advanced", and what a number counts.
 _ADVANCED: dict[str, frozenset[str]] = {
-    "general": frozenset({"output_offload_threshold"}),
+    "general": frozenset({"output_offload_threshold", "session_files_max_mb"}),
     "models": frozenset(
         {
             "context_windows",
@@ -1400,6 +1434,7 @@ _ADVANCED: dict[str, frozenset[str]] = {
             "session_retention_days",
             "trace_retention_days",
             "memory_retention_days",
+            "session_file_retention_days",
             "attachment_retention_days",
             "audit_retention_days",
             "auto_resume_turns",
@@ -1430,6 +1465,10 @@ _UNITS: dict[str, str] = {
     "session_retention_days": "days",
     "trace_retention_days": "days",
     "memory_retention_days": "days",
+    "session_file_retention_days": "days",
+    "session_files_max_mb": "megabytes",
+    "proposal_max_pending": "proposals",
+    "proposal_max_change_chars": "characters",
     "attachment_retention_days": "days",
     "audit_retention_days": "days",
     "top_k": "memories",

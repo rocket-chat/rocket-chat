@@ -131,6 +131,9 @@ persona carries the stored id, which can differ from the proposed one.
 | default_permission_mode | string | no | Default permission mode ('plan', 'ask', 'auto_edit', 'auto', 'bypass'); empty inherits |
 | credential_bindings | list of CredentialBindingModel | no | The agent's own provider credentials: a call on a bound provider uses the bound credential; administrators bind organization agents, owners their personal ones |
 | strict_binding | boolean | no | Refuse calls on any provider the agent has no binding for |
+| sandbox_enabled | boolean | no | Run with a sandbox. Off: no shell, git or workspace tools, and no sandbox is ever started; file_read, file_write, file_edit and list_dir work on files kept with the session |
+| reads_agent_sessions | boolean | no | Let the agent list and read the other sessions of the organization it answered in (never direct messages or private threads); every read is audited |
+| proposes_changes | boolean | no | Let the agent propose changes to its own instructions and skills; a person who administers the agent or skill approves, edits or rejects each proposal |
 
 **Responses:** `200`
 
@@ -204,6 +207,67 @@ The agent the caller's new sessions start with when none is chosen, and which le
 chose it: their own, their team's (when they belong to exactly one team), the
 organization's, else none (the platform's). A level whose agent they may not use is
 skipped.
+
+**Responses:** `200`
+
+### `GET /v1/proposals`
+
+The change proposals the caller may decide, newest first.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| status | query | no | `pending` / `approved` / `rejected` / `all` |
+
+**Responses:** `200`
+
+### `GET /v1/proposals/{proposal_id}`
+
+One proposal with its edits and both texts.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| proposal_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/proposals/{proposal_id}/approve`
+
+Save the proposed text (or the caller's edit of it) to the agent or skill.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| proposal_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| content | string | no | The text to save instead of the proposed one (an edited approval) |
+| note | string | no | A note for the agent |
+
+**Responses:** `200`
+
+### `POST /v1/proposals/{proposal_id}/reject`
+
+Refuse the proposal; the agent sees the note with ``list_my_proposals``.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| proposal_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| note | string | no | Why, for the agent |
 
 **Responses:** `200`
 

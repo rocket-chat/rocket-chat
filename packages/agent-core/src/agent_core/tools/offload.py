@@ -11,6 +11,8 @@ from collections import OrderedDict
 from typing import Any
 
 from agent_core.tools.compact_json import compact_structured_payload
+from specifications.interfaces.sandbox import SandboxStatus
+from specifications.interfaces.session import SessionFilesProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +109,54 @@ async def _remove_old_outputs(driver: Any, session_id: str) -> None:
         logger.debug("Could not clean old offloaded outputs for %s: %s", session_id, err)
 
 
+async def _keep_output(
+    session_id: str, relative_path: str, output: str, session_files: SessionFilesProtocol | None
+) -> None:
+    if session_files is not None:
+        try:
+            await session_files.put(relative_path, output, kind="output")
+            return
+        except Exception as err:
+            logger.warning("Session file store unavailable for %s: %s", relative_path, err)
+    store_cached_offload(session_id, relative_path, output)
+
+
+async def _write_into_running_sandbox(
+    driver: Any, session_id: str, relative_path: str, output: str
+) -> None:
+    """Copy the output into a running sandbox; never start or wake one for it.
+
+    A stopped sandbox gets the file when it starts (the platform copies the session's files
+    into a new workspace), so a sandbox-free turn never pays for a sandbox to keep an output.
+    """
+    if driver is None or not hasattr(driver, "write_file"):
+        return
+    try:
+        if hasattr(driver, "get_status") and (
+            await driver.get_status(session_id) != SandboxStatus.RUNNING
+        ):
+            return
+        await driver.write_file(session_id, relative_path, output, overwrite=True)
+        await _remove_old_outputs(driver, session_id)
+    except Exception as err:
+        logger.debug("Sandbox copy of offload file %s skipped: %s", relative_path, err)
+
+
+async def read_offloaded(
+    session_id: str, path: str, session_files: SessionFilesProtocol | None
+) -> str | None:
+    """An offloaded output or sandbox-free file by workspace path, from wherever it is kept."""
+    if session_files is not None:
+        try:
+            kept = await session_files.get(path)
+        except Exception as err:
+            logger.debug("Session file read failed for %s: %s", path, err)
+            kept = None
+        if kept is not None:
+            return kept.content
+    return get_cached_offload(session_id, path)
+
+
 def _short(line: str) -> str:
     if len(line) <= MAX_EXCERPT_LINE_CHARS:
         return line
@@ -135,8 +185,14 @@ async def offload_tool_output(
     threshold: int = DEFAULT_OFFLOAD_THRESHOLD,
     driver: Any = None,
     turn_index: int = 1,
+    session_files: SessionFilesProtocol | None = None,
 ) -> str:
-    """Offload output exceeding ``threshold`` chars to workspace file, returning head + tail."""
+    """Offload output exceeding ``threshold`` chars to a session file, returning head + tail.
+
+    The full output goes to the session's durable files when the turn has them (PostgreSQL:
+    any replica, with or without a sandbox), else to the bounded in-process cache; and into
+    the sandbox too when one is running, so shell tools find it.
+    """
     if not output or len(output) <= threshold:
         return output
 
@@ -144,19 +200,8 @@ async def offload_tool_output(
     relative_path = f".rocket/outputs/{filename}"
     display_path = f"{OUTPUT_DIRECTORY}/{filename}"
 
-    # Always persist in the in-memory cache for Tier-1/MCP tools without a sandbox
-    store_cached_offload(session_id, relative_path, output)
-
-    if driver is not None and hasattr(driver, "write_file"):
-        try:
-            await driver.write_file(session_id, relative_path, output, overwrite=True)
-            await _remove_old_outputs(driver, session_id)
-        except Exception as err:
-            logger.debug(
-                "Sandbox write failed for offload file %s; using in-memory cache: %s",
-                relative_path,
-                err,
-            )
+    await _keep_output(session_id, relative_path, output, session_files)
+    await _write_into_running_sandbox(driver, session_id, relative_path, output)
 
     compacted = compact_structured_payload(output)
     if len(compacted) <= threshold:

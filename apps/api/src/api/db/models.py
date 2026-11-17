@@ -725,6 +725,15 @@ class AgentPersonaEntityModel(Base):
     strict_binding: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false", nullable=False
     )
+    sandbox_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
+    reads_agent_sessions: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    proposes_changes: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
     max_turns: Mapped[int | None] = mapped_column(Integer, nullable=True)
     active_tools: Mapped[list[str]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), default=list
@@ -1124,6 +1133,75 @@ class AttachmentModel(Base):
     created_at: Mapped[int] = mapped_column(
         BigInteger, default=lambda: int(time.time()), nullable=False
     )
+
+
+class SessionFileModel(Base):
+    """A file kept with a session: an offloaded tool output or a sandbox-free scratch file."""
+
+    __tablename__ = "session_files"
+
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True
+    )
+    path: Mapped[str] = mapped_column(String(512), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    kind: Mapped[str] = mapped_column(String(16), default="output", nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    size: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    # Write order for eviction and listing: several writes share one second.
+    written_ms: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class SessionAgentModel(Base):
+    """An agent answered in a session (first and last time): what ``agent_sessions_list`` reads."""
+
+    __tablename__ = "session_agents"
+    __table_args__ = (Index("ix_session_agents_agent_last", "agent_id", "last_at"),)
+
+    session_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="CASCADE"), primary_key=True
+    )
+    agent_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    first_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    last_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class ChangeProposalModel(Base):
+    """An agent's staged change to its instructions or a skill, waiting for a person."""
+
+    __tablename__ = "change_proposals"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    agent_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    target_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    summary: Mapped[str] = mapped_column(String(500), nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    base_content: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_content: Mapped[str] = mapped_column(Text, nullable=False)
+    edits: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    session_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("sessions.id", ondelete="SET NULL"), nullable=True
+    )
+    requested_by: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    decided_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    decided_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    decision_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
 
 
 class MemoryModel(Base):

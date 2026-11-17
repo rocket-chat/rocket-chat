@@ -56,6 +56,9 @@ READ_TOOLS: frozenset[str] = frozenset(
         "git_diff",
         "git_log",
         "kb_search",
+        "agent_sessions_list",
+        "agent_session_read",
+        "list_my_proposals",
         "search_tools",
         "load_tools",
         "load_guidance",
@@ -90,6 +93,8 @@ READ_TOOLS: frozenset[str] = frozenset(
         "exit_plan_mode",
         "request_approval",
         "remember",
+        # Stages a proposal only: a person approves it before anything changes.
+        "propose_change",
         "git_checkpoint",
         "delegate_subagent",
         "delegate_subagents_parallel",
