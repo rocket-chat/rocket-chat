@@ -204,7 +204,7 @@ def _prompt_of(client: TestClient, org: str, agent_id: str) -> str:
     return str(next(a for a in agents if a["id"] == agent_id)["system_prompt"])
 
 
-async def _stage(
+def _stage(
     client: TestClient,
     org: str,
     agent_id: str,
@@ -213,25 +213,31 @@ async def _stage(
     target: str = "instructions",
     skill_name: str = "",
 ) -> str:
-    message = await BoundProposals(
-        db_mgr=getattr(client.app.state, "db_manager", None),
-        org_id=org,
-        agent_id=agent_id,
-        session_id=None,
-        requested_by="u1",
-        audit=AuditService(None),
-    ).propose(target, skill_name, edits or _edit(), "s", "r")
+    async def propose() -> str:
+        return await BoundProposals(
+            db_mgr=getattr(client.app.state, "db_manager", None),
+            org_id=org,
+            agent_id=agent_id,
+            session_id=None,
+            requested_by="u1",
+            audit=AuditService(None),
+        ).propose(target, skill_name, edits or _edit(), "s", "r")
+
+    # On the app's own event loop: its database engine belongs to that loop.
+    portal = client.portal
+    assert portal is not None
+    message = portal.call(propose)
     assert "waiting for review" in message, message
     # The id from the answer itself: two proposals made within one second tie on created_at.
     return message.split()[1]
 
 
-async def test_only_who_may_edit_the_agent_sees_and_decides_its_proposals(
+def test_only_who_may_edit_the_agent_sees_and_decides_its_proposals(
     client: TestClient,
 ) -> None:
     org = _org()
     agent_id = _http_agent(client, org)
-    proposal_id = await _stage(client, org, agent_id)
+    proposal_id = _stage(client, org, agent_id)
 
     member = client.get("/v1/proposals", headers=_as("member", org, "u2"))
     assert member.status_code == 200 and member.json()["proposals"] == []
@@ -255,10 +261,10 @@ async def test_only_who_may_edit_the_agent_sees_and_decides_its_proposals(
     assert again.status_code == 409
 
 
-async def test_an_edited_approval_saves_the_reviewers_text(client: TestClient) -> None:
+def test_an_edited_approval_saves_the_reviewers_text(client: TestClient) -> None:
     org = _org()
     agent_id = _http_agent(client, org)
-    proposal_id = await _stage(client, org, agent_id)
+    proposal_id = _stage(client, org, agent_id)
 
     approved = client.post(
         f"/v1/proposals/{proposal_id}/approve",
@@ -270,13 +276,13 @@ async def test_an_edited_approval_saves_the_reviewers_text(client: TestClient) -
     assert _prompt_of(client, org, agent_id) == "REVIEWED PROMPT"
 
 
-async def test_a_proposal_is_rebased_on_a_changed_target_or_refused_on_conflict(
+def test_a_proposal_is_rebased_on_a_changed_target_or_refused_on_conflict(
     client: TestClient,
 ) -> None:
     org = _org()
     agent_id = _http_agent(client, org)
-    rebased = await _stage(client, org, agent_id)
-    conflicting = await _stage(
+    rebased = _stage(client, org, agent_id)
+    conflicting = _stage(
         client, org, agent_id, [ProposalEdit("You answer data questions.", "You answer questions.")]
     )
     changed = client.post(
@@ -304,7 +310,7 @@ async def test_a_proposal_is_rebased_on_a_changed_target_or_refused_on_conflict(
     assert clash.status_code == 409 and "no longer apply" in clash.json()["detail"]
 
 
-async def test_a_skill_proposal_is_decided_by_who_may_edit_the_skill(client: TestClient) -> None:
+def test_a_skill_proposal_is_decided_by_who_may_edit_the_skill(client: TestClient) -> None:
     org = _org()
     skill = client.post(
         "/v1/skills",
@@ -313,7 +319,7 @@ async def test_a_skill_proposal_is_decided_by_who_may_edit_the_skill(client: Tes
     )
     assert skill.status_code == 200, skill.text
     agent_id = _http_agent(client, org)
-    proposal_id = await _stage(
+    proposal_id = _stage(
         client,
         org,
         agent_id,
