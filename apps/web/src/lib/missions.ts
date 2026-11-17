@@ -9,7 +9,7 @@ export interface MissionTrigger {
   timezone: string;
 }
 
-export type DeliveryKind = "session" | "chat" | "webhook" | "github_review" | "github_comment";
+export type DeliveryKind = "session" | "chat" | "webhook" | "github_review" | "github_comment" | "pull_request";
 
 export interface MissionDelivery {
   kind: DeliveryKind;
@@ -17,6 +17,8 @@ export interface MissionDelivery {
   channel: string;
   url: string;
   output_schema: Record<string, unknown>;
+  /** The run may end without it: nothing to report, or no change to propose. */
+  optional: boolean;
 }
 
 /** What a mission is made of: the body of `POST` / `PUT /v1/missions`. */
@@ -33,8 +35,12 @@ export interface MissionBody {
   sandbox_type: string;
   mode: "work" | "review";
   auto_fix: boolean;
-  git_repo: string;
+  /** owner/name; an event's own repository comes first. */
+  git_repos: string[];
+  /** Checked out in the first repository. */
   git_branch: string;
+  /** Runs may push and open pull requests; otherwise they only read GitHub. */
+  github_write: boolean;
   enabled: boolean;
 }
 
@@ -67,7 +73,7 @@ export interface MissionRun {
   source: string;
   title: string;
   status: "running" | "completed" | "failed" | "delivered" | "delivery_failed";
-  deliveries: { kind: string; status: string; error?: string }[];
+  deliveries: { kind: string; status: string; error?: string; url?: string }[];
   started_at: number;
   finished_at: number | null;
 }
@@ -81,6 +87,7 @@ export interface MissionPreset {
 
 export const MAX_TRIGGERS = 3;
 export const MAX_OUTPUT_SCHEMA_CHARS = 4000;
+export const MAX_REPOSITORIES = 10;
 
 /** The sources a person picks from, grouped as the select shows them. */
 export const TRIGGER_SOURCES: { value: string; label: string; group: string }[] = [
@@ -104,6 +111,7 @@ export const REVIEW_SOURCES = new Set(["github_pr", "gitlab_mr"]);
 export const GITHUB_ITEM_SOURCES = new Set(["github_pr", "github_issue_label", "github_issue_comment", "github_pr_review_comment"]);
 
 export const DELIVERY_OPTIONS: { kind: Exclude<DeliveryKind, "session">; label: string }[] = [
+  { kind: "pull_request", label: "A pull request" },
   { kind: "chat", label: "A Slack message" },
   { kind: "webhook", label: "A webhook (JSON)" },
   { kind: "github_review", label: "A pull request review" },
@@ -149,7 +157,7 @@ export function blankTrigger(source = "schedule"): MissionTrigger {
 }
 
 export function blankDelivery(kind: DeliveryKind): MissionDelivery {
-  return { kind, bot_id: "", channel: "", url: "", output_schema: {} };
+  return { kind, bot_id: "", channel: "", url: "", output_schema: {}, optional: false };
 }
 
 export function blankMission(): MissionBody {
@@ -158,7 +166,7 @@ export function blankMission(): MissionBody {
     instructions: "",
     scope: "user",
     team_id: null,
-    triggers: [blankTrigger()],
+    triggers: [],
     deliveries: [],
     agent_id: "",
     permission_mode: "",
@@ -166,8 +174,9 @@ export function blankMission(): MissionBody {
     sandbox_type: "",
     mode: "work",
     auto_fix: false,
-    git_repo: "",
+    git_repos: [],
     git_branch: "",
+    github_write: false,
     enabled: true,
   };
 }
@@ -188,10 +197,30 @@ export function completeMission(partial: Partial<MissionBody>): MissionBody {
   };
 }
 
-/** Why the mission cannot be saved as it is, or null: the rules the API applies too. */
-export function missionProblem(mission: MissionBody): string | null {
-  if (!mission.name.trim()) return "Give the mission a name.";
+/** Whether runs must be allowed to change GitHub: they open a pull request or follow one up. */
+export function needsGithubWrite(mission: Pick<MissionBody, "deliveries" | "auto_fix">): boolean {
+  return mission.auto_fix || mission.deliveries.some((d) => d.kind === "pull_request");
+}
+
+/** The parts of a mission the form walks through, in order. */
+export type MissionStep = "when" | "agent" | "task" | "deliver";
+export const MISSION_STEPS: MissionStep[] = ["when", "agent", "task", "deliver"];
+
+/**
+ * What the person has said on purpose, beyond the fields: a mission with no trigger runs only
+ * when someone presses Run now, and one with no delivery reports only to its session. Both are
+ * real choices, so a blank form asks for them instead of assuming them.
+ */
+export interface MissionChoices {
+  runByHand: boolean;
+  sessionOnly: boolean;
+}
+
+const REPOSITORY = /^[\w.-]+\/[\w.-]+$|^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(\.git)?\/?$/;
+
+function whenProblem(mission: MissionBody, choices: MissionChoices): string | null {
   const sources = new Set(mission.triggers.map((t) => t.source));
+  if (mission.triggers.length === 0 && !choices.runByHand) return "Choose what starts the mission, or that it runs only by hand.";
   if (mission.triggers.length > MAX_TRIGGERS) return `A mission has at most ${MAX_TRIGGERS} triggers.`;
   if (mission.triggers.some((t) => t.source === "schedule" && t.schedule.trim().split(/\s+/).length !== 5)) {
     return "A schedule is a five-field cron expression, such as 0 9 * * 1-5.";
@@ -199,8 +228,24 @@ export function missionProblem(mission: MissionBody): string | null {
   if (mission.mode === "review" && ![...sources].some((s) => REVIEW_SOURCES.has(s))) {
     return "A review mission needs a pull request (or merge request) trigger.";
   }
+  return null;
+}
+
+function taskProblem(mission: MissionBody): string | null {
+  if (mission.mode === "work" && !mission.instructions.trim()) return "Say what the agent should do.";
+  if (mission.git_repos.length > MAX_REPOSITORIES) return `A mission names at most ${MAX_REPOSITORIES} repositories.`;
+  const wrong = mission.git_repos.find((r) => r.trim() && !REPOSITORY.test(r.trim()));
+  if (wrong) return `"${wrong}" is not a repository: use owner/name.`;
+  if (needsGithubWrite(mission) && !mission.github_write) return "Allow GitHub writes: the mission opens or follows up a pull request.";
+  return null;
+}
+
+function deliverProblem(mission: MissionBody, choices: MissionChoices): string | null {
+  const sources = new Set(mission.triggers.map((t) => t.source));
   const kinds = mission.deliveries.map((d) => d.kind);
+  if (kinds.length === 0 && !choices.sessionOnly) return "Choose where the result goes, or that its session is enough.";
   if (new Set(kinds).size !== kinds.length) return "Each kind of delivery appears once.";
+  if (kinds.includes("pull_request") && mission.mode === "review") return "A review mission changes no code, so it opens no pull request.";
   if (kinds.includes("github_review") && !sources.has("github_pr")) return "A pull request review needs a GitHub pull request trigger.";
   if (kinds.includes("github_comment") && ![...sources].some((s) => GITHUB_ITEM_SOURCES.has(s))) {
     return "A GitHub comment needs a GitHub issue or pull request trigger.";
@@ -212,6 +257,18 @@ export function missionProblem(mission: MissionBody): string | null {
     if (delivery.kind === "webhook" && !delivery.url.trim().startsWith("https://")) return "A webhook delivery needs an https:// URL.";
   }
   return null;
+}
+
+/** What each step still needs before the mission can be saved (null: the step is complete). */
+export function stepProblems(mission: MissionBody, choices: MissionChoices): Record<MissionStep, string | null> {
+  return { when: whenProblem(mission, choices), agent: null, task: taskProblem(mission), deliver: deliverProblem(mission, choices) };
+}
+
+/** Why the mission cannot be saved as it is, or null: the rules the API applies too. */
+export function missionProblem(mission: MissionBody, choices: MissionChoices = { runByHand: true, sessionOnly: true }): string | null {
+  if (!mission.name.trim()) return "Give the mission a name.";
+  const problems = stepProblems(mission, choices);
+  return MISSION_STEPS.map((step) => problems[step]).find((problem) => problem !== null) ?? null;
 }
 
 /** The webhook delivery's schema as typed: an object, or a message saying why not. */

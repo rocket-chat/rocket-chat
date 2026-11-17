@@ -7,28 +7,31 @@ description: Agent runs that start on their own, where their results go, reusabl
 
 ## Missions
 
-A **mission** is an agent run the platform starts on its own. Open **Missions** in the sidebar. The editor shows a mission as a flow of four steps, **When → Agent → Task → Deliver**: each step's card says what it holds in plain words ("Every weekday at 09:00 (UTC)", "The reviewer · reviews the pull request"), and choosing a card opens that step below. Triggers, the work or review mode and the deliveries are picked as tiles.
+A **mission** is an agent run the platform starts on its own. Open **Missions** in the sidebar. The editor shows a mission as a flow of four steps, **When → Agent → Task → Deliver**: each step's card says what it holds in plain words ("Every weekday at 09:00 (UTC)", "The reviewer · reviews the pull request"), and choosing a card opens that step below, with **Back** and **Next** to walk through them in order. Each card is marked done or to finish, and a list under the steps says what is still missing (each item opens its step): **Create mission** stays unavailable until the mission has a name and every step is complete. Triggers, the work or review mode and the deliveries are picked as tiles.
 
 The editor opens in **Simple**, which shows what most missions need. **Advanced** adds the rest: a schedule's raw cron and any time zone, the repository, label and branch filters of an event, the less common event sources, the permission mode, model tier and sandbox type, the branch, and a webhook's result schema. A mission that already uses one of these opens in Advanced, so nothing it holds is hidden.
 
-* **When**: one to three triggers.
-  * a **schedule**: picked in plain words (every weekday, every day or every Monday at a time, or every hour) in a time zone, or, in Advanced, as a five-field cron such as `15 */6 * * *` (at most every five minutes);
+* **When**: one to three triggers, or **Only when run by hand** (a new mission asks for one or the other).
+  * a **schedule**: picked in plain words (every weekday, every day or every Monday at a time, every month on the first, second, third or fourth weekday of your choice at a time, or every hour) in a time zone, or, in Advanced, as a five-field cron such as `15 */6 * * *` (at most every five minutes; the monthly choice is written `0 9 * * 1#1`, the first Monday);
   * a GitHub or GitLab event: an issue that gets a label, a comment that addresses the agent (`@rocketchat`, `/agent`, `/fix`), a pull or merge request opened or updated, a review comment, a failed workflow run or pipeline; a Jira or Linear issue. Narrow each with repository patterns (`acme/*`), labels and branches;
   * the mission's own **webhook** (see below);
   * and always **Run now**, by hand, with an optional note on what this run is about.
 * **Agent**: the agent, whether it **does the work** or **reviews the pull request**, whether it follows up its pull request, and (Advanced) its permission mode, a model tier and a sandbox type.
-* **Task**: the instructions, and optionally a repository and (Advanced) a branch.
-* **Deliver**: where the result goes. Every run is a session you can open, review and continue; add up to three more:
-  * **Chat**: a message in a Slack channel, through one of your organization's bots (the channel must be one your organization lets it post in);
+* **Task**: the instructions (optional for a review), the repositories to clone (up to ten `owner/name`; an event's own repository comes first, and the agent clones the ones the task needs), (Advanced) a branch for the first one, and **Allow GitHub writes**. Without it, every run only reads GitHub, whoever it runs as: pushing a branch, opening a pull request or writing through the GitHub tools is refused. It is ticked, and cannot be unticked, while the mission opens a pull request or follows one up. Missions created before this option keep their writes.
+* **Deliver**: where the result goes. Every run is a session you can open, review and continue; choose **Its session only** when that is enough, or add any of:
+  * **Pull request**: the agent opens a pull request with its change (work missions; needs GitHub writes). The run's delivery is marked delivered with the pull request's link, or failed when it opened none;
+  * **Chat**: a message in a Slack channel, through one of your organization's bots (the channel must be one your organization lets it post in). The agent is told it writes a Slack message: short Markdown, which the platform converts to Slack's format, under the mission's name, at most 1,500 characters;
   * **Webhook**: a signed JSON request to an https URL, shaped by a **JSON Schema** you give (the result is checked against it before it is sent);
   * **GitHub review**: one review with inline comments on the pull request the event is about;
   * **GitHub comment**: a comment on the issue or pull request the event is about.
 
-**How a result is delivered.** The agent does not post anything itself. It ends its run by handing the result to the platform (the `deliver` tool), which checks it against what each delivery expects and refuses, with the reason, a result that does not fit, so the agent corrects it. When the run ends, the platform posts it with the mission's own rights: the organization's Slack bot, the webhook's signing secret, the organization's GitHub App. So a review mission can run read-only and still post its review. A chat message or a comment falls back to the run's final answer when the agent did not hand one; a review or a webhook without a result is reported as not delivered. A delivery that fails is retried with growing delays, and the mission's **runs** show each run, its session and how each delivery went.
+  Mark a delivery **Optional** when a run may have nothing for it: no pull request when there is nothing to change, no message when there is nothing to report. The agent may then leave it out, the delivery is shown as *skipped* and the run still succeeds.
+
+**How a result is delivered.** The agent does not post anything itself. It ends its run by handing the result to the platform (the `deliver` tool), which checks it against what each delivery expects and refuses, with the reason, a result that does not fit, so the agent corrects it. When the run ends, the platform posts it with the mission's own rights: the organization's Slack bot, the webhook's signing secret, the organization's GitHub App. So a review mission can run read-only and still post its review. Every delivery is made only from what the agent hands to `deliver`, never from its final answer: a Slack message, a webhook, a review or a comment the agent gave nothing for is reported as not delivered, or *skipped* when it is optional. A delivery that fails is retried with growing delays, and the mission's **runs** show each run, its session and how each delivery went.
 
 **Who owns a mission, and who it runs as.** A mission is owned like any object: you, one of your teams, or the organization (see [Teams](/administer/organization#teams)). A personal mission runs as you, with your permissions, keys and spend limits. A team's or the organization's runs as the mission itself, a service member that is an ordinary member of the organization (and of the team): its runs use the team's or the organization's keys and limits, never those of the person whose comment or label started them, and their sessions are shared with the team or the organization. Changing the owner moves the mission; the dialog says who will see its runs and whether its agent would still be usable.
 
-**Starting from a preset.** **New mission** shows the presets as tiles under **Start from**; choosing one fills the whole mission: *Pull request review* (reviews each pull request and its new commits, read-only, posts one review), *CI failure fixer*, *Issue labelled `ai-fix` → pull request* (comments on the issue with what it did), *Weekly dependency audit → Slack*, *Daily engineering digest → Slack* and *Alert triage → webhook* (a structured verdict for your incident tool). Pick the repository, channel or URL and save.
+**Starting from a preset.** **New mission** shows the presets as tiles under **Start from**; choosing one fills the whole mission: *Pull request review* (reviews each pull request and its new commits, read-only, posts one review), *CI failure fixer*, *Issue labelled `ai-fix` → pull request* (opens a pull request and comments on the issue with what it did), *Weekly dependency audit → Slack*, *Daily engineering digest → Slack* and *Alert triage → webhook* (a structured verdict for your incident tool). Pick the repository, channel or URL and save.
 
 **Review missions.** A mission in review mode (it needs a pull or merge request trigger) runs the reviewer unless it names another agent, and reviews only what changed since its last review when new commits arrive.
 
@@ -52,7 +55,7 @@ A webhook delivery is signed the same way, with its own secret (shown once), and
 
 **Jira and Linear.** A run started from a ticket comments its outcome on the ticket when the operator gave the platform an API token for the tracker.
 
-Limits: three triggers and four deliveries per mission; 20 personal missions per member and 200 missions per organization.
+Limits: three triggers, one delivery of each kind and ten repositories per mission; 20 personal missions per member and 200 missions per organization.
 
 ## Templates
 

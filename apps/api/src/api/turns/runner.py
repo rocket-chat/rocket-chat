@@ -35,6 +35,7 @@ from api.services.git_signing import (
     member_signing_for_turn,
 )
 from api.services.mcp_turn import _mcp_tools_for_turn
+from api.services.mission_records import forge_writes_of
 from api.services.queued_messages import QueuedMessageStore
 from api.services.redaction import RedactionPolicy, Redactor
 from api.services.sandbox_catalogue import SandboxCatalogue
@@ -636,6 +637,7 @@ class TurnRunner:
             user_email=git.user_email or git_bundle.author_email,
             user_token=git_bundle.user_token,
             gitlab_token=git_bundle.gitlab_token,
+            forge_writes=forge_writes_of(ctx.session.metadata),
         )
         overlay = ctx.req.overlay
         return replace(

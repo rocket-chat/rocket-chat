@@ -51,11 +51,17 @@ const RunsList: React.FC<{ missionId: string; refresh: number }> = ({ missionId,
           <Badge tone={STATUS_TONE[run.status] ?? "neutral"}>{run.status.replace("_", " ")}</Badge>
           <span className="text-neutral-700 dark:text-neutral-300">{formatTime(run.started_at)}</span>
           <span className="text-neutral-600 dark:text-neutral-400">{sourceLabel(run.source)}</span>
-          {run.deliveries.map((d) => (
-            <Badge key={d.kind} tone={d.status === "delivered" ? "success" : d.status === "failed" ? "danger" : "neutral"} title={d.error || undefined}>
-              {deliveryLabel(d.kind)}: {d.status}
-            </Badge>
-          ))}
+          {run.deliveries.map((d) =>
+            d.url ? (
+              <a key={d.kind} href={d.url} target="_blank" rel="noreferrer" data-testid="mission-run-pull-request" className="text-brand underline-offset-2 hover:underline">
+                {deliveryLabel(d.kind)}: {d.status}
+              </a>
+            ) : (
+              <Badge key={d.kind} tone={d.status === "delivered" ? "success" : d.status === "failed" ? "danger" : "neutral"} title={d.error || undefined}>
+                {deliveryLabel(d.kind)}: {d.status}
+              </Badge>
+            ),
+          )}
           {run.session_id && (
             <Link href={`/chat/${run.session_id}`} className="ml-auto text-brand underline-offset-2 hover:underline">
               Open the session
@@ -82,7 +88,10 @@ interface MissionCardProps {
 export const MissionCard: React.FC<MissionCardProps> = ({ mission, onToggle, onRun, onEdit, onDelete, onRotate, runsVersion }) => {
   const [showRuns, setShowRuns] = useState(false);
   const [running, setRunning] = useState(false);
-  const deliveries = ["session", ...mission.deliveries.map((d) => d.kind).filter((k) => k !== "session")];
+  const deliveries = [
+    "The session",
+    ...mission.deliveries.filter((d) => d.kind !== "session").map((d) => `${deliveryLabel(d.kind)}${d.optional ? " (optional)" : ""}`),
+  ];
   const run = async () => {
     setRunning(true);
     try {
@@ -104,8 +113,14 @@ export const MissionCard: React.FC<MissionCardProps> = ({ mission, onToggle, onR
           </div>
           <p className="text-xs text-neutral-700 dark:text-neutral-300">
             <span className="font-medium">When:</span> {triggerSummary(mission)} · <span className="font-medium">Deliver to:</span>{" "}
-            {deliveries.map(deliveryLabel).join(", ")}
+            {deliveries.join(", ")}
           </p>
+          {(mission.git_repos.length > 0 || mission.github_write) && (
+            <p className="text-xs text-neutral-600 dark:text-neutral-400" data-testid="mission-access">
+              {mission.git_repos.length > 0 && <>In {mission.git_repos.join(", ")} · </>}
+              {mission.github_write ? "may change GitHub" : "reads GitHub only"}
+            </p>
+          )}
           <p className="text-xs text-neutral-600 dark:text-neutral-400">
             Next run {formatTime(mission.next_run_at)} · Last run {formatTime(mission.last_run_at)}
             {mission.last_status ? ` (${mission.last_status})` : ""}

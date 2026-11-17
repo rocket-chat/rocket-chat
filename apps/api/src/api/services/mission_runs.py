@@ -29,6 +29,7 @@ from api.services.github_watches import AUTO_FIX_KEY
 from api.services.memberships import ensure_membership
 from api.services.mission_delivery import complete_run_soon, mission_store
 from api.services.mission_records import (
+    GITHUB_WRITE_KEY,
     MISSION_ID_KEY,
     MISSION_TOOLSET,
     OUTPUT_KEY,
@@ -38,7 +39,7 @@ from api.services.mission_records import (
     RunStore,
 )
 from api.services.missions import MissionStore, service_member_id
-from api.services.repository_hint import with_repository_hint
+from api.services.repository_hint import with_repositories_hint
 from api.services.session_support import active_repository_of
 from api.turns.tasks import _spawn_background_turn
 from specifications.interfaces.automation import (
@@ -212,6 +213,42 @@ def deliver_instructions(schema: dict[str, Any]) -> str:
     )
 
 
+def outcome_instructions(mission: Mission) -> str:
+    """What the run must leave behind besides its ``deliver`` call: a pull request it opens
+    itself, the parts it may leave out, or a GitHub it may only read."""
+    lines: list[str] = []
+    pull_request = next((d for d in mission.deliveries if d.kind == "pull_request"), None)
+    if pull_request is not None:
+        lines.append(
+            "Deliver your change as a pull request: open it with `git_open_pr`."
+            + (
+                " If there is nothing to change, open none and say so in your answer."
+                if pull_request.optional
+                else ""
+            )
+        )
+    if any(d.optional and d.kind != "pull_request" for d in mission.deliveries):
+        lines.append(
+            "Parts of the result the schema does not require are optional: leave one out when "
+            "you have nothing to report there."
+        )
+    if not mission.github_write and mission.mode == "work":
+        lines.append(
+            "GitHub is read-only for this run: do not push or open pull requests; say in your "
+            "answer what should be published."
+        )
+    return "\n".join(lines)
+
+
+def _repositories(mission: Mission, event: TriggerEvent) -> tuple[str, ...]:
+    """The event's own repository first, then the mission's (a review reads only the event's)."""
+    if mission.mode == "review":
+        return (event.repository,) if event.repository else mission.git_repos[:1]
+    if not event.repository:
+        return mission.git_repos
+    return (event.repository, *(r for r in mission.git_repos if r != event.repository))
+
+
 def prompt_for(
     mission: Mission, event: TriggerEvent, *, follow_up: bool, reviewed_sha: str = ""
 ) -> str:
@@ -224,15 +261,10 @@ def prompt_for(
     schema = delivery_schema(mission.deliveries)
     if schema is not None:
         parts.append(deliver_instructions(schema))
+    parts.append(outcome_instructions(mission))
     prompt = "\n\n".join(part for part in parts if part)
-    repository = event.repository or mission.git_repo
-    if repository and mission.mode != "review":
-        prompt = with_repository_hint(
-            prompt, repository, event.branch or mission.git_branch or None
-        )
-    elif repository:
-        prompt = with_repository_hint(prompt, repository, event.branch or None)
-    return prompt
+    branch = event.branch or (mission.git_branch if mission.mode != "review" else "")
+    return with_repositories_hint(prompt, _repositories(mission, event), branch or None)
 
 
 def _new_session(
@@ -243,6 +275,7 @@ def _new_session(
         RUN_ID_KEY: run_id,
         "trigger_source": event.source,
         AUTO_FIX_KEY: mission.auto_fix,
+        GITHUB_WRITE_KEY: mission.github_write,
         "sender": event.actor,
         "title_source": "auto",
         # Shared missions' sessions are their scope's to see; a personal one is its owner's.
@@ -300,6 +333,7 @@ def _for_this_run(mission: Mission, event: TriggerEvent, run_id: str) -> Any:
         known = dict(record.metadata) if isinstance(record.metadata, dict) else {}
         known.pop(OUTPUT_KEY, None)
         known[RUN_ID_KEY] = run_id
+        known[GITHUB_WRITE_KEY] = mission.github_write
         if schema is not None:
             known[SCHEMA_KEY] = schema
             known["toolsets"] = sorted({*known.get("toolsets", []), MISSION_TOOLSET})

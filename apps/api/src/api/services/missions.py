@@ -34,6 +34,7 @@ from specifications.interfaces.automation import (
     ITEM_DELIVERIES,
     MAX_DELIVERIES,
     MAX_OUTPUT_SCHEMA_CHARS,
+    MAX_REPOSITORIES,
     MAX_TRIGGERS,
     MISSION_MODES,
     MODEL_TIERS,
@@ -159,6 +160,19 @@ def _check_delivery(mission: Mission, delivery: Delivery) -> None:
         t.source == "github_pr" for t in mission.triggers
     ):
         raise MissionError("A GitHub review needs a pull request trigger.")
+    if delivery.kind == "pull_request" and mission.mode != "work":
+        raise MissionError("A review mission changes no code, so it opens no pull request.")
+
+
+def _check_access(mission: Mission) -> None:
+    if len(mission.git_repos) > MAX_REPOSITORIES:
+        raise MissionError(f"A mission names at most {MAX_REPOSITORIES} repositories.")
+    if mission.github_write:
+        return
+    if any(d.kind == "pull_request" for d in mission.deliveries):
+        raise MissionError("Opening a pull request needs GitHub writes: allow them.")
+    if mission.auto_fix:
+        raise MissionError("Following up a pull request pushes fixes: allow GitHub writes.")
 
 
 def validate(mission: Mission) -> Mission:
@@ -174,10 +188,12 @@ def validate(mission: Mission) -> Mission:
         raise MissionError(f"At most {MAX_DELIVERIES} deliveries, one of each kind.")
     for delivery in mission.deliveries:
         _check_delivery(mission, delivery)
+    _check_access(mission)
     deliveries = mission.deliveries
     if "session" not in kinds:
         deliveries = (Delivery("session"), *deliveries)
-    return replace(mission, name=name[:120], deliveries=deliveries)
+    repositories = tuple(dict.fromkeys(r for r in mission.git_repos if r))
+    return replace(mission, name=name[:120], deliveries=deliveries, git_repos=repositories)
 
 
 async def check_webhook_urls(mission: Mission) -> None:
@@ -217,6 +233,7 @@ def _delivery(raw: dict[str, Any]) -> Delivery:
         channel=str(raw.get("channel") or ""),
         url=str(raw.get("url") or ""),
         output_schema=dict(raw.get("output_schema") or {}),
+        optional=bool(raw.get("optional")),
     )
 
 
@@ -229,14 +246,15 @@ def triggers_json(mission: Mission) -> list[dict[str, Any]]:
 
 def deliveries_json(mission: Mission) -> list[dict[str, Any]]:
     return [
-        {k: v for k, v in asdict(d).items() if v not in ("", {}, None)} for d in mission.deliveries
+        {k: v for k, v in asdict(d).items() if v not in ("", {}, None, False)}
+        for d in mission.deliveries
     ]
 
 
 _SCALARS = (
     "id", "org_id", "scope", "user_id", "team_id", "name", "instructions", "agent_id",
-    "permission_mode", "model_tier", "sandbox_type", "mode", "auto_fix", "git_repo",
-    "git_branch", "enabled", "run_as", "webhook_fingerprint", "next_run_at", "last_run_at",
+    "permission_mode", "model_tier", "sandbox_type", "mode", "auto_fix", "git_branch",
+    "github_write", "enabled", "run_as", "webhook_fingerprint", "next_run_at", "last_run_at",
     "last_session_id", "last_status", "created_by", "created_at", "updated_at",
 )  # fmt: skip
 
@@ -249,6 +267,7 @@ def from_row(row: MissionModel | dict[str, Any]) -> Mission:
         **{name: field(name) for name in _SCALARS},
         triggers=tuple(_trigger(t) for t in field("triggers") or [] if isinstance(t, dict)),
         deliveries=tuple(_delivery(d) for d in field("deliveries") or [] if isinstance(d, dict)),
+        git_repos=tuple(str(r) for r in field("git_repos") or [] if r),
     )
 
 
@@ -257,6 +276,7 @@ def _columns(mission: Mission) -> dict[str, Any]:
         **{name: getattr(mission, name) for name in _SCALARS},
         "triggers": triggers_json(mission),
         "deliveries": deliveries_json(mission),
+        "git_repos": list(mission.git_repos),
     }
 
 

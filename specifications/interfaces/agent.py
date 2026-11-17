@@ -810,6 +810,10 @@ class GitPolicy:
     # (installation id, account login) pairs the organization mapped; the only GitHub App
     # installations a bot-authored push or pull request may use.
     app_installations: tuple[tuple[int, str], ...] = ()
+    # ``False``: the turn reads the forge but may not change it (push, open a pull request,
+    # write through the GitHub tools), whatever credential it could get. A mission run without
+    # ``github_write`` is one.
+    forge_writes: bool = True
 
     @property
     def commits_as_member(self) -> bool:

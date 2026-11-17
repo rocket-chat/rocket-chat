@@ -76,7 +76,9 @@ test.describe("Missions", () => {
     await page.getByTestId("mission-new").click();
     const name = `Alert triage ${Date.now().toString(36)}`;
     await page.getByTestId("mission-name").fill(name);
-    await page.getByTestId("mission-trigger-0-source-webhook").click();
+    await page.getByTestId("mission-start-webhook").click();
+    await page.getByTestId("mission-step-task").click();
+    await page.getByTestId("mission-instructions").fill("Triage the alert");
     await page.getByTestId("mission-step-deliver").click();
     await page.getByTestId("mission-delivery-toggle-webhook").click();
     await page.getByTestId("mission-webhook-url").fill("https://hooks.example.com/rocket");
@@ -90,6 +92,8 @@ test.describe("Missions", () => {
     // the run reports to its session only.
     await page.getByTestId("mission-delivery-toggle-webhook").click();
     await expect(page.getByTestId("mission-delivery-webhook")).toHaveCount(0);
+    await expect(page.getByTestId("mission-save")).toBeDisabled();
+    await page.getByTestId("mission-delivery-toggle-session").click();
 
     const created = page.waitForResponse((res) => res.url().endsWith("/v1/missions") && res.request().method() === "POST");
     await page.getByTestId("mission-save").click();
@@ -135,14 +139,25 @@ test.describe("Missions", () => {
     await expect(delivery.getByLabel("Slack bot").locator("option")).toHaveText(["The organization's bot", "Rocket E2E bot"]);
   });
 
-  test("a mission's form says what is missing before saving", async ({ page }) => {
+  test("a mission's form says what is missing, and saves only once every step is complete", async ({ page }) => {
     await page.goto("/missions");
     await page.getByTestId("mission-new").click();
+    const save = page.getByTestId("mission-save");
+    const missing = page.getByTestId("mission-missing");
+    await expect(save).toBeDisabled();
+    await expect(missing).toContainText("Give the mission a name.");
+    await expect(missing).toContainText("When: Choose what starts the mission");
+    await expect(missing).toContainText("Task: Say what the agent should do.");
+    await expect(missing).toContainText("Deliver: Choose where the result goes");
+    await expect(page.getByTestId("mission-step-when")).toHaveAttribute("data-complete", "false");
+
     await page.getByTestId("mission-name").fill("Review without a pull request");
-    await page.getByTestId("mission-step-agent").click();
+    await page.getByTestId("mission-start-by-hand").click();
+    await expect(page.getByTestId("mission-step-when")).toHaveAttribute("data-complete", "true");
+    await page.getByTestId("mission-step-next").click();
     await page.getByTestId("mission-mode-review").click();
-    await page.getByTestId("mission-save").click();
-    await expect(page.getByTestId("mission-error")).toContainText("needs a pull request");
+    await expect(missing).toContainText("needs a pull request");
+    await expect(save).toBeDisabled();
   });
 
   test("a schedule is picked in plain words and saved as its cron", async ({ page }) => {
@@ -150,18 +165,82 @@ test.describe("Missions", () => {
     await page.getByTestId("mission-new").click();
     const name = `Weekly digest ${Date.now().toString(36)}`;
     await page.getByTestId("mission-name").fill(name);
+    await page.getByTestId("mission-start-schedule").click();
     await page.getByTestId("mission-trigger-frequency-0").selectOption("weekly");
     await page.getByTestId("mission-trigger-time-0").fill("07:30");
     await expect(page.getByTestId("mission-step-when-summary")).toHaveText("Every Monday at 07:30 (UTC)");
     // Advanced shows the cron the picker wrote.
     await page.getByTestId("mission-advanced").click();
     await expect(page.getByTestId("mission-trigger-cron-0")).toHaveValue("30 7 * * 1");
+    await page.getByTestId("mission-step-task").click();
+    await page.getByTestId("mission-instructions").fill("Summarise the week");
+    await page.getByTestId("mission-step-deliver").click();
+    await page.getByTestId("mission-delivery-toggle-session").click();
 
     const created = page.waitForResponse((res) => res.url().endsWith("/v1/missions") && res.request().method() === "POST");
     await page.getByTestId("mission-save").click();
     const body = (await (await created).json()) as { triggers: { schedule: string }[] };
     expect(body.triggers[0].schedule).toBe("30 7 * * 1");
     await expect(page.getByTestId("mission-item").filter({ hasText: name })).toBeVisible();
+  });
+
+  test("a monthly schedule runs on the nth weekday of the month", async ({ page }) => {
+    await page.goto("/missions");
+    await page.getByTestId("mission-new").click();
+    await page.getByTestId("mission-name").fill(`Monthly report ${Date.now().toString(36)}`);
+    await page.getByTestId("mission-start-schedule").click();
+    await page.getByTestId("mission-trigger-frequency-0").selectOption("monthly");
+    await page.getByTestId("mission-trigger-week-0").selectOption("2");
+    await page.getByTestId("mission-trigger-weekday-0").selectOption("3");
+    await page.getByTestId("mission-trigger-time-0").fill("10:00");
+    await expect(page.getByTestId("mission-step-when-summary")).toHaveText("Every month on the second Wednesday at 10:00 (UTC)");
+    await page.getByTestId("mission-step-next").click();
+    await page.getByTestId("mission-step-next").click();
+    await page.getByTestId("mission-instructions").fill("Write the monthly report");
+    await page.getByTestId("mission-step-next").click();
+    await page.getByTestId("mission-delivery-toggle-session").click();
+
+    const created = page.waitForResponse((res) => res.url().endsWith("/v1/missions") && res.request().method() === "POST");
+    await page.getByTestId("mission-save").click();
+    const body = (await (await created).json()) as { triggers: { schedule: string }[] };
+    expect(body.triggers[0].schedule).toBe("0 10 * * 3#2");
+  });
+
+  test("a pull request delivery works in several repositories, needs GitHub writes and may be optional", async ({ page }) => {
+    await page.goto("/missions");
+    await page.getByTestId("mission-new").click();
+    const name = `Dependency bumps ${Date.now().toString(36)}`;
+    await page.getByTestId("mission-name").fill(name);
+    await page.getByTestId("mission-start-by-hand").click();
+    await page.getByTestId("mission-step-task").click();
+    await page.getByTestId("mission-instructions").fill("Bump the outdated dependencies");
+    await page.getByTestId("mission-repo-0").fill("acme/api");
+    await page.getByTestId("mission-repo-add").click();
+    await page.getByTestId("mission-repo-1").fill("acme/web");
+    const writes = page.getByTestId("mission-github-write");
+    await expect(writes).not.toBeChecked();
+    await expect(writes).toBeEnabled();
+
+    await page.getByTestId("mission-step-deliver").click();
+    await page.getByTestId("mission-delivery-toggle-pull_request").click();
+    await page.getByTestId("mission-delivery-optional-pull_request").check();
+    await expect(page.getByTestId("mission-step-deliver-summary")).toContainText("A pull request (optional)");
+    await page.getByTestId("mission-step-task").click();
+    await expect(writes).toBeChecked();
+    await expect(writes).toBeDisabled();
+
+    const created = page.waitForResponse((res) => res.url().endsWith("/v1/missions") && res.request().method() === "POST");
+    await page.getByTestId("mission-save").click();
+    const body = (await (await created).json()) as {
+      git_repos: string[];
+      github_write: boolean;
+      deliveries: { kind: string; optional: boolean }[];
+    };
+    expect(body.git_repos).toEqual(["acme/api", "acme/web"]);
+    expect(body.github_write).toBe(true);
+    expect(body.deliveries).toContainEqual(expect.objectContaining({ kind: "pull_request", optional: true }));
+    const card = page.getByTestId("mission-item").filter({ hasText: name });
+    await expect(card.getByTestId("mission-access")).toHaveText("In acme/api, acme/web · may change GitHub");
   });
 
   test("a mission with a custom schedule opens in Advanced, hiding nothing", async ({ page, request }) => {

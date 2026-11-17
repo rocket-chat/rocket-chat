@@ -131,6 +131,7 @@ MISSION_PRESETS: tuple[MissionPreset, ...] = (
             "triggers": [{"source": "github_workflow_failed"}],
             "deliveries": [{"kind": "session"}],
             "auto_fix": True,
+            "github_write": True,
         },
     ),
     MissionPreset(
@@ -142,8 +143,9 @@ MISSION_PRESETS: tuple[MissionPreset, ...] = (
             "name": "Issues to pull requests",
             "instructions": "Keep the change small and tested; ask in the issue when unsure.",
             "triggers": [{"source": "github_issue_label", "filter": {"labels": [_LABEL]}}],
-            "deliveries": [{"kind": "github_comment"}],
+            "deliveries": [{"kind": "pull_request"}, {"kind": "github_comment"}],
             "auto_fix": True,
+            "github_write": True,
         },
     ),
     MissionPreset(

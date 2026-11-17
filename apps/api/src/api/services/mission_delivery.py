@@ -4,11 +4,13 @@ The agent never posts a mission's result itself. It calls ``deliver`` with an ``
 must follow the run's schema (``delivery_schema``: one part per delivery), checked here with
 JSON Schema; a refusal says why and the agent calls again. The output is kept in the session's
 metadata. When the turn ends, ``complete_run`` queues one ``mission_deliveries`` row per
-delivery before any attempt (a text delivery falls back to the run's answer; a structured one
-without a result fails), then each row is posted (Slack, a signed webhook, a GitHub review or
+delivery the run handed a result for, before any attempt (a delivery is never made from the
+run's final answer: without its ``deliver`` part it fails, or is skipped when optional), then each row is posted (Slack, a signed webhook, a GitHub review or
 comment, with the organization's App) and retried with backoff by any replica until it lands or
 runs out of attempts. So the agent of a review mission can run read-only, and the platform still
-posts the review.
+posts the review. An optional delivery the run gave nothing for is ``skipped``, not failed. A
+``pull_request`` delivery is the agent's own ``git_open_pr`` (recorded on the session when it
+succeeds): it is ``delivered`` when the run opened one, and nothing is sent afterwards.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import json
 import logging
 import time
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 import jsonschema
@@ -40,6 +43,7 @@ from api.services.mission_records import (
     RUN_ID_KEY,
     SCHEMA_KEY,
     RunStore,
+    pull_requests_of,
 )
 from api.services.missions import MissionStore
 from api.services.outbound_webhooks import next_attempt_delay, sign
@@ -47,7 +51,6 @@ from api.services.settings import effective_settings
 from api.turns.failure import FAILED_ANSWER_PREFIX
 from specifications.interfaces.agent import GithubAccess
 from specifications.interfaces.automation import (
-    TEXT_DELIVERIES,
     Delivery,
     Mission,
     MissionRun,
@@ -177,7 +180,8 @@ async def complete_run(app: FastAPI, org_id: str, run_id: str) -> str:
         output = (
             kept.get("output") if isinstance(kept, dict) and kept.get("run_id") == run_id else None
         )
-        queued = await _queue(app, mission, run, item, output, answer)
+        queued = await _queue(app, mission, run, item, output)
+        queued.extend(_opened_pull_requests(mission, run, metadata))
         return await _send_and_settle(app, mission, run, queued)
     except Exception:
         logger.exception("Mission run %s could not be completed", run_id)
@@ -186,17 +190,41 @@ async def complete_run(app: FastAPI, org_id: str, run_id: str) -> str:
         current_tenant_org_id.reset(token)
 
 
-def _payload_for(delivery: Delivery, output: Any, answer: str) -> dict[str, Any] | None:
-    """What one delivery publishes: its part of the run's output, else (text deliveries only)
-    the run's answer; ``None`` when there is nothing to publish."""
+@dataclass(frozen=True)
+class _Queued:
+    """One delivery of a run: its stored row (empty when nothing is sent), or how it settled
+    without one (``status`` and ``error``)."""
+
+    delivery: Delivery
+    row_id: str = ""
+    status: str = ""
+    error: str = ""
+    url: str = ""
+
+
+def _opened_pull_requests(
+    mission: Mission, run: MissionRun, metadata: dict[str, Any]
+) -> list[_Queued]:
+    """The ``pull_request`` delivery is the agent's own work: it settles on whether the run
+    opened one, and nothing is sent afterwards."""
+    found: list[_Queued] = []
+    for delivery in mission.deliveries:
+        if delivery.kind != "pull_request":
+            continue
+        urls = pull_requests_of(metadata, run.id)
+        if urls:
+            found.append(_Queued(delivery, status="delivered", url=urls[-1]))
+        elif delivery.optional:
+            found.append(_Queued(delivery, status="skipped"))
+        else:
+            found.append(_Queued(delivery, status="failed", error="the run opened no pull request"))
+    return found
+
+
+def _payload_for(delivery: Delivery, output: Any) -> dict[str, Any] | None:
+    """What one delivery publishes: its part of the run's ``deliver`` output, or ``None``."""
     part = output.get(delivery.kind) if isinstance(output, dict) else None
-    if isinstance(part, dict):
-        return part
-    if delivery.kind == "chat":
-        return {"text": answer}
-    if delivery.kind == "github_comment":
-        return {"body": answer}
-    return None
+    return part if isinstance(part, dict) else None
 
 
 async def _queue(
@@ -205,18 +233,20 @@ async def _queue(
     run: MissionRun,
     item: dict[str, Any],
     output: Any,
-    answer: str,
-) -> list[tuple[str, Delivery, str]]:
-    """One stored row per delivery, before any attempt: (row id, delivery, error so far)."""
-    queued: list[tuple[str, Delivery, str]] = []
+) -> list[_Queued]:
+    """One stored row per delivery the platform sends, before any attempt."""
+    queued: list[_Queued] = []
     now = int(time.time())
     for delivery in mission.deliveries:
-        if delivery.kind == "session":
+        if delivery.kind in ("session", "pull_request"):
             continue
-        payload = _payload_for(delivery, output, answer)
+        payload = _payload_for(delivery, output)
+        if payload is None and delivery.optional:
+            queued.append(_Queued(delivery, status="skipped"))
+            continue
         if payload is None:
             reason = "the run did not call `deliver` with a result for it"
-            queued.append(("", delivery, reason))
+            queued.append(_Queued(delivery, status="failed", error=reason))
             continue
         row_id = f"mdl_{uuid.uuid4().hex[:16]}"
         stored = {
@@ -225,10 +255,9 @@ async def _queue(
             "mission": {"id": mission.id, "name": mission.name},
             "run": {"id": run.id, "session_id": run.session_id},
             "item": item,
-            "answer_used": delivery.kind in TEXT_DELIVERIES and not isinstance(output, dict),
         }
         await _insert(app, mission.org_id, row_id, run.id, delivery.kind, stored, now)
-        queued.append((row_id, delivery, ""))
+        queued.append(_Queued(delivery, row_id=row_id))
     return queued
 
 
@@ -255,29 +284,29 @@ async def _insert(
 
 
 async def _send_and_settle(
-    app: FastAPI, mission: Mission, run: MissionRun, queued: list[tuple[str, Delivery, str]]
+    app: FastAPI, mission: Mission, run: MissionRun, queued: list[_Queued]
 ) -> str:
     results: list[dict[str, str]] = []
-    for row_id, delivery, error in queued:
-        status = "failed" if error else await attempt(app, mission.org_id, row_id)
-        results.append(
-            {
-                "kind": delivery.kind,
-                "status": status,
-                "error": error or await _error_of(app, mission.org_id, row_id),
-            }
-        )
+    for one in queued:
+        if not one.row_id:
+            result = {"kind": one.delivery.kind, "status": one.status, "error": one.error}
+            results.append({**result, "url": one.url} if one.url else result)
+            continue
+        status = await attempt(app, mission.org_id, one.row_id)
+        error = await _error_of(app, mission.org_id, one.row_id)
+        results.append({"kind": one.delivery.kind, "status": status, "error": error})
     return await _settle(app, mission, run, results)
 
 
 async def _settle(
     app: FastAPI, mission: Mission, run: MissionRun, results: list[dict[str, str]]
 ) -> str:
-    if not results:
+    sent = [r for r in results if r["status"] != "skipped"]
+    if not sent:
         status = "completed"
-    elif all(r["status"] == "delivered" for r in results):
+    elif all(r["status"] == "delivered" for r in sent):
         status = "delivered"
-    elif any(r["status"] == "pending" for r in results):
+    elif any(r["status"] == "pending" for r in sent):
         status = "completed"
     else:
         status = "delivery_failed"

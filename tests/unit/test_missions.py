@@ -28,6 +28,7 @@ from specifications.interfaces.automation import (
     Mission,
     MissionRun,
     MissionTrigger,
+    TriggerEvent,
     delivery_schema,
 )
 from specifications.interfaces.llm import ChatMessage
@@ -222,7 +223,8 @@ def test_another_members_mission_is_invisible_and_an_organizations_is_shared(
     "patch",
     [
         {"triggers": [{"source": "schedule", "schedule": "* * * * *"}]},
-        {"git_repo": "file:///etc"},
+        {"git_repos": ["acme/api", "file:///etc"]},
+        {"deliveries": [{"kind": "pull_request"}]},
         {"permission_mode": "yolo"},
         {"triggers": [{"source": "schedule", "schedule": "0 8 * * 1", "timezone": "Nowhere/Land"}]},
         {"deliveries": [{"kind": "fax"}]},
@@ -299,7 +301,14 @@ def test_presets_fill_a_whole_mission(client: TestClient) -> None:
     )
     review = presets["pr-review"]["mission"]
     assert review["mode"] == "review" and review["deliveries"] == [
-        {"kind": "github_review", "bot_id": "", "channel": "", "url": "", "output_schema": {}}
+        {
+            "kind": "github_review",
+            "bot_id": "",
+            "channel": "",
+            "url": "",
+            "output_schema": {},
+            "optional": False,
+        }
     ]
     saved = client.post("/v1/missions", json=review, headers=OWNER)
     assert saved.status_code == 200, saved.text
@@ -331,10 +340,14 @@ def _run_app(record: SessionRecord) -> Any:
 
 
 async def _delivering(
-    deliveries: tuple[Delivery, ...], answer: str
+    deliveries: tuple[Delivery, ...],
+    answer: str,
+    triggers: tuple[MissionTrigger, ...] = (MissionTrigger("api"),),
 ) -> tuple[Any, Mission, SessionRecord]:
     mission = _mission(
-        triggers=(MissionTrigger("api"),), deliveries=(Delivery("session"), *deliveries)
+        triggers=triggers,
+        deliveries=(Delivery("session"), *deliveries),
+        github_write=True,
     )
     schema = delivery_schema(mission.deliveries)
     record = SessionRecord(
@@ -380,9 +393,61 @@ async def test_the_platform_posts_the_result_and_records_how_it_went(monkeypatch
     assert (await app.state.mission_store.get("org1", mission.id)).last_status == "delivered"
 
 
-async def test_a_text_delivery_falls_back_to_the_answer_and_a_structured_one_fails(
+async def test_no_delivery_is_ever_made_from_the_runs_answer(
     monkeypatch: Any,
 ) -> None:
+    sent: dict[str, dict[str, Any]] = {}
+
+    def record(kind: str) -> Any:
+        async def send(_app: Any, _org: str, payload: dict[str, Any]) -> None:
+            sent[kind] = payload
+
+        return send
+
+    for kind in ("chat", "github_comment"):
+        monkeypatch.setitem(mission_delivery._SENDERS, kind, record(kind))
+    app, _, _ = await _delivering(
+        (
+            Delivery("chat", channel="C123"),
+            Delivery("github_comment"),
+            Delivery("webhook", url="https://hooks.example/x"),
+        ),
+        "The final answer.",
+        triggers=(MissionTrigger("github_issue_label"),),
+    )
+    assert await complete_run(app, "org1", "run_1") == "delivery_failed"
+    assert sent == {}, "without a deliver call, nothing is posted"
+    run = await RunStore(None).get("org1", "run_1")
+    assert run is not None
+    results = {d["kind"]: d for d in run[0].deliveries}
+    assert {kind: d["status"] for kind, d in results.items()} == {
+        "chat": "failed",
+        "github_comment": "failed",
+        "webhook": "failed",
+    }
+    assert all("did not call `deliver`" in d["error"] for d in results.values())
+
+
+async def test_the_agent_is_told_it_writes_a_slack_message_no_longer_than_a_channel_shows() -> None:
+    from api.services.mission_runs import prompt_for
+
+    from specifications.interfaces.automation import MAX_CHAT_CHARS
+
+    mission = _mission(deliveries=(Delivery("session"), Delivery("chat", channel="C123")))
+    prompt = prompt_for(
+        mission, TriggerEvent(source="schedule", body="Daily digest"), follow_up=False
+    )
+    assert "A Slack message posted in a channel" in prompt
+    assert "converted to Slack's format" in prompt
+
+    app, _, _ = await _delivering((Delivery("chat", channel="C123"),), "Answer.")
+    too_long = await accept_output(
+        app, "org1", "s1", {"chat": {"text": "x" * (MAX_CHAT_CHARS + 1)}}
+    )
+    assert too_long.startswith("Rejected:") and "chat/text" in too_long
+
+
+async def test_a_slack_message_handed_to_deliver_is_the_one_sent(monkeypatch: Any) -> None:
     sent: list[dict[str, Any]] = []
 
     async def chat(_app: Any, _org: str, payload: dict[str, Any]) -> None:
@@ -390,15 +455,11 @@ async def test_a_text_delivery_falls_back_to_the_answer_and_a_structured_one_fai
 
     monkeypatch.setitem(mission_delivery._SENDERS, "chat", chat)
     app, _, _ = await _delivering(
-        (Delivery("chat", channel="C123"), Delivery("webhook", url="https://hooks.example/x")),
-        "The final answer.",
+        (Delivery("chat", channel="C123", optional=True),), "Long final answer."
     )
-    assert await complete_run(app, "org1", "run_1") == "delivery_failed"
-    assert sent[0]["output"] == {"text": "The final answer."}
-    run = await RunStore(None).get("org1", "run_1")
-    assert run is not None
-    statuses = {d["kind"]: d["status"] for d in run[0].deliveries}
-    assert statuses == {"chat": "delivered", "webhook": "failed"}
+    await accept_output(app, "org1", "s1", {"chat": {"text": "Two upgrades are due."}})
+    assert await complete_run(app, "org1", "run_1") == "delivered"
+    assert [p["output"] for p in sent] == [{"text": "Two upgrades are due."}]
 
 
 async def test_a_failed_delivery_is_retried_until_it_lands(monkeypatch: Any) -> None:
@@ -411,6 +472,7 @@ async def test_a_failed_delivery_is_retried_until_it_lands(monkeypatch: Any) -> 
 
     monkeypatch.setitem(mission_delivery._SENDERS, "chat", flaky)
     app, _, _ = await _delivering((Delivery("chat", channel="C123"),), "Answer.")
+    await accept_output(app, "org1", "s1", {"chat": {"text": "Checks are green."}})
     assert await complete_run(app, "org1", "run_1") == "completed"
     for row in mission_delivery._memory.values():
         row["next_attempt_at"] = 0
@@ -449,3 +511,213 @@ async def test_a_whole_mission_turn_hands_its_result_to_deliver_and_retries_a_mi
     assert "deliver" in sent, "a mission run carries the deliver tool"
     plain = await run_turn("plain_turn", tools=deliver_tool)
     assert "deliver" not in [t.name for t in plain.model.requests[0].tools or []]
+
+
+# --- repositories, GitHub writes, pull requests and optional deliveries ---------------------
+
+
+@pytest.mark.parametrize(
+    "changes, error",
+    [
+        ({"deliveries": (Delivery("pull_request"),)}, "needs GitHub writes"),
+        ({"auto_fix": True}, "allow GitHub writes"),
+        (
+            {
+                "mode": "review",
+                "github_write": True,
+                "triggers": (MissionTrigger("github_pr"),),
+                "deliveries": (Delivery("pull_request"),),
+            },
+            "opens no pull request",
+        ),
+        ({"git_repos": tuple(f"acme/r{i}" for i in range(11))}, "at most 10 repositories"),
+    ],
+)
+async def test_writes_and_pull_requests_must_fit_the_mission(
+    changes: dict[str, Any], error: str
+) -> None:
+    with pytest.raises(MissionError, match=error):
+        await MissionStore(None).create(_mission(**changes), {})
+
+
+async def test_a_mission_keeps_its_repositories_once_each_and_its_writes() -> None:
+    created = await MissionStore(None).create(
+        _mission(
+            git_repos=("acme/api", "acme/web", "acme/api"),
+            github_write=True,
+            deliveries=(Delivery("pull_request", optional=True),),
+        ),
+        {},
+    )
+    assert created.git_repos == ("acme/api", "acme/web")
+    assert created.github_write is True
+    assert [(d.kind, d.optional) for d in created.deliveries] == [
+        ("session", False),
+        ("pull_request", True),
+    ]
+
+
+def test_an_optional_delivery_is_not_required_and_a_pull_request_needs_no_result() -> None:
+    assert delivery_schema((Delivery("session"), Delivery("pull_request"))) is None
+    schema = delivery_schema(
+        (
+            Delivery("chat", channel="C1", optional=True),
+            Delivery("webhook", url="https://x.example"),
+        )
+    )
+    assert schema is not None and schema["required"] == ["webhook"]
+    assert schema_problem({"webhook": {"summary": "ok"}}, schema) is None
+
+
+def test_the_api_takes_repositories_and_writes_and_gives_them_back(client: TestClient) -> None:
+    saved = client.post(
+        "/v1/missions",
+        json={
+            **BODY,
+            "git_repos": ["https://github.com/acme/api", "acme/web"],
+            "github_write": True,
+            "deliveries": [{"kind": "pull_request", "optional": True}],
+        },
+        headers=OWNER,
+    )
+    assert saved.status_code == 200, saved.text
+    body = saved.json()
+    assert body["git_repos"] == ["acme/api", "acme/web"]
+    assert body["github_write"] is True
+    assert {"kind": "pull_request", "optional": True}.items() <= body["deliveries"][-1].items()
+
+
+def test_a_run_names_every_repository_and_what_it_must_leave_behind() -> None:
+    from api.services.mission_runs import prompt_for
+
+    event = TriggerEvent(source="schedule", body="Weekly upgrade")
+    writer = _mission(
+        git_repos=("acme/api", "acme/web"),
+        git_branch="develop",
+        github_write=True,
+        deliveries=(Delivery("session"), Delivery("pull_request", optional=True)),
+    )
+    prompt = prompt_for(writer, event, follow_up=False)
+    assert "`acme/api` (branch `develop`), `acme/web`" in prompt
+    assert "open it with `git_open_pr`" in prompt and "nothing to change, open none" in prompt
+    assert "read-only" not in prompt
+
+    reader = _mission(git_repos=("acme/api",))
+    prompt = prompt_for(reader, event, follow_up=False)
+    assert "Repository for this task: `acme/api`" in prompt
+    assert "GitHub is read-only for this run" in prompt
+
+    pushed = TriggerEvent(source="github_pr", repository="acme/web", number=4, trusted=True)
+    assert "`acme/web` (branch `develop`), `acme/api`." in prompt_for(
+        writer, pushed, follow_up=False
+    )
+
+
+async def test_an_optional_delivery_with_nothing_to_send_is_skipped(monkeypatch: Any) -> None:
+    sent: list[dict[str, Any]] = []
+
+    async def chat(_app: Any, _org: str, payload: dict[str, Any]) -> None:
+        sent.append(payload)
+
+    monkeypatch.setitem(mission_delivery._SENDERS, "chat", chat)
+    app, _, _ = await _delivering((Delivery("chat", channel="C123", optional=True),), "Nothing.")
+    assert await complete_run(app, "org1", "run_1") == "completed"
+    assert sent == [], "a Slack message is sent only from a deliver call"
+    run = await RunStore(None).get("org1", "run_1")
+    assert run is not None and [d["status"] for d in run[0].deliveries] == ["skipped"]
+
+
+@pytest.mark.parametrize(
+    "optional, opened, run_status, delivery_status",
+    [
+        (False, True, "delivered", "delivered"),
+        (False, False, "delivery_failed", "failed"),
+        (True, False, "completed", "skipped"),
+    ],
+)
+async def test_a_pull_request_delivery_settles_on_the_pull_request_the_run_opened(
+    optional: bool, opened: bool, run_status: str, delivery_status: str
+) -> None:
+    from api.services.mission_records import note_pull_request
+
+    app, _, record = await _delivering(
+        (Delivery("pull_request", optional=optional),), "Opened the upgrade."
+    )
+    if opened:
+        note_pull_request("https://github.com/acme/api/pull/7")(record)
+    assert await complete_run(app, "org1", "run_1") == run_status
+    run = await RunStore(None).get("org1", "run_1")
+    assert run is not None
+    (result,) = run[0].deliveries
+    assert result["status"] == delivery_status
+    assert result.get("url") == ("https://github.com/acme/api/pull/7" if opened else None)
+
+
+def test_a_pull_request_counts_only_for_the_run_that_opened_it() -> None:
+    from api.services.mission_records import note_pull_request, pull_requests_of
+
+    record = SessionRecord(
+        session_id="s1", tenant_org_id="org1", tenant_user_id="u1", title="t",
+        metadata={"mission_run_id": "run_1"},
+    )  # fmt: skip
+    note_pull_request("https://github.com/acme/api/pull/7")(record)
+    note_pull_request("https://github.com/acme/api/pull/7")(record)
+    assert pull_requests_of(record.metadata, "run_1") == ["https://github.com/acme/api/pull/7"]
+    record.metadata["mission_run_id"] = "run_2"
+    assert pull_requests_of(record.metadata, "run_2") == []
+    note_pull_request("https://github.com/acme/api/pull/8")(record)
+    assert pull_requests_of(record.metadata, "run_2") == ["https://github.com/acme/api/pull/8"]
+
+
+@pytest.mark.parametrize(
+    "name, arguments, changes",
+    [
+        ("git_push", {}, True),
+        ("git_open_pr", {"title": "t", "body": "b"}, True),
+        ("github_pull_request", {"action": "view"}, False),
+        ("github_pull_request", {"action": "comment"}, True),
+        ("github_api", {"method": "GET", "path": "/repos/acme/api"}, False),
+        ("github_api", {"method": "POST", "path": "/repos/acme/api/issues"}, True),
+        ("git_commit", {"message": "m"}, False),
+    ],
+)
+def test_forge_changes_are_told_from_reads(
+    name: str, arguments: dict[str, Any], changes: bool
+) -> None:
+    from agent_core.permissions import changes_forge
+
+    assert changes_forge(name, arguments) is changes
+
+
+async def test_a_run_without_github_writes_is_refused_every_change_on_github() -> None:
+    from api.services.mission_records import GITHUB_WRITE_KEY
+
+    from specifications.interfaces.git import PublishResult, PublishSpec
+    from tests.turn_harness import run_turn
+
+    class Engine:
+        pushed = 0
+
+        async def publish_branch(self, session_id: str, spec: PublishSpec) -> PublishResult:
+            Engine.pushed += 1
+            return PublishResult("acme/api", "feat/x", "abc123def4567", "git_push", commits=1)
+
+    reader = await run_turn(
+        "mission_reader",
+        metadata={GITHUB_WRITE_KEY: False, "permission_mode": "auto"},
+        script=[("git_push", {}), ("github_pull_request", {"action": "comment", "repo": "a/b"})],
+        git_engine=Engine(),
+    )
+    results = [str(e.payload.get("result", "")) for e in reader.events_of("tool_completed")]
+    assert len(results) == 2 and all("may only read it" in r for r in results)
+    assert Engine.pushed == 0
+
+    writer = await run_turn(
+        "mission_writer",
+        metadata={GITHUB_WRITE_KEY: True, "permission_mode": "auto"},
+        script=[("git_push", {})],
+        git_engine=Engine(),
+    )
+    results = [str(e.payload.get("result", "")) for e in writer.events_of("tool_completed")]
+    assert results and "may only read it" not in results[0]
+    assert Engine.pushed == 1

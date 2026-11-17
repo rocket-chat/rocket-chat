@@ -1345,8 +1345,9 @@ Create a mission for the caller, one of their teams or the organization.
 | sandbox_type | string | no |  |
 | mode | string | no |  |
 | auto_fix | boolean | no |  |
-| git_repo | string | no |  |
-| git_branch | string | no |  |
+| git_repos | list of string | no | Repositories the runs work in (owner/name); an event's own comes first |
+| git_branch | string | no | Branch of the first one |
+| github_write | boolean | no | Runs may change GitHub (push, open pull requests); needed by a pull_request delivery and auto_fix |
 | enabled | boolean | no |  |
 
 **Responses:** `200`
@@ -1401,8 +1402,9 @@ Replace a mission; naming another owner moves it (managing both sides).
 | sandbox_type | string | no |  |
 | mode | string | no |  |
 | auto_fix | boolean | no |  |
-| git_repo | string | no |  |
-| git_branch | string | no |  |
+| git_repos | list of string | no | Repositories the runs work in (owner/name); an event's own comes first |
+| git_branch | string | no | Branch of the first one |
+| github_write | boolean | no | Runs may change GitHub (push, open pull requests); needed by a pull_request delivery and auto_fix |
 | enabled | boolean | no |  |
 
 **Responses:** `200`

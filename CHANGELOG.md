@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `missions`: **Monthly schedules, several repositories, pull request deliveries, optional deliveries and GitHub writes per mission.** A schedule can run every month on the first to fourth weekday of your choice (`0 9 * * 1#1`). The Task step names up to ten repositories to clone (`git_repos`, replacing `git_repo`; an event's own repository comes first) and has **Allow GitHub writes** (`github_write`): without it a run only reads GitHub (`GitPolicy.forge_writes`: pushing, opening a pull request and the GitHub tools' writes are refused in the tool registry, whoever the run acts as). A new **Pull request** delivery checks that the run opened one with `git_open_pr` and links it on the run; it, and `auto_fix`, need GitHub writes. Any delivery can be marked **optional**: the run may leave it out (it is then *skipped*). Every delivery is now sent only from the run's explicit `deliver` call: a Slack message or a GitHub comment no longer falls back to the run's final answer, so an optional one is truly left out and a required one without a call fails. The `deliver` schema now says where each output goes and in which format (a Slack message in Markdown converted to Slack's format, GitHub-flavored Markdown for comments and reviews), and a Slack message is limited to the 1,500 characters a channel shows instead of being cut after the schema accepted 3,000. Migration `071_mission_repos_writes` moves `git_repo` into `git_repos` and keeps GitHub writes on for every existing mission. [SVC-22464]
 - `orchestrator`:
 - `sandboxes`:
 - `api`:
@@ -19,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `web`: **The mission editor is a guided flow.** Each step is marked done or to finish, Back and Next walk through When → Agent → Task → Deliver, a list says what is still missing, and **Create mission** stays unavailable until every step is complete. A new mission asks what starts it (or that it runs only by hand) and where its result goes (or that its session is enough) instead of assuming a weekday schedule and the session. [SVC-22464]
 
 ### Fixed
 

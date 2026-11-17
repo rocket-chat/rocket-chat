@@ -54,6 +54,8 @@ from api.services.starter_content import MISSION_PRESETS
 from specifications.interfaces.agent import PERMISSION_MODES
 from specifications.interfaces.automation import (
     DELIVERY_KINDS,
+    MAX_DELIVERIES,
+    MAX_REPOSITORIES,
     Delivery,
     DeliveryKind,
     Mission,
@@ -85,12 +87,18 @@ class TriggerBody(BaseModel):
 
 
 class DeliveryBody(BaseModel):
-    kind: str = Field(..., description="session | chat | webhook | github_review | github_comment")
+    kind: str = Field(
+        ...,
+        description="session | chat | webhook | github_review | github_comment | pull_request",
+    )
     bot_id: str = Field(default="", max_length=64)
     channel: str = Field(default="", max_length=64, description="Slack channel id (chat)")
     url: str = Field(default="", max_length=2000, description="https URL (webhook)")
     output_schema: dict[str, Any] = Field(
         default_factory=dict, description="JSON Schema the webhook's result follows"
+    )
+    optional: bool = Field(
+        default=False, description="The run may end without it (it is then skipped, not failed)"
     )
 
 
@@ -100,15 +108,24 @@ class MissionBody(BaseModel):
     scope: str = Field(default="user", description="Owner: 'user', 'team' or 'org'")
     team_id: str | None = None
     triggers: list[TriggerBody] = Field(default_factory=list, max_length=3)
-    deliveries: list[DeliveryBody] = Field(default_factory=list, max_length=4)
+    deliveries: list[DeliveryBody] = Field(default_factory=list, max_length=MAX_DELIVERIES)
     agent_id: str = Field(default="", max_length=64)
     permission_mode: str = Field(default="", max_length=16)
     model_tier: str = Field(default="", max_length=16)
     sandbox_type: str = Field(default="", max_length=64)
     mode: str = Field(default="work", max_length=16)
     auto_fix: bool = False
-    git_repo: str = Field(default="", max_length=255)
-    git_branch: str = Field(default="", max_length=255)
+    git_repos: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_REPOSITORIES,
+        description="Repositories the runs work in (owner/name); an event's own comes first",
+    )
+    git_branch: str = Field(default="", max_length=255, description="Branch of the first one")
+    github_write: bool = Field(
+        default=False,
+        description="Runs may change GitHub (push, open pull requests); needed by a "
+        "pull_request delivery and auto_fix",
+    )
     enabled: bool = True
 
 
@@ -131,8 +148,9 @@ class MissionView(BaseModel):
     sandbox_type: str
     mode: str
     auto_fix: bool
-    git_repo: str
+    git_repos: list[str]
     git_branch: str
+    github_write: bool
     enabled: bool
     run_as: str
     next_run_at: int | None
@@ -212,6 +230,7 @@ def _mission_from(body: MissionBody, org_id: str, base: Mission | None) -> Missi
             channel=d.channel,
             url=d.url.strip(),
             output_schema=dict(d.output_schema),
+            optional=d.optional,
         )
         for d in body.deliveries
     )
@@ -228,8 +247,9 @@ def _mission_from(body: MissionBody, org_id: str, base: Mission | None) -> Missi
         sandbox_type=body.sandbox_type,
         mode=body.mode,
         auto_fix=body.auto_fix,
-        git_repo=body.git_repo,
+        git_repos=tuple(body.git_repos),
         git_branch=body.git_branch,
+        github_write=body.github_write,
         enabled=body.enabled,
     )
 
@@ -275,8 +295,9 @@ def _check_fields(body: MissionBody) -> None:
             status_code=422, detail=f"permission_mode must be one of: {', '.join(PERMISSION_MODES)}"
         )
     try:
-        if body.git_repo:
-            body.git_repo = parse_repository(body.git_repo).url
+        body.git_repos = [
+            parse_repository(repository).slug for repository in body.git_repos if repository.strip()
+        ]
         if body.git_branch:
             body.git_branch = validate_branch(body.git_branch)
     except InvalidRepositoryError as err:

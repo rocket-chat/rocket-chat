@@ -17,6 +17,7 @@ from slack_assistant.block_kit import (
 )
 from slack_assistant.bot import DEFAULT_COMMAND
 from slack_assistant.gates import SlackGatesMixin
+from specifications.interfaces.automation import MAX_CHAT_CHARS
 from specifications.interfaces.session import SessionRecord, SessionSource
 
 logger = logging.getLogger(__name__)
@@ -259,7 +260,7 @@ class SlackEntrypointsMixin(SlackGatesMixin):
             logger.warning("Mission report to %s refused by the outbound allowlist", channel_id)
             return False
         verdict = ":white_check_mark: finished" if succeeded else ":warning: failed"
-        body = markdown_to_slack_mrkdwn(head_of(answer.strip() or "(no output)", 1500))
+        body = markdown_to_slack_mrkdwn(head_of(answer.strip() or "(no output)", MAX_CHAT_CHARS))
         blocks: list[dict[str, Any]] = [
             {
                 "type": "section",

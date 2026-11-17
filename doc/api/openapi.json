@@ -1902,9 +1902,16 @@
             "title": "Git Branch",
             "type": "string"
           },
-          "git_repo": {
-            "title": "Git Repo",
-            "type": "string"
+          "git_repos": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Git Repos",
+            "type": "array"
+          },
+          "github_write": {
+            "title": "Github Write",
+            "type": "boolean"
           },
           "has_inbound_secret": {
             "default": false,
@@ -2078,8 +2085,9 @@
           "sandbox_type",
           "mode",
           "auto_fix",
-          "git_repo",
+          "git_repos",
           "git_branch",
+          "github_write",
           "enabled",
           "run_as",
           "next_run_at",
@@ -2679,9 +2687,15 @@
             "type": "string"
           },
           "kind": {
-            "description": "session | chat | webhook | github_review | github_comment",
+            "description": "session | chat | webhook | github_review | github_comment | pull_request",
             "title": "Kind",
             "type": "string"
+          },
+          "optional": {
+            "default": false,
+            "description": "The run may end without it (it is then skipped, not failed)",
+            "title": "Optional",
+            "type": "boolean"
           },
           "output_schema": {
             "additionalProperties": true,
@@ -4757,7 +4771,7 @@
             "items": {
               "$ref": "#/components/schemas/DeliveryBody"
             },
-            "maxItems": 4,
+            "maxItems": 6,
             "title": "Deliveries",
             "type": "array"
           },
@@ -4768,15 +4782,25 @@
           },
           "git_branch": {
             "default": "",
+            "description": "Branch of the first one",
             "maxLength": 255,
             "title": "Git Branch",
             "type": "string"
           },
-          "git_repo": {
-            "default": "",
-            "maxLength": 255,
-            "title": "Git Repo",
-            "type": "string"
+          "git_repos": {
+            "description": "Repositories the runs work in (owner/name); an event's own comes first",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 10,
+            "title": "Git Repos",
+            "type": "array"
+          },
+          "github_write": {
+            "default": false,
+            "description": "Runs may change GitHub (push, open pull requests); needed by a pull_request delivery and auto_fix",
+            "title": "Github Write",
+            "type": "boolean"
           },
           "instructions": {
             "default": "",
@@ -4893,9 +4917,16 @@
             "title": "Git Branch",
             "type": "string"
           },
-          "git_repo": {
-            "title": "Git Repo",
-            "type": "string"
+          "git_repos": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Git Repos",
+            "type": "array"
+          },
+          "github_write": {
+            "title": "Github Write",
+            "type": "boolean"
           },
           "has_inbound_secret": {
             "default": false,
@@ -5047,8 +5078,9 @@
           "sandbox_type",
           "mode",
           "auto_fix",
-          "git_repo",
+          "git_repos",
           "git_branch",
+          "github_write",
           "enabled",
           "run_as",
           "next_run_at",

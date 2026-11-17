@@ -1402,7 +1402,8 @@ class MissionModel(Base):
     triggers: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
     )
-    # [{kind, bot_id, channel, url, output_schema}]; a webhook's secret is in ``secrets``.
+    # [{kind, bot_id, channel, url, output_schema, optional}]; a webhook's secret is in
+    # ``secrets``.
     deliveries: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
     )
@@ -1417,8 +1418,12 @@ class MissionModel(Base):
     sandbox_type: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     mode: Mapped[str] = mapped_column(String(16), nullable=False, default="work")
     auto_fix: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    git_repo: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    # ["owner/name", ...]: the repositories the runs work in.
+    git_repos: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
     git_branch: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    github_write: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     run_as: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     next_run_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)

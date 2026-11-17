@@ -26,6 +26,7 @@ from agent_core.permissions import (
     ApprovalNeed,
     approval_details,
     approval_needed,
+    changes_forge,
     covering_rule,
     gated_call,
     is_read_call,
@@ -517,6 +518,13 @@ class ToolRegistry:
         embedding) refuses the call instead of running it unsupervised.
         """
         ctx = current_execution_ctx.get()
+        # Before any gate: a person is never asked to approve a call that is refused anyway.
+        if ctx is not None and not ctx.policy.git.forge_writes and changes_forge(name, arguments):
+            return (
+                f"Refused: '{name}' changes GitHub, and this run may only read it (the mission "
+                "does not allow GitHub writes). Do not retry: finish the work locally and say in "
+                "your answer what should be published."
+            )
         mode = ctx.policy.permission_mode if ctx is not None else DEFAULT_PERMISSION_MODE
         always_gated = ctx is not None and name in ctx.policy.gated_tools
         need = approval_needed(mode, name, arguments) or (
