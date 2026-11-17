@@ -13,7 +13,6 @@ from api.services.audit import AuditService
 from api.services.personas import find_agent, save_persona
 from api.services.proposals import BoundProposals, proposal_store
 from api.services.settings import reset_memory_settings, save_org_config
-from api.services.skills_lookup import _memory_skills
 from fastapi.testclient import TestClient
 from turn_harness import run_turn
 
@@ -178,8 +177,50 @@ def _as(role: str, org: str, user: str = "u1") -> dict[str, str]:
     return {"X-Tenant-Org-Id": org, "X-Tenant-User-Id": user, "X-User-Role": role}
 
 
-async def _pending(org: str, agent_id: str, edits: list[ProposalEdit] | None = None) -> str:
-    message = await _bound(org, agent_id).propose("instructions", "", edits or _edit(), "s", "r")
+# Route tests go through the app's own storage: PostgreSQL when the suite has one (CI), else
+# the in-memory stores; agents and skills are created over HTTP like an administrator would.
+
+
+def _http_agent(client: TestClient, org: str) -> str:
+    created = client.post(
+        "/v1/agents",
+        json={
+            "id": f"persona-{org}",
+            "name": "Data assistant",
+            "role_title": "Data assistant",
+            "system_prompt": PROMPT,
+            "model": "",
+            "scope": "org",
+            "proposes_changes": True,
+        },
+        headers=_as("admin", org),
+    )
+    assert created.status_code == 200, created.text
+    return str(created.json()["id"])
+
+
+def _prompt_of(client: TestClient, org: str, agent_id: str) -> str:
+    agents = client.get("/v1/agents", headers=_as("admin", org)).json()
+    return str(next(a for a in agents if a["id"] == agent_id)["system_prompt"])
+
+
+async def _stage(
+    client: TestClient,
+    org: str,
+    agent_id: str,
+    edits: list[ProposalEdit] | None = None,
+    *,
+    target: str = "instructions",
+    skill_name: str = "",
+) -> str:
+    message = await BoundProposals(
+        db_mgr=getattr(client.app.state, "db_manager", None),
+        org_id=org,
+        agent_id=agent_id,
+        session_id=None,
+        requested_by="u1",
+        audit=AuditService(None),
+    ).propose(target, skill_name, edits or _edit(), "s", "r")
     assert "waiting for review" in message, message
     # The id from the answer itself: two proposals made within one second tie on created_at.
     return message.split()[1]
@@ -189,8 +230,8 @@ async def test_only_who_may_edit_the_agent_sees_and_decides_its_proposals(
     client: TestClient,
 ) -> None:
     org = _org()
-    agent_id = await _agent(org, proposes_changes=True)
-    proposal_id = await _pending(org, agent_id)
+    agent_id = _http_agent(client, org)
+    proposal_id = await _stage(client, org, agent_id)
 
     member = client.get("/v1/proposals", headers=_as("member", org, "u2"))
     assert member.status_code == 200 and member.json()["proposals"] == []
@@ -202,59 +243,56 @@ async def test_only_who_may_edit_the_agent_sees_and_decides_its_proposals(
     listed = client.get("/v1/proposals", headers=_as("admin", org)).json()["proposals"]
     assert [p["id"] for p in listed] == [proposal_id]
     detail = client.get(f"/v1/proposals/{proposal_id}", headers=_as("admin", org)).json()
-    assert (
-        detail["base_content"] == PROMPT
-        and "language you are asked in" in detail["proposed_content"]
-    )
+    assert detail["base_content"] == PROMPT
+    assert "language you are asked in" in detail["proposed_content"]
 
     approved = client.post(
         f"/v1/proposals/{proposal_id}/approve", json={"note": "good"}, headers=_as("admin", org)
     )
     assert approved.status_code == 200, approved.text
-    agent = await find_agent(None, org, Viewer(user_id="", is_org_admin=True), agent_id)
-    assert agent is not None and "language you are asked in" in agent.system_prompt
+    assert "language you are asked in" in _prompt_of(client, org, agent_id)
     again = client.post(f"/v1/proposals/{proposal_id}/reject", json={}, headers=_as("admin", org))
     assert again.status_code == 409
 
 
 async def test_an_edited_approval_saves_the_reviewers_text(client: TestClient) -> None:
     org = _org()
-    agent_id = await _agent(org, proposes_changes=True)
-    proposal_id = await _pending(org, agent_id)
+    agent_id = _http_agent(client, org)
+    proposal_id = await _stage(client, org, agent_id)
 
-    client.post(
+    approved = client.post(
         f"/v1/proposals/{proposal_id}/approve",
         json={"content": "REVIEWED PROMPT"},
         headers=_as("admin", org),
     )
 
-    agent = await find_agent(None, org, Viewer(user_id="", is_org_admin=True), agent_id)
-    assert agent is not None and agent.system_prompt == "REVIEWED PROMPT"
+    assert approved.status_code == 200, approved.text
+    assert _prompt_of(client, org, agent_id) == "REVIEWED PROMPT"
 
 
 async def test_a_proposal_is_rebased_on_a_changed_target_or_refused_on_conflict(
     client: TestClient,
 ) -> None:
     org = _org()
-    agent_id = await _agent(org, proposes_changes=True)
-    rebased = await _pending(org, agent_id)
-    conflicting = await _pending(
-        org, agent_id, [ProposalEdit("You answer data questions.", "You answer questions.")]
+    agent_id = _http_agent(client, org)
+    rebased = await _stage(client, org, agent_id)
+    conflicting = await _stage(
+        client, org, agent_id, [ProposalEdit("You answer data questions.", "You answer questions.")]
     )
-    viewer = Viewer(user_id="admin", is_org_admin=True)
-    agent = await find_agent(None, org, viewer, agent_id)
-    assert agent is not None
-    await save_persona(
-        None,
-        org,
-        "admin",
-        True,
-        agent.model_copy(
-            update={
-                "system_prompt": "You answer data questions, briefly.\nAlways answer in English."
-            }
-        ),
+    changed = client.post(
+        "/v1/agents",
+        json={
+            "id": agent_id,
+            "name": "Data assistant",
+            "role_title": "Data assistant",
+            "system_prompt": "You answer data questions, briefly.\nAlways answer in English.",
+            "model": "",
+            "scope": "org",
+            "proposes_changes": True,
+        },
+        headers=_as("admin", org),
     )
+    assert changed.status_code == 200, changed.text
 
     ok = client.post(f"/v1/proposals/{rebased}/approve", json={}, headers=_as("admin", org))
     clash = client.post(f"/v1/proposals/{conflicting}/approve", json={}, headers=_as("admin", org))
@@ -268,40 +306,31 @@ async def test_a_proposal_is_rebased_on_a_changed_target_or_refused_on_conflict(
 
 async def test_a_skill_proposal_is_decided_by_who_may_edit_the_skill(client: TestClient) -> None:
     org = _org()
-    _memory_skills.setdefault(org, {})["skill-traps"] = {
-        "id": "skill-traps",
-        "name": "query-traps",
-        "title": "query-traps",
-        "description": "Traps",
-        "body": "Use dbt models only.",
-        "runtime": "text",
-        "is_active": True,
-        "scope": "org",
-        "user_id": None,
-        "team_id": None,
-    }
-    agent_id = await _agent(org, proposes_changes=True)
-    message = await _bound(org, agent_id).propose(
-        "skill",
-        "query-traps",
-        [ProposalEdit("Use dbt models only.", "Use dbt models only; the archive schema is stale.")],
-        "archive schema trap",
-        "Found while answering a request",
+    skill = client.post(
+        "/v1/skills",
+        json={"name": "query-traps", "description": "Traps", "body": "Use dbt models only."},
+        headers=_as("admin", org),
     )
-    assert "waiting for review" in message, message
-    proposal_id = (
-        await proposal_store(None).list_for_org(org, status="pending", agent_id=None, limit=1)
-    )[0].id
+    assert skill.status_code == 200, skill.text
+    agent_id = _http_agent(client, org)
+    proposal_id = await _stage(
+        client,
+        org,
+        agent_id,
+        [ProposalEdit("Use dbt models only.", "Use dbt models only; the archive schema is stale.")],
+        target="skill",
+        skill_name="query-traps",
+    )
 
-    assert (
-        client.post(
-            f"/v1/proposals/{proposal_id}/approve", json={}, headers=_as("member", org, "u2")
-        ).status_code
-        == 404
+    refused = client.post(
+        f"/v1/proposals/{proposal_id}/approve", json={}, headers=_as("member", org, "u2")
     )
     approved = client.post(
         f"/v1/proposals/{proposal_id}/approve", json={}, headers=_as("admin", org)
     )
 
+    assert refused.status_code == 404
     assert approved.status_code == 200, approved.text
-    assert "archive schema" in _memory_skills[org]["skill-traps"]["body"]
+    skills = client.get("/v1/skills", headers=_as("admin", org)).json()
+    body = next(s for s in skills if s["id"] == skill.json()["id"])["body"]
+    assert "archive schema" in body

@@ -71,7 +71,9 @@ export default function ProposalsPage() {
     setError(null);
     const edited = draft !== open.proposed_content;
     const body = action === "approve" ? { note, ...(edited ? { content: draft } : {}) } : { note };
-    const res = await fetch(`/v1/proposals/${open.id}/${action}`, {
+    const url =
+      action === "approve" ? `/v1/proposals/${open.id}/approve` : `/v1/proposals/${open.id}/reject`;
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),

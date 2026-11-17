@@ -18,6 +18,7 @@ from api.turns.provisioning import provision_session_sandbox
 from api.turns.shared import _turn_service
 from sandbox_driver.fake_driver import FakeSandboxDriver
 
+from specifications.interfaces.agent import TurnPolicy
 from specifications.interfaces.sandbox import SandboxStatus
 from specifications.interfaces.session import SessionRecord
 
@@ -131,13 +132,12 @@ def _turn(org: str, driver: Any = None) -> Any:
         ),
         effective_model="anthropic/claude-sonnet-5-5",
         binding=SimpleNamespace(
+            id="",
             knowledge_base_ids=(),
             skill_ids=(),
             sandbox_id="",
             model_router=None,
-            policy=SimpleNamespace(
-                attribution=SimpleNamespace(requester_user_id=None, team_id=None)
-            ),
+            policy=TurnPolicy(),
         ),
         governance=SimpleNamespace(
             egress=SimpleNamespace(allowed_cidrs=[], block_internal_subnets=False)
