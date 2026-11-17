@@ -179,7 +179,7 @@ async def _cleanup_warm_pool(driver: SandboxDriverProtocol) -> None:
 app = FastAPI(
     title="Rocket Chat Control Plane",
     description="FastAPI service hosting the ReAct agent engine and embedded Slack Assistant.",
-    version="0.9.2",
+    version="0.10.0",
     lifespan=lifespan,
 )
 sandbox_mcp_app = sandbox_mcp_http_app(app.state)
