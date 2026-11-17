@@ -447,6 +447,24 @@ async def test_the_agent_is_told_it_writes_a_slack_message_no_longer_than_a_chan
     assert too_long.startswith("Rejected:") and "chat/text" in too_long
 
 
+async def test_a_slack_delivery_carries_the_pull_requests_the_run_opened(monkeypatch: Any) -> None:
+    from api.services.mission_records import note_pull_request
+
+    sent: list[dict[str, Any]] = []
+
+    async def chat(_app: Any, _org: str, payload: dict[str, Any]) -> None:
+        sent.append(payload)
+
+    monkeypatch.setitem(mission_delivery._SENDERS, "chat", chat)
+    app, _, record = await _delivering(
+        (Delivery("pull_request"), Delivery("chat", channel="C123")), "Done."
+    )
+    note_pull_request("https://github.com/acme/api/pull/12")(record)
+    await accept_output(app, "org1", "s1", {"chat": {"text": "One change, see the PR."}})
+    assert await complete_run(app, "org1", "run_1") == "delivered"
+    assert sent[0]["pull_requests"] == ["https://github.com/acme/api/pull/12"]
+
+
 async def test_a_slack_message_handed_to_deliver_is_the_one_sent(monkeypatch: Any) -> None:
     sent: list[dict[str, Any]] = []
 

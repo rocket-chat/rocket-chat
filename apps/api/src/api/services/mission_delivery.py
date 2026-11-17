@@ -180,7 +180,7 @@ async def complete_run(app: FastAPI, org_id: str, run_id: str) -> str:
         output = (
             kept.get("output") if isinstance(kept, dict) and kept.get("run_id") == run_id else None
         )
-        queued = await _queue(app, mission, run, item, output)
+        queued = await _queue(app, mission, run, item, output, pull_requests_of(metadata, run.id))
         queued.extend(_opened_pull_requests(mission, run, metadata))
         return await _send_and_settle(app, mission, run, queued)
     except Exception:
@@ -233,6 +233,7 @@ async def _queue(
     run: MissionRun,
     item: dict[str, Any],
     output: Any,
+    pull_requests: list[str],
 ) -> list[_Queued]:
     """One stored row per delivery the platform sends, before any attempt."""
     queued: list[_Queued] = []
@@ -255,6 +256,8 @@ async def _queue(
             "mission": {"id": mission.id, "name": mission.name},
             "run": {"id": run.id, "session_id": run.session_id},
             "item": item,
+            # A Slack message links the pull requests the run opened (see ``_send_chat``).
+            "pull_requests": pull_requests,
         }
         await _insert(app, mission.org_id, row_id, run.id, delivery.kind, stored, now)
         queued.append(_Queued(delivery, row_id=row_id))
@@ -446,6 +449,7 @@ async def _send_chat(app: FastAPI, org_id: str, payload: dict[str, Any]) -> None
         session_id=str(payload["run"]["session_id"]),
         answer=str(payload["output"].get("text") or ""),
         succeeded=True,
+        pull_requests=[str(url) for url in payload.get("pull_requests") or []],
     )
     if not posted:
         raise DeliveryError("Slack refused the message (channel not allowed, or bot not in it).")

@@ -130,8 +130,9 @@ NATIVE_SCHEMAS: dict[str, dict[str, Any]] = {
                 **_TEXT,
                 "maxLength": MAX_CHAT_CHARS,
                 "description": "Short Markdown, converted to Slack's format (bold, links, lists, "
-                "code; tables become code blocks). Lead with the outcome; do not repeat the "
-                "mission's name.",
+                "code; tables become code blocks). Plain sentences for a reader who did not see "
+                "the run: lead with the outcome, link what you cite, do not repeat the mission's "
+                "name.",
             }
         },
         "required": ["text"],

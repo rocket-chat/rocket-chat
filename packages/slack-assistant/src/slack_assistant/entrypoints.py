@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from slack_bolt.context.ack.async_ack import AsyncAck
@@ -14,6 +15,7 @@ from slack_assistant.block_kit import (
     build_home_view,
     markdown_to_slack_mrkdwn,
     open_in_rocket_context,
+    pull_request_links,
 )
 from slack_assistant.bot import DEFAULT_COMMAND
 from slack_assistant.gates import SlackGatesMixin
@@ -251,8 +253,12 @@ class SlackEntrypointsMixin(SlackGatesMixin):
         session_id: str,
         answer: str,
         succeeded: bool,
+        pull_requests: Sequence[str] = (),
     ) -> bool:
-        """Post a finished mission run to the channel its owner chose; False if it could not."""
+        """Post a finished mission run to the channel its owner chose; False if it could not.
+
+        ``pull_requests`` are the ones the run opened: those the message does not link already
+        are linked under it, so the reader always reaches them."""
         if not self._slack_api_ready:
             return False
         policy = await self._load_org_policy(org_id)
@@ -267,7 +273,10 @@ class SlackEntrypointsMixin(SlackGatesMixin):
                 "text": {"type": "mrkdwn", "text": f"*{mission_name}* {verdict}\n{body}"[:2900]},
             }
         ]
-        if context := open_in_rocket_context(self._session_link(policy, session_id)):
+        unlinked = [url for url in pull_requests if url not in answer]
+        if context := open_in_rocket_context(
+            self._session_link(policy, session_id), pull_request_links(unlinked)
+        ):
             blocks.append(context)
         try:
             posted = await self.app.client.chat_postMessage(

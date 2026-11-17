@@ -123,3 +123,20 @@ async def test_the_outbound_allowlist_is_enforced_at_post_time_too() -> None:
     )
     assert posted is False
     assistant.app.client.chat_postMessage.assert_not_called()  # type: ignore[attr-defined]
+
+
+async def test_the_pull_requests_the_run_opened_are_linked_unless_the_message_does() -> None:
+    assistant = _assistant()
+    await assistant.post_mission_report(
+        org_id="o",
+        channel_id="C1",
+        mission_name="Rightsizing",
+        session_id="session_abc",
+        answer="Two changes: [web#7](https://github.com/acme/web/pull/7) and backend #12.",
+        succeeded=True,
+        pull_requests=["https://github.com/acme/web/pull/7", "https://github.com/acme/api/pull/12"],
+    )
+    blocks = assistant.app.client.chat_postMessage.call_args.kwargs["blocks"]  # type: ignore[attr-defined]
+    context = str(blocks[-1])
+    assert "<https://github.com/acme/api/pull/12|acme/api#12>" in context
+    assert "acme/web#7" not in context, "a pull request the message links is not repeated"
