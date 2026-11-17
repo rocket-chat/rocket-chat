@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: **The mission editor is a guided flow.** Each step is marked done or to finish, Back and Next walk through When → Agent → Task → Deliver, a list says what is still missing, and **Create mission** stays unavailable until every step is complete. A new mission asks what starts it (or that it runs only by hand) and where its result goes (or that its session is enough) instead of assuming a weekday schedule and the session. [SVC-22464]
 
 ### Fixed
+- `web`: **MCP tools are readable in the agent editor.** Opened, an MCP server's group lists each tool by its own name (no `mcp__<server>__` prefix, which stays in the tooltip and in what is saved) instead of names cut to `mcp_…`; the agents page uses the screen's width with roomier tool columns; a tool's description no longer stays open after its checkbox is clicked. [SVC-22464]
 
 ### Security
 

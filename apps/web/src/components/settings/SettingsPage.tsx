@@ -1,20 +1,23 @@
 "use client";
 
 import React from "react";
+import { cn } from "../ui/cn";
 
 interface SettingsPageProps {
   /** "Personal", "Organization" or "Integrations": where the page sits in the navigation. */
   section: string;
   title: string;
   description?: string;
+  /** Use the whole width: for editors with side panels (agents), not for forms. */
+  wide?: boolean;
   children: React.ReactNode;
 }
 
 /** The header and body every settings page shares. */
-export const SettingsPage: React.FC<SettingsPageProps> = ({ section, title, description, children }) => (
+export const SettingsPage: React.FC<SettingsPageProps> = ({ section, title, description, wide = false, children }) => (
   <div className="flex min-h-full flex-col">
     <div className="border-b border-surface-border bg-surface-subnav/50 px-4 py-6 sm:px-8">
-      <div className="mx-auto max-w-5xl">
+      <div className={cn("mx-auto", wide ? "max-w-screen-2xl" : "max-w-5xl")}>
         <nav aria-label="Breadcrumb" className="mb-2 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
           <span>Settings</span>
           <span aria-hidden="true">/</span>
@@ -27,7 +30,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({ section, title, desc
       </div>
     </div>
     <div className="flex-1 px-4 py-8 sm:px-8">
-      <div className="mx-auto max-w-5xl space-y-10">{children}</div>
+      <div className={cn("mx-auto space-y-10", wide ? "max-w-screen-2xl" : "max-w-5xl")}>{children}</div>
     </div>
   </div>
 );

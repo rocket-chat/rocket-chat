@@ -8,6 +8,7 @@ export default function AgentsSettingsPage() {
   return (
     <SettingsPage
       section="Build"
+      wide
       title="Agents"
       description="Your agents, your teams' and the organization's, and the subagent roles they delegate to, in one editor."
     >
