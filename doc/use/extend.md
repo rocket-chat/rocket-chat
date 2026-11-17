@@ -102,6 +102,29 @@ An agent's prompt says who it is and how it should work. The platform adds the f
 
 Each agent can set a **Sandbox**: the sandbox type its sessions start in when you pick none in the composer (a sandbox you pick still wins); empty uses the organization's default.
 
+### Agent switches
+
+The *Sandbox* section of an agent has three switches:
+
+* **Run with a sandbox** (on by default). Off, the agent has no shell, git, repository checkout or other sandbox tool, and nothing starts a sandbox for it: an assistant that answers from MCP servers, knowledge bases, Slack and the GitHub read tools pays for no pod and carries fewer tool definitions on every step. `file_read`, `file_write`, `file_edit` and `list_dir` still work, on files kept with the session (notes, plans, caches); they last as long as the session, within the [session file limits](/administer/sandboxes#files-kept-with-a-session). A tool that needs a sandbox is refused with that reason.
+* **Read its other sessions** (off by default). The agent gets `agent_sessions_list` and `agent_session_read` (deferred, loaded on demand): it lists the sessions of your organization it answered in and reads a window of one, for instance the original request behind a review comment, or how it answered a similar question last week. Direct messages and private Slack threads are never listed or read, whoever asks. A read returns the person's and the agent's messages only, without tool calls or their results, each message cut at 2,000 characters and a window at 16,000 (it says where to read on). Every read is written to the audit log (`agent_session.read`).
+* **Propose changes** (off by default). The agent gets `propose_change` and `list_my_proposals`, described below.
+
+### Proposals: an agent improves its instructions and skills
+
+When someone teaches an agent something lasting (a correction, a rule, a better method), an agent with **Propose changes** can stage the edit with `propose_change`: exact replacements of the current text of its own instructions, or of one of its skills, with a one-line summary and why. Nothing changes until a person approves it.
+
+**Settings → Proposals** lists the proposals you may decide: those of the agents and skills you may edit (yours, your team's if you administer it, the organization's if you are an administrator). Open one to read why, the current text and the proposed one; you may edit the proposed text before you **Approve**, or **Reject** it with a note. The agent reads decisions and notes with `list_my_proposals`, so it does not propose the same thing twice. The change is saved under your rights, like an edit you make yourself. If the agent or skill changed since the proposal, its edits are applied again to the current text; when they no longer apply, approving is refused and you edit the text or reject it.
+
+Safeguards, before anything is stored:
+
+* the agent must have the switch on, and may only change its own instructions and the skills it may use (not built-in skills, code skills, or the skills a repository brings, which change through a pull request);
+* each edit must match the current text exactly once;
+* text that looks like a credential is refused;
+* **`governance.proposal_max_pending`** (5 by default) bounds the proposals one agent may have waiting, and **`governance.proposal_max_change_chars`** (8,000 by default) bounds the size of one change.
+
+Creating, approving and rejecting a proposal are audited (`proposal.created`, `proposal.approved`, `proposal.rejected`). The API is `GET /v1/proposals`, `GET /v1/proposals/{id}`, `POST /v1/proposals/{id}/approve` and `POST /v1/proposals/{id}/reject` ([REST reference](/api/rest)).
+
 ## Memory
 
 The agent can remember durable facts about you and your projects ("we use pnpm", "tests run with `make check`") and recall them later. See and delete them in the **Memory inspector**; administrators can turn memory off or restrict what it may store. Secrets are never stored.

@@ -1986,5 +1986,122 @@
       ],
       "type": "object"
     }
+  },
+  {
+    "description": "List the other sessions of your organization you answered in, most recent first (never direct messages or private threads): id, title, where, when, how many messages. Use it to find an earlier request, its answer or the feedback it got; then read one with agent_session_read.",
+    "name": "agent_sessions_list",
+    "parameters": {
+      "properties": {
+        "limit": {
+          "description": "How many sessions, at most 30.",
+          "type": "integer"
+        },
+        "query": {
+          "description": "Words the session's title must contain (empty: all).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "description": "Read a window of one of your other sessions (an id from agent_sessions_list): the person's and your messages, numbered, without tool calls. Long messages and long windows are cut and say where to read on. Every read is audited.",
+    "name": "agent_session_read",
+    "parameters": {
+      "properties": {
+        "first_index": {
+          "description": "Number of the first message to read (default 0).",
+          "type": "integer"
+        },
+        "limit": {
+          "description": "How many messages, at most 50.",
+          "type": "integer"
+        },
+        "session_id": {
+          "description": "The session to read.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session_id"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "Propose a change to your own instructions or to one of your skills when a person taught you something lasting (a correction, a rule, a better method). It changes nothing by itself: a person who may edit that agent or skill approves, edits or rejects it. Give exact replacements of the current text, a one-line summary and why (who said what). Never put credentials or personal data in it.",
+    "name": "propose_change",
+    "parameters": {
+      "properties": {
+        "edits": {
+          "description": "Exact replacements, applied in order.",
+          "items": {
+            "description": "One exact replacement in the current text.",
+            "properties": {
+              "new_text": {
+                "description": "What it becomes (empty deletes it).",
+                "type": "string"
+              },
+              "old_text": {
+                "description": "Current text to replace; it must occur exactly once.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "old_text",
+              "new_text"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "rationale": {
+          "description": "Why: what was said, by whom, in which conversation.",
+          "type": "string"
+        },
+        "skill_name": {
+          "description": "The skill's name, when target is 'skill'.",
+          "type": "string"
+        },
+        "summary": {
+          "description": "One line: what changes.",
+          "type": "string"
+        },
+        "target": {
+          "description": "Your instructions (system prompt), or one of your skills.",
+          "enum": [
+            "instructions",
+            "skill"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "target",
+        "edits",
+        "summary",
+        "rationale"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "description": "List your change proposals and their decisions (pending, approved, rejected), newest first, so you neither propose twice nor ignore a rejection's reason.",
+    "name": "list_my_proposals",
+    "parameters": {
+      "properties": {
+        "status": {
+          "description": "Which proposals (default: pending).",
+          "enum": [
+            "pending",
+            "approved",
+            "rejected",
+            "all"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
   }
 ]

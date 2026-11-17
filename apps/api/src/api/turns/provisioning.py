@@ -14,6 +14,7 @@ from api.services.git_gateway_env import gateway_endpoint, github_api_url_of
 from api.services.repo_setup import find_setup_plan, run_setup
 from api.services.sandbox_catalogue import SandboxCatalogue, SandboxEntry
 from api.services.sandbox_quota import enforce_running_sandbox_quota
+from api.services.session_files import materialise_session_files, turn_session_file_store
 from api.services.session_support import _repo_slug
 from api.services.settings import (
     effective_settings,
@@ -176,6 +177,9 @@ async def provision_session_sandbox(
             record.sandbox_status = SandboxStatus.RUNNING
 
         await store.mutate_session(session_id, s_rec.tenant_org_id, mark_running)
+        await materialise_session_files(
+            await turn_session_file_store(db_mgr, t_org), driver, session_id, t_org
+        )
         if hasattr(driver, "write_file"):
             meta = s_rec.metadata if isinstance(s_rec.metadata, dict) else {}
             if plan_md := meta.get("plan_md"):

@@ -11,6 +11,7 @@ const PAGES = [
   "/settings/agents?owner=me",
   "/settings/skills",
   "/settings/knowledge",
+  "/settings/proposals",
   "/settings/slack",
   "/settings/org",
   "/settings/org/automation",

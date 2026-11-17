@@ -644,6 +644,12 @@ export interface AgentPersonaConfig {
   credential_bindings?: CredentialBinding[];
   /** Refuse calls on any provider the agent has no binding for. */
   strict_binding?: boolean;
+  /** Run with a sandbox (off: no shell, git or workspace; files are kept with the session). */
+  sandbox_enabled?: boolean;
+  /** List and read the organization's other sessions it answered in (never private ones). */
+  reads_agent_sessions?: boolean;
+  /** Propose changes to its instructions and skills, for a person to approve. */
+  proposes_changes?: boolean;
 }
 
 export interface CredentialBinding {

@@ -298,6 +298,7 @@ class ToolDispatcher:
                 threshold=threshold,
                 driver=driver,
                 turn_index=turn_idx,
+                session_files=ctx.callbacks.session_files if ctx and ctx.callbacks else None,
             )
 
         payload: dict[str, Any] = {

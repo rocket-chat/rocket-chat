@@ -228,6 +228,9 @@ def _from_entity(entity: AgentPersonaEntityModel) -> AgentPersonaModel:
             if isinstance(binding, dict)
         ],
         strict_binding=bool(entity.strict_binding),
+        sandbox_enabled=bool(getattr(entity, "sandbox_enabled", True)),
+        reads_agent_sessions=bool(getattr(entity, "reads_agent_sessions", False)),
+        proposes_changes=bool(getattr(entity, "proposes_changes", False)),
         max_turns=entity.max_turns,
         active_tools=entity.active_tools or [],
         enabled=getattr(entity, "enabled", True)
@@ -254,6 +257,9 @@ _COPIED_FIELDS = (
     "temperature",
     "reasoning_effort",
     "strict_binding",
+    "sandbox_enabled",
+    "reads_agent_sessions",
+    "proposes_changes",
     "max_turns",
     "active_tools",
     "enabled",

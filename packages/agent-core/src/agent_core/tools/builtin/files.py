@@ -12,8 +12,10 @@ from agent_core.permissions import approval_details
 from agent_core.tools import code_search as code_search_tools
 from agent_core.tools import tier2
 from agent_core.tools.lsp import run_diagnostics_on_file
-from agent_core.tools.offload import get_cached_offload
+from agent_core.tools.offload import read_offloaded
+from agent_core.tools.scratch_files import scratch_files
 from specifications.interfaces.agent import AgentEvent, FileDiff
+from specifications.interfaces.session import SessionFilesProtocol
 
 if TYPE_CHECKING:
     from agent_core.tools.registry import ToolRegistry
@@ -21,6 +23,12 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 RELATIVE_PATHS = "{}. Relative paths are inside the active repository; absolute ones as given."
+
+
+def _session_files() -> SessionFilesProtocol | None:
+    """The turn's durable session files, when the platform gave it some."""
+    ctx = current_execution_ctx.get()
+    return ctx.callbacks.session_files if ctx and ctx.callbacks else None
 
 
 def emit_file_diff(registry: "ToolRegistry", diff: FileDiff | None) -> None:
@@ -83,9 +91,13 @@ def _register_file_editing_tools(registry: "ToolRegistry") -> None:
         ctx = current_execution_ctx.get()
         s_id = ctx.session_id if ctx else registry._session_id
         target = registry.workspace_file(path)
-        cached = get_cached_offload(s_id, target) if s_id else None
+        cached = await read_offloaded(s_id, target, _session_files()) if s_id else None
         if cached is not None:
             return _slice_cached_text(cached, start_line, end_line, line_numbers)
+        if (scratch := scratch_files()) is not None:
+            return await tier2.file_read(
+                scratch, s_id or "", target, start_line, end_line, line_numbers
+            )
         if not registry._driver or not s_id:
             return "Error: Sandbox not initialized for file_read"
         await registry._ensure_sandbox(s_id)
@@ -112,6 +124,10 @@ def _register_file_editing_tools(registry: "ToolRegistry") -> None:
     ) -> str:
         ctx = current_execution_ctx.get()
         s_id = ctx.session_id if ctx else registry._session_id
+        if (scratch := scratch_files()) is not None:
+            msg, diff = await tier2.file_write(scratch, s_id or "", path, content, overwrite)
+            emit_file_diff(registry, diff)
+            return msg
         if not registry._driver or not s_id:
             return "Error: Sandbox not initialized for file_write"
         await registry._ensure_sandbox(s_id)
@@ -133,6 +149,12 @@ def _register_file_editing_tools(registry: "ToolRegistry") -> None:
     ) -> str:
         ctx = current_execution_ctx.get()
         s_id = ctx.session_id if ctx else registry._session_id
+        if (scratch := scratch_files()) is not None:
+            msg, diff = await tier2.file_edit(
+                scratch, s_id or "", path, target_block, replacement_block
+            )
+            emit_file_diff(registry, diff)
+            return msg
         if not registry._driver or not s_id:
             return "Error: Sandbox not initialized for file_edit"
         await registry._ensure_sandbox(s_id)
@@ -212,6 +234,8 @@ def _register_file_search_tools(registry: "ToolRegistry") -> None:
     ) -> str:
         ctx = current_execution_ctx.get()
         s_id = ctx.session_id if ctx else registry._session_id
+        if (scratch := scratch_files()) is not None:
+            return await scratch.list_dir(path)
         if not registry._driver or not s_id:
             return "Error: Sandbox not initialized for list_dir"
         await registry._ensure_sandbox(s_id)

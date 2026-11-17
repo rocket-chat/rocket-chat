@@ -238,6 +238,18 @@
             "title": "Name",
             "type": "string"
           },
+          "proposes_changes": {
+            "default": false,
+            "description": "Let the agent propose changes to its own instructions and skills; a person who administers the agent or skill approves, edits or rejects each proposal",
+            "title": "Proposes Changes",
+            "type": "boolean"
+          },
+          "reads_agent_sessions": {
+            "default": false,
+            "description": "Let the agent list and read the other sessions of the organization it answered in (never direct messages or private threads); every read is audited",
+            "title": "Reads Agent Sessions",
+            "type": "boolean"
+          },
           "reasoning_effort": {
             "anyOf": [
               {
@@ -254,6 +266,12 @@
             "description": "Role title",
             "title": "Role Title",
             "type": "string"
+          },
+          "sandbox_enabled": {
+            "default": true,
+            "description": "Run with a sandbox. Off: no shell, git or workspace tools, and no sandbox is ever started; file_read, file_write, file_edit and list_dir work on files kept with the session",
+            "title": "Sandbox Enabled",
+            "type": "boolean"
           },
           "sandbox_id": {
             "default": "",
@@ -551,6 +569,32 @@
           "rules"
         ],
         "title": "ApprovalRulesView",
+        "type": "object"
+      },
+      "ApproveRequest": {
+        "properties": {
+          "content": {
+            "anyOf": [
+              {
+                "maxLength": 200000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The text to save instead of the proposed one (an edited approval)",
+            "title": "Content"
+          },
+          "note": {
+            "default": "",
+            "description": "A note for the agent",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "title": "ApproveRequest",
         "type": "object"
       },
       "ArtifactDetailResponse": {
@@ -5777,6 +5821,174 @@
         "title": "ProcessView",
         "type": "object"
       },
+      "ProposalEditModel": {
+        "properties": {
+          "new_text": {
+            "description": "What it became",
+            "title": "New Text",
+            "type": "string"
+          },
+          "old_text": {
+            "description": "Text the edit replaced",
+            "title": "Old Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "old_text",
+          "new_text"
+        ],
+        "title": "ProposalEditModel",
+        "type": "object"
+      },
+      "ProposalListResponse": {
+        "properties": {
+          "proposals": {
+            "description": "Newest first, without their texts",
+            "items": {
+              "$ref": "#/components/schemas/ProposalResponse"
+            },
+            "title": "Proposals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "proposals"
+        ],
+        "title": "ProposalListResponse",
+        "type": "object"
+      },
+      "ProposalResponse": {
+        "description": "A change an agent proposed to its instructions or one of its skills.",
+        "properties": {
+          "agent_id": {
+            "description": "The agent that proposed it",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "base_content": {
+            "default": "",
+            "description": "The text the edits were made on",
+            "title": "Base Content",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "Epoch seconds",
+            "title": "Created At",
+            "type": "integer"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When it was decided",
+            "title": "Decided At"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who decided it",
+            "title": "Decided By"
+          },
+          "decision_note": {
+            "default": "",
+            "description": "The reviewer's note",
+            "title": "Decision Note",
+            "type": "string"
+          },
+          "edits": {
+            "description": "The edits",
+            "items": {
+              "$ref": "#/components/schemas/ProposalEditModel"
+            },
+            "title": "Edits",
+            "type": "array"
+          },
+          "id": {
+            "description": "Proposal identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "proposed_content": {
+            "default": "",
+            "description": "The text the edits produce (once approved: what was saved)",
+            "title": "Proposed Content",
+            "type": "string"
+          },
+          "rationale": {
+            "description": "Why, as the agent explained it",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "requested_by": {
+            "description": "Who the agent was answering when it proposed it",
+            "title": "Requested By",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The session it was proposed in",
+            "title": "Session Id"
+          },
+          "status": {
+            "description": "'pending', 'approved' or 'rejected'",
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "description": "One line: what changes",
+            "title": "Summary",
+            "type": "string"
+          },
+          "target_id": {
+            "description": "The agent id, or the skill id",
+            "title": "Target Id",
+            "type": "string"
+          },
+          "target_kind": {
+            "description": "'instructions' or 'skill'",
+            "title": "Target Kind",
+            "type": "string"
+          },
+          "target_name": {
+            "description": "The agent's or the skill's name",
+            "title": "Target Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "target_kind",
+          "target_id",
+          "target_name",
+          "summary",
+          "rationale",
+          "status",
+          "requested_by",
+          "created_at"
+        ],
+        "title": "ProposalResponse",
+        "type": "object"
+      },
       "PublicLinkView": {
         "properties": {
           "expires_at": {
@@ -5882,6 +6094,19 @@
           "title"
         ],
         "title": "PullRequestRequest",
+        "type": "object"
+      },
+      "RejectRequest": {
+        "properties": {
+          "note": {
+            "default": "",
+            "description": "Why, for the agent",
+            "maxLength": 2000,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "title": "RejectRequest",
         "type": "object"
       },
       "RenameOrganizationRequest": {
@@ -15889,6 +16114,207 @@
         "summary": "Preview",
         "tags": [
           "Ownership"
+        ]
+      }
+    },
+    "/v1/proposals": {
+      "get": {
+        "description": "The change proposals the caller may decide, newest first.",
+        "operationId": "list_proposals_v1_proposals_get",
+        "parameters": [
+          {
+            "description": "Which proposals",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "default": "pending",
+              "description": "Which proposals",
+              "enum": [
+                "pending",
+                "approved",
+                "rejected",
+                "all"
+              ],
+              "title": "Status",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Proposals",
+        "tags": [
+          "Agents"
+        ]
+      }
+    },
+    "/v1/proposals/{proposal_id}": {
+      "get": {
+        "description": "One proposal with its edits and both texts.",
+        "operationId": "get_proposal_v1_proposals__proposal_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Proposal",
+        "tags": [
+          "Agents"
+        ]
+      }
+    },
+    "/v1/proposals/{proposal_id}/approve": {
+      "post": {
+        "description": "Save the proposed text (or the caller's edit of it) to the agent or skill.",
+        "operationId": "approve_proposal_v1_proposals__proposal_id__approve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Approve Proposal",
+        "tags": [
+          "Agents"
+        ]
+      }
+    },
+    "/v1/proposals/{proposal_id}/reject": {
+      "post": {
+        "description": "Refuse the proposal; the agent sees the note with ``list_my_proposals``.",
+        "operationId": "reject_proposal_v1_proposals__proposal_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RejectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reject Proposal",
+        "tags": [
+          "Agents"
         ]
       }
     },

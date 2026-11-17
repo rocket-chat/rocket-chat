@@ -188,6 +188,7 @@ NOW = 1_800_000_000
 @pytest.mark.setting("governance.session_retention_days")
 @pytest.mark.setting("governance.trace_retention_days")
 @pytest.mark.setting("governance.memory_retention_days")
+@pytest.mark.setting("governance.session_file_retention_days")
 @pytest.mark.setting("governance.attachment_retention_days")
 @pytest.mark.setting("governance.audit_retention_days")
 @pytest.mark.parametrize(
@@ -196,6 +197,7 @@ NOW = 1_800_000_000
         ("session_retention_days", "sessions"),
         ("trace_retention_days", "turn_traces"),
         ("memory_retention_days", "memories"),
+        ("session_file_retention_days", "session_files"),
         ("attachment_retention_days", "attachments"),
         ("audit_retention_days", "audit_events"),
     ],

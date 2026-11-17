@@ -17,6 +17,7 @@ from types import EllipsisType
 from typing import Any
 
 from agent_core.tool_loading import current_tool_names
+from agent_core.tools.switches import switched_on_tools
 from config_engine import Preset
 from config_engine.cascading import RoutingPolicy, model_is_allowed
 from config_engine.model_defaults import fallback_models_for
@@ -361,6 +362,15 @@ def _resolve_model_generation(
     )
 
 
+def with_switched_tools(tools: list[str], agent: Any) -> list[str]:
+    """An agent's explicit tool list plus the opt-in tools its switches turn on."""
+    policy = TurnPolicy(
+        reads_agent_sessions=bool(getattr(agent, "reads_agent_sessions", False)),
+        proposes_changes=bool(getattr(agent, "proposes_changes", False)),
+    )
+    return [*tools, *sorted(switched_on_tools(policy) - set(tools))]
+
+
 class TurnService:
     """Resolves the turn plan for a session and invokes the orchestrator.
 
@@ -445,7 +455,7 @@ class TurnService:
             name=agent.name if agent else "",
             system_prompt=agent.system_prompt if agent else None,
             whitelisted_tools=(
-                current_tool_names(list(agent.whitelisted_tools))
+                with_switched_tools(current_tool_names(list(agent.whitelisted_tools)), agent)
                 if agent and agent.whitelisted_tools
                 else None
             ),
@@ -548,6 +558,9 @@ class TurnService:
             max_turn_cost_usd=max_cost,
             sandbox_profile=sandbox_profile,
             plan_critic=bool(general["plan_critic"]),
+            sandbox_enabled=bool(getattr(agent, "sandbox_enabled", True)),
+            reads_agent_sessions=bool(getattr(agent, "reads_agent_sessions", False)),
+            proposes_changes=bool(getattr(agent, "proposes_changes", False)),
         )
 
     async def stream_turn(

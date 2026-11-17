@@ -11,10 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `orchestrator`:
-- `sandboxes`:
-- `api`:
-- `web`:
+  - **Agents without a sandbox.** An agent's `sandbox_enabled` switch (on by default), when off, removes every sandbox tool from its turns and from its prompt, and nothing may start a sandbox for it (`SandboxDisabledError`). `file_read`, `file_write`, `file_edit` and `list_dir` work on files kept with the session (`agent_core/tools/scratch_files.py`).
+  - **Reading the agent's other sessions.** With `reads_agent_sessions` on, the deferred tools `agent_sessions_list` and `agent_session_read` list and read the organization's sessions the agent answered in. They never return direct messages, private threads, tool calls or tool results. Each message is capped at 2,000 characters, each window at 16,000, and every read is audited (`agent_session.read`). A new table, `session_agents`, records participation; it is backfilled from each session's selected agent.
+  - **Change proposals.** With `proposes_changes` on, `propose_change` stages exact edits to the agent's own instructions or to one of its skills, and `list_my_proposals` shows the decisions. Nothing changes until a person who may edit the agent or skill approves the proposal. Before a proposal is stored, the platform refuses one that contains credentials, exceeds a size or pending-count cap, or whose edits do not match the current text. On approval, the edits are re-applied if the target changed since; a conflict is refused.
+- `sandboxes`: **Files kept with a session** (`session_files`, forced row-level security). Offloaded tool outputs live in PostgreSQL instead of the API process's memory: they survive restarts, are visible from every replica, need no sandbox, and are copied into the workspace when a sandbox starts. An output is no longer copied into a stopped sandbox, and a sandbox is never woken to receive one.
+- `api`: `GET /v1/proposals`, `GET /v1/proposals/{id}`, `POST /v1/proposals/{id}/approve` (as proposed, or with the reviewer's edited text) and `POST /v1/proposals/{id}/reject`. Each answers only for proposals the caller may decide. Agents gain `sandbox_enabled`, `reads_agent_sessions` and `proposes_changes`.
+- `web`: **Settings → Proposals** (review, edit, approve, reject). The agent editor's *Sandbox* section gains the three switches.
 - `settings`:
+  - `general.session_files_max_mb` (64)
+  - `governance.session_file_retention_days`
+  - `governance.proposal_max_pending` (5)
+  - `governance.proposal_max_change_chars` (8,000)
 - `git`:
 - `helm`:
 

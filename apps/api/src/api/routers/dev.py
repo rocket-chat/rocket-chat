@@ -13,7 +13,10 @@ from pydantic import BaseModel
 
 from api.auth.access import _check_session_access, _get_request_identity
 from api.auth.identity import dev_identity_enabled
+from api.services.audit import AuditService
+from api.services.proposals import BoundProposals
 from specifications.interfaces.llm import ChatMessage
+from specifications.interfaces.proposals import ProposalEdit
 
 router = APIRouter(prefix="/v1/dev", tags=["Development"], include_in_schema=False)
 
@@ -45,3 +48,38 @@ async def seed_transcript(
     ]
     await store.update_session(record)
     return {"messages": len(record.conversation_history)}
+
+
+class SeedProposalRequest(BaseModel):
+    target: str = "instructions"
+    skill_name: str = ""
+    old_text: str
+    new_text: str
+    summary: str
+    rationale: str = ""
+
+
+@router.post("/agents/{agent_id}/proposals")
+async def seed_proposal(
+    agent_id: str, body: SeedProposalRequest, request: Request
+) -> dict[str, str]:
+    """Stage a proposal as the agent's ``propose_change`` would, without a model call."""
+    if not dev_identity_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    org_id, user_id, _ = _get_request_identity(request)
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    outcome = await BoundProposals(
+        db_mgr=db_mgr,
+        org_id=org_id,
+        agent_id=agent_id,
+        session_id=None,
+        requested_by=user_id,
+        audit=AuditService(db_mgr),
+    ).propose(
+        body.target,
+        body.skill_name,
+        [ProposalEdit(body.old_text, body.new_text)],
+        body.summary,
+        body.rationale,
+    )
+    return {"outcome": outcome}

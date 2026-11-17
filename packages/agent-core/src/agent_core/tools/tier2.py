@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TypedDict
+from typing import Protocol, TypedDict
 
 from sandbox_driver.exceptions import SandboxTimeoutError
 
@@ -74,8 +74,24 @@ def _streams(stdout: str, stderr: str, title: str | None) -> list[str]:
 FILE_WINDOW_LINES = 400
 
 
+class FileAccess(Protocol):
+    """What the file tools need: a sandbox driver, or the session's files without a sandbox."""
+
+    async def read_file(
+        self,
+        session_id: str,
+        path: str,
+        start_line: int | None = None,
+        end_line: int | None = None,
+    ) -> str: ...
+
+    async def write_file(
+        self, session_id: str, path: str, content: str, overwrite: bool = True
+    ) -> None: ...
+
+
 async def file_read(
-    driver: SandboxDriverProtocol,
+    driver: FileAccess,
     session_id: str,
     path: str,
     start_line: int | None = None,
@@ -112,7 +128,7 @@ async def file_read(
     return clamp_output(body, hint="read them with file_read start_line/end_line")
 
 
-async def _current(driver: SandboxDriverProtocol, session_id: str, path: str) -> str | None:
+async def _current(driver: FileAccess, session_id: str, path: str) -> str | None:
     try:
         return await driver.read_file(session_id=session_id, path=path)
     except Exception:
@@ -120,7 +136,7 @@ async def _current(driver: SandboxDriverProtocol, session_id: str, path: str) ->
 
 
 async def file_write(
-    driver: SandboxDriverProtocol,
+    driver: FileAccess,
     session_id: str,
     path: str,
     content: str,
@@ -327,7 +343,7 @@ async def apply_diff_file(
 
 
 async def file_edit(
-    driver: SandboxDriverProtocol,
+    driver: FileAccess,
     session_id: str,
     path: str,
     target_block: str,

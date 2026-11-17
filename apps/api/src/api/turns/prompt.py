@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from typing import Any
 
+from agent_core.tools.switches import switched_off_tools
+
 from api.auth.origin import public_base_url
 from api.services.git_credentials import GitCredentialBundle
 from api.services.github_watches import GithubWatchStore, pending_events_notice
@@ -59,6 +61,8 @@ class PromptTools:
     denied: frozenset[str] = frozenset()
     # Tools the agent keeps active besides the core set (names or patterns); ``None`` sends all.
     active: tuple[str, ...] | None = ()
+    # False when the agent runs without a sandbox (its sandbox tools are already in ``denied``).
+    sandbox: bool = True
 
     def sends(self, name: str) -> bool:
         """Whether every request carries ``name``: guidance about a deferred tool would describe
@@ -93,9 +97,13 @@ def prompt_tools(ctx: TurnContext) -> PromptTools:
         scoped = overlay.tool_scope(scope)
         scope = None if scoped is None else list(scoped)
     denied = frozenset(overlay.denied_tools or ()) if overlay is not None else frozenset()
+    sandbox = ctx.binding.policy.sandbox_enabled
+    if not sandbox:
+        denied |= ctx.req.orchestrator.sandbox_tools()
+    denied |= switched_off_tools(ctx.binding.policy)
     loading = ctx.binding.policy.tool_loading
     active = None if loading.send_all else tuple(loading.active)
-    return PromptTools(None if scope is None else frozenset(scope), denied, active)
+    return PromptTools(None if scope is None else frozenset(scope), denied, active, sandbox)
 
 
 def _list_in_words(items: list[str]) -> str:
@@ -106,7 +114,14 @@ def _list_in_words(items: list[str]) -> str:
 def sandbox_guidance(tools: PromptTools) -> list[str]:
     """How the sandbox works and how the agent gets code into it."""
     lines = ["\n[Runtime environment]"]
-    if tools.has(*SANDBOX_TOOLS):
+    if not tools.sandbox:
+        lines.append(
+            "- You run WITHOUT a sandbox: there is no shell, no git and no repository checkout. "
+            f"{tools.named('file_read', 'file_write', 'file_edit', 'list_dir')} work on files "
+            "kept with this session (notes, plans, caches, and tool outputs saved under "
+            "`/workspace/.rocket/outputs/`); they survive the session's later turns."
+        )
+    elif tools.has(*SANDBOX_TOOLS):
         lines.append(
             "- The sandbox starts BLANK: no repository is checked out and nothing from earlier "
             "sessions is there. It starts on demand, when a tool needs it."
@@ -174,7 +189,7 @@ def sandbox_guidance(tools: PromptTools) -> list[str]:
 
 
 def workspace_guidance(tools: PromptTools) -> list[str]:
-    if not tools.has(*SANDBOX_TOOLS):
+    if not tools.sandbox or not tools.has(*SANDBOX_TOOLS):
         return []
     lines = ["\n[Workspace]"]
     lines.append(
@@ -483,7 +498,7 @@ async def build_system_prompt(
         long_task_guidance(tools),
         showing_work_guidance(tools),
     ]
-    if tools.has(*SANDBOX_TOOLS):
+    if tools.sandbox and tools.has(*SANDBOX_TOOLS):
         env_details += git_guidance(git_bundle, ctx.binding.policy.git)
         if not tools.has(*PUBLISH_TOOLS):
             env_details.append(

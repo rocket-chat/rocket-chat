@@ -98,6 +98,28 @@ class AgentPersonaModel(BaseModel):
         default=False,
         description="Refuse calls on any provider the agent has no binding for",
     )
+    sandbox_enabled: bool = Field(
+        default=True,
+        description=(
+            "Run with a sandbox. Off: no shell, git or workspace tools, and no sandbox is ever "
+            "started; file_read, file_write, file_edit and list_dir work on files kept with the "
+            "session"
+        ),
+    )
+    reads_agent_sessions: bool = Field(
+        default=False,
+        description=(
+            "Let the agent list and read the other sessions of the organization it answered in "
+            "(never direct messages or private threads); every read is audited"
+        ),
+    )
+    proposes_changes: bool = Field(
+        default=False,
+        description=(
+            "Let the agent propose changes to its own instructions and skills; a person who "
+            "administers the agent or skill approves, edits or rejects each proposal"
+        ),
+    )
 
 
 class AgentLimitsResponse(BaseModel):
