@@ -13,6 +13,7 @@ from fastapi import (
 )
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth.access import _get_request_identity
 from api.auth.identity import is_production
@@ -45,6 +46,7 @@ from api.services.mcp_turn import (
     _mcp_servers_store,
     _member_token_store,
     _probe_timestamp,
+    _probed_status,
 )
 from api.services.ownership import owner_of
 from api.services.teams import viewer_for
@@ -224,6 +226,11 @@ async def authorize_mcp_server_oauth_redirect(
     return redirect
 
 
+def _client_secret(auth: dict[str, Any]) -> str | None:
+    sealed = auth.get("oauth_client_secret")
+    return _cipher.decrypt(sealed) if sealed else None
+
+
 async def _finish_member_oauth(
     request: Request,
     server_id: str,
@@ -232,8 +239,11 @@ async def _finish_member_oauth(
     roles: list[str],
     code: str,
     state_data: dict[str, Any],
-) -> None:
-    """Store the returning member's own tokens for a shared server (member mode)."""
+) -> dict[str, Any]:
+    """Store the returning member's own tokens for a shared server (member mode).
+
+    Returns the server's auth with those tokens, for this request only.
+    """
     auth_dict, owner = await _load_mcp_auth(request, org_id, server_id)
     if not is_shared(owner.scope) or not is_member_mode(auth_dict):
         raise PermissionError("This server is not in per-member mode.")
@@ -242,14 +252,121 @@ async def _finish_member_oauth(
     )
     if not _may_authorize_mcp(owner, viewer, roles, member_mode=True):
         raise PermissionError("You may not connect an account to this server.")
-    secret = (
-        _cipher.decrypt(auth_dict["oauth_client_secret"])
-        if auth_dict.get("oauth_client_secret")
-        else None
-    )
     tokens: dict[str, Any] = {}
-    store_oauth_tokens(tokens, await exchange_oauth_code(code, state_data, secret))
+    store_oauth_tokens(
+        tokens, await exchange_oauth_code(code, state_data, _client_secret(auth_dict))
+    )
     await _member_token_store(request).put(org_id, server_id, user_id, tokens)
+    return {**auth_dict, **tokens}
+
+
+async def _finish_server_oauth(
+    request: Request,
+    server_id: str,
+    org_id: str,
+    user_id: str,
+    roles: list[str],
+    code: str,
+    state_data: dict[str, Any],
+) -> dict[str, Any]:
+    """Store the tokens on the server itself, as its credential for everyone who uses it."""
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    viewer = await viewer_for(db_mgr, org_id, user_id, roles)
+    if db_mgr is None:
+        record = _mcp_servers_store.get(server_id)
+        if record is None or record.get("org_id") != org_id:
+            raise LookupError("MCP server not found")
+        if not _may_authorize_mcp(owner_of(record), viewer, roles):
+            raise PermissionError("You may not connect an account to this server.")
+        auth_dict = dict(record.get("encrypted_auth") or {})
+        store_oauth_tokens(
+            auth_dict, await exchange_oauth_code(code, state_data, _client_secret(auth_dict))
+        )
+        record["encrypted_auth"] = auth_dict
+        return auth_dict
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        entity = await _server_entity(session, org_id, server_id)
+        if entity is None:
+            raise LookupError("MCP server not found")
+        if not _may_authorize_mcp(owner_of(entity), viewer, roles):
+            raise PermissionError("You may not connect an account to this server.")
+        auth_dict = dict(entity.encrypted_auth or {})
+        store_oauth_tokens(
+            auth_dict, await exchange_oauth_code(code, state_data, _client_secret(auth_dict))
+        )
+        entity.encrypted_auth = auth_dict
+        await session.commit()
+    return auth_dict
+
+
+async def _server_entity(
+    session: AsyncSession, org_id: str, server_id: str
+) -> McpServerEntityModel | None:
+    result = await session.execute(
+        select(McpServerEntityModel).where(
+            McpServerEntityModel.id == server_id,
+            McpServerEntityModel.org_id == org_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
+async def _probe_with(
+    server: McpServerEntityModel | dict[str, Any], org_id: str, account: dict[str, Any]
+) -> tuple[dict[str, Any], str | None]:
+    """The fields a probe with ``account`` sets on the server, and why it listed no tools."""
+
+    def field(name: str) -> Any:
+        return server.get(name) if isinstance(server, dict) else getattr(server, name, None)
+
+    status, tools, error = await probe_and_fetch_tools(
+        transport=str(field("transport") or ""),
+        endpoint_or_command=str(field("endpoint_or_command") or ""),
+        auth_data=account,
+        org_id=org_id,
+    )
+    probed: dict[str, Any] = {
+        "status": _probed_status(status, error, field("auth_type"), account),
+        "last_probed": _probe_timestamp(),
+    }
+    if tools:
+        probed["tools"] = tools
+    if status == "connected":
+        return probed, None
+    return probed, error or f"the server is {status}"
+
+
+async def _list_tools_after_sign_in(
+    request: Request, org_id: str, server_id: str, account: dict[str, Any]
+) -> str | None:
+    """Fetch and store the server's tools with the account just connected.
+
+    Returns why that failed: the sign-in itself succeeded and is kept either way.
+    """
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    if db_mgr is None:
+        record = _mcp_servers_store[server_id]
+        probed, problem = await _probe_with(record, org_id, account)
+        record.update(probed)
+        return problem
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        entity = await _server_entity(session, org_id, server_id)
+        if entity is None:
+            raise LookupError("MCP server not found")
+        server = {
+            "transport": entity.transport,
+            "endpoint_or_command": entity.endpoint_or_command,
+            "auth_type": entity.auth_type,
+        }
+    # Probed outside the session: a slow server must not hold a database connection.
+    probed, problem = await _probe_with(server, org_id, account)
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        entity = await _server_entity(session, org_id, server_id)
+        if entity is not None:
+            for name, value in probed.items():
+                setattr(entity, name, value)
+            await session.commit()
+    return problem
 
 
 @router.get("/mcp/oauth/callback")
@@ -258,11 +375,12 @@ async def mcp_oauth_callback(
     code: str = Query(...),
     state: str = Query(...),
 ) -> RedirectResponse:
-    """Exchange the PKCE code for tokens and store them encrypted on the authorized server.
+    """Exchange the PKCE code for tokens, store them encrypted and list the server's tools.
 
     The state was minted for one authenticated member of one organization; the callback
     must come from that same member, or a forwarded link could bind the attacker's account
-    to the victim's server (or the reverse).
+    to the victim's server (or the reverse). A sign-in whose tools cannot be listed lands on
+    ``status=no_tools`` with the reason, rather than a success with no tools.
     """
     org_id, user_id, roles = _get_request_identity(request)
     server_id = ""
@@ -272,61 +390,15 @@ async def mcp_oauth_callback(
         if state_data.get("user_id") != user_id or state_data.get("org_id") != org_id:
             raise PermissionError("This authorization was started by a different account.")
 
-        db_mgr = getattr(request.app.state, "db_manager", None)
-        if state_data.get("member_mode"):
-            await _finish_member_oauth(request, server_id, org_id, user_id, roles, code, state_data)
-        elif db_mgr:
-            async with db_mgr.session(tenant_org_id=org_id) as session:
-                res = await session.execute(
-                    select(McpServerEntityModel).where(
-                        McpServerEntityModel.id == server_id,
-                        McpServerEntityModel.org_id == org_id,
-                    )
-                )
-                entity = res.scalar_one_or_none()
-                if entity is None:
-                    raise LookupError("MCP server not found")
-                viewer = await viewer_for(db_mgr, org_id, user_id, roles)
-                if not _may_authorize_mcp(owner_of(entity), viewer, roles):
-                    raise PermissionError("You may not connect an account to this server.")
-                auth_dict = dict(entity.encrypted_auth or {})
-                secret = (
-                    _cipher.decrypt(auth_dict["oauth_client_secret"])
-                    if auth_dict.get("oauth_client_secret")
-                    else None
-                )
-                tokens = await exchange_oauth_code(code, state_data, secret)
-                store_oauth_tokens(auth_dict, tokens)
-                entity.encrypted_auth = auth_dict
-                status, tools, _ = await probe_and_fetch_tools(
-                    transport=entity.transport,
-                    endpoint_or_command=entity.endpoint_or_command,
-                    auth_data=auth_dict,
-                    org_id=entity.org_id,
-                )
-                entity.status = status
-                entity.last_probed = _probe_timestamp()
-                if tools:
-                    entity.tools = tools
-                await session.commit()
-        else:
-            record = _mcp_servers_store.get(server_id)
-            if record is None or record.get("org_id") != org_id:
-                raise LookupError("MCP server not found")
-            viewer = await viewer_for(db_mgr, org_id, user_id, roles)
-            if not _may_authorize_mcp(owner_of(record), viewer, roles):
-                raise PermissionError("You may not connect an account to this server.")
-            auth_dict = dict(record.get("encrypted_auth") or {})
-            secret = (
-                _cipher.decrypt(auth_dict["oauth_client_secret"])
-                if auth_dict.get("oauth_client_secret")
-                else None
-            )
-            store_oauth_tokens(auth_dict, await exchange_oauth_code(code, state_data, secret))
-            record["encrypted_auth"] = auth_dict
-            record["status"] = "connected"
+        finish = _finish_member_oauth if state_data.get("member_mode") else _finish_server_oauth
+        account = await finish(request, server_id, org_id, user_id, roles, code, state_data)
+        problem = await _list_tools_after_sign_in(request, org_id, server_id, account)
 
-        done = RedirectResponse(url=f"/settings/mcp?status=connected&server_id={server_id}")
+        outcome = {"status": "connected", "server_id": server_id}
+        if problem is not None:
+            logger.warning("Signed in to MCP server %s but listed no tools: %s", server_id, problem)
+            outcome = {"status": "no_tools", "server_id": server_id, "error": problem}
+        done = RedirectResponse(url=f"/settings/mcp?{urlencode(outcome)}")
         done.delete_cookie(MCP_OAUTH_COOKIE, path="/")
         return done
     except Exception as err:

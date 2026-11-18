@@ -53,6 +53,8 @@ from api.services.mcp_turn import (
     _mcp_servers_store,
     _member_token_store,
     _probe_timestamp,
+    _probed_status,
+    _with_member_account,
 )
 from api.services.ownership import (
     OwnershipError,
@@ -984,22 +986,13 @@ async def delete_mcp_server(server_id: str, request: Request) -> dict[str, bool]
     raise HTTPException(status_code=404, detail="MCP server not found")
 
 
-def _probed_status(
-    status: str, error: str | None, auth_type: str | None, auth: dict[str, Any]
-) -> str:
-    """A refused OAuth server waits for a sign-in rather than being reported broken."""
-    if status == "connected" or auth_type not in ("oauth", "oauth2"):
-        return status
-    signed_in = bool(auth.get("access_token_enc")) and auth.get("oauth_mode") != "member"
-    if not signed_in or "401" in (error or ""):
-        return NEEDS_SIGN_IN
-    return status
-
-
 @router.post("/mcp/servers/{server_id}/probe", response_model=McpServerResponseModel)
 async def probe_mcp_server(server_id: str, request: Request) -> McpServerResponseModel:
-    """Probe an MCP server and refresh its discovered tools."""
-    org_id, _, _ = _get_request_identity(request)
+    """Probe an MCP server and refresh its discovered tools.
+
+    A server where every member signs in is probed with the caller's own account.
+    """
+    org_id, user_id, _ = _get_request_identity(request)
     db_mgr = getattr(request.app.state, "db_manager", None)
 
     if db_mgr:
@@ -1024,7 +1017,9 @@ async def probe_mcp_server(server_id: str, request: Request) -> McpServerRespons
                     return _format_mcp_response(record)
                 raise HTTPException(status_code=404, detail="MCP server not found")
 
-            auth_data = entity.encrypted_auth or {}
+            auth_data = await _with_member_account(
+                request, org_id, server_id, user_id, dict(entity.encrypted_auth or {})
+            )
             req_headers = mcp_auth_headers(auth_data, _cipher)
 
             status, tools, error = await probe_and_fetch_tools(
@@ -1045,14 +1040,15 @@ async def probe_mcp_server(server_id: str, request: Request) -> McpServerRespons
     if server_id not in _mcp_servers_store:
         raise HTTPException(status_code=404, detail="MCP server not found")
     record = _mcp_servers_store[server_id]
+    auth_data = await _with_member_account(
+        request, org_id, server_id, user_id, dict(record.get("encrypted_auth") or {})
+    )
     status, tools, error = await probe_and_fetch_tools(
         transport=record.get("transport", "stdio"),
         endpoint_or_command=record.get("endpoint_or_command", ""),
-        auth_data=record.get("encrypted_auth") or None,
+        auth_data=auth_data or None,
     )
-    record["status"] = _probed_status(
-        status, error, record.get("auth_type"), record.get("encrypted_auth") or {}
-    )
+    record["status"] = _probed_status(status, error, record.get("auth_type"), auth_data)
     record["last_probed"] = _probe_timestamp()
     if tools:
         record["tools"] = tools

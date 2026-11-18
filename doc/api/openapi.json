@@ -14901,7 +14901,7 @@
     },
     "/v1/mcp/oauth/callback": {
       "get": {
-        "description": "Exchange the PKCE code for tokens and store them encrypted on the authorized server.\n\nThe state was minted for one authenticated member of one organization; the callback\nmust come from that same member, or a forwarded link could bind the attacker's account\nto the victim's server (or the reverse).",
+        "description": "Exchange the PKCE code for tokens, store them encrypted and list the server's tools.\n\nThe state was minted for one authenticated member of one organization; the callback\nmust come from that same member, or a forwarded link could bind the attacker's account\nto the victim's server (or the reverse). A sign-in whose tools cannot be listed lands on\n``status=no_tools`` with the reason, rather than a success with no tools.",
         "operationId": "mcp_oauth_callback_v1_mcp_oauth_callback_get",
         "parameters": [
           {
@@ -15332,7 +15332,7 @@
     },
     "/v1/mcp/servers/{server_id}/probe": {
       "post": {
-        "description": "Probe an MCP server and refresh its discovered tools.",
+        "description": "Probe an MCP server and refresh its discovered tools.\n\nA server where every member signs in is probed with the caller's own account.",
         "operationId": "probe_mcp_server_v1_mcp_servers__server_id__probe_post",
         "parameters": [
           {

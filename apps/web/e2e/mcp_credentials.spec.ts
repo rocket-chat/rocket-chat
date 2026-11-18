@@ -96,3 +96,11 @@ test("the outcome of a sign-in is shown when it lands on the settings page", asy
   await expect(page.getByText(/Signed in: the server's tools are available/)).toBeVisible();
   await expect(page).toHaveURL(/\/settings\/mcp$/);
 });
+
+test("a sign-in whose tools could not be listed says why", async ({ page }) => {
+  await page.goto("/settings/mcp?status=no_tools&server_id=srv-kb&error=No%20MCP%20response%20within%2010s");
+  await expect(
+    page.getByText(/Signed in, but the server's tools could not be listed: No MCP response within 10s/)
+  ).toBeVisible();
+  await expect(page).toHaveURL(/\/settings\/mcp$/);
+});
