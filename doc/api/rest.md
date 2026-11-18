@@ -1464,7 +1464,8 @@ Start a run now, without moving the schedule (``text``: what this run is about).
 
 ### `GET /v1/missions/{mission_id}/runs`
 
-The mission's latest runs, newest first, with how each delivery went.
+The mission's latest runs, newest first, with how each delivery went; runs still waiting
+for their trigger's delay come first, as ``scheduled`` with the time they start.
 
 **Parameters**
 
@@ -1492,7 +1493,8 @@ secret (``webhook``); the new one is shown once.
 
 A mission's own webhook: ``X-Rocket-Signature: sha256=<hex HMAC of "<timestamp>.<body>">``
 with the mission's inbound secret and ``X-Rocket-Timestamp`` within five minutes. The JSON
-body is what the run is about (capped).
+body is what the run is about (capped). A webhook trigger with ``delay_minutes`` answers
+``scheduled`` and starts the run once the delay is over.
 
 **Parameters**
 

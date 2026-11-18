@@ -259,6 +259,33 @@ test.describe("Missions", () => {
     await expect(page.getByTestId("mission-trigger-custom-0")).toContainText("15 */6 * * *");
   });
 
+  test("a webhook that waits an hour says so, and its run waits as scheduled", async ({ page, request }) => {
+    const name = `After deploy ${Date.now().toString(36)}`;
+    const res = await request.post(`${API}/v1/missions`, {
+      data: { name, instructions: "Check the logs", triggers: [{ source: "webhook", delay_minutes: 60 }] },
+    });
+    expect(res.status()).toBe(200);
+    const mission = await res.json();
+    const body = JSON.stringify({ environment: "omega" });
+    const stamp = Math.floor(Date.now() / 1000);
+    const signature = `sha256=${createHmac("sha256", mission.inbound_secret).update(`${stamp}.${body}`).digest("hex")}`;
+    const call = await request.post(`${API}${mission.inbound_path}`, {
+      data: body,
+      headers: { "Content-Type": "application/json", "X-Rocket-Timestamp": String(stamp), "X-Rocket-Signature": signature },
+    });
+    expect((await call.json()).status).toBe("scheduled");
+
+    await page.goto("/missions");
+    const card = page.getByTestId("mission-item").filter({ hasText: name });
+    await expect(card).toContainText("When its webhook is called, 1 h later");
+    await card.getByTestId("mission-runs-toggle").click();
+    await expect(card.getByTestId("mission-runs").getByTestId("mission-run").first()).toContainText("scheduled");
+
+    await card.getByRole("button", { name: `Edit ${name}` }).click();
+    await expect(page.getByTestId("mission-advanced")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByTestId("mission-trigger-delay-0")).toHaveValue("60");
+  });
+
   test("an unsafe schedule is explained, not silently accepted", async ({ request }) => {
     const res = await request.post(`${API}/v1/missions`, {
       data: { name: "x", triggers: [{ source: "schedule", schedule: "* * * * *" }] },

@@ -23,8 +23,9 @@ from sqlalchemy.exc import IntegrityError
 
 from api.db.models import WebhookDeliveryModel
 from api.services.github_installations import installation_org
+from api.services.mission_delays import start_or_delay
 from api.services.mission_delivery import mission_store
-from api.services.mission_runs import RunOutcome, start_run
+from api.services.mission_runs import RunOutcome
 from specifications.interfaces.automation import (
     OWN_SOURCES,
     Delivery,
@@ -105,8 +106,10 @@ async def receive_trigger_event(
         if not await claim_delivery(db_mgr, org_id, forge, claim):
             outcomes.append(RunOutcome("duplicate", mission_id=mission.id))
             continue
-        outcomes.append(await start_run(app, mission, event, fallback_owner=author))
-    return next((o for o in outcomes if o.status in ("created", "resumed")), outcomes[0])
+        outcomes.append(await start_or_delay(app, mission, event, fallback_owner=author))
+    return next(
+        (o for o in outcomes if o.status in ("created", "resumed", "scheduled")), outcomes[0]
+    )
 
 
 async def claim_delivery(db_mgr: Any, org_id: str, source: str, delivery_id: str) -> bool:

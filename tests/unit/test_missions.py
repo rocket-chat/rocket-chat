@@ -266,9 +266,9 @@ def test_a_webhook_mission_takes_signed_calls_only(client: TestClient, monkeypat
 
         return RunOutcome("created", "s1", mission.id, "run_1")
 
-    from api.routers import missions as router
+    from api.services import mission_delays
 
-    monkeypatch.setattr(router, "start_run", start)
+    monkeypatch.setattr(mission_delays, "start_run", start)
     created = client.post(
         "/v1/missions", json={**BODY, "triggers": [{"source": "webhook"}]}, headers=OWNER
     ).json()

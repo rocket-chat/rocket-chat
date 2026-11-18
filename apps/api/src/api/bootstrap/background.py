@@ -25,6 +25,7 @@ from api.services.cluster import LeaderElection
 from api.services.interrupted_work import clear_stuck_processing, save_interrupted_turns
 from api.services.mcp_engine import probe_and_fetch_tools
 from api.services.mcp_runtime import REMOTE_TRANSPORTS, auth_headers, canonical_transport
+from api.services.mission_delays import start_due_runs
 from api.services.mission_runs import start_run
 from api.services.missions import MissionStore
 from api.services.provider_catalogue import REFRESH_SECONDS, provider_catalogue
@@ -318,6 +319,8 @@ class BackgroundServices:
                 except Exception as err:
                     logger.exception("Mission %s could not start: %s", mission.id, err)
                     await mission_store.mark_run(mission.org_id, mission.id, None, "failed")
+            # Runs whose trigger waited after its event (``delay_minutes``) and are now due.
+            await start_due_runs(self._app, admin_manager)
 
         async def _poll() -> None:
             await _run_periodically(

@@ -7,6 +7,8 @@ export interface MissionTrigger {
   /** `schedule`: a five-field cron read in `timezone`. */
   schedule: string;
   timezone: string;
+  /** Events and the webhook only: minutes the run waits after the event (0: at once). */
+  delay_minutes: number;
 }
 
 export type DeliveryKind = "session" | "chat" | "webhook" | "github_review" | "github_comment" | "pull_request";
@@ -72,7 +74,8 @@ export interface MissionRun {
   session_id: string;
   source: string;
   title: string;
-  status: "running" | "completed" | "failed" | "delivered" | "delivery_failed";
+  /** `scheduled`: waiting for its trigger's delay; `started_at` is then when it starts. */
+  status: "scheduled" | "running" | "completed" | "failed" | "delivered" | "delivery_failed";
   deliveries: { kind: string; status: string; error?: string; url?: string }[];
   started_at: number;
   finished_at: number | null;
@@ -132,6 +135,40 @@ export const MODEL_TIERS: { value: string; label: string }[] = [
   { value: "frontier", label: "Frontier" },
 ];
 
+/** Sources whose run may wait after the event: not a schedule, which already says when. */
+export function canDelay(source: string): boolean {
+  return source !== "schedule" && source !== "api";
+}
+
+export const MAX_TRIGGER_DELAY_MINUTES = 24 * 60;
+
+/** The common waits, offered as a list; Advanced takes any number of minutes. */
+export const TRIGGER_DELAYS: { minutes: number; label: string }[] = [
+  { minutes: 0, label: "Right away" },
+  { minutes: 15, label: "15 minutes later" },
+  { minutes: 30, label: "30 minutes later" },
+  { minutes: 60, label: "1 hour later" },
+  { minutes: 120, label: "2 hours later" },
+  { minutes: 360, label: "6 hours later" },
+  { minutes: 1440, label: "24 hours later" },
+];
+
+/** "1 h later", "45 min later", "1 h 30 min later"; empty when the run starts at once. */
+export function delayLabel(minutes: number): string {
+  if (!minutes) return "";
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  const parts = [hours ? `${hours} h` : "", rest ? `${rest} min` : ""].filter(Boolean);
+  return `${parts.join(" ")} later`;
+}
+
+/** A trigger in a few words: its source (or schedule) and, when it waits, how long. */
+export function triggerLabel(trigger: MissionTrigger, schedule: (t: MissionTrigger) => string): string {
+  const base = trigger.source === "schedule" ? schedule(trigger) : sourceLabel(trigger.source);
+  const wait = delayLabel(trigger.delay_minutes ?? 0);
+  return wait ? `${base}, ${wait}` : base;
+}
+
 export function sourceLabel(source: string): string {
   const found = TRIGGER_SOURCES.find((s) => s.value === source);
   if (source === "api") return "Run by hand";
@@ -153,6 +190,7 @@ export function blankTrigger(source = "schedule"): MissionTrigger {
     filter: { repositories: [], labels: [], branches: [] },
     schedule: source === "schedule" ? SCHEDULES[0].cron : "",
     timezone: "UTC",
+    delay_minutes: 0,
   };
 }
 
@@ -224,6 +262,9 @@ function whenProblem(mission: MissionBody, choices: MissionChoices): string | nu
   if (mission.triggers.length > MAX_TRIGGERS) return `A mission has at most ${MAX_TRIGGERS} triggers.`;
   if (mission.triggers.some((t) => t.source === "schedule" && t.schedule.trim().split(/\s+/).length !== 5)) {
     return "A schedule is a five-field cron expression, such as 0 9 * * 1-5.";
+  }
+  if (mission.triggers.some((t) => !Number.isInteger(t.delay_minutes) || t.delay_minutes < 0 || t.delay_minutes > MAX_TRIGGER_DELAY_MINUTES)) {
+    return "A trigger waits between 0 and 1440 minutes (24 hours).";
   }
   if (mission.mode === "review" && ![...sources].some((s) => REVIEW_SOURCES.has(s))) {
     return "A review mission needs a pull request (or merge request) trigger.";

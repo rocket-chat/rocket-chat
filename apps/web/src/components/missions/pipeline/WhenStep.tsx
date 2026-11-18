@@ -18,7 +18,17 @@ import {
 } from "lucide-react";
 import { Button } from "../../ui/Button";
 import { Field, Input, Select } from "../../ui/Field";
-import { MAX_TRIGGERS, OWN_SOURCES, TRIGGER_SOURCES, blankTrigger, type MissionTrigger } from "../../../lib/missions";
+import {
+  MAX_TRIGGER_DELAY_MINUTES,
+  MAX_TRIGGERS,
+  OWN_SOURCES,
+  TRIGGER_DELAYS,
+  TRIGGER_SOURCES,
+  blankTrigger,
+  canDelay,
+  delayLabel,
+  type MissionTrigger,
+} from "../../../lib/missions";
 import {
   COMMON_TIMEZONES,
   FREQUENCIES,
@@ -199,6 +209,55 @@ const EventFilters: React.FC<{ trigger: MissionTrigger; onChange: (t: MissionTri
   );
 };
 
+/** How long the run waits after the event: a list of common waits, or any minutes in Advanced. */
+const DelayPicker: React.FC<{ index: number; trigger: MissionTrigger; advanced: boolean; onChange: (t: MissionTrigger) => void }> = ({
+  index,
+  trigger,
+  advanced,
+  onChange,
+}) => {
+  const minutes = trigger.delay_minutes ?? 0;
+  const listed = TRIGGER_DELAYS.some((d) => d.minutes === minutes);
+  const hint = "Waits before the run starts, so it sees what happened after the event";
+  if (advanced) {
+    return (
+      <Field label="Start the run after (minutes)" hint={`${hint}; 0 to 1440`}>
+        {(control) => (
+          <Input
+            {...control}
+            type="number"
+            min={0}
+            max={MAX_TRIGGER_DELAY_MINUTES}
+            step={1}
+            data-testid={`mission-trigger-delay-${index}`}
+            value={minutes}
+            onChange={(e) => onChange({ ...trigger, delay_minutes: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
+          />
+        )}
+      </Field>
+    );
+  }
+  return (
+    <Field label="Start the run" hint={hint}>
+      {(control) => (
+        <Select
+          {...control}
+          data-testid={`mission-trigger-delay-${index}`}
+          value={minutes}
+          onChange={(e) => onChange({ ...trigger, delay_minutes: Number(e.target.value) })}
+        >
+          {!listed && <option value={minutes}>{delayLabel(minutes)}</option>}
+          {TRIGGER_DELAYS.map((d) => (
+            <option key={d.minutes} value={d.minutes}>
+              {d.label}
+            </option>
+          ))}
+        </Select>
+      )}
+    </Field>
+  );
+};
+
 const TriggerEditor: React.FC<{
   index: number;
   trigger: MissionTrigger;
@@ -224,7 +283,13 @@ const TriggerEditor: React.FC<{
             label={tileLabel(source.label, source.group)}
             selected={trigger.source === source.value}
             testId={`mission-trigger-${index}-source-${source.value}`}
-            onClick={() => onChange({ ...blankTrigger(source.value), filter: trigger.filter })}
+            onClick={() =>
+              onChange({
+                ...blankTrigger(source.value),
+                filter: trigger.filter,
+                delay_minutes: canDelay(source.value) ? (trigger.delay_minutes ?? 0) : 0,
+              })
+            }
           />
         ))}
       </TileGroup>
@@ -234,6 +299,7 @@ const TriggerEditor: React.FC<{
           The mission gets a URL of its own and a secret to sign calls with; both are shown once it is saved.
         </p>
       )}
+      {canDelay(trigger.source) && <DelayPicker index={index} trigger={trigger} advanced={advanced} onChange={onChange} />}
       {!OWN_SOURCES.has(trigger.source) &&
         (advanced ? (
           <EventFilters trigger={trigger} onChange={onChange} />
