@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `sandboxes`:
 - `api`: **A team's agent can serve beyond its team, with its team's tools.** Its team's administrators set its **Access** (`PUT /v1/agents/{id}/access` now accepts team agents): every member, named people, roles or teams, and guests; without grants it stays the team's. Its turns use the skills, MCP servers and knowledge bases of the team that owns it, whoever asks, so a team's agent can run behind a Slack bot (whose public threads run as guests) with the team's own servers and skills. The agent picker lists another team's agent to the people its grants name.
 - `web`: The **Access** tab appears on a team's agent for the team's administrators (team members by default, or also every member, named people, roles and teams, and guests).
-- `settings`:
+- `settings`, `slack`: **`outbound_channels: ["*"]`** lets the agent post and react in every channel its bot has been invited to (never direct messages), checked with Slack on each post, so a bot is usable anywhere it is invited without listing channel ids; missions may then deliver to any such channel.
 - `git`:
 - `helm`:
 

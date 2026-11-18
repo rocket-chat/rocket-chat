@@ -19,6 +19,7 @@ from slack_assistant.block_kit import (
 )
 from slack_assistant.bot import DEFAULT_COMMAND
 from slack_assistant.gates import SlackGatesMixin
+from slack_assistant.policy import INVITED_CHANNELS
 from specifications.interfaces.automation import MAX_CHAT_CHARS
 from specifications.interfaces.session import SessionRecord, SessionSource
 
@@ -244,6 +245,13 @@ class SlackEntrypointsMixin(SlackGatesMixin):
 
     # -- scheduled missions ------------------------------------------------------------------
 
+    async def _mission_channel_allowed(self, allowed: frozenset[str], channel_id: str) -> bool:
+        """A mission may report where the organization lets the assistant post: anywhere when it
+        names no channel, the listed ones, or any channel the bot was invited to (``*``)."""
+        if not allowed or channel_id in allowed:
+            return True
+        return INVITED_CHANNELS in allowed and await self._bot_is_member(channel_id)
+
     async def post_mission_report(
         self,
         *,
@@ -262,7 +270,7 @@ class SlackEntrypointsMixin(SlackGatesMixin):
         if not self._slack_api_ready:
             return False
         policy = await self._load_org_policy(org_id)
-        if policy.outbound_channels and channel_id not in policy.outbound_channels:
+        if not await self._mission_channel_allowed(policy.outbound_channels, channel_id):
             logger.warning("Mission report to %s refused by the outbound allowlist", channel_id)
             return False
         verdict = ":white_check_mark: finished" if succeeded else ":warning: failed"

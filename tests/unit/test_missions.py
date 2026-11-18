@@ -21,6 +21,7 @@ from api.services.missions import (
     next_fire_after,
 )
 from api.services.outbound_webhooks import sign
+from api.services.settings import reset_memory_settings, save_org_config
 from fastapi.testclient import TestClient
 
 from specifications.interfaces.automation import (
@@ -739,3 +740,23 @@ async def test_a_run_without_github_writes_is_refused_every_change_on_github() -
     results = [str(e.payload.get("result", "")) for e in writer.events_of("tool_completed")]
     assert results and "may only read it" not in results[0]
     assert Engine.pushed == 1
+
+
+@pytest.mark.setting("slack.outbound_channels")
+def test_a_star_in_the_outbound_channels_lets_a_mission_report_to_any_channel(
+    client: TestClient,
+) -> None:
+    body = {**BODY, "deliveries": [{"kind": "chat", "channel": "C0ANYWHERE"}]}
+    reset_memory_settings()
+    client.portal.call(  # type: ignore[union-attr]
+        save_org_config, None, ORG, "slack", {"outbound_channels": ["C0LISTED"]}, []
+    )
+    refused = client.post("/v1/missions", json=body, headers=OWNER)
+    client.portal.call(  # type: ignore[union-attr]
+        save_org_config, None, ORG, "slack", {"outbound_channels": ["*"]}, []
+    )
+    accepted = client.post("/v1/missions", json=body, headers=OWNER)
+    reset_memory_settings()
+
+    assert refused.status_code == 422 and "outbound channels" in refused.text
+    assert accepted.status_code == 200, accepted.text
