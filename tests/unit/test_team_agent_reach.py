@@ -118,7 +118,7 @@ async def test_a_guests_turn_with_a_team_agent_reaches_the_teams_skills_and_serv
     last = [r for r in outcome.model.requests if r.tools][-1]
     results = "\n".join(str(m.content) for m in last.messages if m.role == "tool")
     assert "TRAPS-BODY" in results
-    assert asked and asked[0][2:] == ("slack:T1", team_id)
+    assert asked and asked[0][2:4] == ("slack:T1", team_id)
 
 
 async def test_a_team_server_is_reached_through_the_teams_agent_only() -> None:

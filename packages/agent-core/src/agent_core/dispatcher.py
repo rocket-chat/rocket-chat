@@ -19,6 +19,7 @@ from opentelemetry.trace import Status, StatusCode
 
 from agent_core.context import current_execution_ctx
 from agent_core.repeats import repeat_note
+from agent_core.skill_blocks import is_skill_result
 from agent_core.subagent_scope import current_tool_call_id
 from agent_core.tool_slot import ToolSlot, current_tool_slot
 from agent_core.tools.live_output import LiveOutput, current_live_output
@@ -283,7 +284,13 @@ class ToolDispatcher:
             else:
                 output = str(res)
 
-        if isinstance(output, str) and tool_name not in ("file_read", "read_file"):
+        # A skill's instructions are never offloaded: the agent must follow all of them, and
+        # they are already bounded (``standing.MAX_SKILL_CHARS``) and exempt from pruning.
+        if (
+            isinstance(output, str)
+            and tool_name not in ("file_read", "read_file")
+            and not is_skill_result(tool_name, output)
+        ):
             driver = getattr(self.registry, "driver", None)
             threshold = (
                 ctx.policy.output_offload_threshold

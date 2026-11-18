@@ -168,7 +168,8 @@ async def test_stdio_servers_use_the_runner_connector_and_never_the_remote_one()
     )
     await provider.load()
     assert (await provider.call("mcp__local-fs__echo", {})).startswith("ok")
-    assert (remote.opened, sandbox.opened) == (0, 1)
+    # Listed live (no stored schemas): the listing's process is closed, the call starts another.
+    assert (remote.opened, sandbox.opened, sandbox.closed) == (0, 2, 1)
 
 
 async def test_a_stdio_server_without_a_runner_is_skipped_not_crashed() -> None:

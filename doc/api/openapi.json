@@ -4565,6 +4565,19 @@
             "title": "Description",
             "type": "string"
           },
+          "input_schema": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The tool's JSON input schema: stored so a command server is offered without starting it (left out of server listings)",
+            "title": "Input Schema"
+          },
           "name": {
             "title": "Name",
             "type": "string"

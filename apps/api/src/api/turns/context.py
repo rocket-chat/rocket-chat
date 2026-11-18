@@ -92,6 +92,7 @@ class TurnState:
     skill_texts: dict[str, str] = field(default_factory=dict)
     # MCP servers the member must sign in to before their tools exist in this turn.
     mcp_needs_sign_in: list[str] = field(default_factory=list)
+    mcp_unavailable: list[str] = field(default_factory=list)
     turn_error: BaseException | None = None
     # The question the turn is paused on, until the next event shows it was answered.
     open_decision: dict[str, Any] | None = None

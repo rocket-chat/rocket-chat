@@ -501,10 +501,15 @@ class TurnRunner:
         # Before the prompt, which names the servers the member still has to sign in to.
         agent_team = ctx.binding.policy.attribution.team_id
         mcp = await _mcp_tools_for_turn(
-            req.db_mgr, session.tenant_org_id, session.tenant_user_id, agent_team
+            req.db_mgr,
+            session.tenant_org_id,
+            session.tenant_user_id,
+            agent_team,
+            ctx.binding.whitelisted_tools,
         )
         self.state.mcp_tools = mcp.provider
         self.state.mcp_needs_sign_in = mcp.needs_sign_in
+        self.state.mcp_unavailable = mcp.unavailable
         self.state.skill_texts = await skill_texts_for(
             req.db_mgr, session, ctx.binding.skill_ids, agent_team
         )

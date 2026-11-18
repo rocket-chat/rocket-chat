@@ -383,6 +383,7 @@ async def validate_mcp_server(
             name=t["name"],
             description=t.get("description", ""),
             parameters_summary=t.get("parameters_summary"),
+            input_schema=t.get("input_schema"),
         )
         for t in tools_data
     ]
