@@ -1,4 +1,5 @@
-"""Missions on real PostgreSQL: tenant isolation and exactly-once claiming."""
+"""Missions on real PostgreSQL: tenant isolation and exactly-once claiming (schedules and
+delayed runs)."""
 
 from __future__ import annotations
 
@@ -7,14 +8,16 @@ import os
 import time
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import replace
 
 import pytest
 from api.db.models import OrganizationModel, UserModel
 from api.db.session import DatabaseSessionManager
+from api.services.mission_delays import DelayedRunStore
 from api.services.missions import MissionStore
 from sqlalchemy import text
 
-from specifications.interfaces.automation import Mission, MissionTrigger
+from specifications.interfaces.automation import Mission, MissionTrigger, TriggerEvent
 
 TEST_DB_URL = os.getenv("TEST_DATABASE_URL", "")
 ADMIN_DB_URL = os.getenv("ADMIN_DATABASE_URL", "")
@@ -103,3 +106,24 @@ async def test_the_last_run_is_recorded_under_the_tenant(
     reread = await store.get(org, mission.id)
     assert reread is not None
     assert (reread.last_session_id, reread.last_status) == ("session_abc", "started")
+
+
+async def test_replicas_racing_for_a_due_delayed_run_start_it_once(
+    managers: tuple[DatabaseSessionManager, DatabaseSessionManager],
+) -> None:
+    app_db, admin_db = managers
+    org, user = await _tenant(admin_db)
+    mission = await MissionStore(app_db).create(
+        replace(_mission(org, user), triggers=(MissionTrigger("webhook", delay_minutes=60),)), {}
+    )
+    store = DelayedRunStore(app_db)
+    event = TriggerEvent(source="webhook", body="omega", labels=("deploy",), trusted=True)
+    due = await store.add(mission, event, user, int(time.time()) - 1)
+    later = await store.add(mission, event, user, int(time.time()) + 3600)
+
+    batches = await asyncio.gather(*(store.claim_due(admin_db) for _ in range(6)))
+    mine = [r for batch in batches for r in batch if r.mission_id == mission.id]
+
+    assert [r.id for r in mine] == [due.id]
+    assert mine[0].event == event and mine[0].fallback_owner == user
+    assert [r.id for r in await store.of_mission(org, mission.id)] == [later.id]

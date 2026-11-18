@@ -7,11 +7,12 @@ import { Badge, type BadgeTone } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { OwnerBadge } from "../settings/Owner";
-import { deliveryLabel, scheduleLabel, sourceLabel, type Mission, type MissionRun } from "../../lib/missions";
+import { deliveryLabel, scheduleLabel, sourceLabel, triggerLabel, type Mission, type MissionRun } from "../../lib/missions";
 
 const formatTime = (epoch: number | null) => (epoch ? new Date(epoch * 1000).toLocaleString() : "—");
 
 const STATUS_TONE: Record<string, BadgeTone> = {
+  scheduled: "neutral",
   running: "neutral",
   completed: "success",
   delivered: "success",
@@ -22,7 +23,7 @@ const STATUS_TONE: Record<string, BadgeTone> = {
 function triggerSummary(mission: Mission): string {
   if (mission.triggers.length === 0) return "Run by hand";
   return mission.triggers
-    .map((t) => (t.source === "schedule" ? scheduleLabel(t.schedule) : sourceLabel(t.source)))
+    .map((t) => triggerLabel(t, (s) => scheduleLabel(s.schedule)))
     .join(" · ");
 }
 
@@ -49,7 +50,9 @@ const RunsList: React.FC<{ missionId: string; refresh: number }> = ({ missionId,
       {runs.map((run) => (
         <li key={run.id} className="flex flex-wrap items-center gap-2 px-3 py-2 text-xs" data-testid="mission-run">
           <Badge tone={STATUS_TONE[run.status] ?? "neutral"}>{run.status.replace("_", " ")}</Badge>
-          <span className="text-neutral-700 dark:text-neutral-300">{formatTime(run.started_at)}</span>
+          <span className="text-neutral-700 dark:text-neutral-300">
+            {run.status === "scheduled" ? `starts ${formatTime(run.started_at)}` : formatTime(run.started_at)}
+          </span>
           <span className="text-neutral-600 dark:text-neutral-400">{sourceLabel(run.source)}</span>
           {run.deliveries.map((d) =>
             d.url ? (

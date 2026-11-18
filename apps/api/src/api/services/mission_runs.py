@@ -64,11 +64,13 @@ SYNC_TIMEOUT_SECONDS = 120
 
 @dataclass(frozen=True)
 class RunOutcome:
-    status: str  # created, resumed, ignored, duplicate
+    status: str  # created, resumed, scheduled, ignored, duplicate
     session_id: str = ""
     mission_id: str = ""
     run_id: str = ""
     reason: str = ""
+    # ``scheduled``: when the delayed run starts (epoch seconds).
+    starts_at: int | None = None
 
 
 # -- who a run is ----------------------------------------------------------------------------

@@ -6603,6 +6603,18 @@
             "title": "Session Id",
             "type": "string"
           },
+          "starts_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "When a delayed run starts (status 'scheduled'), epoch seconds",
+            "title": "Starts At"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -9956,6 +9968,14 @@
       },
       "TriggerBody": {
         "properties": {
+          "delay_minutes": {
+            "default": 0,
+            "description": "Minutes the run waits after the event (events and webhook only, 24 h max)",
+            "maximum": 1440.0,
+            "minimum": 0.0,
+            "title": "Delay Minutes",
+            "type": "integer"
+          },
           "filter": {
             "$ref": "#/components/schemas/TriggerFilterBody"
           },
@@ -15909,7 +15929,7 @@
     },
     "/v1/missions/{mission_id}/runs": {
       "get": {
-        "description": "The mission's latest runs, newest first, with how each delivery went.",
+        "description": "The mission's latest runs, newest first, with how each delivery went; runs still waiting\nfor their trigger's delay come first, as ``scheduled`` with the time they start.",
         "operationId": "list_runs_v1_missions__mission_id__runs_get",
         "parameters": [
           {
@@ -23302,7 +23322,7 @@
     },
     "/v1/webhooks/missions/{org_id}/{mission_id}": {
       "post": {
-        "description": "A mission's own webhook: ``X-Rocket-Signature: sha256=<hex HMAC of \"<timestamp>.<body>\">``\nwith the mission's inbound secret and ``X-Rocket-Timestamp`` within five minutes. The JSON\nbody is what the run is about (capped).",
+        "description": "A mission's own webhook: ``X-Rocket-Signature: sha256=<hex HMAC of \"<timestamp>.<body>\">``\nwith the mission's inbound secret and ``X-Rocket-Timestamp`` within five minutes. The JSON\nbody is what the run is about (capped). A webhook trigger with ``delay_minutes`` answers\n``scheduled`` and starts the run once the delay is over.",
         "operationId": "inbound_webhook_v1_webhooks_missions__org_id___mission_id__post",
         "parameters": [
           {

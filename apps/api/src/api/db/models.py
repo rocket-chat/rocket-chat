@@ -1489,6 +1489,30 @@ class MissionDeliveryModel(Base):
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
+class MissionDelayedRunModel(Base):
+    """An event a mission took whose trigger waits before starting the run: kept until
+    ``due_at``, then claimed by deleting the row, so a restart loses none and another replica
+    starts none twice. Forced RLS."""
+
+    __tablename__ = "mission_delayed_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    mission_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("missions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # The ``TriggerEvent`` the run is about, as it was received.
+    event: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict
+    )
+    # Who the run acts as when the mission names nobody (the event's author).
+    fallback_owner: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    due_at: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
 class SessionTemplateModel(Base):
     """A reusable way to start a session; ``user_id`` NULL means organization-wide."""
 

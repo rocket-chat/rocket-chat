@@ -6,7 +6,9 @@ cron schedule, a forge or tracker event, an inbound webhook of its own, or a per
 repositories to work in, and whether it may change anything on GitHub) and *where the result
 goes* (deliveries). It is owned like any object (a member, a team or the
 organization). Every source is parsed into one ``TriggerEvent``; ``matches`` decides whether a
-mission's trigger takes it, so no source has rules of its own.
+mission's trigger takes it, so no source has rules of its own. A trigger on an event (not a
+schedule) may wait ``delay_minutes`` before its run starts, so the run sees what happened after
+the event (an hour of logs after a deploy); the waiting run is kept until it is due.
 
 A **delivery** is published by the platform after the run, never by the agent: the agent hands
 its result to the ``deliver`` tool, checked against the delivery's schema
@@ -76,6 +78,21 @@ class MissionTrigger:
     # ``schedule``: a five-field cron expression, read in ``timezone``.
     schedule: str = ""
     timezone: str = "UTC"
+    # Events only (``DELAYABLE_SOURCES``): minutes between the event and the start of its run.
+    delay_minutes: int = 0
+
+
+# A schedule already says when it runs, and Run now means now: every other source may wait.
+DELAYABLE_SOURCES = frozenset(s for s in TRIGGER_SOURCES if s not in ("schedule", "api"))
+MAX_TRIGGER_DELAY_MINUTES = 24 * 60
+# Runs waiting for their delay, per mission: a burst of events must not pile up unbounded.
+MAX_DELAYED_RUNS_PER_MISSION = 50
+
+
+def trigger_delay(triggers: tuple[MissionTrigger, ...], event: TriggerEvent) -> int:
+    """Seconds the run ``event`` starts waits: the shortest delay of the triggers that take it."""
+    delays = [t.delay_minutes for t in triggers if matches(t, event)]
+    return min(delays) * 60 if delays else 0
 
 
 DeliveryKind = Literal[
@@ -234,7 +251,9 @@ class TriggerEvent:
     mentions_agent: bool = False
 
 
-MissionRunStatus = Literal["running", "completed", "failed", "delivered", "delivery_failed"]
+MissionRunStatus = Literal[
+    "scheduled", "running", "completed", "failed", "delivered", "delivery_failed"
+]
 # How one delivery of a run went; ``skipped``: an optional delivery the run had nothing for.
 DeliveryStatus = Literal["delivered", "pending", "failed", "skipped"]
 

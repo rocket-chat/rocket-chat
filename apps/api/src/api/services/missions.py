@@ -30,11 +30,13 @@ from api.db.session import DatabaseSessionManager
 from api.services.ownership import owner_of
 from api.services.teams import note_memory_owned
 from specifications.interfaces.automation import (
+    DELAYABLE_SOURCES,
     DELIVERY_KINDS,
     ITEM_DELIVERIES,
     MAX_DELIVERIES,
     MAX_OUTPUT_SCHEMA_CHARS,
     MAX_REPOSITORIES,
+    MAX_TRIGGER_DELAY_MINUTES,
     MAX_TRIGGERS,
     MISSION_MODES,
     MODEL_TIERS,
@@ -116,6 +118,12 @@ def _check_triggers(mission: Mission) -> None:
             raise MissionError(f"Unknown trigger source '{trigger.source}'.")
         if trigger.source == "schedule":
             next_fire_after(trigger.schedule, trigger.timezone, time.time())
+        if trigger.delay_minutes and trigger.source not in DELAYABLE_SOURCES:
+            raise MissionError("Only a trigger on an event or a webhook can wait before its run.")
+        if not 0 <= trigger.delay_minutes <= MAX_TRIGGER_DELAY_MINUTES:
+            raise MissionError(
+                f"A trigger waits between 0 and {MAX_TRIGGER_DELAY_MINUTES} minutes (24 hours)."
+            )
     if mission.mode not in MISSION_MODES:
         raise MissionError(f"Unknown mode '{mission.mode}'.")
     if mission.mode == "review" and not any(t.source in REVIEW_SOURCES for t in mission.triggers):
@@ -222,7 +230,15 @@ def _trigger(raw: dict[str, Any]) -> MissionTrigger:
         ),
         schedule=str(raw.get("schedule") or ""),
         timezone=str(raw.get("timezone") or "UTC"),
+        delay_minutes=_minutes(raw.get("delay_minutes")),
     )
+
+
+def _minutes(raw: Any) -> int:
+    try:
+        return int(raw or 0)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _delivery(raw: dict[str, Any]) -> Delivery:

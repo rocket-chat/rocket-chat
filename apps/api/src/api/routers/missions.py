@@ -29,6 +29,7 @@ from api.auth.access import _get_request_identity
 from api.auth.roles import can_write
 from api.db.session import current_tenant_org_id
 from api.services.agent_access import AgentAccessDenied, may_use, mission_principal
+from api.services.mission_delays import delayed_run_store, start_or_delay
 from api.services.mission_delivery import mission_store
 from api.services.mission_records import RunStore
 from api.services.mission_runs import RunOutcome, start_run
@@ -84,6 +85,12 @@ class TriggerBody(BaseModel):
     filter: TriggerFilterBody = Field(default_factory=TriggerFilterBody)
     schedule: str = Field(default="", max_length=120, description="Five-field cron (schedule)")
     timezone: str = Field(default="UTC", max_length=64)
+    delay_minutes: int = Field(
+        default=0,
+        ge=0,
+        le=1440,
+        description="Minutes the run waits after the event (events and webhook only, 24 h max)",
+    )
 
 
 class DeliveryBody(BaseModel):
@@ -181,6 +188,9 @@ class RunResult(BaseModel):
     session_id: str = ""
     run_id: str = ""
     reason: str = ""
+    starts_at: int | None = Field(
+        default=None, description="When a delayed run starts (status 'scheduled'), epoch seconds"
+    )
 
 
 class RunView(BaseModel):
@@ -220,6 +230,7 @@ def _mission_from(body: MissionBody, org_id: str, base: Mission | None) -> Missi
             ),
             schedule=t.schedule.strip(),
             timezone=t.timezone or "UTC",
+            delay_minutes=t.delay_minutes,
         )
         for t in body.triggers
     )
@@ -275,6 +286,7 @@ def _view(mission: Mission, viewer: Viewer, secrets: dict[str, str]) -> MissionV
                 filter=TriggerFilterBody(**{k: list(v) for k, v in asdict(t.filter).items()}),
                 schedule=t.schedule,
                 timezone=t.timezone,
+                delay_minutes=t.delay_minutes,
             )
             for t in mission.triggers
         ],
@@ -559,20 +571,29 @@ def _run_result(outcome: RunOutcome) -> RunResult:
         session_id=outcome.session_id,
         run_id=outcome.run_id,
         reason=outcome.reason,
+        starts_at=outcome.starts_at,
     )
 
 
 @router.get("/missions/{mission_id}/runs", response_model=list[RunView])
 async def list_runs(mission_id: str, request: Request) -> list[RunView]:
-    """The mission's latest runs, newest first, with how each delivery went."""
+    """The mission's latest runs, newest first, with how each delivery went; runs still waiting
+    for their trigger's delay come first, as ``scheduled`` with the time they start."""
     org_id, viewer = await request_viewer(request)
     mission = await mission_store(request.app).get(org_id, mission_id)
     if mission is None or not visible(mission, viewer):
         raise HTTPException(status_code=404, detail="Mission not found")
+    waiting = await delayed_run_store(request.app).of_mission(org_id, mission_id)
     runs = await RunStore(getattr(request.app.state, "db_manager", None)).of_mission(
         org_id, mission_id
     )
     return [
+        RunView(
+            id=w.id, session_id="", source=w.event.source, title=w.event.title or mission.name,
+            status="scheduled", deliveries=[], started_at=w.due_at, finished_at=None,
+        )
+        for w in reversed(waiting)
+    ] + [
         RunView(
             id=r.id, session_id=r.session_id, source=r.source, title=r.title, status=r.status,
             deliveries=[dict(d) for d in r.deliveries], started_at=r.started_at,
@@ -592,7 +613,8 @@ async def inbound_webhook(
 ) -> RunResult:
     """A mission's own webhook: ``X-Rocket-Signature: sha256=<hex HMAC of "<timestamp>.<body>">``
     with the mission's inbound secret and ``X-Rocket-Timestamp`` within five minutes. The JSON
-    body is what the run is about (capped)."""
+    body is what the run is about (capped). A webhook trigger with ``delay_minutes`` answers
+    ``scheduled`` and starts the run once the delay is over."""
     raw = await request.body()
     if len(raw) > MAX_INBOUND_BODY_BYTES:
         raise HTTPException(status_code=413, detail="The body is over 64 KB.")
@@ -623,7 +645,7 @@ async def inbound_webhook(
         actor="webhook",
         trusted=True,
     )
-    return _run_result(await start_run(request.app, mission, event))
+    return _run_result(await start_or_delay(request.app, mission, event))
 
 
 def _signed(secret: str, timestamp: str, body: bytes, signature: str) -> bool:

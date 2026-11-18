@@ -12,12 +12,13 @@ import {
   DELIVERY_OPTIONS,
   MISSION_STEPS,
   OWN_SOURCES,
+  TRIGGER_DELAYS,
   blankMission,
   completeMission,
   missionProblem,
   needsGithubWrite,
   parseOutputSchema,
-  sourceLabel,
+  triggerLabel,
   stepProblems,
   type MissionBody,
   type MissionChoices,
@@ -74,6 +75,7 @@ function usesAdvanced(draft: MissionBody, schemas: Record<number, string>): bool
   const triggerNeedsIt = draft.triggers.some(
     (t) =>
       (t.source === "schedule" && readSchedule(t.schedule) === null) ||
+      !TRIGGER_DELAYS.some((d) => d.minutes === (t.delay_minutes ?? 0)) ||
       (!OWN_SOURCES.has(t.source) && t.filter.repositories.length + t.filter.labels.length + t.filter.branches.length > 0),
   );
   return (
@@ -85,7 +87,7 @@ function usesAdvanced(draft: MissionBody, schemas: Record<number, string>): bool
 
 function summaries(draft: MissionBody, agents: Named[], choices: MissionChoices): Record<MissionStep, string> {
   const when = draft.triggers.length
-    ? draft.triggers.map((t) => (t.source === "schedule" ? describeSchedule(t.schedule, t.timezone) : sourceLabel(t.source))).join(" · ")
+    ? draft.triggers.map((t) => triggerLabel(t, (s) => describeSchedule(s.schedule, s.timezone))).join(" · ")
     : choices.runByHand
       ? "Run by hand"
       : "Not chosen yet";
