@@ -178,8 +178,23 @@ def auth_headers(auth: dict[str, Any], cipher: CredentialCipher) -> dict[str, st
         else auth.get("access_token")  # legacy plaintext rows, rewritten encrypted on next login
     )
     if token and "Authorization" not in headers:
-        headers["Authorization"] = f"{auth.get('token_type') or 'Bearer'} {token}"
+        headers["Authorization"] = f"{_authorization_scheme(auth.get('token_type'))} {token}"
     return headers
+
+
+def _authorization_scheme(token_type: object) -> str:
+    # token_type is case-insensitive (RFC 6749 §5.1) but some servers match the scheme exactly:
+    # Sentry's MCP (workers-oauth-provider) issues "bearer" and accepts only "Bearer ".
+    scheme = str(token_type or "").strip()
+    return "Bearer" if scheme.lower() in ("", "bearer") else scheme
+
+
+def leaf_messages(error: BaseException) -> list[str]:
+    """The messages of the exceptions an exception group wraps, however deeply."""
+    nested = getattr(error, "exceptions", None)
+    if not nested:
+        return [str(error)]
+    return [message for inner in nested for message in leaf_messages(inner)]
 
 
 def is_unauthorized(err: BaseException) -> bool:
@@ -206,8 +221,19 @@ def connect_remote(target: McpServerTarget) -> AbstractAsyncContextManager[Clien
     """Open an MCP client session to a remote server."""
     if target.transport == "sse":
         return Client(sse_client(target.url, headers=target.headers))
-    http_client = httpx2.AsyncClient(headers=target.headers, timeout=CALL_TIMEOUT_SECONDS)
+    http_client = httpx2.AsyncClient(
+        headers=target.headers,
+        timeout=CALL_TIMEOUT_SECONDS,
+        event_hooks={"response": [_raise_when_refused]},
+    )
     return Client(streamable_http_client(target.url, http_client=http_client))
+
+
+async def _raise_when_refused(response: httpx2.Response) -> None:
+    # mcp 2.2 turns every HTTP error into a bare JSON-RPC -32603, losing the 401 that tells a
+    # refused token (refresh it, or sign in again) apart from a broken server.
+    if response.status_code == 401:
+        response.raise_for_status()
 
 
 async def _assert_reachable_target(target: McpServerTarget) -> None:
@@ -289,9 +315,12 @@ async def probe_target(
         return "offline", [], f"No MCP response from {target.url} within {timeout_seconds:g}s"
     except (OSError, httpx2.TransportError, httpx2.TimeoutException) as err:
         return "offline", [], f"Connection failed: {err}"
-    except Exception as err:
-        logger.info("MCP probe of %s failed: %s", target.url, err)
-        return "error", [], str(err)
+    except Exception as err:  # the SDK wraps transport failures in exception groups
+        if is_unauthorized(err):
+            return "error", [], "The server refused the credentials (HTTP 401)."
+        reason = "; ".join(leaf_messages(err)) or str(err)
+        logger.info("MCP probe of %s failed: %s", target.url, reason)
+        return "error", [], reason
     return "connected", ProbedTools((summarize_tool(t) for t in result.tools), instructions), None
 
 

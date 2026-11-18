@@ -26,6 +26,7 @@ from api.services.mcp_runtime import (
     ProbedTools,
     auth_headers,
     canonical_transport,
+    leaf_messages,
     probe_target,
     summarize_tool,
 )
@@ -289,13 +290,6 @@ async def _probe_command(
     except RunnerError as err:
         return "offline", [], str(err)
     except Exception as err:  # the SDK wraps transport failures in exception groups
-        reason = report.describe() or "; ".join(_leaf_messages(err)) or str(err)
+        reason = report.describe() or "; ".join(leaf_messages(err)) or str(err)
         return "error", [], f"The command did not start an MCP server. {reason}".strip()
     return "connected", ProbedTools((summarize_tool(t) for t in result.tools), instructions), None
-
-
-def _leaf_messages(error: BaseException) -> list[str]:
-    nested = getattr(error, "exceptions", None)
-    if not nested:
-        return [str(error)]
-    return [message for inner in nested for message in _leaf_messages(inner)]
