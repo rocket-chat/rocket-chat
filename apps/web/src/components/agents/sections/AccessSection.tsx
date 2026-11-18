@@ -10,11 +10,14 @@ interface Grant {
   principal_id: string;
 }
 
-type Mode = "everyone" | "only";
+type Mode = "everyone" | "only" | "team";
 
-/** Who may use an organization agent: everyone (the default), or only some people, roles and
- * teams, and whether guests (Slack, guest tokens) may. Saved on its own, at once. */
-export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin }) => {
+/** Who may use a shared agent, saved on its own, at once. An organization agent: everyone (the
+ * default), or only some people, roles and teams. A team's agent: its team (the default), and
+ * also everyone, or also some people, roles and teams. Either: whether guests (Slack users who
+ * have not paired, guest tokens) may. */
+export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin, canEdit }) => {
+  const teamAgent = draft.scope === "team";
   const { teams } = useTeams();
   const [teamIds, setTeamIds] = useState<string[]>([]);
   const [grants, setGrants] = useState<Grant[]>([]);
@@ -31,12 +34,14 @@ export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin }) => {
     const list = body.grants ?? [];
     setGrants(list);
     const named = list.filter((g) => g.principal_kind === "member" || g.principal_kind === "role" || g.principal_kind === "team");
-    setMode(list.length === 0 || list.some((g) => g.principal_kind === "everyone") || named.length === 0 ? "everyone" : "only");
+    const everyone = list.some((g) => g.principal_kind === "everyone");
+    if (teamAgent) setMode(everyone ? "everyone" : named.length > 0 ? "only" : "team");
+    else setMode(list.length === 0 || everyone || named.length === 0 ? "everyone" : "only");
     setGuests(list.some((g) => g.principal_kind === "guests"));
     setPeople(list.filter((g) => g.principal_kind === "member").map((g) => g.principal_id).join("\n"));
     setRoles(list.filter((g) => g.principal_kind === "role").map((g) => g.principal_id));
     setTeamIds(list.filter((g) => g.principal_kind === "team").map((g) => g.principal_id));
-  }, [draft.id]);
+  }, [draft.id, teamAgent]);
 
   useEffect(() => {
     void load();
@@ -44,7 +49,8 @@ export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin }) => {
 
   const save = async () => {
     const next: Grant[] = [];
-    if (mode === "everyone" && guests) next.push({ principal_kind: "everyone", principal_id: "" });
+    // An organization agent without grants is every member's; a team's stays its team's.
+    if (mode === "everyone" && (guests || teamAgent)) next.push({ principal_kind: "everyone", principal_id: "" });
     if (mode === "only") {
       people
         .split(/[\n,]/)
@@ -65,19 +71,30 @@ export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin }) => {
     if (res.ok) await load();
   };
 
-  if (!isAdmin) return <p className="text-xs text-neutral-500">Administrators decide who may use this agent.</p>;
+  if (teamAgent ? !canEdit : !isAdmin)
+    return (
+      <p className="text-xs text-neutral-500">
+        {teamAgent ? "The team's administrators decide who besides the team may use this agent." : "Administrators decide who may use this agent."}
+      </p>
+    );
 
   return (
     <div className="space-y-4" data-testid="agent-access">
       <fieldset className="space-y-2">
         <legend className="text-xs font-semibold text-foreground">Who may use it</legend>
+        {teamAgent && (
+          <label className="flex items-center gap-2 text-xs">
+            <input type="radio" name="access-mode" data-testid="agent-access-team" checked={mode === "team"} onChange={() => setMode("team")} />
+            The team&apos;s members (default)
+          </label>
+        )}
         <label className="flex items-center gap-2 text-xs">
           <input type="radio" name="access-mode" checked={mode === "everyone"} onChange={() => setMode("everyone")} />
-          Every member (default)
+          {teamAgent ? "Every member of the organization" : "Every member (default)"}
         </label>
         <label className="flex items-center gap-2 text-xs">
           <input type="radio" name="access-mode" data-testid="agent-access-only" checked={mode === "only"} onChange={() => setMode("only")} />
-          Only these people, roles and teams (administrators always may)
+          {teamAgent ? "The team and these people, roles and teams" : "Only these people, roles and teams (administrators always may)"}
         </label>
       </fieldset>
       {mode === "only" && (
@@ -146,7 +163,7 @@ export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin }) => {
             {status}
           </span>
         )}
-        <span className="text-[11px] text-neutral-500">{grants.length === 0 ? "No grants: every member." : `${grants.length} grant(s).`}</span>
+        <span className="text-[11px] text-neutral-500">{grants.length === 0 ? (teamAgent ? "No grants: the team only." : "No grants: every member.") : `${grants.length} grant(s).`}</span>
       </div>
     </div>
   );

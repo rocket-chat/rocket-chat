@@ -13998,7 +13998,7 @@
     },
     "/v1/agents/{persona_id}/access": {
       "get": {
-        "description": "Who may use an organization agent (administrators).",
+        "description": "Who may use an organization agent (administrators) or a team's agent beyond its team\n(the team's administrators too).",
         "operationId": "get_agent_access_v1_agents__persona_id__access_get",
         "parameters": [
           {
@@ -14039,7 +14039,7 @@
         ]
       },
       "put": {
-        "description": "Replace who may use an organization agent (administrators). Turns already running\nfinish; the next turn of someone who lost access fails with ``agent_access_denied``, and\nscheduled missions of people who lost it are paused.",
+        "description": "Replace who may use an organization agent (administrators), or who besides its team may\nuse a team's agent (the team's administrators too; no grants keeps it the team's). Turns\nalready running finish; the next turn of someone who lost access fails with\n``agent_access_denied``, and scheduled missions of people who lost it are paused.",
         "operationId": "put_agent_access_v1_agents__persona_id__access_put",
         "parameters": [
           {

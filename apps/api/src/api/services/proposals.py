@@ -387,7 +387,12 @@ class BoundProposals(ProposalsProtocol):
             return agent.id, agent.name, agent.system_prompt
         owner = agent.user_id or ""
         skill = await _find_visible_skill(
-            self._db, self._org, owner, skill_name.strip(), allowed_ids=agent.skill_ids
+            self._db,
+            self._org,
+            owner,
+            skill_name.strip(),
+            allowed_ids=agent.skill_ids,
+            agent_team_id=agent.team_id if agent.scope == "team" else None,
         )
         if skill is None:
             return (

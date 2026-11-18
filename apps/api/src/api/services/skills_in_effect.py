@@ -9,7 +9,10 @@ from specifications.interfaces.session import SessionRecord
 
 
 async def skill_texts_for(
-    db_mgr: Any, session: SessionRecord, allowed_ids: Sequence[str] = ()
+    db_mgr: Any,
+    session: SessionRecord,
+    allowed_ids: Sequence[str] = (),
+    agent_team_id: str | None = None,
 ) -> dict[str, str]:
     """The current instructions of the skills the session put in effect.
 
@@ -20,7 +23,7 @@ async def skill_texts_for(
     texts: dict[str, str] = {}
     for name in skills_read_of(session):
         skill = await _find_visible_skill(
-            db_mgr, session.tenant_org_id, session.tenant_user_id, name, allowed_ids
+            db_mgr, session.tenant_org_id, session.tenant_user_id, name, allowed_ids, agent_team_id
         )
         if skill is None or (skill.runtime == "python" and skill.code) or not skill.body.strip():
             continue

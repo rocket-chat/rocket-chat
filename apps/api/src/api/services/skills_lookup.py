@@ -13,7 +13,7 @@ from api.db.models import (
 from api.services.ownership import visible, visible_clause
 from api.services.settings import effective_settings
 from api.services.starter_content import starter_skill
-from api.services.teams import member_viewer
+from api.services.teams import turn_viewer
 
 logger = logging.getLogger(__name__)
 
@@ -36,14 +36,19 @@ class _VisibleSkill:
 
 
 async def _find_visible_skill(
-    db_mgr: Any, org_id: str, user_id: str, name: str, allowed_ids: Sequence[str] = ()
+    db_mgr: Any,
+    org_id: str,
+    user_id: str,
+    name: str,
+    allowed_ids: Sequence[str] = (),
+    agent_team_id: str | None = None,
 ) -> _VisibleSkill | None:
     """The org-wide skill, or the caller's own, with this name (never another member's).
 
     A persona that lists skills may run only those; "not attached" looks exactly like
     "does not exist" so a restricted persona cannot be used to probe which skills exist.
     """
-    skill = await _lookup_visible_skill(db_mgr, org_id, user_id, name)
+    skill = await _lookup_visible_skill(db_mgr, org_id, user_id, name, agent_team_id)
     if skill is None:
         skill = await _starter(db_mgr, org_id, name)
     if skill is not None and allowed_ids and skill.id not in allowed_ids:
@@ -69,9 +74,9 @@ async def _starter(db_mgr: Any, org_id: str, name: str) -> _VisibleSkill | None:
 
 
 async def _lookup_visible_skill(
-    db_mgr: Any, org_id: str, user_id: str, name: str
+    db_mgr: Any, org_id: str, user_id: str, name: str, agent_team_id: str | None
 ) -> _VisibleSkill | None:
-    viewer = await member_viewer(db_mgr, org_id, user_id)
+    viewer = await turn_viewer(db_mgr, org_id, user_id, agent_team_id)
     if db_mgr is not None:
         async with db_mgr.session(tenant_org_id=org_id) as session:
             result = await session.execute(
@@ -98,16 +103,20 @@ async def _lookup_visible_skill(
 
 
 async def list_visible_skills(
-    db_mgr: Any, org_id: str, user_id: str, allowed_ids: Sequence[str] = ()
+    db_mgr: Any,
+    org_id: str,
+    user_id: str,
+    allowed_ids: Sequence[str] = (),
+    agent_team_id: str | None = None,
 ) -> list[tuple[str, str]]:
     """``(name, description)`` of every skill the member may use, in name order.
 
-    Same visibility as ``_find_visible_skill``: organization skills, the caller's teams' and their
-    own, narrowed
+    Same visibility as ``_find_visible_skill``: organization skills, the caller's teams', the
+    agent's team's and their own, narrowed
     to the persona's list when it has one. The agent can only run what it knows by name.
     """
     found: dict[str, tuple[str, str]] = {}
-    viewer = await member_viewer(db_mgr, org_id, user_id)
+    viewer = await turn_viewer(db_mgr, org_id, user_id, agent_team_id)
     if db_mgr is not None:
         async with db_mgr.session(tenant_org_id=org_id) as session:
             result = await session.execute(

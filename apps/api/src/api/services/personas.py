@@ -21,7 +21,13 @@ from sqlalchemy.exc import IntegrityError
 from api.auth.capabilities import Capability, member_has
 from api.db.models import AgentPersonaEntityModel
 from api.models import AgentPersonaModel, CredentialBindingModel
-from api.services.agent_access import AgentAccessDenied, may_use, principal_for
+from api.services.agent_access import (
+    AgentAccessDenied,
+    Principal,
+    granted_beyond_team,
+    may_use,
+    principal_for,
+)
 from api.services.model_credentials import ModelCredentialStore
 from api.services.ownership import (
     OwnershipError,
@@ -33,7 +39,7 @@ from api.services.ownership import (
 )
 from api.services.sandbox_catalogue import SandboxCatalogue
 from api.services.settings import effective_settings, resolve_settings
-from api.services.teams import note_memory_owned
+from api.services.teams import list_teams, note_memory_owned
 from api.services.turn_limits import organization_max_turns
 from specifications.interfaces.agent import NO_STEP_LIMIT
 from specifications.interfaces.ownership import Owner, Viewer
@@ -282,11 +288,29 @@ async def list_personas(
     """The agents this member may use: built-in (as the organization edited them),
     the organization's (per their grants), their teams' and their own."""
     principal = await principal_for(db_mgr, org_id, user_id, roles)
-    return [
+    usable = [
         persona
         for persona in await _listed_personas(db_mgr, org_id, principal.viewer)
         if await may_use(db_mgr, org_id, principal, persona)
         or (principal.is_admin and persona.enabled is False)
+    ]
+    return usable + await _team_agents_granted_to(db_mgr, org_id, principal)
+
+
+async def _team_agents_granted_to(
+    db_mgr: Any, org_id: str, principal: Principal
+) -> list[AgentPersonaModel]:
+    """Other teams' agents that their grants open to this person (a guest, another team)."""
+    others = frozenset(t.id for t in await list_teams(db_mgr, org_id)) - principal.team_ids
+    if not others:
+        return []
+    viewer = Viewer(user_id=principal.user_id, teams=others)
+    return [
+        persona
+        for persona in await _listed_personas(db_mgr, org_id, viewer)
+        if persona.scope == "team"
+        and persona.team_id in others
+        and await granted_beyond_team(db_mgr, org_id, principal, persona)
     ]
 
 
@@ -329,11 +353,24 @@ async def get_persona(
     """
     principal = await principal_for(db_mgr, org_id, user_id, roles)
     persona = await _find_persona(db_mgr, org_id, principal.viewer, persona_id)
+    if persona is None and enforce_access:
+        persona = await _granted_team_agent(db_mgr, org_id, principal, persona_id)
     if persona is None or not enforce_access:
         return persona
     if not await may_use(db_mgr, org_id, principal, persona):
         raise AgentAccessDenied(persona.id, persona.name, disabled=persona.enabled is False)
     return persona
+
+
+async def _granted_team_agent(
+    db_mgr: Any, org_id: str, principal: Principal, persona_id: str | None
+) -> AgentPersonaModel | None:
+    """A team's agent the person is outside of, when its grants open it to them; else ``None``,
+    so an agent nobody granted them stays indistinguishable from one that does not exist."""
+    found = await _find_persona(db_mgr, org_id, Viewer(user_id="", is_org_admin=True), persona_id)
+    if found is None or not await granted_beyond_team(db_mgr, org_id, principal, found):
+        return None
+    return found
 
 
 async def listed_agents(db_mgr: Any, org_id: str, viewer: Viewer) -> list[AgentPersonaModel]:

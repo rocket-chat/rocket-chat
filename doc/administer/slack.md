@@ -119,7 +119,7 @@ An organization can run several bots in the same Slack workspace (e.g. `@RocketD
 
 Both are set on the bot's **Routing** tab.
 
-* **One Agent:** All messages to this bot run with the selected agent. The agent must allow guests (its **Access** tab), since Slack users who have not paired use it as guests.
+* **One Agent:** All messages to this bot run with the selected agent. The agent must allow guests (its **Access** tab), since Slack users who have not paired use it as guests. A team's agent works too once its team allows guests: its turns use the team's skills and MCP servers, so a team can run its own bot.
 * **Router:** An AI classifier evaluates each incoming request against configured routes (each with its own description, examples, target agent persona, and response mode). Out-of-scope messages can be dismissed without creating a session. Follow-ups in a thread remain sticky to the chosen route. Classification decisions are logged under the **Activity** tab and kept 30 days.
   * **Classifier model:** the router's own model, else its classifier agent's model, else the organization's default; it must be allowed by the organization's model policy. Any model that returns structured output works; a small, fast one is enough. Classifications are billed to the organization like any model call, use the credentials bound to the classifier agent, and count against its spend limits.
   * **OpenRouter System One models** (`typesafe/…`, `inception/mercury-decide`) are called through OpenRouter's decision endpoint and return a probability per route; if that call fails the router falls back to structured output with the same model.

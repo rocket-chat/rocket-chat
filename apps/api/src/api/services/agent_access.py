@@ -2,7 +2,9 @@
 
 * A disabled agent is usable by nobody.
 * A personal agent is usable by its owner only.
-* A team's agent is usable by the team's members (and the organization's administrators).
+* A team's agent is usable by the team's members (and the organization's administrators), and
+  by whoever its grants name: a team administrator can open it to guests (a Slack bot's
+  public threads), to everyone, or to other teams. Without grants it stays the team's.
 * An organization agent with no grants is usable by every member, guests excluded (the
   behaviour before grants existed). With grants, by the people, roles or "everyone" they name,
   and by guests (Slack guests, guest API tokens) only through a ``guests`` grant.
@@ -237,6 +239,16 @@ def _granted(principal: Principal, grants: list[Grant]) -> bool:
     return False
 
 
+async def granted_beyond_team(
+    db_mgr: Any, org_id: str, principal: Principal, agent: UsableAgent
+) -> bool:
+    """Whether a team's agent is open to ``principal`` by its grants rather than by membership."""
+    if agent.scope != "team" or agent.enabled is False:
+        return False
+    grants = await grants_for(db_mgr, org_id, str(agent.id))
+    return bool(grants) and _granted(principal, grants)
+
+
 async def may_use(
     db_mgr: Any, org_id: str, principal: Principal, agent: UsableAgent | None
 ) -> bool:
@@ -248,7 +260,10 @@ async def may_use(
     if principal.is_admin:
         return True
     if agent.scope == "team":
-        return not principal.is_guest and agent.team_id in principal.team_ids
+        if not principal.is_guest and agent.team_id in principal.team_ids:
+            return True
+        # Grants only widen a team's agent: none means "the team", not "every member".
+        return await granted_beyond_team(db_mgr, org_id, principal, agent)
     return _granted(principal, await grants_for(db_mgr, org_id, str(agent.id)))
 
 

@@ -171,7 +171,8 @@ Delete a custom agent persona, or reset/disable a built-in persona.
 
 ### `GET /v1/agents/{persona_id}/access`
 
-Who may use an organization agent (administrators).
+Who may use an organization agent (administrators) or a team's agent beyond its team
+(the team's administrators too).
 
 **Parameters**
 
@@ -183,9 +184,10 @@ Who may use an organization agent (administrators).
 
 ### `PUT /v1/agents/{persona_id}/access`
 
-Replace who may use an organization agent (administrators). Turns already running
-finish; the next turn of someone who lost access fails with ``agent_access_denied``, and
-scheduled missions of people who lost it are paused.
+Replace who may use an organization agent (administrators), or who besides its team may
+use a team's agent (the team's administrators too; no grants keeps it the team's). Turns
+already running finish; the next turn of someone who lost access fails with
+``agent_access_denied``, and scheduled missions of people who lost it are paused.
 
 **Parameters**
 

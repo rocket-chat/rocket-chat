@@ -450,6 +450,7 @@ async def _skills_guidance(ctx: TurnContext) -> list[str]:
         ctx.session.tenant_org_id,
         ctx.session.tenant_user_id,
         ctx.binding.skill_ids,
+        ctx.binding.policy.attribution.team_id,
     )
     if not skills:
         return []

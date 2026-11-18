@@ -29,7 +29,7 @@ from api.services.ownership import owner_of, visible, visible_clause
 from api.services.settings import (
     effective_settings,
 )
-from api.services.teams import member_viewer
+from api.services.teams import turn_viewer
 from specifications.interfaces.ownership import Owner, is_shared
 
 logger = logging.getLogger(__name__)
@@ -186,9 +186,12 @@ def _usable_rows(rows: list[Any], needs_sign_in: list[str]) -> list[Any]:
     return usable
 
 
-async def _load_rows(db_mgr: Any, org_id: str, user_id: str, needs_sign_in: list[str]) -> list[Any]:
-    """The org's servers, the member's teams' and their own, with expiring accounts refreshed."""
-    viewer = await member_viewer(db_mgr, org_id, user_id)
+async def _load_rows(
+    db_mgr: Any, org_id: str, user_id: str, needs_sign_in: list[str], agent_team_id: str | None
+) -> list[Any]:
+    """The org's servers, the member's teams', the agent's team's and their own, with expiring
+    accounts refreshed."""
+    viewer = await turn_viewer(db_mgr, org_id, user_id, agent_team_id)
     if db_mgr is None:
         return _usable_rows(
             [
@@ -286,8 +289,10 @@ async def _mcp_tools_for_turn(
     db_mgr: Any,
     org_id: str,
     user_id: str,
+    agent_team_id: str | None = None,
 ) -> McpTurnTools:
-    """The turn's MCP tools: the org's servers plus the member's own, per the org's policy.
+    """The turn's MCP tools: the org's servers, the member's teams' and own, and the servers of
+    the team that owns the turn's agent, per the org's policy.
 
     Command (stdio) servers run on the MCP runner, so they are offered when one is deployed.
     A server the member must sign in to is named instead of silently missing, so the agent can
@@ -295,7 +300,7 @@ async def _mcp_tools_for_turn(
     """
     policy = await effective_settings(db_mgr, org_id, "mcp")
     needs_sign_in: list[str] = []
-    rows = await _load_rows(db_mgr, org_id, user_id, needs_sign_in)
+    rows = await _load_rows(db_mgr, org_id, user_id, needs_sign_in, agent_team_id)
     rows = await _rows_with_member_tokens(db_mgr, org_id, user_id, rows, needs_sign_in)
     rows = await _rows_with_member_env(db_mgr, org_id, user_id, rows)
     runner = runner_config()
