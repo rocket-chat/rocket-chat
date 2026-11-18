@@ -9,6 +9,9 @@ from typing import Any
 # Slack event `channel_type` -> the policy vocabulary used by `allowed_channel_types`.
 _EVENT_TO_POLICY_TYPE = {"channel": "public", "group": "private", "im": "im", "mpim": "mpim"}
 ALL_CHANNEL_TYPES = frozenset({"public", "private", "im", "mpim"})
+# An ``outbound_channels`` entry: every channel the bot has been invited to (never a direct
+# message), so a bot can be used wherever it is invited without listing channel ids.
+INVITED_CHANNELS = "*"
 # How a thread reply that does not mention the bot is taken: ignored ("mention"), answered when
 # it reads like a request ("auto"), or answered when a classifier model says it asks the bot
 # for something ("classifier").

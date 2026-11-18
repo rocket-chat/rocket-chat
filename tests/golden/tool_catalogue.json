@@ -1048,7 +1048,7 @@
     "parameters": {
       "properties": {
         "kind": {
-          "description": "What to search.",
+          "description": "What to search (code).",
           "enum": [
             "code",
             "issues",
@@ -1066,7 +1066,6 @@
         }
       },
       "required": [
-        "kind",
         "query"
       ],
       "type": "object"

@@ -223,8 +223,10 @@ def _register_ci(registry: ToolRegistry) -> None:
         )
     )
     async def github_search(
-        kind: Annotated[Literal["code", "issues", "commits"], Field(description="What to search.")],
         query: Annotated[str, Field(description="Search text, GitHub syntax.")],
+        kind: Annotated[
+            Literal["code", "issues", "commits"], Field(description="What to search (code).")
+        ] = "code",
         repository: Annotated[str | None, Field(description="owner/name to search within.")] = None,
     ) -> str:
         repo_slug = parse_repository(repository).slug if repository else None

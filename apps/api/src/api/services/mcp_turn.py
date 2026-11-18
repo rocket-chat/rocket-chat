@@ -2,6 +2,7 @@
 
 import logging
 import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -23,13 +24,13 @@ from api.services.mcp_engine import (
 from api.services.mcp_member_env import apply_member_values, member_values, overridable_names
 from api.services.mcp_member_tokens import McpMemberTokenStore, is_member_mode
 from api.services.mcp_runner import connect_stdio, runner_config
-from api.services.mcp_runtime import McpToolProvider, auth_headers
+from api.services.mcp_runtime import McpToolProvider, auth_headers, namespaced_tool_name
 from api.services.mcp_runtime import build_targets as build_mcp_targets
 from api.services.ownership import owner_of, visible, visible_clause
 from api.services.settings import (
     effective_settings,
 )
-from api.services.teams import member_viewer
+from api.services.teams import turn_viewer
 from specifications.interfaces.ownership import Owner, is_shared
 
 logger = logging.getLogger(__name__)
@@ -167,6 +168,8 @@ class McpTurnTools:
 
     provider: McpToolProvider | None
     needs_sign_in: list[str] = field(default_factory=list)
+    # Servers the agent may use whose tools could not be listed this turn.
+    unavailable: list[str] = field(default_factory=list)
 
 
 def _is_oauth(row: Any) -> bool:
@@ -198,9 +201,12 @@ def _usable_rows(rows: list[Any], needs_sign_in: list[str]) -> list[Any]:
     return usable
 
 
-async def _load_rows(db_mgr: Any, org_id: str, user_id: str, needs_sign_in: list[str]) -> list[Any]:
-    """The org's servers, the member's teams' and their own, with expiring accounts refreshed."""
-    viewer = await member_viewer(db_mgr, org_id, user_id)
+async def _load_rows(
+    db_mgr: Any, org_id: str, user_id: str, needs_sign_in: list[str], agent_team_id: str | None
+) -> list[Any]:
+    """The org's servers, the member's teams', the agent's team's and their own, with expiring
+    accounts refreshed."""
+    viewer = await turn_viewer(db_mgr, org_id, user_id, agent_team_id)
     if db_mgr is None:
         return _usable_rows(
             [
@@ -294,20 +300,33 @@ async def _recover_rejected(
             await _save_server_auth(db_mgr, org_id, server_id, None, status=NEEDS_SIGN_IN)
 
 
+def _offered_by(agent_tools: Sequence[str] | None) -> Callable[[str], bool] | None:
+    """Whether the agent's tool list names a tool of the server whose tool names start with
+    ``mcp__<server>__``; ``None`` (every server) when the agent sets no list."""
+    if agent_tools is None or "*" in agent_tools:
+        return None
+    names = tuple(agent_tools)
+    return lambda slug: any(n.startswith(namespaced_tool_name(slug, "")) for n in names)
+
+
 async def _mcp_tools_for_turn(
     db_mgr: Any,
     org_id: str,
     user_id: str,
+    agent_team_id: str | None = None,
+    agent_tools: Sequence[str] | None = None,
 ) -> McpTurnTools:
-    """The turn's MCP tools: the org's servers plus the member's own, per the org's policy.
+    """The turn's MCP tools: the org's servers, the member's teams' and own, and the servers of
+    the team that owns the turn's agent, per the org's policy.
 
     Command (stdio) servers run on the MCP runner, so they are offered when one is deployed.
     A server the member must sign in to is named instead of silently missing, so the agent can
-    say so rather than work without it.
+    say so rather than work without it. With ``agent_tools`` (the agent's tool list), a server
+    none of whose tools it may call is neither listed nor started.
     """
     policy = await effective_settings(db_mgr, org_id, "mcp")
     needs_sign_in: list[str] = []
-    rows = await _load_rows(db_mgr, org_id, user_id, needs_sign_in)
+    rows = await _load_rows(db_mgr, org_id, user_id, needs_sign_in, agent_team_id)
     rows = await _rows_with_member_tokens(db_mgr, org_id, user_id, rows, needs_sign_in)
     rows = await _rows_with_member_env(db_mgr, org_id, user_id, rows)
     runner = runner_config()
@@ -324,11 +343,12 @@ async def _mcp_tools_for_turn(
     provider = McpToolProvider(
         targets,
         stdio_connector=connect_stdio(runner, org_id) if runner is not None else None,
+        offered=_offered_by(agent_tools),
     )
     await provider.load()
     await _recover_rejected(provider, db_mgr, org_id, user_id, rows, needs_sign_in)
     if provider.definitions():
-        return McpTurnTools(provider, needs_sign_in)
+        return McpTurnTools(provider, needs_sign_in, provider.unavailable)
     await provider.aclose()
     return McpTurnTools(None, needs_sign_in)
 

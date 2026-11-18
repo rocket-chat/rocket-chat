@@ -371,6 +371,11 @@ class McpToolItem(BaseModel):
     name: str
     description: str = ""
     parameters_summary: str | None = None
+    input_schema: dict[str, Any] | None = Field(
+        default=None,
+        description="The tool's JSON input schema: stored so a command server is offered "
+        "without starting it (left out of server listings)",
+    )
 
 
 class ValidateMcpServerRequest(BaseModel):

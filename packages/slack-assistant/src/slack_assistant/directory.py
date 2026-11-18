@@ -262,7 +262,7 @@ class SlackDirectoryMixin(SlackAssistantState):
         current = self._current_slack_context()
         if current is not None and channel == current[0]:
             return True
-        if self._outbound_channel_allowed(channel):
+        if await self._outbound_channel_allowed(channel):
             return True
         info = (_data(await self.app.client.conversations_info(channel=channel))).get("channel")
         info = info if isinstance(info, dict) else {}

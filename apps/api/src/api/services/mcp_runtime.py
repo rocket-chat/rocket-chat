@@ -3,13 +3,15 @@
 A turn borrows the tools of the MCP servers its caller may use - the organization's and the
 member's own - namespaced ``mcp__<server>__<tool>``. Connections are opened per call with the
 official ``mcp`` client; the tool list is cached briefly so a turn does not reconnect just to
-advertise tools.
+advertise tools. A command server is offered from the tool schemas stored when it was probed,
+so its process starts on the turn's first call, never just to advertise tools.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import re
 import time
@@ -39,6 +41,12 @@ MAX_TOOL_NAME_LENGTH = 64
 LIST_TIMEOUT_SECONDS = 8.0
 CALL_TIMEOUT_SECONDS = 120.0
 CACHE_TTL_SECONDS = 300.0
+# A tool's input schema is stored with the server (so a command server is offered without
+# starting it) up to this size; a larger one is listed live.
+MAX_STORED_SCHEMA_CHARS = 32_000
+# The MCP runner refuses a process past its per-organization limit and asks to retry shortly:
+# a call waits these delays (seconds) for a slot before it reports the runner as full.
+CAPACITY_RETRY_DELAYS = (2.0, 4.0, 8.0)
 REMOTE_TRANSPORTS = {"http", "sse"}
 STDIO = "stdio"
 
@@ -57,6 +65,9 @@ class McpServerTarget:
     setup: str = ""
     # The administrator's usage guidance (markdown), empty for most servers.
     guidance: str = ""
+    # The tools stored when the server was last probed, with their schemas; empty when any
+    # schema is missing (the server is then listed live).
+    stored_tools: tuple[tuple[str, ToolDefinition], ...] = field(default=(), repr=False)
 
 
 McpConnector = Callable[[McpServerTarget], AbstractAsyncContextManager[Client]]
@@ -125,9 +136,26 @@ def build_targets(
                 headers=auth_headers(_field(row, "encrypted_auth", {}) or {}, cipher),
                 setup=str((_field(row, "encrypted_auth", {}) or {}).get("install_command") or ""),
                 guidance=str(_field(row, "guidance", "") or ""),
+                stored_tools=stored_definitions(_field(row, "tools", []) or []),
             )
         )
     return targets
+
+
+def stored_definitions(tools: Iterable[Any]) -> tuple[tuple[str, ToolDefinition], ...]:
+    """A server's stored tools as definitions, or nothing when one lacks its schema."""
+    found: list[tuple[str, ToolDefinition]] = []
+    for tool in tools:
+        schema = tool.get("input_schema") if isinstance(tool, dict) else None
+        if not isinstance(schema, dict) or not tool.get("name"):
+            return ()
+        definition = ToolDefinition(
+            name=str(tool["name"]),
+            description=str(tool.get("description") or ""),
+            parameters_json_schema=schema,
+        )
+        found.append((str(tool["name"]), definition))
+    return tuple(found)
 
 
 def auth_headers(auth: dict[str, Any], cipher: CredentialCipher) -> dict[str, str]:
@@ -226,11 +254,15 @@ class ProbedTools(list[dict[str, Any]]):
 
 def summarize_tool(tool: Any) -> dict[str, Any]:
     """The stored (display) form of a tool; execution re-lists the live schema."""
-    return {
+    stored = {
         "name": tool.name,
         "description": tool.description or "",
         "parameters_summary": summarize_schema(tool.input_schema),
     }
+    schema = dict(tool.input_schema or {"type": "object", "properties": {}})
+    if len(json.dumps(schema)) <= MAX_STORED_SCHEMA_CHARS:
+        stored["input_schema"] = schema
+    return stored
 
 
 async def probe_target(
@@ -294,6 +326,7 @@ class McpToolProvider:
         connector: McpConnector = connect_remote,
         stdio_connector: McpConnector | None = None,
         guard: Callable[[McpServerTarget], Any] = _assert_reachable_target,
+        offered: Callable[[str], bool] | None = None,
     ) -> None:
         self._targets = {t.server_id: t for t in targets}
         self._connector = connector
@@ -307,6 +340,11 @@ class McpToolProvider:
         self._opening: dict[str, asyncio.Lock] = {}
         # Servers that refused this turn's credentials (HTTP 401): the caller may refresh them.
         self.unauthorized: set[str] = set()
+        # Servers whose tools could not be listed this turn (names, for the agent to be told).
+        self.unavailable: list[str] = []
+        # Whether a server (by the <server> of its tool names) may be used at all this turn: the
+        # agent's tool list decides, so a server it cannot call is neither listed nor started.
+        self._offered = offered
 
     # -- connections --------------------------------------------------------------------
 
@@ -349,14 +387,17 @@ class McpToolProvider:
     # -- discovery ----------------------------------------------------------------------
 
     async def load(self) -> McpToolProvider:
-        """Discover every server's tools concurrently; an unreachable server is skipped."""
-        listings = await asyncio.gather(*(self._list(t) for t in self._targets.values()))
-        used_slugs: set[str] = set()
-        for target, listing in zip(self._targets.values(), listings, strict=True):
-            slug = slugify(target.name)
-            while slug in used_slugs:
-                slug = f"{slug}-{target.server_id[-4:]}"
-            used_slugs.add(slug)
+        """Discover the offered servers' tools concurrently; an unreachable server is skipped."""
+        slugs = self._assign_slugs()
+        targets = [
+            target
+            for target in self._targets.values()
+            if self._offered is None or self._offered(slugs[target.server_id])
+        ]
+        self.unavailable = []
+        listings = await asyncio.gather(*(self._list(t) for t in targets))
+        for target, listing in zip(targets, listings, strict=True):
+            slug = slugs[target.server_id]
             self._slugs[target.server_id] = slug
             for tool_name, definition in listing:
                 name = namespaced_tool_name(slug, tool_name)
@@ -370,7 +411,19 @@ class McpToolProvider:
                 self._routes[name] = (target, tool_name)
         return self
 
+    def _assign_slugs(self) -> dict[str, str]:
+        """The <server> of each server's tool names, unique within the turn."""
+        slugs: dict[str, str] = {}
+        for target in self._targets.values():
+            slug = slugify(target.name)
+            while slug in slugs.values():
+                slug = f"{slug}-{target.server_id[-4:]}"
+            slugs[target.server_id] = slug
+        return slugs
+
     async def _list(self, target: McpServerTarget) -> list[tuple[str, ToolDefinition]]:
+        if target.transport == STDIO and target.stored_tools:
+            return list(target.stored_tools)
         cached = _listing_cache.get(target.server_id)
         if (
             cached
@@ -385,8 +438,14 @@ class McpToolProvider:
             logger.warning("MCP server '%s' unavailable for this turn: %s", target.name, err)
             if is_unauthorized(err):
                 self.unauthorized.add(target.server_id)
+            else:
+                self.unavailable.append(target.name)
             await self._drop(target)
             return []
+        if target.transport == STDIO:
+            # Listing must not hold a runner process for the rest of the turn: the first call
+            # starts it again.
+            await self._drop(target)
         tools = [
             (
                 tool.name,
@@ -436,7 +495,9 @@ class McpToolProvider:
     async def call(self, name: str, arguments: dict[str, Any]) -> str:
         target, tool_name = self._routes[name]
         last_error: Exception | None = None
-        for attempt in range(2):  # a pooled connection may have died since it was opened
+        waits = iter(CAPACITY_RETRY_DELAYS)
+        failures = 0
+        while failures < 2:  # a pooled connection may have died since it was opened
             try:
                 async with asyncio.timeout(CALL_TIMEOUT_SECONDS):
                     result = await (await self._client(target)).call_tool(tool_name, arguments)
@@ -446,6 +507,22 @@ class McpToolProvider:
                 return f"MCP tool error: '{tool_name}' on '{target.name}' timed out."
             except Exception as err:
                 last_error = err
-                logger.warning("MCP call %s failed (attempt %d): %s", name, attempt + 1, err)
                 await self._drop(target)
+                if is_at_capacity(err) and (wait := next(waits, None)) is not None:
+                    logger.info("MCP runner full for %s; retrying in %.0fs", name, wait)
+                    await asyncio.sleep(wait)
+                    continue
+                failures += 1
+                logger.warning("MCP call %s failed (attempt %d): %s", name, failures, err)
+        if last_error is not None and is_at_capacity(last_error):
+            return (
+                f"MCP tool error: '{target.name}' could not start: the MCP runner is running as "
+                "many command servers as the organization allows. Try again in a minute; if it "
+                "is still full, answer without it and say which source you could not reach."
+            )
         return f"MCP tool error: could not call '{tool_name}' on '{target.name}': {last_error}"
+
+
+def is_at_capacity(err: BaseException) -> bool:
+    """Whether the MCP runner refused to start a process because it is full."""
+    return "at capacity" in str(err)

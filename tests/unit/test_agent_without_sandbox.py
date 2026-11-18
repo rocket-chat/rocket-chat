@@ -107,3 +107,25 @@ async def test_nothing_can_start_a_sandbox_for_an_agent_without_one() -> None:
     finally:
         current_execution_ctx.reset(token)
     assert started == []
+
+
+async def test_reading_github_needs_no_sandbox_but_cloning_does() -> None:
+    org = "no_sandbox_github"
+    outcome = await _run(
+        org,
+        sandbox_enabled=False,
+        script=[
+            ("load_tools", {"names": ["github_read_file", "github_find_repositories"]}),
+            ("github_read_file", {"repository": "acme/widgets", "path": "README.md"}),
+            ("clone_repository", {"repository": "acme/widgets"}),
+        ],
+    )
+
+    last = [r for r in outcome.model.requests if r.tools][-1]
+    results = [m.content or "" for m in last.messages if m.role == "tool"]
+    read, clone = results[-2], results[-1]
+    assert "runs without one" not in read, read
+    assert "runs without one" in clone
+    offered = {t.name for t in last.tools}
+    assert {"github_read_file", "github_find_repositories"} <= offered
+    assert await outcome.driver.get_status(f"session_{org}") == SandboxStatus.NON_EXISTENT

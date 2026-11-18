@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from sqlalchemy import delete, func, select
@@ -360,6 +360,19 @@ async def member_viewer(db_mgr: Any, org_id: str, user_id: str) -> Viewer:
     """The person as a turn sees them: the objects of their own teams, never the administrator's
     view of every team (which serves managing them, not working with them)."""
     return Viewer(user_id=user_id, teams=frozenset(await teams_of(db_mgr, org_id, user_id)))
+
+
+async def turn_viewer(db_mgr: Any, org_id: str, user_id: str, agent_team_id: str | None) -> Viewer:
+    """The person as a turn sees them, plus the team that owns the turn's agent.
+
+    A team's agent brings its team's skills, MCP servers and knowledge bases to whoever its
+    team granted it to (a Slack guest in a public thread, a member of another team): the
+    grant is the team's decision, and the agent's own lists still narrow what it may use.
+    """
+    viewer = await member_viewer(db_mgr, org_id, user_id)
+    if not agent_team_id:
+        return viewer
+    return replace(viewer, teams=viewer.teams | {agent_team_id})
 
 
 async def turn_teams(

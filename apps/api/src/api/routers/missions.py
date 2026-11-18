@@ -313,7 +313,8 @@ async def _check_channels(request: Request, mission: Mission) -> None:
         getattr(request.app.state, "db_manager", None), mission.org_id, "slack"
     )
     allowed = conf.get("outbound_channels") or []
-    refused = [c for c in channels if allowed and c not in allowed]
+    # ``*``: any channel the bot was invited to, which only Slack knows when the run reports.
+    refused = [c for c in channels if allowed and "*" not in allowed and c not in allowed]
     if refused:
         raise HTTPException(
             status_code=422,

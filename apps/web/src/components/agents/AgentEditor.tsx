@@ -20,7 +20,7 @@ const SECTIONS = [
   { key: "model", label: "Model & credentials", Component: ModelSection },
   { key: "tools", label: "Tools & knowledge", Component: ToolsSection },
   { key: "sandbox", label: "Sandbox", Component: SandboxSection, agentOnly: true },
-  { key: "access", label: "Access", Component: AccessSection, orgAgentOnly: true },
+  { key: "access", label: "Access", Component: AccessSection, sharedAgentOnly: true },
   { key: "limits", label: "Limits", Component: LimitsSection },
 ] as const;
 
@@ -56,7 +56,7 @@ export const AgentEditor: React.FC<AgentEditorProps> = ({ canEdit, isAdmin, stor
   const sections = SECTIONS.filter(
     (s) =>
       !("agentOnly" in s && s.agentOnly && draft.kind !== "agent") &&
-      !("orgAgentOnly" in s && s.orgAgentOnly && (draft.kind !== "agent" || draft.scope !== "org")),
+      !("sharedAgentOnly" in s && s.sharedAgentOnly && (draft.kind !== "agent" || (draft.scope !== "org" && draft.scope !== "team"))),
   );
   const current = sections.find((s) => s.key === section) ?? sections[0];
 
