@@ -58,6 +58,15 @@ def test_a_change_in_the_turn_or_a_read_only_mode_silences_the_research_reminder
     assert pace_notice(_turn(*[("bash_exec",)] * RESEARCH_REMINDER_EVERY), may_edit=False) is None
 
 
+def test_steps_that_query_an_mcp_server_are_not_research() -> None:
+    queries = [("mcp__grafana__query_prometheus",)] * RESEARCH_REMINDER_EVERY
+    mixed = [("clone_repository", "mcp__grafana__query_prometheus")] * RESEARCH_REMINDER_EVERY
+
+    assert pace_notice(_turn(*queries)) is None
+    assert pace_notice(_turn(*mixed)) is None
+    assert pace_notice(_turn(*queries, *[("bash_exec",)] * RESEARCH_REMINDER_EVERY)) is not None
+
+
 def test_only_this_turns_steps_count() -> None:
     earlier = _turn(*[("bash_exec",)] * RESEARCH_REMINDER_EVERY)
     now = [*earlier, ChatMessage(role="user", content="Another thing."), *_step("bash_exec")]

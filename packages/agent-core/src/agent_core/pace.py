@@ -161,10 +161,14 @@ def pace_notice(conversation: Sequence[ChatMessage], *, may_edit: bool = True) -
     if environment := _environment_notice(conversation):
         notes.append(environment)
 
-    if may_edit and steps and len(steps) % RESEARCH_REMINDER_EVERY == 0:
+    # A step that queries an MCP server (metrics, logs, a ticket tracker) gathers the data the
+    # task is about rather than researching how to code it: telling it to stop cut capacity
+    # reports short of half their scope.
+    research = [step for step in steps if not any(name.startswith("mcp__") for name in step)]
+    if may_edit and research and len(research) % RESEARCH_REMINDER_EVERY == 0:
         if not any(name in EDIT_TOOLS for step in steps for name in step):
             notes.append(
-                f"You have spent {len(steps)} steps in this turn without changing anything. Stop "
+                f"You have spent {len(research)} steps in this turn without changing anything. Stop "
                 "researching: state your decision in one line, then act. Implement the simplest "
                 "approach that meets the goal, then build and test it here in the sandbox and let "
                 "the compiler and the tests show what is wrong. Do not read a library's source "
