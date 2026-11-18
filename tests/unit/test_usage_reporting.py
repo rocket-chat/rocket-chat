@@ -37,7 +37,7 @@ TOOL = ToolDefinition(
         ("openrouter/deepseek/deepseek-chat", True),
         ("deepseek/deepseek-chat", True),
         ("hosted_vllm/my-model", True),
-        ("anthropic/claude-3-5-sonnet-20241022", False),
+        ("anthropic/claude-3-5-sonnet-20241022", True),
         ("gemini/gemini-1.5-pro", False),
         ("ollama/llama3", False),
         ("not-a-provider/whatever", False),
