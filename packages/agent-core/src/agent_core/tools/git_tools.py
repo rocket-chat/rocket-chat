@@ -388,6 +388,8 @@ async def git_open_pr(
     """Push the working branch and open a pull request per the organization's PR policy."""
     if git_engine is None:
         return "Error: GitHub App credentials are not configured; cannot open a pull request."
+    if refusal := await _branch_is_the_base(driver, session_id, target_branch, path):
+        return refusal
     effective = policy or GitPolicy()
     token = effective.user_token if effective.publishes_as_member else None
     try:
@@ -403,6 +405,34 @@ async def git_open_pr(
         return f"Pull request opened: {url}"
     except Exception as err:
         return f"Error: failed to open pull request: {err}"
+
+
+async def _branch_is_the_base(
+    driver: SandboxDriverProtocol, session_id: str, target_branch: str | None, path: str | None
+) -> str | None:
+    """The refusal when the checked-out branch is the pull request's base.
+
+    Checked before publishing: publishing would push commits made there straight onto the base
+    branch, and GitHub then refuses the pull request with a bare "No commits between" (422).
+    """
+    workdir = path or "/workspace"
+    current = await _exec(driver, session_id, "git branch --show-current", workdir)
+    branch = current.stdout.strip() if current.exit_code == 0 else ""
+    base = target_branch
+    if not base:
+        remote_head = await _exec(
+            driver, session_id, "git symbolic-ref --short refs/remotes/origin/HEAD", workdir
+        )
+        base = (
+            remote_head.stdout.strip().removeprefix("origin/") if remote_head.exit_code == 0 else ""
+        )
+    if not branch or branch != base:
+        return None
+    return (
+        f"Error: {branch} is checked out, and it is the pull request's base: nothing was "
+        "published. Commit your changes on a new branch with git_commit (its `branch` argument), "
+        "then call git_open_pr again."
+    )
 
 
 _PULL_REQUEST_URL = re.compile(r"https://[^/\s]+/([\w.-]+/[\w.-]+)/pull/(\d+)")

@@ -222,20 +222,23 @@ async def test_the_active_repository_is_the_default_and_bash_runs_where_it_is_to
     assert here.strip() == "gadgets" and elsewhere.strip() == "widgets"
 
 
-async def test_bash_needs_a_folder_and_a_leading_cd_becomes_that_folder(
+async def test_bash_without_a_folder_runs_in_the_active_repository_and_a_leading_cd_becomes_it(
     workspace: Workspace, turn: ExecutionContext
 ) -> None:
-    """Agents wrote `cd <repo> && ...` into every command: the folder is a required argument,
-    and a leading `cd` still written is run as that folder instead."""
+    """Agents wrote `cd <repo> && ...` into every command: a leading `cd` is run as the folder
+    instead. A command that names no folder runs where the other tools do, as the clone result
+    announces, rather than failing on a missing argument."""
     workspace.clone("widgets")
+    workspace.clone("gadgets")
+    turn.active_repository = "/workspace/gadgets"
     registry = ToolRegistry(driver=workspace.driver, session_id="s1")  # type: ignore[arg-type]
 
-    with pytest.raises(Exception, match="cwd"):
-        await registry.call_tool("bash_exec", {"command": "pwd"})
+    unnamed = await registry.call_tool("bash_exec", {"command": "pwd"})
     folded = await registry.call_tool(
         "bash_exec", {"command": "cd widgets && pwd", "cwd": "/workspace"}
     )
 
+    assert unnamed.strip() == "/workspace/gadgets"
     assert folded.strip() == "/workspace/widgets"
     assert fold_leading_cd("cd /x/y && make test", "/workspace") == ("make test", "/x/y")
     assert fold_leading_cd('cd "$HOME" && ls', "/workspace") == ('cd "$HOME" && ls', "/workspace")
