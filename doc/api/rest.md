@@ -1141,11 +1141,12 @@ List the caller organisation's audit trail, newest first (admin only).
 
 ### `GET /v1/mcp/oauth/callback`
 
-Exchange the PKCE code for tokens and store them encrypted on the authorized server.
+Exchange the PKCE code for tokens, store them encrypted and list the server's tools.
 
 The state was minted for one authenticated member of one organization; the callback
 must come from that same member, or a forwarded link could bind the attacker's account
-to the victim's server (or the reverse).
+to the victim's server (or the reverse). A sign-in whose tools cannot be listed lands on
+``status=no_tools`` with the reason, rather than a success with no tools.
 
 **Parameters**
 
@@ -1281,6 +1282,8 @@ Generate RFC 9728 / PKCE authorization redirect URL for an MCP server.
 ### `POST /v1/mcp/servers/{server_id}/probe`
 
 Probe an MCP server and refresh its discovered tools.
+
+A server where every member signs in is probed with the caller's own account.
 
 **Parameters**
 

@@ -6,10 +6,13 @@ import os
 import time
 import uuid
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from api.db.models import McpServerEntityModel, OrganizationModel, UserModel
 from api.db.session import DatabaseSessionManager
+from api.routers import mcp_oauth
 from api.services.mcp_member_tokens import McpMemberTokenStore
 
 TEST_DB_URL = os.getenv("TEST_DATABASE_URL", "")
@@ -88,3 +91,33 @@ async def test_deleting_the_server_removes_every_members_tokens(
         await session.delete(row)
 
     assert await store.get(org, server, alice) is None
+
+
+async def test_tools_listed_after_a_members_sign_in_are_stored_on_the_server(
+    dbs: tuple[DatabaseSessionManager, DatabaseSessionManager],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_db, admin_db = dbs
+    org, server, *_ = await _org_with_server(admin_db)
+    probed: list[dict[str, Any]] = []
+    tool = {"name": "list_issues", "description": "", "parameters_summary": ""}
+
+    async def probe(**kwargs: Any) -> tuple[str, list[Any], str | None]:
+        probed.append(kwargs)
+        return "connected", [tool], None
+
+    monkeypatch.setattr(mcp_oauth, "probe_and_fetch_tools", probe)
+    request: Any = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(db_manager=app_db)))
+    account = {"oauth_mode": "member", "access_token_enc": "enc-alice"}
+
+    problem = await mcp_oauth._list_tools_after_sign_in(request, org, server, account)
+
+    assert problem is None
+    assert probed[0]["auth_data"] == account and probed[0]["transport"] == "http"
+    async with admin_db.session() as session:
+        row = await session.get(McpServerEntityModel, server)
+        assert row is not None
+        assert row.tools == [tool] and row.status == "connected" and row.last_probed
+        assert "access_token_enc" not in (row.encrypted_auth or {}), (
+            "the member's token stays theirs"
+        )

@@ -149,6 +149,18 @@ def _row_auth(row: Any) -> dict[str, Any]:
 NEEDS_SIGN_IN = "needs_sign_in"
 
 
+def _probed_status(
+    status: str, error: str | None, auth_type: str | None, auth: dict[str, Any]
+) -> str:
+    """A refused OAuth server waits for a sign-in rather than being reported broken."""
+    if status == "connected" or auth_type not in ("oauth", "oauth2"):
+        return status
+    signed_in = bool(auth.get("access_token_enc")) and auth.get("oauth_mode") != "member"
+    if not signed_in or "401" in (error or ""):
+        return NEEDS_SIGN_IN
+    return status
+
+
 @dataclass
 class McpTurnTools:
     """The MCP tools a turn may use, and the servers the member must sign in to first."""
@@ -332,6 +344,19 @@ def _member_token_store(request: Request) -> McpMemberTokenStore:
         store = McpMemberTokenStore(getattr(request.app.state, "db_manager", None))
         request.app.state.mcp_member_tokens = store
     return store
+
+
+async def _with_member_account(
+    request: Request, org_id: str, server_id: str, user_id: str, auth: dict[str, Any]
+) -> dict[str, Any]:
+    """``auth`` with the caller's own tokens on a server where every member signs in.
+
+    The result is for this request only: the member's tokens never go back onto the server.
+    """
+    if not is_member_mode(auth):
+        return auth
+    tokens = await _member_token_store(request).get(org_id, server_id, user_id)
+    return {**auth, **(tokens or {})}
 
 
 async def _load_mcp_auth(
