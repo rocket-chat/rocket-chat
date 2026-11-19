@@ -47,6 +47,11 @@ MAX_STORED_SCHEMA_CHARS = 32_000
 # The MCP runner refuses a process past its per-organization limit and asks to retry shortly:
 # a call waits these delays (seconds) for a slot before it reports the runner as full.
 CAPACITY_RETRY_DELAYS = (2.0, 4.0, 8.0)
+# What the model sees is bounded by the dispatcher, which offloads any result past the
+# organization's threshold to a file and keeps its head and tail. Clamping here first cut a
+# one-line JSON answer (Prometheus, most APIs) to 2,000 characters before it could be saved, so
+# this only bounds what a server can make the platform hold: the session file limit (4 MiB).
+MAX_RESULT_CHARS = 4 * 1024 * 1024
 REMOTE_TRANSPORTS = {"http", "sse"}
 STDIO = "stdio"
 
@@ -250,7 +255,12 @@ def render_result(result: Any) -> str:
     if not parts and getattr(result, "structured_content", None):
         parts.append(str(result.structured_content))
     text = "\n".join(parts) or "(no output)"
-    return clamp_output(f"MCP tool error: {text}" if getattr(result, "is_error", False) else text)
+    if getattr(result, "is_error", False):
+        return clamp_output(f"MCP tool error: {text}")
+    if len(text) > MAX_RESULT_CHARS:
+        cut = len(text) - MAX_RESULT_CHARS
+        text = f"{text[:MAX_RESULT_CHARS]}\n... [{cut:,} characters cut: the result exceeded {MAX_RESULT_CHARS:,}]"
+    return text
 
 
 def summarize_schema(schema: Any) -> str:
