@@ -17,6 +17,7 @@ from agent_core.tools.git_tools import parse_pull_request_url
 from api.services import outbound_webhooks
 from api.services.approval_rules import allowed_scopes, offered_options
 from api.services.metrics import record_tool_call
+from api.services.mission_records import RUN_ID_KEY, note_pull_request
 from api.services.queued_messages import QueuedMessageStore
 from api.services.session_support import _new_message_id
 from api.services.turn_trace import record_running_tool_call
@@ -46,6 +47,23 @@ def _parse_arguments(raw: Any) -> Any:
 
 # Tools whose success means commits left the sandbox: each publication is audited on its own.
 PUBLISHING_TOOLS = frozenset({"git_push", "git_open_pr"})
+
+
+async def _pull_request_opened(ctx: TurnContext, pull: tuple[str, int], result: str) -> None:
+    """Report the pull request to the organization's webhooks, and to the mission run it
+    belongs to (its ``pull_request`` delivery checks it was opened)."""
+    url = result.split(": ", 1)[-1].split()[0]
+    await outbound_webhooks.emit(
+        ctx.req.db_mgr,
+        ctx.session.tenant_org_id,
+        "pr.opened",
+        {"session_id": ctx.session_id, "repository": pull[0], "number": pull[1], "url": url},
+    )
+    metadata = ctx.session.metadata
+    if isinstance(metadata, dict) and metadata.get(RUN_ID_KEY):
+        await ctx.req.store.mutate_session(
+            ctx.session_id, ctx.session.tenant_org_id, note_pull_request(url)
+        )
 
 
 def published_result(result: object) -> bool:
@@ -401,17 +419,7 @@ class TurnEventHandlers:
                 outcome=str(result_output).splitlines()[0],
             )
             if tool_name == "git_open_pr" and (pull := parse_pull_request_url(str(result_output))):
-                await outbound_webhooks.emit(
-                    ctx.req.db_mgr,
-                    ctx.session.tenant_org_id,
-                    "pr.opened",
-                    {
-                        "session_id": ctx.session_id,
-                        "repository": pull[0],
-                        "number": pull[1],
-                        "url": str(result_output).split(": ", 1)[-1].split()[0],
-                    },
-                )
+                await _pull_request_opened(ctx, pull, str(result_output))
         await self._publish(EventType.TOOL_COMPLETED, tool_data)
         call_id_str = str(tool_data.get("id") or "")
         if reasoning := self._step_reasoning.pop(call_id_str, ""):

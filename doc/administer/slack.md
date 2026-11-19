@@ -119,7 +119,7 @@ An organization can run several bots in the same Slack workspace (e.g. `@RocketD
 
 Both are set on the bot's **Routing** tab.
 
-* **One Agent:** All messages to this bot run with the selected agent. The agent must allow guests (its **Access** tab), since Slack users who have not paired use it as guests.
+* **One Agent:** All messages to this bot run with the selected agent. The agent must allow guests (its **Access** tab), since Slack users who have not paired use it as guests. A team's agent works too once its team allows guests: its turns use the team's skills and MCP servers, so a team can run its own bot.
 * **Router:** An AI classifier evaluates each incoming request against configured routes (each with its own description, examples, target agent persona, and response mode). Out-of-scope messages can be dismissed without creating a session. Follow-ups in a thread remain sticky to the chosen route. Classification decisions are logged under the **Activity** tab and kept 30 days.
   * **Classifier model:** the router's own model, else its classifier agent's model, else the organization's default; it must be allowed by the organization's model policy. Any model that returns structured output works; a small, fast one is enough. Classifications are billed to the organization like any model call, use the credentials bound to the classifier agent, and count against its spend limits.
   * **OpenRouter System One models** (`typesafe/…`, `inception/mercury-decide`) are called through OpenRouter's decision endpoint and return a probability per route; if that call fails the router falls back to structured output with the same model.
@@ -134,7 +134,7 @@ These are the organization's Slack policy. Each bot can choose its own DM policy
 | :--- | :--- |
 | `allowed_channel_types` | Where Rocket answers: public channels, private channels, direct messages, group DMs. |
 | `dm_policy` | Who the agent may direct-message: nobody, linked members only, or everyone. |
-| `outbound_channels` | Channels the agent may post in or react in. Empty limits it to the conversation it was invoked from. Missions may only deliver to these. |
+| `outbound_channels` | Channels the agent may post in or react in. Empty limits it to the conversation it was invoked from. `*` allows every channel the bot has been invited to (never direct messages): invite it with `/invite @<bot>` and remove it to take that away, no channel ids to list. Missions may only deliver to these. |
 | `allowed_tools` | Which tools the Slack path may use. `*` means every tool, including the tools of the MCP servers the agent can reach, except the deployment's blocked list (`SLACK_BLOCKED_TOOLS`). A list names the tools exactly, so MCP tools must be listed by name (`mcp__<server>__<tool>`). |
 | `restrict_linked_members` | Off by default: a member who linked their Slack account uses their own access in DMs and private requests, as in the web app. On: the deployment's blocked tools (`SLACK_BLOCKED_TOOLS`) apply to them too. Shared channel threads and unlinked users are always restricted. |
 | `auto_link_by_verified_email` | Link Slack users to members by their verified e-mail. |

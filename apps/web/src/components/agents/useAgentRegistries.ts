@@ -99,3 +99,8 @@ export function mcpToolName(serverName: string, tool: string): string {
       .toLowerCase() || "server";
   return `mcp__${slug}__${tool.replace(/[^a-zA-Z0-9_-]/g, "_")}`.slice(0, 64);
 }
+
+/** The tool's name without its ``mcp__<server slug>__`` prefix (a slug has no underscore). */
+export function withoutMcpPrefix(name: string): string {
+  return name.replace(/^mcp__[a-z0-9-]+__/, "");
+}

@@ -29,6 +29,7 @@ from api.auth.access import _get_request_identity
 from api.auth.roles import can_write
 from api.db.session import current_tenant_org_id
 from api.services.agent_access import AgentAccessDenied, may_use, mission_principal
+from api.services.mission_delays import delayed_run_store, start_or_delay
 from api.services.mission_delivery import mission_store
 from api.services.mission_records import RunStore
 from api.services.mission_runs import RunOutcome, start_run
@@ -54,6 +55,8 @@ from api.services.starter_content import MISSION_PRESETS
 from specifications.interfaces.agent import PERMISSION_MODES
 from specifications.interfaces.automation import (
     DELIVERY_KINDS,
+    MAX_DELIVERIES,
+    MAX_REPOSITORIES,
     Delivery,
     DeliveryKind,
     Mission,
@@ -82,15 +85,27 @@ class TriggerBody(BaseModel):
     filter: TriggerFilterBody = Field(default_factory=TriggerFilterBody)
     schedule: str = Field(default="", max_length=120, description="Five-field cron (schedule)")
     timezone: str = Field(default="UTC", max_length=64)
+    delay_minutes: int = Field(
+        default=0,
+        ge=0,
+        le=1440,
+        description="Minutes the run waits after the event (events and webhook only, 24 h max)",
+    )
 
 
 class DeliveryBody(BaseModel):
-    kind: str = Field(..., description="session | chat | webhook | github_review | github_comment")
+    kind: str = Field(
+        ...,
+        description="session | chat | webhook | github_review | github_comment | pull_request",
+    )
     bot_id: str = Field(default="", max_length=64)
     channel: str = Field(default="", max_length=64, description="Slack channel id (chat)")
     url: str = Field(default="", max_length=2000, description="https URL (webhook)")
     output_schema: dict[str, Any] = Field(
         default_factory=dict, description="JSON Schema the webhook's result follows"
+    )
+    optional: bool = Field(
+        default=False, description="The run may end without it (it is then skipped, not failed)"
     )
 
 
@@ -100,15 +115,24 @@ class MissionBody(BaseModel):
     scope: str = Field(default="user", description="Owner: 'user', 'team' or 'org'")
     team_id: str | None = None
     triggers: list[TriggerBody] = Field(default_factory=list, max_length=3)
-    deliveries: list[DeliveryBody] = Field(default_factory=list, max_length=4)
+    deliveries: list[DeliveryBody] = Field(default_factory=list, max_length=MAX_DELIVERIES)
     agent_id: str = Field(default="", max_length=64)
     permission_mode: str = Field(default="", max_length=16)
     model_tier: str = Field(default="", max_length=16)
     sandbox_type: str = Field(default="", max_length=64)
     mode: str = Field(default="work", max_length=16)
     auto_fix: bool = False
-    git_repo: str = Field(default="", max_length=255)
-    git_branch: str = Field(default="", max_length=255)
+    git_repos: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_REPOSITORIES,
+        description="Repositories the runs work in (owner/name); an event's own comes first",
+    )
+    git_branch: str = Field(default="", max_length=255, description="Branch of the first one")
+    github_write: bool = Field(
+        default=False,
+        description="Runs may change GitHub (push, open pull requests); needed by a "
+        "pull_request delivery and auto_fix",
+    )
     enabled: bool = True
 
 
@@ -131,8 +155,9 @@ class MissionView(BaseModel):
     sandbox_type: str
     mode: str
     auto_fix: bool
-    git_repo: str
+    git_repos: list[str]
     git_branch: str
+    github_write: bool
     enabled: bool
     run_as: str
     next_run_at: int | None
@@ -163,6 +188,9 @@ class RunResult(BaseModel):
     session_id: str = ""
     run_id: str = ""
     reason: str = ""
+    starts_at: int | None = Field(
+        default=None, description="When a delayed run starts (status 'scheduled'), epoch seconds"
+    )
 
 
 class RunView(BaseModel):
@@ -202,6 +230,7 @@ def _mission_from(body: MissionBody, org_id: str, base: Mission | None) -> Missi
             ),
             schedule=t.schedule.strip(),
             timezone=t.timezone or "UTC",
+            delay_minutes=t.delay_minutes,
         )
         for t in body.triggers
     )
@@ -212,6 +241,7 @@ def _mission_from(body: MissionBody, org_id: str, base: Mission | None) -> Missi
             channel=d.channel,
             url=d.url.strip(),
             output_schema=dict(d.output_schema),
+            optional=d.optional,
         )
         for d in body.deliveries
     )
@@ -228,8 +258,9 @@ def _mission_from(body: MissionBody, org_id: str, base: Mission | None) -> Missi
         sandbox_type=body.sandbox_type,
         mode=body.mode,
         auto_fix=body.auto_fix,
-        git_repo=body.git_repo,
+        git_repos=tuple(body.git_repos),
         git_branch=body.git_branch,
+        github_write=body.github_write,
         enabled=body.enabled,
     )
 
@@ -255,6 +286,7 @@ def _view(mission: Mission, viewer: Viewer, secrets: dict[str, str]) -> MissionV
                 filter=TriggerFilterBody(**{k: list(v) for k, v in asdict(t.filter).items()}),
                 schedule=t.schedule,
                 timezone=t.timezone,
+                delay_minutes=t.delay_minutes,
             )
             for t in mission.triggers
         ],
@@ -275,8 +307,9 @@ def _check_fields(body: MissionBody) -> None:
             status_code=422, detail=f"permission_mode must be one of: {', '.join(PERMISSION_MODES)}"
         )
     try:
-        if body.git_repo:
-            body.git_repo = parse_repository(body.git_repo).url
+        body.git_repos = [
+            parse_repository(repository).slug for repository in body.git_repos if repository.strip()
+        ]
         if body.git_branch:
             body.git_branch = validate_branch(body.git_branch)
     except InvalidRepositoryError as err:
@@ -292,7 +325,8 @@ async def _check_channels(request: Request, mission: Mission) -> None:
         getattr(request.app.state, "db_manager", None), mission.org_id, "slack"
     )
     allowed = conf.get("outbound_channels") or []
-    refused = [c for c in channels if allowed and c not in allowed]
+    # ``*``: any channel the bot was invited to, which only Slack knows when the run reports.
+    refused = [c for c in channels if allowed and "*" not in allowed and c not in allowed]
     if refused:
         raise HTTPException(
             status_code=422,
@@ -537,20 +571,29 @@ def _run_result(outcome: RunOutcome) -> RunResult:
         session_id=outcome.session_id,
         run_id=outcome.run_id,
         reason=outcome.reason,
+        starts_at=outcome.starts_at,
     )
 
 
 @router.get("/missions/{mission_id}/runs", response_model=list[RunView])
 async def list_runs(mission_id: str, request: Request) -> list[RunView]:
-    """The mission's latest runs, newest first, with how each delivery went."""
+    """The mission's latest runs, newest first, with how each delivery went; runs still waiting
+    for their trigger's delay come first, as ``scheduled`` with the time they start."""
     org_id, viewer = await request_viewer(request)
     mission = await mission_store(request.app).get(org_id, mission_id)
     if mission is None or not visible(mission, viewer):
         raise HTTPException(status_code=404, detail="Mission not found")
+    waiting = await delayed_run_store(request.app).of_mission(org_id, mission_id)
     runs = await RunStore(getattr(request.app.state, "db_manager", None)).of_mission(
         org_id, mission_id
     )
     return [
+        RunView(
+            id=w.id, session_id="", source=w.event.source, title=w.event.title or mission.name,
+            status="scheduled", deliveries=[], started_at=w.due_at, finished_at=None,
+        )
+        for w in reversed(waiting)
+    ] + [
         RunView(
             id=r.id, session_id=r.session_id, source=r.source, title=r.title, status=r.status,
             deliveries=[dict(d) for d in r.deliveries], started_at=r.started_at,
@@ -570,7 +613,8 @@ async def inbound_webhook(
 ) -> RunResult:
     """A mission's own webhook: ``X-Rocket-Signature: sha256=<hex HMAC of "<timestamp>.<body>">``
     with the mission's inbound secret and ``X-Rocket-Timestamp`` within five minutes. The JSON
-    body is what the run is about (capped)."""
+    body is what the run is about (capped). A webhook trigger with ``delay_minutes`` answers
+    ``scheduled`` and starts the run once the delay is over."""
     raw = await request.body()
     if len(raw) > MAX_INBOUND_BODY_BYTES:
         raise HTTPException(status_code=413, detail="The body is over 64 KB.")
@@ -601,7 +645,7 @@ async def inbound_webhook(
         actor="webhook",
         trusted=True,
     )
-    return _run_result(await start_run(request.app, mission, event))
+    return _run_result(await start_or_delay(request.app, mission, event))
 
 
 def _signed(secret: str, timestamp: str, body: bytes, signature: str) -> bool:

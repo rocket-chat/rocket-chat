@@ -884,7 +884,7 @@ _DOMAINS: dict[str, tuple[SettingSpec, ...]] = {
             [],
             "org_default",
             "packages/slack-assistant/src/slack_assistant/policy.py",
-            "Channel ids the agent may post or react in; empty limits it to the conversation it was invoked from.",
+            "Channel ids the agent may post or react in; `*` allows every channel the bot was invited to (never direct messages); empty limits it to the conversation it was invoked from.",
             member_override=False,
         ),
         _spec(

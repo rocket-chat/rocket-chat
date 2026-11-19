@@ -1,17 +1,26 @@
 "use client";
 
 import React from "react";
-import { Eye, MessageSquare, MonitorPlay, Slack, Webhook, type LucideIcon } from "lucide-react";
+import { Eye, GitPullRequest, MessageSquare, MonitorPlay, Slack, Webhook, type LucideIcon } from "lucide-react";
 import { Field, Input, Select, Textarea } from "../../ui/Field";
 import { DELIVERY_OPTIONS, blankDelivery, parseOutputSchema, type DeliveryKind, type MissionDelivery } from "../../../lib/missions";
 import { Tile, TileGroup } from "./Tile";
 import type { Named } from "./AgentStep";
 
 const DELIVERY_ICONS: Record<string, LucideIcon> = {
+  pull_request: GitPullRequest,
   chat: Slack,
   webhook: Webhook,
   github_review: Eye,
   github_comment: MessageSquare,
+};
+
+const OPTIONAL_HINTS: Record<string, string> = {
+  pull_request: "No pull request when there is nothing to change.",
+  chat: "No message when there is nothing to report.",
+  webhook: "No call when there is nothing to report.",
+  github_review: "No review when there is nothing to say.",
+  github_comment: "No comment when there is nothing to say.",
 };
 
 const DeliveryFields: React.FC<{
@@ -26,7 +35,25 @@ const DeliveryFields: React.FC<{
   const schema = delivery.kind === "webhook" ? parseOutputSchema(schemaText) : null;
   return (
     <li className="space-y-3 rounded-lg border border-surface-border p-3" data-testid={`mission-delivery-${delivery.kind}`}>
-      <span className="text-xs font-semibold text-foreground">{label}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-foreground">{label}</span>
+        <label className="flex items-center gap-2 text-xs text-foreground" title={OPTIONAL_HINTS[delivery.kind]}>
+          <input
+            type="checkbox"
+            data-testid={`mission-delivery-optional-${delivery.kind}`}
+            checked={delivery.optional}
+            onChange={(e) => onChange({ ...delivery, optional: e.target.checked })}
+          />
+          Optional
+        </label>
+      </div>
+      {delivery.optional && <p className="text-xs text-neutral-600 dark:text-neutral-400">{OPTIONAL_HINTS[delivery.kind]}</p>}
+      {delivery.kind === "pull_request" && (
+        <p className="text-xs text-neutral-600 dark:text-neutral-400">
+          The agent opens it with the mission&apos;s GitHub access (writes are switched on in Task); the run fails if it opens none
+          {delivery.optional ? ", unless it had nothing to change" : ""}.
+        </p>
+      )}
       {delivery.kind === "chat" && (
         <div className="grid gap-3 sm:grid-cols-2">
           {bots.length > 0 && (
@@ -89,18 +116,24 @@ const DeliveryFields: React.FC<{
   );
 };
 
-/** Where the result goes: always its session, and any of Slack, a webhook or the forge. */
+/** Where the result goes: always its session, and any of a pull request, Slack, a webhook or the forge. */
 export const DeliverStep: React.FC<{
   deliveries: MissionDelivery[];
   schemas: Record<number, string>;
   bots: Named[];
   advanced: boolean;
+  review: boolean;
+  sessionOnly: boolean;
   onChange: (deliveries: MissionDelivery[]) => void;
   onSchemas: (schemas: Record<number, string>) => void;
-}> = ({ deliveries, schemas, bots, advanced, onChange, onSchemas }) => {
+  onSessionOnly: (sessionOnly: boolean) => void;
+}> = ({ deliveries, schemas, bots, advanced, review, sessionOnly, onChange, onSchemas, onSessionOnly }) => {
   const toggle = (kind: Exclude<DeliveryKind, "session">) => {
     const index = deliveries.findIndex((d) => d.kind === kind);
-    if (index < 0) return onChange([...deliveries, blankDelivery(kind)]);
+    if (index < 0) {
+      onSessionOnly(false);
+      return onChange([...deliveries, blankDelivery(kind)]);
+    }
     onChange(deliveries.filter((_, i) => i !== index));
     // Schema texts are keyed by position: those after the removed delivery move up one.
     onSchemas(
@@ -114,8 +147,17 @@ export const DeliverStep: React.FC<{
   return (
     <div className="space-y-4">
       <TileGroup label="Where the result goes" role="group">
-        <Tile icon={MonitorPlay} label="Its session" hint="Every run is a session you can open." selected role="checkbox" disabled testId="mission-delivery-toggle-session" onClick={() => undefined} />
-        {DELIVERY_OPTIONS.map((option) => (
+        <Tile
+          icon={MonitorPlay}
+          label="Its session only"
+          hint="Every run is a session you can open; choose this when that is enough."
+          selected={deliveries.length === 0 && sessionOnly}
+          role="checkbox"
+          disabled={deliveries.length > 0}
+          testId="mission-delivery-toggle-session"
+          onClick={() => onSessionOnly(!sessionOnly)}
+        />
+        {DELIVERY_OPTIONS.filter((option) => !(review && option.kind === "pull_request")).map((option) => (
           <Tile
             key={option.kind}
             icon={DELIVERY_ICONS[option.kind] ?? Webhook}

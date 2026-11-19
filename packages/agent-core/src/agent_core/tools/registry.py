@@ -26,6 +26,7 @@ from agent_core.permissions import (
     ApprovalNeed,
     approval_details,
     approval_needed,
+    changes_forge,
     covering_rule,
     gated_call,
     is_read_call,
@@ -65,6 +66,18 @@ SANDBOX_DOMAINS = frozenset(
     {"Repositories", "Workspace", "Files", "Commands", "Environment", "Background processes", "Git"}
 )
 SANDBOX_FREE_FILE_TOOLS = frozenset({"file_read", "file_write", "file_edit", "list_dir"})
+# Tools of a sandbox domain that work without one: the file tools on the session's files, and the
+# repository tools that call the GitHub API instead of the sandbox (reading a repository before
+# cloning it is what they are for).
+SANDBOX_FREE_TOOLS = SANDBOX_FREE_FILE_TOOLS | frozenset(
+    {
+        "github_find_repositories",
+        "github_read_file",
+        "github_issues",
+        "github_watch",
+        "github_unwatch",
+    }
+)
 
 
 class SandboxDisabledError(RuntimeError):
@@ -517,6 +530,13 @@ class ToolRegistry:
         embedding) refuses the call instead of running it unsupervised.
         """
         ctx = current_execution_ctx.get()
+        # Before any gate: a person is never asked to approve a call that is refused anyway.
+        if ctx is not None and not ctx.policy.git.forge_writes and changes_forge(name, arguments):
+            return (
+                f"Refused: '{name}' changes GitHub, and this run may only read it (the mission "
+                "does not allow GitHub writes). Do not retry: finish the work locally and say in "
+                "your answer what should be published."
+            )
         mode = ctx.policy.permission_mode if ctx is not None else DEFAULT_PERMISSION_MODE
         always_gated = ctx is not None and name in ctx.policy.gated_tools
         need = approval_needed(mode, name, arguments) or (
@@ -1004,7 +1024,7 @@ class ToolRegistry:
         return frozenset(
             name
             for name, domain in self._builtin_domains.items()
-            if domain in SANDBOX_DOMAINS and name not in SANDBOX_FREE_FILE_TOOLS
+            if domain in SANDBOX_DOMAINS and name not in SANDBOX_FREE_TOOLS
         )
 
     def domain_of(self, name: str) -> str | None:

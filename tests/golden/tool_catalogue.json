@@ -1048,7 +1048,7 @@
     "parameters": {
       "properties": {
         "kind": {
-          "description": "What to search.",
+          "description": "What to search (code).",
           "enum": [
             "code",
             "issues",
@@ -1066,7 +1066,6 @@
         }
       },
       "required": [
-        "kind",
         "query"
       ],
       "type": "object"
@@ -1336,7 +1335,7 @@
     }
   },
   {
-    "description": "Execute a shell command inside the sandbox, in bash (sh only in an image without bash). Each call is a fresh shell: `cd` and `export` do not carry over. Always say where it runs with `cwd`; never start the command with `cd`. For variables every command needs, use `env_set` once instead of exporting them each time.",
+    "description": "Execute a shell command inside the sandbox, in bash (sh only in an image without bash). Each call is a fresh shell: `cd` and `export` do not carry over. Say where it runs with `cwd`; never start the command with `cd`. For variables every command needs, use `env_set` once instead of exporting them each time.",
     "name": "bash_exec",
     "parameters": {
       "properties": {
@@ -1345,7 +1344,7 @@
           "type": "string"
         },
         "cwd": {
-          "description": "Folder to run in, e.g. /workspace/api (absolute, or relative to /workspace).",
+          "description": "Folder to run in, e.g. /workspace/api (absolute, or relative to /workspace). Default: the active repository.",
           "type": "string"
         },
         "timeout_seconds": {
@@ -1354,8 +1353,7 @@
         }
       },
       "required": [
-        "command",
-        "cwd"
+        "command"
       ],
       "type": "object"
     }

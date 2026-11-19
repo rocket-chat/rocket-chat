@@ -67,6 +67,20 @@ test.describe("Agent tool groups", () => {
     // Core tools span several domains: Git holds some of them, so it is partly selected.
     await expect(page.getByTestId("agent-tool-group-toggle-git")).toHaveJSProperty("indeterminate", true);
 
+    // Opened, an MCP group names each tool by its own name, whole: its server is the group's title.
+    await page.getByTestId("agent-tool-group-header-mcp-github").click();
+    const listIssues = page.getByTestId("agent-tool-mcp__github__list_issues");
+    await expect(listIssues).toContainText("list_issues");
+    await expect(listIssues).not.toContainText("mcp__github__");
+    await expect(listIssues.getByTitle("mcp__github__list_issues")).toBeVisible();
+    // Its description shows while hovered, and no longer stays open after a click once the pointer leaves.
+    const hint = listIssues.getByRole("tooltip");
+    await listIssues.getByRole("checkbox").click();
+    await listIssues.getByRole("checkbox").click();
+    await expect(hint).toBeVisible();
+    await page.getByTestId("agent-tool-selected-count").hover();
+    await expect(hint).toBeHidden();
+
     const saved = page.waitForResponse(
       (res) => res.url().includes("/v1/agents") && res.request().method() === "POST"
     );

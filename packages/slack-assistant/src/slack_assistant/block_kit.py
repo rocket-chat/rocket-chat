@@ -1,4 +1,5 @@
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from specifications.interfaces.agent import FileDiff, InteractiveQuestion
@@ -419,6 +420,18 @@ def build_other_answer_modal(question_text: str, private_metadata: str) -> dict[
 def build_decision_blocks(text: str) -> list[dict[str, Any]]:
     """What a gate message becomes once answered: the decision, without its buttons."""
     return [{"type": "section", "text": {"type": "mrkdwn", "text": text[:2900]}}]
+
+
+_PULL_REQUEST = re.compile(r"https://[^/\s]+/([\w.-]+/[\w.-]+)/pull/(\d+)")
+
+
+def pull_request_links(urls: Sequence[str]) -> str | None:
+    """``PRs: <url|owner/repo#12>, ...`` for a context line, or ``None`` when there are none."""
+    links = []
+    for url in urls:
+        match = _PULL_REQUEST.match(url)
+        links.append(f"<{url}|{match.group(1)}#{match.group(2)}>" if match else f"<{url}>")
+    return f"PRs: {', '.join(links)}" if links else None
 
 
 def open_in_rocket_context(

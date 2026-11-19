@@ -450,6 +450,7 @@ async def _skills_guidance(ctx: TurnContext) -> list[str]:
         ctx.session.tenant_org_id,
         ctx.session.tenant_user_id,
         ctx.binding.skill_ids,
+        ctx.binding.policy.attribution.team_id,
     )
     if not skills:
         return []
@@ -522,6 +523,7 @@ async def build_system_prompt(
     processes_note = await _processes_note(ctx)
     github_note = await _github_activity_note(ctx)
     sign_in_note = _mcp_sign_in_note(ctx.state.mcp_needs_sign_in)
+    unavailable_note = _mcp_unavailable_note(ctx.state.mcp_unavailable)
     env_note = _session_env_note(ctx.binding.policy)
     released_note = await _released_workspace_note(ctx)
     return SystemPrompt(
@@ -535,6 +537,7 @@ async def build_system_prompt(
         + (f"\n{processes_note}" if processes_note else "")
         + (f"\n{github_note}" if github_note else "")
         + (f"\n{sign_in_note}" if sign_in_note else "")
+        + (f"\n{unavailable_note}" if unavailable_note else "")
         + (f"\n{env_note}" if env_note else "")
         + (f"\n{overlay.dynamic}" if overlay and overlay.dynamic else ""),
     )
@@ -562,6 +565,17 @@ def _mcp_sign_in_note(servers: list[str]) -> str:
         f"Not signed in (their tools are unavailable this turn): {names}. If the task needs one, "
         f"tell the person to sign in at {settings} and say what you could not do; do not try to "
         "reach that service another way."
+    )
+
+
+def _mcp_unavailable_note(servers: list[str]) -> str:
+    """Tool servers that did not answer when the turn started: their tools are missing."""
+    if not servers:
+        return ""
+    names = ", ".join(sorted(set(servers)))
+    return (
+        f"Unreachable this turn (their tools are missing): {names}. If the task needs one, say "
+        "which source you could not reach instead of answering without saying so."
     )
 
 

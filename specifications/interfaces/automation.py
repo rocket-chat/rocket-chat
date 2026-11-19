@@ -2,15 +2,21 @@
 
 A **mission** is an agent run the platform starts on its own: *when* (one to three triggers: a
 cron schedule, a forge or tracker event, an inbound webhook of its own, or a person pressing
-*Run now*), *who* (an agent, permission mode, model tier, sandbox type), *what* (instructions)
-and *where the result goes* (deliveries). It is owned like any object (a member, a team or the
+*Run now*), *who* (an agent, permission mode, model tier, sandbox type), *what* (instructions, the
+repositories to work in, and whether it may change anything on GitHub) and *where the result
+goes* (deliveries). It is owned like any object (a member, a team or the
 organization). Every source is parsed into one ``TriggerEvent``; ``matches`` decides whether a
-mission's trigger takes it, so no source has rules of its own.
+mission's trigger takes it, so no source has rules of its own. A trigger on an event (not a
+schedule) may wait ``delay_minutes`` before its run starts, so the run sees what happened after
+the event (an hour of logs after a deploy); the waiting run is kept until it is due.
 
 A **delivery** is published by the platform after the run, never by the agent: the agent hands
 its result to the ``deliver`` tool, checked against the delivery's schema
-(``delivery_schema``), and the platform posts it with the mission's own rights. A run is always
-a session too, which is the audit trail of what it did.
+(``delivery_schema``), and the platform posts it with the mission's own rights. The exception is
+``pull_request``: the agent opens it during the run (it needs ``github_write``), and the platform
+only checks that the run did. A delivery marked ``optional`` may be left out when the run has
+nothing to report; the run still succeeds. A run is always a session too, which is the audit
+trail of what it did.
 
 An **outbound webhook** is an organization's URL that receives signed reports of turn and pull
 request outcomes (``OUTBOUND_EVENTS``), whatever started them.
@@ -72,22 +78,39 @@ class MissionTrigger:
     # ``schedule``: a five-field cron expression, read in ``timezone``.
     schedule: str = ""
     timezone: str = "UTC"
+    # Events only (``DELAYABLE_SOURCES``): minutes between the event and the start of its run.
+    delay_minutes: int = 0
 
 
-DeliveryKind = Literal["session", "chat", "webhook", "github_review", "github_comment"]
+# A schedule already says when it runs, and Run now means now: every other source may wait.
+DELAYABLE_SOURCES = frozenset(s for s in TRIGGER_SOURCES if s not in ("schedule", "api"))
+MAX_TRIGGER_DELAY_MINUTES = 24 * 60
+# Runs waiting for their delay, per mission: a burst of events must not pile up unbounded.
+MAX_DELAYED_RUNS_PER_MISSION = 50
+
+
+def trigger_delay(triggers: tuple[MissionTrigger, ...], event: TriggerEvent) -> int:
+    """Seconds the run ``event`` starts waits: the shortest delay of the triggers that take it."""
+    delays = [t.delay_minutes for t in triggers if matches(t, event)]
+    return min(delays) * 60 if delays else 0
+
+
+DeliveryKind = Literal[
+    "session", "chat", "webhook", "github_review", "github_comment", "pull_request"
+]
 DELIVERY_KINDS: tuple[DeliveryKind, ...] = (
     "session",
     "chat",
     "webhook",
     "github_review",
     "github_comment",
+    "pull_request",
 )
-# Deliveries whose result is text: without a ``deliver`` call the run's answer is used.
-TEXT_DELIVERIES = frozenset({"chat", "github_comment"})
 # Deliveries that post on the item the event is about (a pull request, an issue).
 ITEM_DELIVERIES = frozenset({"github_review", "github_comment"})
-MAX_DELIVERIES = 4
+MAX_DELIVERIES = len(DELIVERY_KINDS)
 MAX_OUTPUT_SCHEMA_CHARS = 4000
+MAX_REPOSITORIES = 10
 
 
 @dataclass(frozen=True)
@@ -102,27 +125,49 @@ class Delivery:
     url: str = ""
     # ``webhook``: the JSON Schema the result must follow (an object); empty: ``{summary}``.
     output_schema: dict[str, Any] = field(default_factory=dict)
+    # The run may end without it (nothing to report, no change to propose): it is then skipped,
+    # not failed. A required one the run gave nothing for fails: no delivery ever falls back to
+    # the run's final answer.
+    optional: bool = False
 
 
 _TEXT = {"type": "string", "minLength": 1, "maxLength": 20000}
+# What a channel shows of a mission's Slack message: the schema refuses more, so the agent
+# shortens it instead of the platform cutting it.
+MAX_CHAT_CHARS = 1500
+_GITHUB_MARKDOWN = "GitHub-flavored Markdown."
+# The descriptions are what the agent reads of each output in the ``deliver`` schema: where it is
+# posted and in which format. Keep them short, they are sent with every run.
 NATIVE_SCHEMAS: dict[str, dict[str, Any]] = {
     "chat": {
         "type": "object",
-        "properties": {"text": {**_TEXT, "maxLength": 3000}},
+        "description": "A Slack message posted in a channel, under the mission's name.",
+        "properties": {
+            "text": {
+                **_TEXT,
+                "maxLength": MAX_CHAT_CHARS,
+                "description": "Short Markdown, converted to Slack's format (bold, links, lists, "
+                "code; tables become code blocks). Plain sentences for a reader who did not see "
+                "the run: lead with the outcome, link what you cite, do not repeat the mission's "
+                "name.",
+            }
+        },
         "required": ["text"],
         "additionalProperties": False,
     },
     "github_comment": {
         "type": "object",
-        "properties": {"body": _TEXT},
+        "description": "A comment posted on the issue or pull request the run is about.",
+        "properties": {"body": {**_TEXT, "description": _GITHUB_MARKDOWN}},
         "required": ["body"],
         "additionalProperties": False,
     },
     "github_review": {
         "type": "object",
+        "description": "One review posted on the pull request, with comments on its lines.",
         "properties": {
             "event": {"enum": ["comment", "approve", "request_changes"]},
-            "body": _TEXT,
+            "body": {**_TEXT, "description": _GITHUB_MARKDOWN},
             "comments": {
                 "type": "array",
                 "maxItems": 50,
@@ -144,26 +189,33 @@ NATIVE_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 DEFAULT_WEBHOOK_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "properties": {"summary": _TEXT},
+    "description": "A JSON body sent to the mission's webhook.",
+    "properties": {"summary": {**_TEXT, "description": "Plain text."}},
     "required": ["summary"],
 }
 
 
 def delivery_schema(deliveries: tuple[Delivery, ...]) -> dict[str, Any] | None:
     """The schema of the ``deliver`` tool's ``output`` for these deliveries: one property per
-    delivery that needs a result, named by its kind; ``None`` when none does (session only)."""
+    delivery that needs a result, named by its kind, required unless the delivery is optional;
+    ``None`` when none needs one (session and pull request only)."""
     properties: dict[str, Any] = {}
+    required: list[str] = []
     for delivery in deliveries:
         if delivery.kind == "webhook":
             properties["webhook"] = delivery.output_schema or DEFAULT_WEBHOOK_SCHEMA
         elif delivery.kind in NATIVE_SCHEMAS:
             properties[delivery.kind] = NATIVE_SCHEMAS[delivery.kind]
+        else:
+            continue
+        if not delivery.optional:
+            required.append(delivery.kind)
     if not properties:
         return None
     return {
         "type": "object",
         "properties": properties,
-        "required": sorted(properties),
+        "required": sorted(required),
         "additionalProperties": False,
     }
 
@@ -199,7 +251,11 @@ class TriggerEvent:
     mentions_agent: bool = False
 
 
-MissionRunStatus = Literal["running", "completed", "failed", "delivered", "delivery_failed"]
+MissionRunStatus = Literal[
+    "scheduled", "running", "completed", "failed", "delivered", "delivery_failed"
+]
+# How one delivery of a run went; ``skipped``: an optional delivery the run had nothing for.
+DeliveryStatus = Literal["delivered", "pending", "failed", "skipped"]
 
 
 @dataclass
@@ -224,8 +280,14 @@ class Mission:
     # After the run's pull request: wake it on a failed check or a review comment to fix what is
     # clear (bounded by the session's continuation limits).
     auto_fix: bool = False
-    git_repo: str = ""
+    # Repositories the run works in (``owner/name``), named to the agent, which clones them; an
+    # event's own repository comes first. ``git_branch`` is checked out in the first one.
+    git_repos: tuple[str, ...] = ()
     git_branch: str = ""
+    # Whether runs may change GitHub (push, open pull requests, write through the GitHub tools).
+    # Off, the run reads only, whoever it runs as. A ``pull_request`` delivery and ``auto_fix``
+    # need it.
+    github_write: bool = False
     enabled: bool = True
     # Who its runs are: the owner for a personal mission; a service member of the mission for a
     # team's or the organization's (``mission_<id>``), never the person who triggered it.
@@ -252,7 +314,8 @@ class MissionRun:
     source: str
     title: str = ""
     status: str = "running"
-    # [{kind, status, error}] once the run ends.
+    # [{kind, status, error}] once the run ends (``status``: a ``DeliveryStatus``); a pull request
+    # delivery adds its ``url``.
     deliveries: tuple[dict[str, str], ...] = ()
     started_at: int = 0
     finished_at: int | None = None

@@ -136,8 +136,8 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
     @registry._tool(
         description=(
             "Execute a shell command inside the sandbox, in bash (sh only in an image without "
-            "bash). Each call is a fresh shell: `cd` and `export` do not carry over. Always say "
-            "where it runs with `cwd`; never start the command with `cd`. For variables every "
+            "bash). Each call is a fresh shell: `cd` and `export` do not carry over. Say where "
+            "it runs with `cwd`; never start the command with `cd`. For variables every "
             "command needs, use `env_set` once instead of exporting them each time."
         )
     )
@@ -147,9 +147,9 @@ def _register_shell_tools(registry: "ToolRegistry") -> None:
             str,
             Field(
                 description="Folder to run in, e.g. /workspace/api (absolute, or relative to "
-                "/workspace)."
+                "/workspace). Default: the active repository."
             ),
-        ],
+        ] = "",
         timeout_seconds: Annotated[
             int, Field(description="Execution timeout in seconds (default: 120).")
         ] = 120,

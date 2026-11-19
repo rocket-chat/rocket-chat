@@ -165,6 +165,24 @@ async def test_reads_use_the_read_credential_and_changes_the_write_one(
     assert READ not in checks + commented and WRITE not in checks + commented
 
 
+async def test_an_edit_and_a_comment_sharing_the_body_are_refused_together(
+    registry: ToolRegistry, github: FakeGitHub
+) -> None:
+    refused = await registry.call_tool(
+        "github_pull_request",
+        {
+            "repository": "acme/app",
+            "actions": ["edit", "comment"],
+            "number": 7,
+            "title": "New title",
+            "body": "New description",
+        },
+    )
+
+    assert refused.startswith("Error:") and "two calls" in refused
+    assert not github.calls, "nothing was changed"
+
+
 async def test_review_threads_reply_and_resolve(registry: ToolRegistry, github: FakeGitHub) -> None:
     threads = await registry.call_tool(
         "github_pull_request",

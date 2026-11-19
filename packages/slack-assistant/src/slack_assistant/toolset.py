@@ -7,7 +7,8 @@ from typing import Any
 
 from agent_core.context import current_execution_ctx
 
-from slack_assistant.directory import MAX_MATCHES, SlackDirectoryMixin, person_line
+from slack_assistant.directory import MAX_MATCHES, SlackDirectoryMixin, _data, person_line
+from slack_assistant.policy import INVITED_CHANNELS
 from slack_assistant.thread_context import (
     build_channel_transcript,
     build_thread_transcript,
@@ -378,11 +379,13 @@ class SlackToolsetMixin(SlackDirectoryMixin):
         policy = (self.settings.slack_dm_policy or "paired").strip().lower()
         return policy if policy in ("none", "paired", "all") else "paired"
 
-    def _outbound_channel_allowed(self, channel_id: str) -> bool:
+    async def _outbound_channel_allowed(self, channel_id: str) -> bool:
         """Whether the agent may post or react in ``channel_id``.
 
         Default-deny: with no organization allowlist the agent may only act in the
-        conversation it was invoked from, never in arbitrary channels.
+        conversation it was invoked from, never in arbitrary channels. ``*`` in the allowlist
+        admits every channel the bot was invited to (and the conversation it was invoked
+        from); membership is asked of Slack each time, so removing the bot takes effect at once.
         """
         ctx = current_execution_ctx.get()
         session = self._session_policy.get(ctx.session_id) if ctx is not None else None
@@ -394,10 +397,28 @@ class SlackToolsetMixin(SlackDirectoryMixin):
                 for item in (self.settings.slack_outbound_channels or "").split(",")
                 if item.strip()
             }
+        current = self._current_slack_context()
+        invoked_here = current is not None and channel_id == current[0]
+        if INVITED_CHANNELS in channels:
+            return invoked_here or channel_id in channels or await self._bot_is_member(channel_id)
         if channels:
             return channel_id in channels
-        current = self._current_slack_context()
-        return current is not None and channel_id == current[0]
+        return invoked_here
+
+    async def _bot_is_member(self, channel_id: str) -> bool:
+        """Whether the bot was invited to ``channel_id``, a channel (never a direct message)."""
+        if not self._slack_api_ready or not channel_id or channel_id.startswith("D"):
+            return False
+        try:
+            info = _data(await self.app.client.conversations_info(channel=channel_id)).get(
+                "channel"
+            )
+        except Exception as err:  # unknown or hidden channel: not one the bot may post in
+            logger.info("conversations.info for %s failed: %s", channel_id, err)
+            return False
+        if not isinstance(info, dict) or info.get("is_im") or info.get("is_mpim"):
+            return False
+        return bool(info.get("is_member"))
 
     def _is_paired(self, target: str) -> bool:
         candidate = target.strip()
@@ -461,7 +482,7 @@ class SlackToolsetMixin(SlackDirectoryMixin):
     ) -> str:
         if not text.strip():
             return "Error: text is required."
-        if not self._outbound_channel_allowed(channel):
+        if not await self._outbound_channel_allowed(channel):
             return (
                 f"Blocked: posting to channel {channel} is not permitted by the workspace "
                 "policy (channel not in the outbound allowlist)."
@@ -507,7 +528,7 @@ class SlackToolsetMixin(SlackDirectoryMixin):
             return f"Error: unable to send DM ({err})."
 
     async def _tool_add_reaction(self, channel: str, ts: str, emoji: str) -> str:
-        if not self._outbound_channel_allowed(channel):
+        if not await self._outbound_channel_allowed(channel):
             return f"Blocked: reacting on {channel} is not permitted by the workspace policy."
         if not self._slack_api_ready:
             return "Error: Slack API client is not connected."

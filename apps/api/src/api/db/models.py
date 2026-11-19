@@ -1402,7 +1402,8 @@ class MissionModel(Base):
     triggers: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
     )
-    # [{kind, bot_id, channel, url, output_schema}]; a webhook's secret is in ``secrets``.
+    # [{kind, bot_id, channel, url, output_schema, optional}]; a webhook's secret is in
+    # ``secrets``.
     deliveries: Mapped[list[dict[str, Any]]] = mapped_column(
         JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
     )
@@ -1417,8 +1418,12 @@ class MissionModel(Base):
     sandbox_type: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     mode: Mapped[str] = mapped_column(String(16), nullable=False, default="work")
     auto_fix: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    git_repo: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    # ["owner/name", ...]: the repositories the runs work in.
+    git_repos: Mapped[list[str]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
     git_branch: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    github_write: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     run_as: Mapped[str] = mapped_column(String(64), nullable=False, default="")
     next_run_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
@@ -1481,6 +1486,30 @@ class MissionDeliveryModel(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     next_attempt_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
     last_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class MissionDelayedRunModel(Base):
+    """An event a mission took whose trigger waits before starting the run: kept until
+    ``due_at``, then claimed by deleting the row, so a restart loses none and another replica
+    starts none twice. Forced RLS."""
+
+    __tablename__ = "mission_delayed_runs"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    mission_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("missions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    # The ``TriggerEvent`` the run is about, as it was received.
+    event: Mapped[dict[str, Any]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=dict
+    )
+    # Who the run acts as when the mission names nobody (the event's author).
+    fallback_owner: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    due_at: Mapped[int] = mapped_column(BigInteger, nullable=False, index=True)
     created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 

@@ -34,11 +34,12 @@ from api.services.default_agent import (
     DEFAULT_AGENT_KEY,
     resolve_default_agent,
 )
-from api.services.ownership import request_viewer
+from api.services.ownership import manageable, request_viewer
 from api.services.persona_lint import PersonaWarning, lint_persona
 from api.services.personas import (
     PersonaError,
     delete_persona,
+    find_agent,
     get_persona,
     list_personas,
     save_persona,
@@ -225,10 +226,27 @@ class AgentAccessRequest(BaseModel):
     grants: list[AgentGrantModel] = Field(default_factory=list, max_length=500)
 
 
+async def _shared_agent_to_manage(request: Request, persona_id: str) -> tuple[str, str, Any]:
+    """The organization or team agent whose access the caller manages: an organization agent
+    by an organization administrator, a team's agent also by that team's administrators."""
+    org_id, viewer = await request_viewer(request)
+    agent = await find_agent(
+        getattr(request.app.state, "db_manager", None), org_id, viewer, persona_id
+    )
+    if agent is None or agent.scope not in ("org", "team") or agent.user_id:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    if agent.scope == "org" and not viewer.is_org_admin:
+        raise HTTPException(status_code=403, detail="Forbidden: Admin or owner role required")
+    if agent.scope == "team" and not manageable(agent, viewer):
+        raise HTTPException(status_code=403, detail="Only the team's administrators can do this")
+    return org_id, viewer.user_id, agent
+
+
 @router.get("/agents/{persona_id}/access", response_model=AgentAccessResponse)
 async def get_agent_access(persona_id: str, request: Request) -> AgentAccessResponse:
-    """Who may use an organization agent (administrators)."""
-    org_id, _, _ = _require_admin(request)
+    """Who may use an organization agent (administrators) or a team's agent beyond its team
+    (the team's administrators too)."""
+    org_id, _, _ = await _shared_agent_to_manage(request, persona_id)
     grants = await grants_for(getattr(request.app.state, "db_manager", None), org_id, persona_id)
     return AgentAccessResponse(
         agent_id=persona_id,
@@ -243,15 +261,12 @@ async def get_agent_access(persona_id: str, request: Request) -> AgentAccessResp
 async def put_agent_access(
     persona_id: str, body: AgentAccessRequest, request: Request
 ) -> AgentAccessResponse:
-    """Replace who may use an organization agent (administrators). Turns already running
-    finish; the next turn of someone who lost access fails with ``agent_access_denied``, and
-    scheduled missions of people who lost it are paused."""
-    org_id, admin_id, roles = _require_admin(request)
+    """Replace who may use an organization agent (administrators), or who besides its team may
+    use a team's agent (the team's administrators too; no grants keeps it the team's). Turns
+    already running finish; the next turn of someone who lost access fails with
+    ``agent_access_denied``, and scheduled missions of people who lost it are paused."""
+    org_id, admin_id, agent = await _shared_agent_to_manage(request, persona_id)
     db_mgr = getattr(request.app.state, "db_manager", None)
-    agent = await get_persona(db_mgr, org_id, admin_id, persona_id, roles=roles)
-    # A team's agent serves the team's members; grants shape who uses an organization agent.
-    if agent is None or agent.scope != "org" or agent.user_id:
-        raise HTTPException(status_code=404, detail="Organization agent not found")
     team_ids = {team.id for team in await list_teams(db_mgr, org_id)}
     for grant in body.grants:
         if grant.principal_kind in ("member", "role", "team") and not grant.principal_id:

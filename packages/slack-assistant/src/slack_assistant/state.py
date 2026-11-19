@@ -137,7 +137,10 @@ class SlackAssistantState:
     def _current_slack_context(self) -> tuple[str, str] | None:
         raise NotImplementedError
 
-    def _outbound_channel_allowed(self, channel_id: str) -> bool:
+    async def _outbound_channel_allowed(self, channel_id: str) -> bool:
+        raise NotImplementedError
+
+    async def _bot_is_member(self, channel_id: str) -> bool:
         raise NotImplementedError
 
     async def _resolve_slack_user_name(self, user_id: str) -> str:

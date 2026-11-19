@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { FilePlus, SlidersHorizontal, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, FilePlus, SlidersHorizontal, Sparkles } from "lucide-react";
 import { Button } from "../ui/Button";
 import { Field, Input } from "../ui/Field";
 import { OwnerSelect, useMoveConfirmation } from "../settings/Owner";
@@ -10,19 +10,25 @@ import { useTeams } from "../../lib/teams";
 import { creatableOwners, ownerFields, ownerKey, type OwnerKey } from "../../lib/ownership";
 import {
   DELIVERY_OPTIONS,
+  MISSION_STEPS,
   OWN_SOURCES,
+  TRIGGER_DELAYS,
   blankMission,
   completeMission,
   missionProblem,
+  needsGithubWrite,
   parseOutputSchema,
-  sourceLabel,
+  triggerLabel,
+  stepProblems,
   type MissionBody,
+  type MissionChoices,
   type MissionDelivery,
   type MissionPreset,
+  type MissionStep,
   type SavedMission,
 } from "../../lib/missions";
 import { describeSchedule, readSchedule } from "../../lib/mission-schedule";
-import { StepStrip, type MissionStep } from "./pipeline/StepStrip";
+import { STEPS, StepStrip } from "./pipeline/StepStrip";
 import { Tile, TileGroup } from "./pipeline/Tile";
 import { WhenStep } from "./pipeline/WhenStep";
 import { AgentStep, type Named } from "./pipeline/AgentStep";
@@ -69,6 +75,7 @@ function usesAdvanced(draft: MissionBody, schemas: Record<number, string>): bool
   const triggerNeedsIt = draft.triggers.some(
     (t) =>
       (t.source === "schedule" && readSchedule(t.schedule) === null) ||
+      !TRIGGER_DELAYS.some((d) => d.minutes === (t.delay_minutes ?? 0)) ||
       (!OWN_SOURCES.has(t.source) && t.filter.repositories.length + t.filter.labels.length + t.filter.branches.length > 0),
   );
   return (
@@ -78,21 +85,73 @@ function usesAdvanced(draft: MissionBody, schemas: Record<number, string>): bool
   );
 }
 
-function summaries(draft: MissionBody, agents: Named[]): Record<MissionStep, string> {
+function summaries(draft: MissionBody, agents: Named[], choices: MissionChoices): Record<MissionStep, string> {
   const when = draft.triggers.length
-    ? draft.triggers.map((t) => (t.source === "schedule" ? describeSchedule(t.schedule, t.timezone) : sourceLabel(t.source))).join(" · ")
-    : "Run by hand";
+    ? draft.triggers.map((t) => triggerLabel(t, (s) => describeSchedule(s.schedule, s.timezone))).join(" · ")
+    : choices.runByHand
+      ? "Run by hand"
+      : "Not chosen yet";
   const agentName = agents.find((a) => a.id === draft.agent_id)?.name ?? (draft.mode === "review" ? "The reviewer" : "The default agent");
   const instructions = draft.instructions.trim().replace(/\s+/g, " ");
   const task = instructions ? (instructions.length > 70 ? `${instructions.slice(0, 69)}…` : instructions) : "No instructions yet";
-  const deliveries = draft.deliveries.map((d) => DELIVERY_OPTIONS.find((o) => o.kind === d.kind)?.label ?? d.kind);
+  const deliveries = draft.deliveries.map(
+    (d) => `${DELIVERY_OPTIONS.find((o) => o.kind === d.kind)?.label ?? d.kind}${d.optional ? " (optional)" : ""}`,
+  );
+  const repos = draft.git_repos.filter((r) => r.trim());
+  const where = repos.length ? ` (${repos.join(", ")})` : "";
+  const access = draft.github_write ? " · GitHub writes" : " · reads GitHub";
   return {
     when,
     agent: `${agentName} · ${draft.mode === "review" ? "reviews the pull request" : "does the work"}`,
-    task: draft.git_repo ? `${task} (${draft.git_repo})` : task,
-    deliver: ["Its session", ...deliveries].join(" + "),
+    task: `${task}${where}${access}`,
+    deliver: deliveries.length || choices.sessionOnly ? ["Its session", ...deliveries].join(" + ") : "Not chosen yet",
   };
 }
+
+const STEP_TITLES = Object.fromEntries(STEPS.map((step) => [step.id, step.title])) as Record<MissionStep, string>;
+
+/** Back and Next under the open step, so the form reads as one flow from When to Deliver. */
+const StepNavigation: React.FC<{ step: MissionStep; onChoose: (step: MissionStep) => void }> = ({ step, onChoose }) => {
+  const index = MISSION_STEPS.indexOf(step);
+  const previous = MISSION_STEPS[index - 1];
+  const next = MISSION_STEPS[index + 1];
+  return (
+    <div className="mt-4 flex justify-between gap-2 border-t border-surface-border pt-3">
+      {previous ? (
+        <Button size="sm" variant="ghost" data-testid="mission-step-back" onClick={() => onChoose(previous)}>
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> {STEP_TITLES[previous]}
+        </Button>
+      ) : (
+        <span />
+      )}
+      {next && (
+        <Button size="sm" data-testid="mission-step-next" onClick={() => onChoose(next)}>
+          Next: {STEP_TITLES[next]} <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+        </Button>
+      )}
+    </div>
+  );
+};
+
+/** What is left before the mission can be saved, each item opening its step. */
+const Missing: React.FC<{ items: { step: MissionStep | null; text: string }[]; onChoose: (step: MissionStep) => void }> = ({ items, onChoose }) => (
+  <div id="mission-missing" data-testid="mission-missing" className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-xs">
+    <p className="font-semibold text-foreground">Before saving:</p>
+    <ul className="mt-1 space-y-1">
+      {items.map(({ step, text }) => (
+        <li key={`${step}-${text}`} className="text-neutral-700 dark:text-neutral-300">
+          {step ? (
+            <button type="button" className="underline-offset-2 hover:underline" onClick={() => onChoose(step)}>
+              {STEP_TITLES[step]}: {text}
+            </button>
+          ) : (
+            text
+          )}
+        </li>
+      ))}
+    </ul>
+  </div>
+);
 
 interface MissionFormProps {
   /** The mission edited (a stored one) or the starting point of a new one. */
@@ -107,11 +166,16 @@ interface MissionFormProps {
 export const MissionForm: React.FC<MissionFormProps> = ({ initial, editingId, presets, onSaved, onCancel }) => {
   const access = useAccess();
   const { teams } = useTeams();
-  const choices = useChoices();
+  const lists = useChoices();
   const [confirmMove, moveDialog] = useMoveConfirmation();
   const owners = creatableOwners(access, teams, true);
   const storedOwner = editingId ? ownerKey(initial) : null;
   const [draft, setDraft] = useState<MissionBody>(initial);
+  // A stored mission chose its triggers and deliveries; a new one is asked for them.
+  const [choices, setChoices] = useState<MissionChoices>({
+    runByHand: !!editingId && initial.triggers.length === 0,
+    sessionOnly: !!editingId && initial.deliveries.length === 0,
+  });
   const [owner, setOwner] = useState<OwnerKey>(ownerKey(initial));
   const [schemas, setSchemas] = useState<Record<number, string>>(() => schemaTexts(initial.deliveries));
   const [advanced, setAdvanced] = useState(() => usesAdvanced(initial, schemaTexts(initial.deliveries)));
@@ -119,17 +183,30 @@ export const MissionForm: React.FC<MissionFormProps> = ({ initial, editingId, pr
   const [presetId, setPresetId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const patch = (changes: Partial<MissionBody>) => setDraft((current) => ({ ...current, ...changes }));
+  // Opening or following up a pull request needs GitHub writes: ticked with it, never left off.
+  const patch = (changes: Partial<MissionBody>) =>
+    setDraft((current) => {
+      const next = { ...current, ...changes };
+      return needsGithubWrite(next) ? { ...next, github_write: true } : next;
+    });
 
   const applyPreset = (id: string) => {
     const preset = presets.find((p) => p.id === id);
     setPresetId(id);
-    setDraft({ ...(preset ? completeMission(preset.mission) : blankMission()), name: draft.name, enabled: true });
+    const next = preset ? completeMission(preset.mission) : blankMission();
+    setDraft({ ...next, name: draft.name, enabled: true });
+    setChoices({ runByHand: !!preset && next.triggers.length === 0, sessionOnly: !!preset && next.deliveries.length === 0 });
     setSchemas({});
   };
 
+  const problems = stepProblems(draft, choices);
+  const missing = [
+    ...(draft.name.trim() ? [] : [{ step: null, text: "Give the mission a name." }]),
+    ...MISSION_STEPS.flatMap((id) => (problems[id] ? [{ step: id, text: problems[id] as string }] : [])),
+  ];
+
   const ownerTeam = owner.startsWith("team:") ? owner.slice(5) : null;
-  const sandboxes = choices.sandboxes.filter((box) => !box.team_id || box.team_id === ownerTeam);
+  const sandboxes = lists.sandboxes.filter((box) => !box.team_id || box.team_id === ownerTeam);
 
   const save = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -144,8 +221,9 @@ export const MissionForm: React.FC<MissionFormProps> = ({ initial, editingId, pr
       if ("error" in parsed) return setError(parsed.error);
       deliveries.push({ ...delivery, output_schema: parsed.schema });
     }
-    const body: MissionBody = { ...draft, deliveries, ...ownerFields(owner) };
-    const problem = missionProblem(body);
+    const git_repos = [...new Set(draft.git_repos.map((r) => r.trim()).filter(Boolean))];
+    const body: MissionBody = { ...draft, deliveries, git_repos, ...ownerFields(owner) };
+    const problem = missionProblem(body, choices);
     if (problem) return setError(problem);
     if (editingId && storedOwner && !(await confirmMove(body.name, storedOwner, owner, { kind: "mission", id: editingId }))) return;
     setBusy(true);
@@ -215,23 +293,37 @@ export const MissionForm: React.FC<MissionFormProps> = ({ initial, editingId, pr
         </section>
       )}
 
-      <StepStrip active={step} summaries={summaries(draft, choices.agents)} onChoose={setStep} />
+      <StepStrip active={step} summaries={summaries(draft, lists.agents, choices)} problems={problems} onChoose={setStep} />
 
-      <section data-testid={`mission-panel-${step}`} aria-label="Selected step" className="rounded-lg border border-surface-border p-4">
-        {step === "when" && <WhenStep triggers={draft.triggers} advanced={advanced} onChange={(triggers) => patch({ triggers })} />}
-        {step === "agent" && <AgentStep draft={draft} agents={choices.agents} sandboxes={sandboxes} advanced={advanced} patch={patch} />}
+      <section data-testid={`mission-panel-${step}`} aria-label={`Step: ${STEP_TITLES[step]}`} className="rounded-lg border border-surface-border p-4">
+        {step === "when" && (
+          <WhenStep
+            triggers={draft.triggers}
+            advanced={advanced}
+            runByHand={choices.runByHand}
+            onChange={(triggers) => patch({ triggers })}
+            onRunByHand={(runByHand) => setChoices((c) => ({ ...c, runByHand }))}
+          />
+        )}
+        {step === "agent" && <AgentStep draft={draft} agents={lists.agents} sandboxes={sandboxes} advanced={advanced} patch={patch} />}
         {step === "task" && <TaskStep draft={draft} advanced={advanced} patch={patch} />}
         {step === "deliver" && (
           <DeliverStep
             deliveries={draft.deliveries}
             schemas={schemas}
-            bots={choices.bots}
+            bots={lists.bots}
             advanced={advanced}
+            review={draft.mode === "review"}
+            sessionOnly={choices.sessionOnly}
             onChange={(deliveries) => patch({ deliveries })}
             onSchemas={setSchemas}
+            onSessionOnly={(sessionOnly) => setChoices((c) => ({ ...c, sessionOnly }))}
           />
         )}
+        <StepNavigation step={step} onChoose={setStep} />
       </section>
+
+      {missing.length > 0 && <Missing items={missing} onChoose={setStep} />}
 
       {error && (
         <p role="alert" data-testid="mission-error" className="text-sm text-rose-600 dark:text-rose-400">
@@ -239,7 +331,13 @@ export const MissionForm: React.FC<MissionFormProps> = ({ initial, editingId, pr
         </p>
       )}
       <div className="flex gap-2">
-        <Button type="submit" variant="primary" data-testid="mission-save" disabled={busy}>
+        <Button
+          type="submit"
+          variant="primary"
+          data-testid="mission-save"
+          disabled={busy || missing.length > 0}
+          aria-describedby={missing.length > 0 ? "mission-missing" : undefined}
+        >
           {editingId ? "Save mission" : "Create mission"}
         </Button>
         <Button variant="ghost" onClick={onCancel}>

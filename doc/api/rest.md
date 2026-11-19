@@ -171,7 +171,8 @@ Delete a custom agent persona, or reset/disable a built-in persona.
 
 ### `GET /v1/agents/{persona_id}/access`
 
-Who may use an organization agent (administrators).
+Who may use an organization agent (administrators) or a team's agent beyond its team
+(the team's administrators too).
 
 **Parameters**
 
@@ -183,9 +184,10 @@ Who may use an organization agent (administrators).
 
 ### `PUT /v1/agents/{persona_id}/access`
 
-Replace who may use an organization agent (administrators). Turns already running
-finish; the next turn of someone who lost access fails with ``agent_access_denied``, and
-scheduled missions of people who lost it are paused.
+Replace who may use an organization agent (administrators), or who besides its team may
+use a team's agent (the team's administrators too; no grants keeps it the team's). Turns
+already running finish; the next turn of someone who lost access fails with
+``agent_access_denied``, and scheduled missions of people who lost it are paused.
 
 **Parameters**
 
@@ -1141,11 +1143,12 @@ List the caller organisation's audit trail, newest first (admin only).
 
 ### `GET /v1/mcp/oauth/callback`
 
-Exchange the PKCE code for tokens and store them encrypted on the authorized server.
+Exchange the PKCE code for tokens, store them encrypted and list the server's tools.
 
 The state was minted for one authenticated member of one organization; the callback
 must come from that same member, or a forwarded link could bind the attacker's account
-to the victim's server (or the reverse).
+to the victim's server (or the reverse). A sign-in whose tools cannot be listed lands on
+``status=no_tools`` with the reason, rather than a success with no tools.
 
 **Parameters**
 
@@ -1282,6 +1285,8 @@ Generate RFC 9728 / PKCE authorization redirect URL for an MCP server.
 
 Probe an MCP server and refresh its discovered tools.
 
+A server where every member signs in is probed with the caller's own account.
+
 **Parameters**
 
 | Name | In | Required | Type |
@@ -1345,8 +1350,9 @@ Create a mission for the caller, one of their teams or the organization.
 | sandbox_type | string | no |  |
 | mode | string | no |  |
 | auto_fix | boolean | no |  |
-| git_repo | string | no |  |
-| git_branch | string | no |  |
+| git_repos | list of string | no | Repositories the runs work in (owner/name); an event's own comes first |
+| git_branch | string | no | Branch of the first one |
+| github_write | boolean | no | Runs may change GitHub (push, open pull requests); needed by a pull_request delivery and auto_fix |
 | enabled | boolean | no |  |
 
 **Responses:** `200`
@@ -1401,8 +1407,9 @@ Replace a mission; naming another owner moves it (managing both sides).
 | sandbox_type | string | no |  |
 | mode | string | no |  |
 | auto_fix | boolean | no |  |
-| git_repo | string | no |  |
-| git_branch | string | no |  |
+| git_repos | list of string | no | Repositories the runs work in (owner/name); an event's own comes first |
+| git_branch | string | no | Branch of the first one |
+| github_write | boolean | no | Runs may change GitHub (push, open pull requests); needed by a pull_request delivery and auto_fix |
 | enabled | boolean | no |  |
 
 **Responses:** `200`
@@ -1457,7 +1464,8 @@ Start a run now, without moving the schedule (``text``: what this run is about).
 
 ### `GET /v1/missions/{mission_id}/runs`
 
-The mission's latest runs, newest first, with how each delivery went.
+The mission's latest runs, newest first, with how each delivery went; runs still waiting
+for their trigger's delay come first, as ``scheduled`` with the time they start.
 
 **Parameters**
 
@@ -1485,7 +1493,8 @@ secret (``webhook``); the new one is shown once.
 
 A mission's own webhook: ``X-Rocket-Signature: sha256=<hex HMAC of "<timestamp>.<body>">``
 with the mission's inbound secret and ``X-Rocket-Timestamp`` within five minutes. The JSON
-body is what the run is about (capped).
+body is what the run is about (capped). A webhook trigger with ``delay_minutes`` answers
+``scheduled`` and starts the run once the delay is over.
 
 **Parameters**
 

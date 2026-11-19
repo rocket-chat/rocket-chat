@@ -9,9 +9,10 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from api.main import app
+from api.routers import mcp_oauth, mcp_servers
 from api.services import mcp_engine, mcp_turn
 from api.services.mcp_member_tokens import McpMemberTokenStore
-from api.services.mcp_runtime import build_targets
+from api.services.mcp_runtime import auth_headers, build_targets
 from config_engine.crypto import CredentialCipher
 from fastapi.testclient import TestClient
 
@@ -22,9 +23,22 @@ BOB = {**ALICE, "X-Tenant-User-Id": "mt_bob"}
 VIEWER = {**ALICE, "X-Tenant-User-Id": "mt_viewer", "X-User-Role": "readonly"}
 
 
+PROBES: list[str] = []
+ISSUE_LIST = {"name": "list_issues", "description": "", "parameters_summary": ""}
+
+
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     issued: list[str] = []
+
+    async def probe(**kwargs: Any) -> tuple[str, list[Any], str | None]:
+        authorization = auth_headers(kwargs.get("auth_data") or {}, CredentialCipher()).get(
+            "Authorization", ""
+        )
+        PROBES.append(authorization)
+        if not authorization:
+            return "error", [], "HTTP 401 Unauthorized"
+        return "connected", [ISSUE_LIST], None
 
     async def public(_url: str) -> None:
         return None
@@ -35,6 +49,9 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
 
     monkeypatch.setattr(mcp_engine, "resolve_public_target", public)
     monkeypatch.setattr(mcp_engine, "_post_token_request", token_endpoint)
+    monkeypatch.setattr(mcp_oauth, "probe_and_fetch_tools", probe)
+    monkeypatch.setattr(mcp_servers, "probe_and_fetch_tools", probe)
+    PROBES.clear()
     with TestClient(app) as c:
         app.state.db_manager = None
         app.state.mcp_member_tokens = McpMemberTokenStore(None)
@@ -55,7 +72,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
                 "oauth_client_id": "rocket",
             },
             "tools": [],
-            "status": "connected",
+            "status": "needs_sign_in",
         }
         yield c
     mcp_turn._mcp_servers_store.clear()
@@ -161,3 +178,25 @@ def test_each_members_turn_runs_with_their_own_token_or_without_the_server(
     assert alice == {"srv-linear:mt_alice": "Bearer at-alice-code"}
     assert bob == {"srv-linear:mt_bob": "Bearer at-bob-code"}
     assert newcomer == {}, "a member who has not connected gets no tools, and no one else's token"
+
+
+def test_signing_in_lists_the_tools_with_the_members_own_account(client: TestClient) -> None:
+    _connect(client, ALICE, "alice-code")
+
+    server = mcp_turn._mcp_servers_store["srv-linear"]
+    assert PROBES == ["Bearer at-alice-code"]
+    assert server["tools"] == [ISSUE_LIST] and server["status"] == "connected"
+    assert "access_token_enc" not in server["encrypted_auth"]
+
+
+def test_probing_a_member_server_uses_the_callers_own_account(client: TestClient) -> None:
+    _connect(client, ALICE, "alice-code")
+    PROBES.clear()
+
+    alice = client.post("/v1/mcp/servers/srv-linear/probe", headers=ALICE)
+    newcomer = client.post("/v1/mcp/servers/srv-linear/probe", headers=BOB)
+
+    assert PROBES == ["Bearer at-alice-code", ""], "Bob is never probed with Alice's account"
+    assert alice.json()["tools_count"] == 1
+    assert newcomer.json()["status"] == "needs_sign_in"
+    assert "access_token_enc" not in mcp_turn._mcp_servers_store["srv-linear"]["encrypted_auth"]

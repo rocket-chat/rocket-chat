@@ -7,6 +7,7 @@ import { Button } from "../../ui/Button";
 import { ToolLoadBadge, ToolLoadSummary } from "../../settings/ToolLoadState";
 import { useToolLoadingPreview } from "../../../lib/useToolLoadingPreview";
 import { buildToolGroups, matchesQuery, ToolGroupSection, type PickableTool } from "./ToolGroups";
+import { withoutMcpPrefix } from "../useAgentRegistries";
 import type { SectionProps } from "./types";
 
 const PERMISSION_LABELS: Record<string, { label: string; hint: string }> = {
@@ -71,7 +72,7 @@ export const ToolsSection: React.FC<SectionProps> = ({ draft, patch, canEdit, re
       <label
         key={name}
         data-testid={`agent-tool-${name}`}
-        className={`group relative flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-xs hover:bg-surface-subnav/60 ${checked ? "bg-brand/5" : ""}`}
+        className={`group relative flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs hover:bg-surface-subnav/60 ${checked ? "bg-brand/5" : ""}`}
       >
         <input
           type="checkbox"
@@ -82,7 +83,9 @@ export const ToolsSection: React.FC<SectionProps> = ({ draft, patch, canEdit, re
         />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1">
-            <span className={`truncate ${checked ? "font-medium text-foreground" : "text-foreground/90"}`}>{name}</span>
+            <span title={name} className={`truncate ${checked ? "font-medium text-foreground" : "text-foreground/90"}`}>
+              {withoutMcpPrefix(name)}
+            </span>
             {approval && (
               <span title={approval.hint} className="shrink-0 text-[10px] text-neutral-600 dark:text-neutral-400">
                 · {approval.label}
@@ -109,11 +112,12 @@ export const ToolsSection: React.FC<SectionProps> = ({ draft, patch, canEdit, re
         </span>
         {description && (
           // The description stays out of the list so a group reads as names; it shows on hover
-          // and on keyboard focus, and screen readers get it through aria-describedby.
+          // and on keyboard focus (not the focus a click leaves on the checkbox, which kept it
+          // open after the pointer left), and screen readers get it through aria-describedby.
           <span
             id={hintId}
             role="tooltip"
-            className="pointer-events-none absolute left-6 top-full z-20 mt-0.5 hidden w-72 max-w-[80vw] rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-[11px] leading-snug text-foreground shadow-lg group-focus-within:block group-hover:block"
+            className="pointer-events-none absolute left-6 top-full z-20 mt-0.5 hidden w-72 max-w-[80vw] rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-[11px] leading-snug text-foreground shadow-lg group-hover:block group-has-[:focus-visible]:block"
           >
             {description}
           </span>

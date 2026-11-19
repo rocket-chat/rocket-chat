@@ -58,6 +58,38 @@ def test_a_change_in_the_turn_or_a_read_only_mode_silences_the_research_reminder
     assert pace_notice(_turn(*[("bash_exec",)] * RESEARCH_REMINDER_EVERY), may_edit=False) is None
 
 
+def test_steps_that_query_an_mcp_server_are_not_research() -> None:
+    queries = [("mcp__grafana__query_prometheus",)] * RESEARCH_REMINDER_EVERY
+    mixed = [("clone_repository", "mcp__grafana__query_prometheus")] * RESEARCH_REMINDER_EVERY
+
+    assert pace_notice(_turn(*queries)) is None
+    assert pace_notice(_turn(*mixed)) is None
+    assert pace_notice(_turn(*queries, *[("bash_exec",)] * RESEARCH_REMINDER_EVERY)) is not None
+
+
+def _shell_turn(*commands: str) -> list[ChatMessage]:
+    messages = [ChatMessage(role="user", content="Implement it.")]
+    for index, command in enumerate(commands):
+        messages += _step("bash_exec", call_id=index, arguments=json.dumps({"command": command}))
+    return messages
+
+
+def test_a_shell_command_that_writes_files_is_a_change() -> None:
+    research = ["ls"] * (RESEARCH_REMINDER_EVERY - 1)
+    script = "python3 - <<'EOF'\nopen('configs/a.yaml', 'w').write(text)\nEOF"
+
+    assert pace_notice(_shell_turn(*research, "ls")) is not None
+    assert pace_notice(_shell_turn(*research, script)) is None
+    assert pace_notice(_shell_turn(*research, "sed -i 's/a/b/' configs/a.yaml")) is None
+    assert pace_notice(_shell_turn(*research, "echo x > configs/a.yaml")) is None
+
+
+def test_processing_saved_tool_output_is_not_research() -> None:
+    parse = "python3 /tmp/join.py /workspace/.rocket/outputs/1_call.txt"
+
+    assert pace_notice(_shell_turn(*[parse] * RESEARCH_REMINDER_EVERY)) is None
+
+
 def test_only_this_turns_steps_count() -> None:
     earlier = _turn(*[("bash_exec",)] * RESEARCH_REMINDER_EVERY)
     now = [*earlier, ChatMessage(role="user", content="Another thing."), *_step("bash_exec")]

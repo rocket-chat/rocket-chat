@@ -982,9 +982,18 @@ class LiteLLMGateway(LLMGatewayProtocol):
         )
 
 
+# Routes whose stream LiteLLM strips of its usage unless asked, although it does not list the
+# option for them: it keeps ``stream_options`` out of the provider's request, but without it an
+# Anthropic stream reported no usage at all, so every call was priced by estimate, at the full
+# input price, and the prompt cache's reads and writes were never seen.
+_USAGE_ON_REQUEST_ROUTES = ("anthropic/",)
+
+
 def _usage_options(model: str) -> dict[str, Any]:
     """Ask for the usage block where the provider only sends it on request (OpenAI-compatible
-    APIs); LiteLLM reports it natively for the others, which reject the option."""
+    APIs, and LiteLLM's Anthropic route); the others report it natively and reject the option."""
+    if (model or "").strip().lower().startswith(_USAGE_ON_REQUEST_ROUTES):
+        return {"stream_options": {"include_usage": True}}
     try:
         supported = litellm.get_supported_openai_params(model=model) or []
     except Exception:
