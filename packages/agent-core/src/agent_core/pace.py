@@ -18,11 +18,14 @@ every Nth step rather than on each, and are rendered at the end of a request onl
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Sequence
 
 from agent_core.checklist import EDIT_TOOLS
 from agent_core.context_policy import find_turn_user_index
+from agent_core.tools.offload import OUTPUT_DIRECTORY
+from agent_core.tools.shell_intent import ShellIntent, shell_intents
 from specifications.interfaces.llm import ChatMessage
 
 # Steps of a turn without a change before the agent is asked to decide, and again every so often.
@@ -30,6 +33,9 @@ RESEARCH_REMINDER_EVERY = 10
 # Consecutive steps of a single read before the agent is asked to batch, and again every so often.
 BATCH_REMINDER_EVERY = 4
 READ_TOOLS = frozenset({"file_read", "grep_search", "glob_files", "list_dir", "code_search"})
+# Matched without the /workspace prefix: commands often `cd /workspace` first.
+TOOL_OUTPUT_DIR = OUTPUT_DIRECTORY.removeprefix("/workspace/")
+_SCRIPT_WRITE = re.compile(r"\.write\(|\.write_text\(|open\([^)]*,\s*['\"][wa]")
 # Where package managers keep the source of third-party dependencies.
 DEPENDENCY_SOURCE_MARKERS = (
     "/pkg/mod/",
@@ -59,6 +65,36 @@ _CREDENTIAL_WORKAROUNDS = re.compile(
 
 def _calls(message: ChatMessage) -> list[str]:
     return [str((c.get("function") or {}).get("name") or "") for c in message.tool_calls or []]
+
+
+def _shell_commands(message: ChatMessage) -> list[str]:
+    commands: list[str] = []
+    for call in message.tool_calls or []:
+        function = call.get("function") or {}
+        if function.get("name") != "bash_exec":
+            continue
+        try:
+            arguments = json.loads(function.get("arguments") or "{}")
+        except (TypeError, ValueError):
+            continue
+        if isinstance(arguments, dict) and isinstance(arguments.get("command"), str):
+            commands.append(arguments["command"])
+    return commands
+
+
+def _changes_files(message: ChatMessage) -> bool:
+    """Whether the step changed files: an edit tool, a commit, or a shell command that writes
+    (a redirect, ``sed -i``, or a script that writes files, as bulk edits are done)."""
+    if any(name in EDIT_TOOLS or name == "git_commit" for name in _calls(message)):
+        return True
+    return any(
+        ShellIntent.EDIT in shell_intents(command) or _SCRIPT_WRITE.search(command)
+        for command in _shell_commands(message)
+    )
+
+
+def _processes_tool_output(message: ChatMessage) -> bool:
+    return any(TOOL_OUTPUT_DIR in command for command in _shell_commands(message))
 
 
 def _dependency_reads(message: ChatMessage) -> int:
@@ -163,10 +199,16 @@ def pace_notice(conversation: Sequence[ChatMessage], *, may_edit: bool = True) -
 
     # A step that queries an MCP server (metrics, logs, a ticket tracker) gathers the data the
     # task is about rather than researching how to code it: telling it to stop cut capacity
-    # reports short of half their scope.
-    research = [step for step in steps if not any(name.startswith("mcp__") for name in step)]
+    # reports short of half their scope. Processing those results once saved to a file is the
+    # same work.
+    research = [
+        step
+        for step, message in zip(steps, assistant_steps, strict=True)
+        if not any(name.startswith("mcp__") for name in step)
+        and not _processes_tool_output(message)
+    ]
     if may_edit and research and len(research) % RESEARCH_REMINDER_EVERY == 0:
-        if not any(name in EDIT_TOOLS for step in steps for name in step):
+        if not any(_changes_files(m) for m in assistant_steps):
             notes.append(
                 f"You have spent {len(research)} steps in this turn without changing anything. Stop "
                 "researching: state your decision in one line, then act. Implement the simplest "

@@ -372,6 +372,7 @@ async def test_a_result_that_does_not_fit_is_refused_with_the_reason() -> None:
     assert OUTPUT_KEY not in record.metadata
     accepted = await accept_output(app, "org1", "s1", {"chat": {"text": "All green."}})
     assert accepted.startswith("Result received")
+    assert "final answer" in accepted and "short summary" not in accepted
     assert record.metadata[OUTPUT_KEY] == {
         "run_id": "run_1",
         "output": {"chat": {"text": "All green."}},

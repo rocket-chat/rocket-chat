@@ -125,7 +125,10 @@ async def accept_output(app: FastAPI, org_id: str, session_id: str, output: Any)
         target.metadata = known
 
     await store.mutate_session(session_id, org_id, keep)
-    return "Result received: the platform publishes it when this run ends. Finish with a short summary."
+    return (
+        "Result received: the platform publishes it when this run ends. It does not replace your "
+        "final answer: end the run with the answer your instructions ask for."
+    )
 
 
 def schema_problem(output: Any, schema: dict[str, Any]) -> str | None:
