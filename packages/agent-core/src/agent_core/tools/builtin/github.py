@@ -129,6 +129,7 @@ async def _pull(
     page: int,
 ) -> str:
     slug = parse_repository(repository).slug
+    github_prs.check_single_body_use(actions)
     read_access = None
     write_access = None
     results: list[str] = []
