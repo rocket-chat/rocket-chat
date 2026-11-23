@@ -9,11 +9,13 @@ they become ordinary skills that can be edited here.
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from dataclasses import dataclass, replace
 from typing import Any
 
+from api.db.session import current_tenant_org_id
 from api.services.audit import AuditService
 from api.services.external_sources import external_source_store
 from api.services.ownership import OwnershipError, requested_owner, require_manage
@@ -23,8 +25,12 @@ from api.services.teams import note_memory_owned
 from specifications.interfaces.external_sources import SOURCE_AUTHS, ExternalSource
 from specifications.interfaces.ownership import Owner, Viewer, can_manage, can_see
 
+logger = logging.getLogger(__name__)
+
 # The periodic synchronisation's pace; a push webhook brings a source forward at once.
 SYNC_INTERVAL_SECONDS = 900
+# How often due sources are looked for: the delay between a push and its skills updating.
+SWEEP_SECONDS = 30
 MAX_NAME_CHARS = 120
 
 
@@ -213,3 +219,21 @@ async def _audit(db_mgr: Any, event: str, source: ExternalSource, viewer: Viewer
         result_summary=f"{source.name}: {source.repository} ({source.ref})",
         metadata={"source_id": source.id, "auth": source.auth, "scope": source.scope},
     )
+
+
+async def synchronise_due(state: Any, admin_db: Any, now: int | None = None) -> int:
+    """Read every source due by now, across organizations; returns how many were read.
+
+    Each claim is atomic, so every replica may sweep. A source is read in its organization's
+    tenant context, and one failing never stops the others."""
+    store = external_source_store(getattr(state, "db_manager", None), admin_db)
+    claimed = await store.claim_due(now or int(time.time()), SYNC_INTERVAL_SECONDS)
+    for source in claimed:
+        token = current_tenant_org_id.set(source.org_id)
+        try:
+            await synchronise(state, source)
+        except Exception:
+            logger.exception("External source %s could not be synchronised", source.id)
+        finally:
+            current_tenant_org_id.reset(token)
+    return len(claimed)

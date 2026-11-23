@@ -30,6 +30,7 @@ from api.services.mission_runs import start_run
 from api.services.missions import MissionStore
 from api.services.provider_catalogue import REFRESH_SECONDS, provider_catalogue
 from api.services.queued_messages import stranded_sessions
+from api.services.source_management import SWEEP_SECONDS, synchronise_due
 from api.services.settings import load_org_config
 from api.services.subagent_runs import supervise_subagent_runs
 from api.services.trigger_intake import forget_old_deliveries
@@ -137,10 +138,12 @@ class BackgroundServices:
             self._start_queued_messages_sweeper(admin_manager)
             self._start_spend_reservation_sweeper(admin_manager)
             self._start_automation(admin_manager)
+            self._start_external_sources(admin_manager)
         else:
             self._start_waits_sweeper(None)
             self._start_queued_messages_sweeper(None)
             self._start_spend_reservation_sweeper(None)
+            self._start_external_sources(None)
         self._start_sandbox_reaper(admin_manager)
         self._start_provider_catalogue()
 
@@ -358,6 +361,16 @@ class BackgroundServices:
 
         self._spawn(_run_periodically("Outbound webhook retries", WEBHOOK_RETRY_SECONDS, _retries))
         self._spawn(_run_periodically("Automation retention", RETENTION_SWEEP_SECONDS, _retention))
+
+    def _start_external_sources(self, admin_manager: DatabaseSessionManager | None) -> None:
+        """Read the external sources whose time has come (or that a push brought forward).
+        Every replica sweeps: a source is claimed by one of them."""
+        app = self._app
+
+        async def _sweep() -> None:
+            await synchronise_due(app.state, admin_manager)
+
+        self._spawn(_run_periodically("External sources", SWEEP_SECONDS, _sweep))
 
     def _start_spend_reservation_sweeper(
         self, admin_manager: DatabaseSessionManager | None

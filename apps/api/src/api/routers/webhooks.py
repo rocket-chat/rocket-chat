@@ -1,7 +1,8 @@
 """Incoming forge webhooks: verified here, handed to the services that act on them.
 
-A delivery may report on a pull request a session follows (``deliver_repo_event``) and may
-start or wake the runs of the missions that take them (``services/trigger_intake.py``).
+A delivery may report on a pull request a session follows (``deliver_repo_event``), may
+start or wake the runs of the missions that take them (``services/trigger_intake.py``), and a
+push brings the external sources following that branch forward (``source_management.py``).
 """
 
 import logging
@@ -12,6 +13,7 @@ from fastapi import APIRouter, Header, HTTPException, Request, status
 from git_engine.engine import GitEngine
 
 from api.services.github_events import deliver_repo_event
+from api.services.source_management import bring_forward
 from api.services.ticket_trackers import TrackerSignatureError, jira_event, linear_event
 from api.services.trigger_intake import receive_trigger_event, webhook_identity
 from specifications.interfaces.automation import TriggerEvent
@@ -38,6 +40,19 @@ async def _deliver_to_followers(
     return await deliver_repo_event(request.app, org_id, event)
 
 
+async def _bring_sources_forward(
+    request: Request, git_engine: GitEngine, raw_body: bytes, headers: dict[str, Any]
+) -> list[str]:
+    """A push: the sources following that branch are read at the next sweep. The webhook only
+    schedules a read; the source is read with its own credential, never trusting the payload."""
+    push = git_engine.parse_push_event(raw_body, headers)
+    if push is None:
+        return []
+    org_id, _ = await webhook_identity(request.app, "", push.installation_id)
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    return await bring_forward(db_mgr, org_id, push.repo_full_name, push.branch)
+
+
 @router.post("/github", status_code=status.HTTP_200_OK)
 async def github_webhook_endpoint(
     request: Request,
@@ -62,10 +77,13 @@ async def github_webhook_endpoint(
         ) from err
 
     delivered = await _deliver_to_followers(request, git_engine, raw_body, headers)
+    sources = await _bring_sources_forward(request, git_engine, raw_body, headers)
     outcome = await receive_trigger_event(request.app, event) if event is not None else None
     if outcome is None or outcome.status == "ignored":
         if delivered:
             return {"status": "delivered", "sessions": delivered}
+        if sources:
+            return {"status": "scheduled", "sources": sources}
         return {
             "status": "ignored",
             "reason": outcome.reason if outcome else "No mission takes this webhook event",

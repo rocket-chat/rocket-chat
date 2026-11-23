@@ -25,6 +25,7 @@ from specifications.interfaces.git import (
     GitEngineProtocol,
     PublishResult,
     PublishSpec,
+    PushEvent,
     RepoEvent,
     WebhookTrigger,
 )
@@ -446,6 +447,21 @@ class GitEngine(GitEngineProtocol):
         parser = _EVENT_PARSERS.get(header_map.get("x-github-event", ""))
         return parser(payload) if parser else None
 
+    def parse_push_event(self, raw_body: bytes, headers: dict[str, Any]) -> PushEvent | None:
+        """The branch a verified ``push`` webhook moved (None for another event, a tag, a
+        deleted branch or a repository outside ``GITHUB_ALLOWED_REPOS``)."""
+        header_map = {k.lower(): v for k, v in headers.items()}
+        self._verify_webhook_signature(raw_body, header_map.get("x-hub-signature-256"))
+        if header_map.get("x-github-event") != "push":
+            return None
+        try:
+            payload = json.loads(raw_body.decode("utf-8"))
+        except ValueError:
+            return None
+        if not isinstance(payload, dict):
+            return None
+        return _push_event(payload, self.settings.allowed_repos)
+
     def _verify_webhook_signature(self, raw_body: bytes, signature: str | None) -> None:
         """Verify the HMAC SHA-256 signature.
 
@@ -552,6 +568,22 @@ def _repo_event(payload: dict[str, Any], **fields: Any) -> RepoEvent:
         actor=str(payload.get("sender", {}).get("login", "")),
         installation_id=_installation_id(payload),
         **fields,
+    )
+
+
+def _push_event(payload: dict[str, Any], allowed_repos: Sequence[str]) -> PushEvent | None:
+    ref = str(payload.get("ref") or "")
+    after = str(payload.get("after") or "")
+    repository = str((payload.get("repository") or {}).get("full_name") or "")
+    if not ref.startswith("refs/heads/") or not repository or payload.get("deleted") or not after:
+        return None
+    if allowed_repos and not any(fnmatch.fnmatchcase(repository, p) for p in allowed_repos):
+        return None
+    return PushEvent(
+        repo_full_name=repository.lower(),
+        branch=ref.removeprefix("refs/heads/"),
+        head_sha=after,
+        installation_id=_installation_id(payload),
     )
 
 
