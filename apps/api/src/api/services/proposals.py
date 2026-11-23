@@ -8,6 +8,8 @@ exact edits that must apply to the current text. A proposal is approved or rejec
 person who may edit its target (the agent, or the skill, at its owner: member, team or
 organization), and the change is saved under that person's rights. When the target changed
 since the proposal, its edits are applied again to the current text, and a conflict is refused.
+A skill that follows an external source is not saved: approving opens a pull request on its
+repository with the reviewer's linked GitHub account (``source_changes.py``).
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import replace
+from types import SimpleNamespace
 from typing import Any
 
 from sqlalchemy import func, select
@@ -26,7 +29,10 @@ from api.services.memory import secret_reason
 from api.services.ownership import manageable
 from api.services.personas import PersonaError, find_agent, save_persona
 from api.services.settings import effective_settings
+from api.services.skill_sources import link_and_source
+from api.services.skill_store import SkillContent, get_skill
 from api.services.skills_lookup import _find_visible_skill, _memory_skills
+from api.services.source_changes import SkillChangeError, propose_skill_change
 from specifications.interfaces.ownership import Viewer
 from specifications.interfaces.proposals import (
     PROPOSAL_STATUSES,
@@ -447,8 +453,11 @@ async def approve(
     content: str | None,
     note: str,
     audit: AuditService,
+    state: Any = None,
 ) -> ChangeProposal:
-    """Apply the proposal (or the reviewer's edited ``content``) under the reviewer's rights."""
+    """Apply the proposal (or the reviewer's edited ``content``) under the reviewer's rights;
+    for a skill that follows an external source, open the pull request instead (``state`` is
+    the application's, for the GitHub access)."""
     proposal = await reviewable_one(db_mgr, org_id, viewer, proposal_id)
     if proposal.status != "pending":
         raise ProposalError(409, f"This proposal is already {proposal.status}.")
@@ -456,7 +465,9 @@ async def approve(
     if current is None:
         raise ProposalError(409, "Its agent or skill no longer exists.")
     new_text = content if content is not None else _rebased(proposal, current)
-    await _apply(db_mgr, org_id, viewer, proposal, new_text)
+    change_url = await _apply(
+        state or SimpleNamespace(db_manager=db_mgr), org_id, viewer, proposal, new_text
+    )
     decided = await proposal_store(db_mgr).decide(
         org_id,
         proposal_id,
@@ -464,6 +475,7 @@ async def approve(
         decided_by=viewer.user_id,
         note=note.strip()[:MAX_RATIONALE_CHARS],
         applied_content=new_text,
+        change_request_url=change_url,
     )
     if decided is None:
         raise ProposalError(409, "Someone decided this proposal first.")
@@ -485,8 +497,10 @@ def _rebased(proposal: ChangeProposal, current: str) -> str:
 
 
 async def _apply(
-    db_mgr: Any, org_id: str, viewer: Viewer, proposal: ChangeProposal, new_text: str
-) -> None:
+    state: Any, org_id: str, viewer: Viewer, proposal: ChangeProposal, new_text: str
+) -> str:
+    """Save the change; the address of the pull request when it is one, else empty."""
+    db_mgr = getattr(state, "db_manager", None)
     if proposal.target_kind == "instructions":
         agent = await find_agent(db_mgr, org_id, viewer, proposal.target_id)
         if agent is None:
@@ -502,11 +516,35 @@ async def _apply(
             )
         except PersonaError as err:
             raise ProposalError(err.status_code, err.detail) from err
-        return
+        return ""
     record = await _skill_record(db_mgr, org_id, proposal.target_id)
     if record is None or not manageable(record, viewer):
         raise ProposalError(403, "Only someone who may edit this skill can approve it.")
+    if await link_and_source(state, org_id, proposal.target_id) is not None:
+        return await _propose_upstream(state, org_id, viewer, proposal, new_text)
     await _save_skill_body(db_mgr, org_id, proposal.target_id, new_text)
+    return ""
+
+
+async def _propose_upstream(
+    state: Any, org_id: str, viewer: Viewer, proposal: ChangeProposal, new_text: str
+) -> str:
+    skill = await get_skill(getattr(state, "db_manager", None), org_id, proposal.target_id)
+    if skill is None:
+        raise ProposalError(409, "Its agent or skill no longer exists.")
+    try:
+        change = await propose_skill_change(
+            state,
+            org_id,
+            viewer,
+            skill.id,
+            SkillContent(skill.name, skill.description, new_text.strip()),
+            summary=proposal.summary,
+            rationale=proposal.rationale,
+        )
+    except SkillChangeError as err:
+        raise ProposalError(err.status_code, err.detail) from err
+    return change.url
 
 
 async def reject(

@@ -749,6 +749,21 @@ class CustomSkillResponse(BaseModel):
     )
 
 
+class SkillChangeRequest(BaseModel):
+    """A change to a skill linked to an external source, proposed as a pull request."""
+
+    description: str = Field(default="", description="New description")
+    body: str = Field(..., description="New instructions")
+    title: str | None = Field(default=None, description="New name; unchanged when omitted")
+    summary: str = Field(default="", description="One line for the pull request's title")
+
+
+class SkillChangeResponse(BaseModel):
+    repository: str
+    number: int
+    url: str
+
+
 class CustomSkillTestRequest(BaseModel):
     test_arguments: dict[str, Any] = Field(
         default_factory=dict, description="Arguments to invoke skill with"

@@ -49,6 +49,11 @@ class ProposalResponse(BaseModel):
     decided_by: str | None = Field(default=None, description="Who decided it")
     decided_at: int | None = Field(default=None, description="When it was decided")
     decision_note: str = Field(default="", description="The reviewer's note")
+    change_request_url: str = Field(
+        default="",
+        description="For a skill that follows an external source: the pull request approving "
+        "it opened",
+    )
     edits: list[ProposalEditModel] = Field(default_factory=list, description="The edits")
     base_content: str = Field(default="", description="The text the edits were made on")
     proposed_content: str = Field(
@@ -89,6 +94,7 @@ def _response(proposal: ChangeProposal, *, with_texts: bool) -> ProposalResponse
         decided_by=proposal.decided_by,
         decided_at=proposal.decided_at,
         decision_note=proposal.decision_note,
+        change_request_url=proposal.change_request_url,
         edits=[ProposalEditModel(old_text=e.old_text, new_text=e.new_text) for e in proposal.edits]
         if with_texts
         else [],
@@ -130,7 +136,9 @@ async def get_proposal(proposal_id: str, request: Request) -> ProposalResponse:
 async def approve_proposal(
     proposal_id: str, body: ApproveRequest, request: Request
 ) -> ProposalResponse:
-    """Save the proposed text (or the caller's edit of it) to the agent or skill."""
+    """Save the proposed text (or the caller's edit of it) to the agent or skill. A skill that
+    follows an external source is not saved: a pull request is opened on its repository with
+    the caller's linked GitHub account (``change_request_url``)."""
     org_id, viewer = await request_viewer(request)
     db_mgr = _db(request)
     try:
@@ -142,6 +150,7 @@ async def approve_proposal(
             content=body.content,
             note=body.note,
             audit=AuditService(db_mgr),
+            state=request.app.state,
         )
     except ProposalError as err:
         raise HTTPException(status_code=err.status_code, detail=err.detail) from err

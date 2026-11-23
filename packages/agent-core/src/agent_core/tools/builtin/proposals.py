@@ -90,6 +90,8 @@ def register(registry: ToolRegistry) -> None:
         for p in found:
             when = dt.datetime.fromtimestamp(p.created_at, tz=dt.UTC).strftime("%Y-%m-%d")
             note = f" — {p.decision_note[:200]}" if p.decision_note else ""
+            if p.change_request_url:
+                note += f" — pull request {p.change_request_url} (applies once merged)"
             lines.append(
                 f"- {p.id} · {p.status} · {p.target_kind} '{p.target_name}' · {when} · "
                 f"{p.summary}{note}"

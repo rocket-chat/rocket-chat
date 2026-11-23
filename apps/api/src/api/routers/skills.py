@@ -24,6 +24,8 @@ from api.models import (
     CustomSkillResponse,
     CustomSkillTestRequest,
     CustomSkillTestResponse,
+    SkillChangeRequest,
+    SkillChangeResponse,
     SkillSourceResponse,
 )
 from api.services.ownership import (
@@ -46,6 +48,7 @@ from api.services.skill_sources import (
 )
 from api.services.skill_store import SkillContent
 from api.services.skills_lookup import _memory_skills
+from api.services.source_changes import SkillChangeError, propose_skill_change
 from api.services.starter_content import STARTER_SKILLS
 from api.services.teams import note_memory_owned
 from specifications.interfaces.ownership import Owner, Viewer
@@ -338,6 +341,36 @@ async def delete_custom_skill(skill_id: str, request: Request) -> dict[str, bool
     del _memory_skills[org_id][skill_id]
     await forget_source_of(request.app.state, org_id, skill_id)
     return {"deleted": True}
+
+
+@router.post("/skills/{skill_id}/change-request", response_model=SkillChangeResponse)
+async def propose_skill_change_request(
+    skill_id: str, req: SkillChangeRequest, request: Request
+) -> SkillChangeResponse:
+    """Propose a change to a skill that follows an external source: a pull request on its
+    repository, opened with the caller's linked GitHub account. Nothing changes here until it
+    is merged and the source is synchronised."""
+    org_id, viewer = await request_viewer(request)
+    try:
+        current = await _visible_records(request.app.state, org_id, viewer, [skill_id])
+        if not current:
+            raise SkillChangeError(404, "Skill not found")
+        title = req.title if req.title is not None else str(_field_of(current[0], "name"))
+        change = await propose_skill_change(
+            request.app.state,
+            org_id,
+            viewer,
+            skill_id,
+            SkillContent(title.strip(), req.description.strip(), req.body.strip()),
+            summary=req.summary,
+        )
+    except SkillChangeError as err:
+        raise HTTPException(status_code=err.status_code, detail=err.detail) from err
+    return SkillChangeResponse(repository=change.repository, number=change.number, url=change.url)
+
+
+def _field_of(record: Any, name: str) -> Any:
+    return record.get(name) if isinstance(record, dict) else getattr(record, name, None)
 
 
 @router.post("/skills/{skill_id}/test", response_model=CustomSkillTestResponse)
