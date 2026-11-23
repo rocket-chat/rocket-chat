@@ -93,6 +93,12 @@ AUDIT_EVENT_TYPES: tuple[str, ...] = (
     "proposal.created",
     "proposal.approved",
     "proposal.rejected",
+    "external_source.created",
+    "external_source.updated",
+    "external_source.deleted",
+    "external_source.imported",
+    "external_source.synced",
+    "external_source.change_proposed",
 )
 APPROVAL_DECISIONS: tuple[str, ...] = ("approved", "denied")
 APPROVAL_RISK_LEVELS: tuple[str, ...] = ("low", "medium", "high", "critical")

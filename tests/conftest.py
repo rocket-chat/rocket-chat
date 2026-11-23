@@ -101,6 +101,8 @@ MUTABLE_APP_STATE_ATTRS = (
     "transcript_store",
     "global_concurrency_gate",
     "session_write_locks",
+    # External sources read through it; tests install an in-memory repository.
+    "source_access",
 )
 
 # Organisations and users the HTTP-level tests impersonate via tenant headers.

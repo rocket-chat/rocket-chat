@@ -35,6 +35,7 @@ from api.routers.chat import router as chat_router
 from api.routers.checkpoints import router as checkpoints_router
 from api.routers.credentials import router as credentials_router
 from api.routers.dev import router as dev_router
+from api.routers.external_sources import router as external_sources_router
 from api.routers.feedback import router as feedback_router
 from api.routers.fork import router as fork_router
 from api.routers.git_gateway import router as git_gateway_router
@@ -310,6 +311,7 @@ app.include_router(fork_router)
 app.include_router(github_app_router)
 app.include_router(memory_router)
 app.include_router(proposals_router)
+app.include_router(external_sources_router)
 app.include_router(preview_router)
 app.include_router(processes_router)
 app.include_router(sandboxes_router)

@@ -3,6 +3,7 @@
 import logging
 import time
 import uuid
+from dataclasses import asdict
 from typing import Any
 
 from fastapi import (
@@ -23,6 +24,7 @@ from api.models import (
     CustomSkillResponse,
     CustomSkillTestRequest,
     CustomSkillTestResponse,
+    SkillSourceResponse,
 )
 from api.services.ownership import (
     OwnershipError,
@@ -36,6 +38,13 @@ from api.services.ownership import (
 )
 from api.services.settings import effective_settings
 from api.services.skill_import import SkillImportError, parse_skill_markdown
+from api.services.skill_sources import (
+    SkillSourceView,
+    edit_refusal,
+    forget_source_of,
+    source_views,
+)
+from api.services.skill_store import SkillContent
 from api.services.skills_lookup import _memory_skills
 from api.services.starter_content import STARTER_SKILLS
 from api.services.teams import note_memory_owned
@@ -66,8 +75,9 @@ async def list_starter_skills(request: Request) -> list[StarterSkillResponse]:
     ]
 
 
-def _response(skill: Any) -> CustomSkillResponse:
-    """A stored skill (a row or an in-memory record) as the API reports it."""
+def _response(skill: Any, source: SkillSourceView | None = None) -> CustomSkillResponse:
+    """A stored skill (a row or an in-memory record) as the API reports it, with the external
+    source it follows when it has one."""
 
     def field(name: str, default: Any = None) -> Any:
         value = skill.get(name) if isinstance(skill, dict) else getattr(skill, name, None)
@@ -88,23 +98,50 @@ def _response(skill: Any) -> CustomSkillResponse:
         code=field("code", ""),
         created_at=field("created_at", 0),
         updated_at=field("updated_at", 0),
+        source=(
+            SkillSourceResponse(**{**asdict(source), "files": list(source.files)})
+            if source is not None
+            else None
+        ),
     )
+
+
+async def _visible_records(
+    state: Any, org_id: str, viewer: Viewer, ids: list[str] | None
+) -> list[Any]:
+    """The skills ``viewer`` may see (only those in ``ids`` when given)."""
+    db_mgr = getattr(state, "db_manager", None)
+    if db_mgr:
+        async with db_mgr.session(tenant_org_id=org_id) as session:
+            stmt = select(CustomSkillModel).where(
+                CustomSkillModel.org_id == org_id, visible_clause(CustomSkillModel, viewer)
+            )
+            if ids is not None:
+                stmt = stmt.where(CustomSkillModel.id.in_(ids))
+            return list((await session.execute(stmt)).scalars().all())
+    records = _memory_skills.get(org_id, {}).values()
+    return [r for r in records if visible(r, viewer) and (ids is None or r["id"] in ids)]
+
+
+def _record_id(record: Any) -> str:
+    return str(record["id"] if isinstance(record, dict) else record.id)
+
+
+async def skill_responses(
+    state: Any, org_id: str, viewer: Viewer, ids: list[str] | None = None
+) -> list[CustomSkillResponse]:
+    """The skills ``viewer`` may see, each with its external source."""
+    records = await _visible_records(state, org_id, viewer, ids)
+    sources = await source_views(state, org_id, [_record_id(r) for r in records])
+    return [_response(r, sources.get(_record_id(r))) for r in records]
 
 
 @router.get("/skills", response_model=list[CustomSkillResponse])
 async def list_custom_skills(request: Request) -> list[CustomSkillResponse]:
-    """The custom skills the caller may use: the organization's, their teams' and their own."""
+    """The custom skills the caller may use: the organization's, their teams' and their own,
+    each with the external source it is synchronised with, if any."""
     org_id, viewer = await request_viewer(request)
-    db_mgr = getattr(request.app.state, "db_manager", None)
-
-    if db_mgr:
-        async with db_mgr.session() as session:
-            stmt = select(CustomSkillModel).where(
-                CustomSkillModel.org_id == org_id, visible_clause(CustomSkillModel, viewer)
-            )
-            return [_response(s) for s in (await session.execute(stmt)).scalars().all()]
-
-    return [_response(s) for s in _memory_skills.get(org_id, {}).values() if visible(s, viewer)]
+    return await skill_responses(request.app.state, org_id, viewer)
 
 
 @router.post("/skills/import", response_model=CustomSkillResponse)
@@ -143,6 +180,32 @@ async def _owner(
         )
     except OwnershipError as err:
         raise err.as_http() from err
+
+
+async def _refuse_source_edit(
+    request: Request, org_id: str, current: Any, requested: SkillContent, owner: Owner
+) -> None:
+    """409 when the save would change a skill that follows an external source."""
+
+    def field(name: str) -> str:
+        value = current.get(name) if isinstance(current, dict) else getattr(current, name, None)
+        return str(value or "")
+
+    refusal = await edit_refusal(
+        request.app.state,
+        org_id,
+        field("id"),
+        SkillContent(field("name"), field("description"), field("body")),
+        requested,
+        owner,
+    )
+    if refusal:
+        raise HTTPException(status_code=409, detail=refusal)
+
+
+async def _with_source(request: Request, org_id: str, record: Any) -> CustomSkillResponse:
+    views = await source_views(request.app.state, org_id, [_record_id(record)])
+    return _response(record, views.get(_record_id(record)))
 
 
 @router.post("/skills", response_model=CustomSkillResponse)
@@ -184,6 +247,13 @@ async def create_or_update_custom_skill(
                     )
                 ).scalar_one_or_none()
             if existing is not None:
+                await _refuse_source_edit(
+                    request,
+                    org_id,
+                    existing,
+                    SkillContent(skill_title, req.description, skill_body),
+                    owner,
+                )
                 existing.description = req.description
                 existing.body = skill_body
                 existing.name = skill_title
@@ -207,11 +277,15 @@ async def create_or_update_custom_skill(
                 )
                 session.add(target)
             await session.commit()
-            return _response(target)
+        return await _with_source(request, org_id, target)
 
     bucket = _memory_skills.setdefault(org_id, {})
     current = bucket.get(req.id) if req.id else None
     owner = await _owner(request, org_id, viewer, req, current)
+    if current is not None:
+        await _refuse_source_edit(
+            request, org_id, current, SkillContent(skill_title, req.description, skill_body), owner
+        )
     skill_id = req.id if current is not None and req.id else f"skill-{uuid.uuid4().hex[:8]}"
     if current is not None and current.get("team_id"):
         note_memory_owned(org_id, current["team_id"], "skills", -1)
@@ -230,7 +304,7 @@ async def create_or_update_custom_skill(
         **owner_columns(owner),
     }
     bucket[skill_id] = rec
-    return _response(rec)
+    return await _with_source(request, org_id, rec)
 
 
 @router.delete("/skills/{skill_id}")
@@ -251,7 +325,8 @@ async def delete_custom_skill(skill_id: str, request: Request) -> dict[str, bool
                 raise HTTPException(status_code=403, detail="Forbidden")
             await session.delete(skill)
             await session.commit()
-            return {"deleted": True}
+        await forget_source_of(request.app.state, org_id, skill_id)
+        return {"deleted": True}
 
     existing = _memory_skills.get(org_id, {}).get(skill_id)
     if existing is None:
@@ -261,6 +336,7 @@ async def delete_custom_skill(skill_id: str, request: Request) -> dict[str, bool
     if existing.get("team_id"):
         note_memory_owned(org_id, existing["team_id"], "skills", -1)
     del _memory_skills[org_id][skill_id]
+    await forget_source_of(request.app.state, org_id, skill_id)
     return {"deleted": True}
 
 
