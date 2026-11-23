@@ -44,6 +44,7 @@ from api.services.session_files import BoundSessionFiles, turn_session_file_stor
 from api.services.session_support import choose_active_repository, remember_active_repository
 from api.services.session_updates import publish_session_update
 from api.services.settings import effective_settings
+from api.services.skill_files import load_with_files
 from api.services.skills import test_skill_execution
 from api.services.skills_lookup import _find_visible_skill
 from api.services.teams import turn_viewer
@@ -903,7 +904,17 @@ async def build_turn_callbacks(
             return out if ok else f"Skill execution error: {out}"
         if not skill.body.strip():
             return f"Skill '{skill_name}' has no content."
-        return SkillInstructions(skill_name, skill.body)
+        text = await load_with_files(
+            db_mgr,
+            session.tenant_org_id,
+            skill.id,
+            skill_name,
+            skill.body,
+            driver=driver,
+            session_id=ctx.session_id,
+            prepare=ensure_sandbox,
+        )
+        return SkillInstructions(skill_name, text)
 
     github_watch, github_unwatch = watch_callbacks(
         GithubWatchStore(db_mgr),

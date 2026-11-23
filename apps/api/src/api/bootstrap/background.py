@@ -30,8 +30,8 @@ from api.services.mission_runs import start_run
 from api.services.missions import MissionStore
 from api.services.provider_catalogue import REFRESH_SECONDS, provider_catalogue
 from api.services.queued_messages import stranded_sessions
-from api.services.source_management import SWEEP_SECONDS, synchronise_due
 from api.services.settings import load_org_config
+from api.services.source_management import SWEEP_SECONDS, synchronise_due
 from api.services.subagent_runs import supervise_subagent_runs
 from api.services.trigger_intake import forget_old_deliveries
 from api.services.turn_resume import resume_interrupted_turns

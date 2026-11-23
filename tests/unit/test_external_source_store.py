@@ -53,7 +53,9 @@ async def test_sources_and_links_stay_in_their_organization() -> None:
     assert await store.list_sources("org_b") == []
     assert await store.links_of_objects("org_b", "skill", ["skill-1"]) == {}
     assert await store.delete_source("org_b", "src_1") is False
-    assert (await store.links_of_objects("org_a", "skill", ["skill-1"]))["skill-1"].files[0].executable
+    assert (
+        (await store.links_of_objects("org_a", "skill", ["skill-1"]))["skill-1"].files[0].executable
+    )
 
 
 async def test_deleting_a_source_forgets_its_links() -> None:
