@@ -7,6 +7,7 @@ import {
   Coins,
   Cpu,
   Database,
+  GitBranch,
   GitPullRequest,
   GitPullRequestDraft,
   KeyRound,
@@ -59,6 +60,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/settings/agents", label: "Agents", icon: Bot, owners: EVERY_OWNER },
       { href: "/settings/skills", label: "Skills", icon: Code2, owners: EVERY_OWNER },
+      { href: "/settings/sources", label: "Sources", icon: GitBranch, owners: EVERY_OWNER },
       { href: "/settings/mcp", label: "MCP servers", icon: Server, owners: EVERY_OWNER },
       { href: "/settings/knowledge", label: "Knowledge bases", icon: Database, owners: EVERY_OWNER },
       { href: "/settings/proposals", label: "Proposals", icon: GitPullRequestDraft, owners: EVERY_OWNER },

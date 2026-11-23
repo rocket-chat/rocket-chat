@@ -22,6 +22,7 @@ interface Proposal {
   created_at: number;
   decided_by: string | null;
   decision_note: string;
+  change_request_url: string;
   base_content: string;
   proposed_content: string;
 }
@@ -208,9 +209,20 @@ export default function ProposalsPage() {
               </div>
             </>
           ) : (
-            open.decision_note && (
-              <p className="text-sm text-neutral-700 dark:text-neutral-300">Note: {open.decision_note}</p>
-            )
+            <>
+              {open.decision_note && (
+                <p className="text-sm text-neutral-700 dark:text-neutral-300">Note: {open.decision_note}</p>
+              )}
+              {open.change_request_url && (
+                <p className="text-sm text-neutral-700 dark:text-neutral-300" data-testid="proposal-pull-request">
+                  This skill follows its repository: approving opened{" "}
+                  <a href={open.change_request_url} target="_blank" rel="noreferrer" className="text-brand underline">
+                    a pull request
+                  </a>
+                  ; the skill changes once it is merged.
+                </p>
+              )}
+            </>
           )}
         </section>
       )}
