@@ -9,7 +9,7 @@ Everything here lives under **Settings → Build**. Each item has an **owner**: 
 
 ## Skills
 
-A skill is a named instruction you invoke with a slash: type `/review src/` and the composer offers your skills; the agent receives the skill's text with your arguments filled in (`$ARGUMENTS`). A skill can also be a short Python function the agent runs in its sandbox. You can import skills from a repository.
+A skill is a named instruction you invoke with a slash: type `/review src/` and the composer offers your skills; the agent receives the skill's text with your arguments filled in (`$ARGUMENTS`). A skill can also be a short Python function the agent runs in its sandbox. You can import a `SKILL.md` file, or [connect a repository of skills](/use/skill-sources) and import from it: those skills then follow the repository, and a change to one becomes a pull request.
 
 The agent sees the name and summary of every skill it may use and loads one with `execute_skill` when a task matches, so write a clear `description` that says when the skill applies. An instruction skill, once loaded, stays in effect for the whole session: its instructions arrive in the conversation at the moment the agent loads it, and stay there on every later turn. They are never trimmed when a long session prunes older tool results or saved to a file like a long tool output, and a compaction of the history carries them over whole, so they are not lost; loading the skill again does not repeat it. A skill gives the agent at most its first 20,000 characters: split a longer one into skills that each fit. Edit a skill and the next turn tells the agent it changed, so it loads the new text before relying on it. A code skill still returns its output as a result. A persona that lists skills only sees those.
 
@@ -118,7 +118,7 @@ When someone teaches an agent something lasting (a correction, a rule, a better 
 
 Safeguards, before anything is stored:
 
-* the agent must have the switch on, and may only change its own instructions and the skills it may use (not built-in skills, code skills, or the skills a repository brings, which change through a pull request);
+* the agent must have the switch on, and may only change its own instructions and the skills it may use (not built-in skills, code skills, or the skills a repository brings, which change through a pull request); approving a proposal on a skill [synchronised with a source](/use/skill-sources) opens a pull request on its repository with the reviewer's linked GitHub account instead of saving it;
 * each edit must match the current text exactly once;
 * text that looks like a credential is refused;
 * **`governance.proposal_max_pending`** (5 by default) bounds the proposals one agent may have waiting, and **`governance.proposal_max_change_chars`** (8,000 by default) bounds the size of one change.
