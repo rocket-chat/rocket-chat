@@ -47,6 +47,9 @@ class ChangeProposal:
     decided_by: str | None = None
     decided_at: int | None = None
     decision_note: str = ""
+    # A skill linked to an external source is changed through its repository: approving opens
+    # a pull request (as the reviewer), and this is its address.
+    change_request_url: str = ""
 
 
 class ProposalStoreProtocol(ABC):
@@ -76,6 +79,7 @@ class ProposalStoreProtocol(ABC):
         decided_by: str,
         note: str,
         applied_content: str | None,
+        change_request_url: str = "",
     ) -> ChangeProposal | None:
         """Settle a pending proposal; None when it is missing or already decided."""
 

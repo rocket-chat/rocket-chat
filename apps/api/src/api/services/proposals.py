@@ -96,12 +96,14 @@ class InMemoryProposalStore(ProposalStoreProtocol):
         decided_by: str,
         note: str,
         applied_content: str | None,
+        change_request_url: str = "",
     ) -> ChangeProposal | None:
         found = await self.get(org_id, proposal_id)
         if found is None or found.status != "pending":
             return None
         found.status, found.decided_by, found.decision_note = status, decided_by, note
         found.decided_at = int(time.time())
+        found.change_request_url = change_request_url
         if applied_content is not None:
             found.proposed_content = applied_content
         return found
@@ -142,6 +144,7 @@ class PostgresProposalStore(ProposalStoreProtocol):
         decided_by: str,
         note: str,
         applied_content: str | None,
+        change_request_url: str = "",
     ) -> ChangeProposal | None:
         async with self._db.session(tenant_org_id=org_id) as db:
             # Row lock: two reviewers deciding at once must not both apply the change.
@@ -156,6 +159,7 @@ class PostgresProposalStore(ProposalStoreProtocol):
                 return None
             row.status, row.decided_by, row.decision_note = status, decided_by, note
             row.decided_at = int(time.time())
+            row.change_request_url = change_request_url
             if applied_content is not None:
                 row.proposed_content = applied_content
             return _from_row(row)
@@ -194,6 +198,7 @@ def _columns(p: ChangeProposal) -> dict[str, Any]:
         "decided_by": p.decided_by,
         "decided_at": p.decided_at,
         "decision_note": p.decision_note,
+        "change_request_url": p.change_request_url,
     }
 
 
@@ -217,6 +222,7 @@ def _from_row(row: ChangeProposalModel) -> ChangeProposal:
         decided_by=row.decided_by,
         decided_at=row.decided_at,
         decision_note=row.decision_note,
+        change_request_url=row.change_request_url or "",
     )
 
 
