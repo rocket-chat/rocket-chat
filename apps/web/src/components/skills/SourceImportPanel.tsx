@@ -18,7 +18,7 @@ import {
 } from "../../lib/external-sources";
 import { ownerFields, type OwnerKey } from "../../lib/ownership";
 
-const CHECKBOX = "rounded border-border text-brand focus:ring-brand";
+const CHECKBOX = "h-4 w-4";
 
 interface Props {
   owner: OwnerKey;

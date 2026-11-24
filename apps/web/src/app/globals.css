@@ -2,9 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Native controls (checkboxes, scrollbars, date pickers) follow the app's theme, not the
+   system's: "light dark" drew dark checkboxes on light pages for a system in dark mode. The
+   head script sets .dark before the first paint, from the chosen or the system theme. */
 :root {
-  color-scheme: light dark;
-  
+  color-scheme: light;
+
   /* Modern Neutral Palette - Light Mode */
   --background: #f8fafc;
   --foreground: #0f172a;
@@ -46,6 +49,7 @@
 }
 
 .dark {
+  color-scheme: dark;
   /* Modern Neutral Palette - Dark Mode (Stitch Flat AI Theme) */
   --background: #0d1017;
   --foreground: #f4f4f5;
@@ -335,6 +339,15 @@ body {
   :where(:root:not(.dark)) .bg-cyan.text-slate-950 { color: #ffffff; }
   .dark .bg-brand.text-white { color: #1a0a03; }
   .dark .bg-primary.text-white { color: #1a0a03; }
+}
+
+/* Checkboxes and radios take the brand colour: the project has no forms plugin, so classes
+   like text-brand do not reach a native control. */
+@layer base {
+  input[type="checkbox"],
+  input[type="radio"] {
+    accent-color: var(--brand);
+  }
 }
 
 /* iOS Safari zooms the page when a field under 16px takes focus and stays zoomed, which shifts
