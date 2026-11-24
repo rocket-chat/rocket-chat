@@ -56,6 +56,9 @@ export default function SkillsSettingsPage() {
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [successBanner, setSuccessBanner] = useState<React.ReactNode>(null);
 
+  // The first skill opens on the first load only: depending on the open skill made closing it
+  // refetch the list and open the first one again, so one skill could never be closed.
+  const openedFirstSkill = useRef(false);
   const fetchSkills = useCallback(async () => {
     try {
       const res = await fetch("/v1/skills");
@@ -63,7 +66,8 @@ export default function SkillsSettingsPage() {
         const data = await res.json();
         if (Array.isArray(data)) {
           setSkills(data);
-          if (data.length > 0 && !expandedSkillId) {
+          if (data.length > 0 && !openedFirstSkill.current) {
+            openedFirstSkill.current = true;
             setExpandedSkillId(data[0].id);
           }
         }
@@ -71,7 +75,7 @@ export default function SkillsSettingsPage() {
     } catch (err) {
       console.warn("Failed fetching skills:", err);
     }
-  }, [expandedSkillId]);
+  }, []);
 
   useEffect(() => {
     fetchSkills();
@@ -309,6 +313,8 @@ export default function SkillsSettingsPage() {
               type="button"
               onClick={() => setExpandedSkillId(isExpanded ? null : skill.id)}
               className="p-1 rounded-lg hover:bg-surface-elevated text-neutral-400 cursor-pointer"
+              aria-expanded={isExpanded}
+              aria-label={`${isExpanded ? "Hide" : "Show"} the instructions of ${skillTitle}`}
             >
               {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
