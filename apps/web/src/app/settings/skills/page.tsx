@@ -367,7 +367,7 @@ export default function SkillsSettingsPage() {
           <div className="flex items-center justify-between border-b border-border/60 pb-2">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-brand">
-                {editingSource ? "PROPOSE A CHANGE" : editingSkillId ? "EDIT SKILL" : "CREATE NEW SKILL"}
+                {editingSource ? "PROPOSE A CHANGE" : editingSkillId ? "EDIT SKILL" : "ADD NEW SKILL"}
               </span>
               <span className="px-1.5 py-0.5 rounded-lg text-[9px] bg-brand/10 text-brand border border-brand/20">
                 {formOwner === "org" ? "Organization Scope" : formOwner === "me" ? "Personal Scope" : `Team · ${ownerLabel(formOwner, teams)}`}
@@ -385,10 +385,10 @@ onClick={() => { setShowAddForm(false); setEditingSkillId(null); }}
           {!editingSkillId && (
             <div className="flex gap-1" role="group" aria-label="How to add the skill">
               <Button size="sm" variant={formMode === "write" ? "primary" : "ghost"} aria-pressed={formMode === "write"} data-testid="skill-mode-write" onClick={() => setFormMode("write")}>
-                Write a skill
+                Create new
               </Button>
               <Button size="sm" variant={formMode === "source" ? "primary" : "ghost"} aria-pressed={formMode === "source"} data-testid="skill-mode-source" onClick={() => setFormMode("source")}>
-                From a connected source
+                Import from source
               </Button>
             </div>
           )}

@@ -44,7 +44,7 @@ function groupsOf(catalogue: Catalogue): Group[] {
   if (loose.length > 0) {
     groups.push({
       key: "loose",
-      title: catalogue.has_manifest ? "Skills in no plugin" : "Skills",
+      title: catalogue.has_manifest ? "Standalone skills" : "Skills",
       description: "",
       entries: loose,
     });

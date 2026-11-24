@@ -14,7 +14,7 @@ This is different from the skills a repository brings into a session when the ag
 Any GitHub repository whose skills follow the Agent Skills format works: a skill is a folder holding a `SKILL.md` (YAML front matter with `name` and `description`, then the instructions), anywhere in the repository. The other files of that folder (scripts, references) travel with the skill. Nothing else about the layout is assumed.
 
 - **Without a manifest**, every skill of the repository is offered on its own.
-- **With `.claude-plugin/marketplace.json`** (a Claude plugin marketplace), each plugin it declares is offered as a collection of the skills under its folders (`source` and `skills` of the plugin; `skills/` by default). Skills no plugin claims are still offered. A plugin hosted in another repository is left out, with a note: connect that repository instead.
+- **With `.claude-plugin/marketplace.json`** (a Claude plugin marketplace), each plugin it declares is offered as a collection of the skills under its folders (`source` and `skills` of the plugin; `skills/` by default). Skills no plugin claims are still offered, as **Standalone skills**. A plugin hosted in another repository is left out, with a note: connect that repository instead.
 
 A `SKILL.md` that cannot be read (no front matter, no name) is listed with the reason and cannot be imported until it is fixed in the repository.
 
@@ -31,7 +31,7 @@ Who can connect: an administrator for the organization, a team's administrators 
 
 ## Importing skills
 
-In **Settings → Skills**, **New skill** (or **New team skill**, **New org skill**) opens the editor with two modes: **Write a skill**, as before, or **From a connected source**. Choose the source, then tick whole plugins or individual skills (a plugin's checkbox selects all of its skills; open it to choose some), and **Import**. The owner chosen in the editor is the owner of the imported skills: this is where a skill is assigned to a team, and nothing stops a team from importing another team's skills.
+In **Settings → Skills**, **New skill** (or **New team skill**, **New org skill**) opens the editor with two modes: **Create new**, as before, or **Import from source**. Choose the source, then tick whole plugins or individual skills (a plugin's checkbox selects all of its skills; open it to choose some), and **Import**. The owner chosen in the editor is the owner of the imported skills: this is where a skill is assigned to a team, and nothing stops a team from importing another team's skills.
 
 **A skill with the same name.** When the owner already has a skill with that name, nothing is imported and the editor lists the conflicts. Tick **Merge** on one to let the source's version replace the existing skill: it keeps its id (agents that name it still do) and follows the repository from then on. Skills you created before connecting a source are left as they are until you merge them.
 
