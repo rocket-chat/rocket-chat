@@ -95,6 +95,10 @@ export default function McpSettingsPage() {
     if (status === "connected") {
       setSuccessBanner("Signed in: the server's tools are available to your sessions.");
       setTimeout(() => setSuccessBanner(null), 5000);
+    } else if (status === "no_tools") {
+      setErrorBanner(
+        `Signed in, but the server's tools could not be listed: ${error || "it did not answer"}. Probe it to try again.`
+      );
     } else {
       setErrorBanner(`Sign-in did not complete: ${error || "the provider refused it"}`);
     }

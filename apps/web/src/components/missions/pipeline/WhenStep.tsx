@@ -4,6 +4,7 @@ import React from "react";
 import {
   TriangleAlert,
   Clock,
+  Hand,
   GitMerge,
   GitPullRequest,
   MessageSquare,
@@ -17,8 +18,26 @@ import {
 } from "lucide-react";
 import { Button } from "../../ui/Button";
 import { Field, Input, Select } from "../../ui/Field";
-import { MAX_TRIGGERS, OWN_SOURCES, TRIGGER_SOURCES, blankTrigger, type MissionTrigger } from "../../../lib/missions";
-import { COMMON_TIMEZONES, FREQUENCIES, readSchedule, writeSchedule, type Frequency } from "../../../lib/mission-schedule";
+import {
+  MAX_TRIGGER_DELAY_MINUTES,
+  MAX_TRIGGERS,
+  OWN_SOURCES,
+  TRIGGER_DELAYS,
+  TRIGGER_SOURCES,
+  blankTrigger,
+  canDelay,
+  delayLabel,
+  type MissionTrigger,
+} from "../../../lib/missions";
+import {
+  COMMON_TIMEZONES,
+  FREQUENCIES,
+  MONTH_WEEKS,
+  WEEKDAYS,
+  readSchedule,
+  writeSchedule,
+  type FriendlySchedule,
+} from "../../../lib/mission-schedule";
 import { Tile, TileGroup } from "./Tile";
 
 const SOURCE_ICONS: Record<string, LucideIcon> = {
@@ -56,7 +75,8 @@ const SchedulePicker: React.FC<{ index: number; trigger: MissionTrigger; advance
 }) => {
   const friendly = readSchedule(trigger.schedule);
   const zones = COMMON_TIMEZONES.includes(trigger.timezone) ? COMMON_TIMEZONES : [trigger.timezone, ...COMMON_TIMEZONES];
-  const setFriendly = (frequency: Frequency, time: string) => onChange({ ...trigger, schedule: writeSchedule({ frequency, time }) });
+  const setFriendly = (changes: Partial<FriendlySchedule>) =>
+    friendly && onChange({ ...trigger, schedule: writeSchedule({ ...friendly, ...changes }) });
   return (
     <div className="space-y-3">
       {friendly ? (
@@ -67,7 +87,7 @@ const SchedulePicker: React.FC<{ index: number; trigger: MissionTrigger; advance
                 {...control}
                 data-testid={`mission-trigger-frequency-${index}`}
                 value={friendly.frequency}
-                onChange={(e) => setFriendly(e.target.value as Frequency, friendly.time)}
+                onChange={(e) => setFriendly({ frequency: e.target.value as FriendlySchedule["frequency"] })}
               >
                 {FREQUENCIES.map((f) => (
                   <option key={f.value} value={f.value}>
@@ -77,6 +97,42 @@ const SchedulePicker: React.FC<{ index: number; trigger: MissionTrigger; advance
               </Select>
             )}
           </Field>
+          {friendly.frequency === "monthly" && (
+            <>
+              <Field label="On the">
+                {(control) => (
+                  <Select
+                    {...control}
+                    data-testid={`mission-trigger-week-${index}`}
+                    value={friendly.week ?? 1}
+                    onChange={(e) => setFriendly({ week: Number(e.target.value) })}
+                  >
+                    {MONTH_WEEKS.map((w) => (
+                      <option key={w.value} value={w.value}>
+                        {w.label}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+              <Field label="Day">
+                {(control) => (
+                  <Select
+                    {...control}
+                    data-testid={`mission-trigger-weekday-${index}`}
+                    value={friendly.weekday ?? 1}
+                    onChange={(e) => setFriendly({ weekday: Number(e.target.value) })}
+                  >
+                    {WEEKDAYS.map((d) => (
+                      <option key={d.value} value={d.value}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </>
+          )}
           {friendly.frequency !== "hourly" && (
             <Field label="At">
               {(control) => (
@@ -85,7 +141,7 @@ const SchedulePicker: React.FC<{ index: number; trigger: MissionTrigger; advance
                   type="time"
                   data-testid={`mission-trigger-time-${index}`}
                   value={friendly.time}
-                  onChange={(e) => setFriendly(friendly.frequency, e.target.value)}
+                  onChange={(e) => setFriendly({ time: e.target.value })}
                 />
               )}
             </Field>
@@ -153,6 +209,55 @@ const EventFilters: React.FC<{ trigger: MissionTrigger; onChange: (t: MissionTri
   );
 };
 
+/** How long the run waits after the event: a list of common waits, or any minutes in Advanced. */
+const DelayPicker: React.FC<{ index: number; trigger: MissionTrigger; advanced: boolean; onChange: (t: MissionTrigger) => void }> = ({
+  index,
+  trigger,
+  advanced,
+  onChange,
+}) => {
+  const minutes = trigger.delay_minutes ?? 0;
+  const listed = TRIGGER_DELAYS.some((d) => d.minutes === minutes);
+  const hint = "Waits before the run starts, so it sees what happened after the event";
+  if (advanced) {
+    return (
+      <Field label="Start the run after (minutes)" hint={`${hint}; 0 to 1440`}>
+        {(control) => (
+          <Input
+            {...control}
+            type="number"
+            min={0}
+            max={MAX_TRIGGER_DELAY_MINUTES}
+            step={1}
+            data-testid={`mission-trigger-delay-${index}`}
+            value={minutes}
+            onChange={(e) => onChange({ ...trigger, delay_minutes: Math.max(0, Math.round(Number(e.target.value) || 0)) })}
+          />
+        )}
+      </Field>
+    );
+  }
+  return (
+    <Field label="Start the run" hint={hint}>
+      {(control) => (
+        <Select
+          {...control}
+          data-testid={`mission-trigger-delay-${index}`}
+          value={minutes}
+          onChange={(e) => onChange({ ...trigger, delay_minutes: Number(e.target.value) })}
+        >
+          {!listed && <option value={minutes}>{delayLabel(minutes)}</option>}
+          {TRIGGER_DELAYS.map((d) => (
+            <option key={d.minutes} value={d.minutes}>
+              {d.label}
+            </option>
+          ))}
+        </Select>
+      )}
+    </Field>
+  );
+};
+
 const TriggerEditor: React.FC<{
   index: number;
   trigger: MissionTrigger;
@@ -178,7 +283,13 @@ const TriggerEditor: React.FC<{
             label={tileLabel(source.label, source.group)}
             selected={trigger.source === source.value}
             testId={`mission-trigger-${index}-source-${source.value}`}
-            onClick={() => onChange({ ...blankTrigger(source.value), filter: trigger.filter })}
+            onClick={() =>
+              onChange({
+                ...blankTrigger(source.value),
+                filter: trigger.filter,
+                delay_minutes: canDelay(source.value) ? (trigger.delay_minutes ?? 0) : 0,
+              })
+            }
           />
         ))}
       </TileGroup>
@@ -188,6 +299,7 @@ const TriggerEditor: React.FC<{
           The mission gets a URL of its own and a secret to sign calls with; both are shown once it is saved.
         </p>
       )}
+      {canDelay(trigger.source) && <DelayPicker index={index} trigger={trigger} advanced={advanced} onChange={onChange} />}
       {!OWN_SOURCES.has(trigger.source) &&
         (advanced ? (
           <EventFilters trigger={trigger} onChange={onChange} />
@@ -200,35 +312,80 @@ const TriggerEditor: React.FC<{
   );
 };
 
-/** When the mission runs: up to three triggers, or none (it then runs when someone presses Run now). */
+/** The first choice of a blank mission: what starts it, or that only a person does. */
+const StartChooser: React.FC<{ advanced: boolean; runByHand: boolean; onPick: (source: string) => void; onRunByHand: () => void }> = ({
+  advanced,
+  runByHand,
+  onPick,
+  onRunByHand,
+}) => (
+  <div className="space-y-2">
+    <p className="text-xs text-neutral-600 dark:text-neutral-400">What starts the mission?</p>
+    <TileGroup label="What starts the mission">
+      {TRIGGER_SOURCES.filter((s) => advanced || SIMPLE_SOURCES.has(s.value)).map((source) => (
+        <Tile
+          key={source.value}
+          icon={SOURCE_ICONS[source.value] ?? Zap}
+          label={tileLabel(source.label, source.group)}
+          selected={false}
+          testId={`mission-start-${source.value}`}
+          onClick={() => onPick(source.value)}
+        />
+      ))}
+      <Tile
+        icon={Hand}
+        label="Only when run by hand"
+        hint="It runs when someone presses Run now."
+        selected={runByHand}
+        testId="mission-start-by-hand"
+        onClick={onRunByHand}
+      />
+    </TileGroup>
+  </div>
+);
+
+/** When the mission runs: up to three triggers, or none on purpose (it then runs when someone presses Run now). */
 export const WhenStep: React.FC<{
   triggers: MissionTrigger[];
   advanced: boolean;
+  runByHand: boolean;
   onChange: (triggers: MissionTrigger[]) => void;
-}> = ({ triggers, advanced, onChange }) => (
+  onRunByHand: (runByHand: boolean) => void;
+}> = ({ triggers, advanced, runByHand, onChange, onRunByHand }) => (
   <div className="space-y-3">
-    {triggers.length === 0 && (
-      <p className="text-xs text-neutral-600 dark:text-neutral-400">No trigger: it runs when someone presses Run now.</p>
+    {triggers.length === 0 ? (
+      <StartChooser
+        advanced={advanced}
+        runByHand={runByHand}
+        onPick={(source) => {
+          onRunByHand(false);
+          onChange([blankTrigger(source)]);
+        }}
+        onRunByHand={() => onRunByHand(true)}
+      />
+    ) : (
+      <>
+        <ul className="space-y-3">
+          {triggers.map((trigger, index) => (
+            <TriggerEditor
+              key={index}
+              index={index}
+              trigger={trigger}
+              advanced={advanced}
+              onChange={(next) => onChange(triggers.map((t, i) => (i === index ? next : t)))}
+              onRemove={() => onChange(triggers.filter((_, i) => i !== index))}
+            />
+          ))}
+        </ul>
+        <Button
+          size="sm"
+          data-testid="mission-trigger-add"
+          disabled={triggers.length >= MAX_TRIGGERS}
+          onClick={() => onChange([...triggers, blankTrigger("github_pr")])}
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Add a trigger
+        </Button>
+      </>
     )}
-    <ul className="space-y-3">
-      {triggers.map((trigger, index) => (
-        <TriggerEditor
-          key={index}
-          index={index}
-          trigger={trigger}
-          advanced={advanced}
-          onChange={(next) => onChange(triggers.map((t, i) => (i === index ? next : t)))}
-          onRemove={() => onChange(triggers.filter((_, i) => i !== index))}
-        />
-      ))}
-    </ul>
-    <Button
-      size="sm"
-      data-testid="mission-trigger-add"
-      disabled={triggers.length >= MAX_TRIGGERS}
-      onClick={() => onChange([...triggers, blankTrigger(triggers.length === 0 ? "schedule" : "github_pr")])}
-    >
-      <Plus className="h-3.5 w-3.5" aria-hidden="true" /> Add a trigger
-    </Button>
   </div>
 );

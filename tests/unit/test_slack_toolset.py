@@ -215,20 +215,78 @@ def test_slack_settings_domain_exposes_the_outbound_policy() -> None:
     assert slack["outbound_channels"] == []
 
 
-def test_per_session_policy_overrides_the_env_default() -> None:
+@pytest.mark.asyncio
+async def test_per_session_policy_overrides_the_env_default() -> None:
     assistant = _assistant(slack_dm_policy="all")
     token = current_execution_ctx.set(_ctx(session_id="s1"))
     try:
         assistant._session_policy["s1"] = ("none", set())
         assert assistant._dm_policy() == "none"
         # No allowlist: default-deny, except the conversation the agent was invoked from.
-        assert assistant._outbound_channel_allowed("C1") is False
+        assert await assistant._outbound_channel_allowed("C1") is False
         assistant._session_meta["s1"] = ("C1", "1.1")
-        assert assistant._outbound_channel_allowed("C1") is True
-        assert assistant._outbound_channel_allowed("C9") is False
+        assert await assistant._outbound_channel_allowed("C1") is True
+        assert await assistant._outbound_channel_allowed("C9") is False
 
         assistant._session_policy["s1"] = ("all", {"C1"})
-        assert assistant._outbound_channel_allowed("C1") is True
-        assert assistant._outbound_channel_allowed("C2") is False
+        assert await assistant._outbound_channel_allowed("C1") is True
+        assert await assistant._outbound_channel_allowed("C2") is False
     finally:
         current_execution_ctx.reset(token)
+
+
+def _invited_to(assistant: SlackAssistant, channels: dict[str, dict[str, Any]]) -> list[str]:
+    """Slack answers conversations.info from ``channels``; returns the channels asked about."""
+    asked: list[str] = []
+
+    async def conversations_info(channel: str) -> dict[str, Any]:
+        asked.append(channel)
+        if channel not in channels:
+            raise RuntimeError("channel_not_found")
+        return {"ok": True, "channel": channels[channel]}
+
+    client = MagicMock()
+    client.conversations_info = conversations_info
+    assistant.app = MagicMock(client=client)  # type: ignore[assignment]
+    assistant._slack_api_ready = True
+    return asked
+
+
+@pytest.mark.asyncio
+async def test_a_star_allows_every_channel_the_bot_was_invited_to_and_nothing_else() -> None:
+    assistant = _assistant()
+    asked = _invited_to(
+        assistant,
+        {
+            "C_IN": {"id": "C_IN", "is_channel": True, "is_member": True},
+            "G_PRIVATE": {"id": "G_PRIVATE", "is_group": True, "is_member": True},
+            "C_OUT": {"id": "C_OUT", "is_channel": True, "is_member": False},
+            "G_MPIM": {"id": "G_MPIM", "is_mpim": True, "is_member": True},
+        },
+    )
+    token = current_execution_ctx.set(_ctx(session_id="s1"))
+    try:
+        assistant._session_policy["s1"] = ("none", {"*"})
+        assert await assistant._outbound_channel_allowed("C_IN") is True
+        assert await assistant._outbound_channel_allowed("G_PRIVATE") is True
+        assert await assistant._outbound_channel_allowed("C_OUT") is False
+        assert await assistant._outbound_channel_allowed("G_MPIM") is False, "a group DM"
+        assert await assistant._outbound_channel_allowed("C_UNKNOWN") is False
+        assert await assistant._outbound_channel_allowed("D_DIRECT") is False
+        assert "D_DIRECT" not in asked, "a direct message is refused without asking Slack"
+        # The conversation it was invoked from stays allowed, whatever Slack says.
+        assistant._session_meta["s1"] = ("C_OUT", "1.1")
+        assert await assistant._outbound_channel_allowed("C_OUT") is True
+    finally:
+        current_execution_ctx.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_a_mission_reports_to_an_invited_channel_under_a_star() -> None:
+    assistant = _assistant()
+    _invited_to(assistant, {"C_IN": {"id": "C_IN", "is_channel": True, "is_member": True}})
+
+    assert await assistant._mission_channel_allowed(frozenset({"*"}), "C_IN") is True
+    assert await assistant._mission_channel_allowed(frozenset({"*"}), "C_OTHER") is False
+    assert await assistant._mission_channel_allowed(frozenset({"C1"}), "C_IN") is False
+    assert await assistant._mission_channel_allowed(frozenset(), "C_ANY") is True

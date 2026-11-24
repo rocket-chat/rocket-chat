@@ -51,7 +51,7 @@ const PolicyOverrides: React.FC<{ editor: BotEditorState }> = ({ editor }) => {
           </Select>
         )}
       </Field>
-      <Field label="Outbound Channels" hint="Comma-separated allowlist of channels this bot may post in.">
+      <Field label="Outbound Channels" hint="Comma-separated channel ids this bot may post in, or * for every channel it is invited to (never direct messages).">
         {(props) => (
           <Input
             {...props}

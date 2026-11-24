@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from api.main import app
+from api.routers import mcp_oauth
 from api.services import mcp_engine, mcp_turn
 from api.services.mcp_runtime import auth_headers
 from config_engine.crypto import CredentialCipher
@@ -27,16 +28,27 @@ OTHER_ORG_ADMIN = {
 }
 
 
+EVENTS = {"name": "list_events", "description": "", "parameters_summary": ""}
+PROBE_ANSWER: dict[str, tuple[str, list[Any], str | None]] = {}
+
+
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     async def public(_url: str) -> None:
         return None
+
+    async def probe(**kwargs: Any) -> tuple[str, list[Any], str | None]:
+        signed_in = auth_headers(kwargs.get("auth_data") or {}, CredentialCipher())
+        assert signed_in == {"Authorization": "Bearer at-secret"}, "probed with the new account"
+        return PROBE_ANSWER.get("answer", ("connected", [EVENTS], None))
 
     async def token_endpoint(_url: str, payload: dict[str, str]) -> dict[str, Any]:
         return {"access_token": "at-secret", "refresh_token": "rt-secret", "expires_in": 3600}
 
     monkeypatch.setattr(mcp_engine, "resolve_public_target", public)
     monkeypatch.setattr(mcp_engine, "_post_token_request", token_endpoint)
+    monkeypatch.setattr(mcp_oauth, "probe_and_fetch_tools", probe)
+    PROBE_ANSWER.clear()
     with TestClient(app) as c:
         app.state.db_manager = None
         mcp_turn._mcp_servers_store.clear()
@@ -151,7 +163,31 @@ def test_a_member_connects_their_own_personal_server(client: TestClient) -> None
     )
 
     assert "status=connected" in done.headers["location"]
-    assert "access_token_enc" in mcp_turn._mcp_servers_store[server_id]["encrypted_auth"]
+    server = mcp_turn._mcp_servers_store[server_id]
+    assert "access_token_enc" in server["encrypted_auth"]
+    assert server["tools"] == [EVENTS] and server["status"] == "connected"
+
+
+def test_a_sign_in_whose_tools_cannot_be_listed_says_why_and_keeps_the_account(
+    client: TestClient,
+) -> None:
+    PROBE_ANSWER["answer"] = ("offline", [], "No MCP response within 10s")
+    server_id = _register_oauth_server(client, "user", MEMBER)
+    state = _authorize(client, server_id, MEMBER)
+
+    done = client.get(
+        "/v1/mcp/oauth/callback",
+        params={"code": "c", "state": state},
+        headers=MEMBER,
+        follow_redirects=False,
+    )
+
+    outcome = parse_qs(urlparse(done.headers["location"]).query)
+    assert outcome["status"] == ["no_tools"] and outcome["server_id"] == [server_id]
+    assert outcome["error"] == ["No MCP response within 10s"]
+    server = mcp_turn._mcp_servers_store[server_id]
+    assert "access_token_enc" in server["encrypted_auth"]
+    assert server["status"] == "offline" and server["tools"] == []
 
 
 @pytest.mark.asyncio

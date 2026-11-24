@@ -151,9 +151,9 @@ export const ToolGroupSection: React.FC<ToolGroupSectionProps> = ({
       </div>
       <div id={bodyId} hidden={!open}>
         {open && (
-          <div className="grid grid-cols-1 gap-x-3 px-1.5 pb-1.5 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-x-4 gap-y-0.5 px-2.5 pb-2.5 pt-0.5">
             {visible.length === 0 ? (
-              <p className="text-xs text-neutral-500 dark:text-neutral-400">No tools discovered yet.</p>
+              <p className="px-1.5 text-xs text-neutral-500 dark:text-neutral-400">No tools discovered yet.</p>
             ) : (
               visible.map(renderTool)
             )}

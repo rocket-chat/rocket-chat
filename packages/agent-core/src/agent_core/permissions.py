@@ -212,6 +212,18 @@ def is_read_call(name: str, arguments: dict[str, Any]) -> bool:
     return _classify(name, arguments)[0] == "read"
 
 
+# Publications that leave the sandbox for the forge; the other publish tools stay local
+# (commits, branches) or reach Slack.
+FORGE_PUBLISH_TOOLS: frozenset[str] = frozenset({"git_push", "git_open_pr"})
+
+
+def changes_forge(name: str, arguments: dict[str, Any]) -> bool:
+    """Whether this call changes something on the forge (``GitPolicy.forge_writes`` refuses it)."""
+    if name in FORGE_PUBLISH_TOOLS:
+        return True
+    return name in ACTION_CLASSIFIED_TOOLS and _classify_github(name, arguments)[0] == "publish"
+
+
 def _classify(name: str, arguments: dict[str, Any]) -> tuple[str, str]:
     """(kind, risk_level) of a tool call; unknown tools are treated as commands."""
     if name in ACTION_CLASSIFIED_TOOLS:

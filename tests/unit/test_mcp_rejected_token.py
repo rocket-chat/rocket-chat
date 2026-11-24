@@ -8,7 +8,15 @@ from types import SimpleNamespace
 from typing import Any
 
 import httpx2
-from api.services.mcp_runtime import McpServerTarget, McpToolProvider, is_unauthorized
+from api.services import mcp_runtime
+from api.services.mcp_runtime import (
+    McpServerTarget,
+    McpToolProvider,
+    auth_headers,
+    is_unauthorized,
+    probe_target,
+)
+from config_engine.crypto import CredentialCipher
 
 
 def _refused() -> httpx2.HTTPStatusError:
@@ -56,4 +64,75 @@ async def test_a_server_listed_again_with_a_fresh_token_offers_its_tools() -> No
 
     assert await provider.retry("kb-refused", {"Authorization": "Bearer fresh"})
     assert [d.name for d in provider.definitions()] == ["mcp__knowledge-base__search"]
+    await provider.aclose()
+
+
+SENTRY_URL = "https://mcp.sentry.example.test/mcp"
+
+
+def _serve_like_workers_oauth_provider(
+    monkeypatch: Any, seen: list[str], accepted: str = "Bearer at-good"
+) -> None:
+    """An MCP server behind Cloudflare's workers-oauth-provider (Sentry's): it issues
+    ``token_type: "bearer"`` but reads only an Authorization header starting with ``"Bearer "``."""
+
+    def answer(request: httpx2.Request) -> httpx2.Response:
+        authorization = request.headers.get("Authorization", "")
+        seen.append(authorization)
+        if authorization != accepted:
+            return httpx2.Response(401, headers={"WWW-Authenticate": 'Bearer realm="OAuth"'})
+        return httpx2.Response(500)
+
+    class MockedClient(httpx2.AsyncClient):
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(transport=httpx2.MockTransport(answer), **kwargs)
+
+    async def public(_url: str) -> None:
+        return None
+
+    monkeypatch.setattr(mcp_runtime.httpx2, "AsyncClient", MockedClient)
+    monkeypatch.setattr(mcp_runtime, "resolve_public_target", public)
+
+
+async def test_a_lowercase_bearer_token_type_is_sent_as_the_bearer_scheme(
+    monkeypatch: Any,
+) -> None:
+    seen: list[str] = []
+    _serve_like_workers_oauth_provider(monkeypatch, seen)
+    cipher = CredentialCipher()
+    stored = {"access_token_enc": cipher.encrypt("at-good"), "token_type": "bearer"}
+
+    target = McpServerTarget(
+        "s", "Sentry", "http", SENTRY_URL, headers=auth_headers(stored, cipher)
+    )
+    status, _tools, error = await probe_target(target, 5)
+
+    assert seen and set(seen) == {"Bearer at-good"}
+    assert error != "The server refused the credentials (HTTP 401)."
+    assert status == "error"
+
+
+def test_other_token_types_keep_their_own_scheme() -> None:
+    cipher = CredentialCipher()
+    token = cipher.encrypt("t")
+    assert auth_headers({"access_token_enc": token}, cipher) == {"Authorization": "Bearer t"}
+    assert auth_headers({"access_token_enc": token, "token_type": "DPoP"}, cipher) == {
+        "Authorization": "DPoP t"
+    }
+
+
+async def test_a_refusal_through_the_real_sdk_is_reported_as_a_401(monkeypatch: Any) -> None:
+    """mcp 2.2 hides HTTP errors behind a JSON-RPC -32603 inside an exception group."""
+    seen: list[str] = []
+    _serve_like_workers_oauth_provider(monkeypatch, seen)
+    target = McpServerTarget(
+        "s", "Sentry", "http", SENTRY_URL, headers={"Authorization": "Bearer at-revoked"}
+    )
+
+    status, tools, error = await probe_target(target, 5)
+    provider = McpToolProvider([target])
+    await provider.load()
+
+    assert (status, tools, error) == ("error", [], "The server refused the credentials (HTTP 401).")
+    assert provider.unauthorized == {"s"}, "a turn refreshes the token instead of giving up"
     await provider.aclose()

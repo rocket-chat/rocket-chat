@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 from agent_core.tools.git_tools import commit_spec_for_policy, git_open_pr
@@ -89,7 +90,7 @@ class _Engine:
 async def test_pr_credential_follows_policy(publish_as: str, expected_token: str | None) -> None:
     engine = _Engine()
     policy = _policy(publish_as=publish_as, user_token="member-token", default_branch="develop")
-    await git_open_pr(None, "s", "t", "b", git_engine=engine, policy=policy)  # type: ignore[arg-type]
+    await git_open_pr(AsyncMock(), "s", "t", "b", git_engine=engine, policy=policy)
     assert engine.calls == [("develop", expected_token)]
 
 

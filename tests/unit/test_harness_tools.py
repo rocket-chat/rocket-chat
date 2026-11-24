@@ -214,6 +214,29 @@ async def test_git_open_pr_requires_engine() -> None:
     assert engine.prs[0][0] == "title"
 
 
+@pytest.mark.asyncio
+async def test_git_open_pr_from_the_base_branch_is_refused_before_anything_is_published() -> None:
+    engine = FakeGitEngine()
+    on_default = FakeDriver(
+        [ExecResult(0, "master\n", "", 1), ExecResult(0, "origin/master\n", "", 1)]
+    )
+    on_named_base = FakeDriver([ExecResult(0, "release\n", "", 1)])
+    on_feature = FakeDriver(
+        [ExecResult(0, "rocket/fix\n", "", 1), ExecResult(0, "origin/master\n", "", 1)]
+    )
+
+    refused = await git_tools.git_open_pr(on_default, "s1", "t", "b", git_engine=engine)
+    refused_named = await git_tools.git_open_pr(
+        on_named_base, "s1", "t", "b", "release", git_engine=engine
+    )
+    opened = await git_tools.git_open_pr(on_feature, "s1", "t", "b", git_engine=engine)
+
+    assert refused.startswith("Error: master is checked out") and "git_commit" in refused
+    assert refused_named.startswith("Error: release is checked out")
+    assert "pull/1" in opened
+    assert len(engine.prs) == 1
+
+
 # --------------------------------------------------------------------------- #
 # P1-6a Code search (symbols)
 # --------------------------------------------------------------------------- #

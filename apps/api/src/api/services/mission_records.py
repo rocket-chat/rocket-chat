@@ -18,8 +18,48 @@ RUN_ID_KEY = "mission_run_id"
 SCHEMA_KEY = "mission_output_schema"
 OUTPUT_KEY = "mission_output"
 REVIEWED_SHA_KEY = "review_last_sha"
+# ``False`` on the session of a mission without GitHub writes: its turns read GitHub only.
+GITHUB_WRITE_KEY = "mission_github_write"
+# The pull requests the run opened: {"run_id": ..., "urls": [...]}, checked by its delivery.
+PULL_REQUESTS_KEY = "mission_pull_requests"
 # The toolset that carries the ``deliver`` tool into a run that has something to deliver.
 MISSION_TOOLSET = "mission"
+
+
+def forge_writes_of(metadata: Any) -> bool:
+    """Whether a session's turns may change the forge: always, unless a mission said no."""
+    return not (isinstance(metadata, dict) and metadata.get(GITHUB_WRITE_KEY) is False)
+
+
+def note_pull_request(url: str) -> Any:
+    """A session mutation that records a pull request opened by the session's current run."""
+
+    def apply(record: Any) -> None:
+        known = dict(record.metadata) if isinstance(record.metadata, dict) else {}
+        run_id = str(known.get(RUN_ID_KEY) or "")
+        if not run_id:
+            return
+        kept = known.get(PULL_REQUESTS_KEY)
+        urls = (
+            list(kept.get("urls") or [])
+            if isinstance(kept, dict) and kept.get("run_id") == run_id
+            else []
+        )
+        if url not in urls:
+            urls.append(url)
+        known[PULL_REQUESTS_KEY] = {"run_id": run_id, "urls": urls}
+        record.metadata = known
+
+    return apply
+
+
+def pull_requests_of(metadata: Any, run_id: str) -> list[str]:
+    """The pull requests run ``run_id`` opened, as recorded on its session."""
+    kept = metadata.get(PULL_REQUESTS_KEY) if isinstance(metadata, dict) else None
+    if not isinstance(kept, dict) or kept.get("run_id") != run_id:
+        return []
+    return [str(url) for url in kept.get("urls") or []]
+
 
 # -- runs ------------------------------------------------------------------------------------
 

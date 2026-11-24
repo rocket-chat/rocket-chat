@@ -1,4 +1,4 @@
-"""Missions, their runs and deliveries, webhook deliveries and outbound webhooks are each
+"""Missions, their runs, delayed runs and deliveries, webhook deliveries and outbound webhooks are each
 organization's own, under forced Row-Level Security."""
 
 from __future__ import annotations
@@ -6,6 +6,7 @@ from __future__ import annotations
 import time
 
 from api.db.models import (
+    MissionDelayedRunModel,
     MissionDeliveryModel,
     MissionModel,
     MissionRunModel,
@@ -50,6 +51,14 @@ def _mission_delivery(org: str, run_id: str) -> MissionDeliveryModel:
     )  # fmt: skip
 
 
+def _delayed_run(org: str, mission_id: str) -> MissionDelayedRunModel:
+    now = int(time.time())
+    return MissionDelayedRunModel(
+        id=new_id("mdr"), org_id=org, mission_id=mission_id, event={"source": "webhook"},
+        due_at=now + 3600, created_at=now,
+    )  # fmt: skip
+
+
 def _delivery(org: str) -> WebhookDeliveryModel:
     return WebhookDeliveryModel(
         id=new_id("dlv"), org_id=org, source="github", delivery_id=new_id("d"),
@@ -88,6 +97,7 @@ async def test_automation_tables_are_isolated_in_postgres() -> None:
             (_mission, MissionModel),
             (lambda org: _run(org, mission_id), MissionRunModel),
             (lambda org: _mission_delivery(org, run_id), MissionDeliveryModel),
+            (lambda org: _delayed_run(org, mission_id), MissionDelayedRunModel),
             (_delivery, WebhookDeliveryModel),
             (lambda org: _outbound(org, webhook_id), OutboundDeliveryModel),
         ):

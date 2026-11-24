@@ -6,6 +6,7 @@ for the repository (``GithubAccess.actor`` says who acted). Results are short an
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from agent_core.tools.clamp import clamp_output
@@ -28,6 +29,8 @@ PR_WRITE_ACTIONS = frozenset(
         "merge",
     }
 )
+# Actions whose text is ``body``; "edit" takes the new description from ``body`` as well.
+BODY_TEXT_ACTIONS = frozenset({"comment", "review", "reply_to_thread"})
 ISSUE_WRITE_ACTIONS = frozenset({"create", "comment", "edit", "close", "reopen"})
 DIFF_FILES_PER_PAGE = 10
 REVIEW_EVENTS = {"comment": "COMMENT", "request_changes": "REQUEST_CHANGES", "approve": "APPROVE"}
@@ -162,6 +165,16 @@ async def review_threads(access: GithubAccess, slug: str, number: int) -> str:
 
 async def _node_id(access: GithubAccess, slug: str, number: int) -> str:
     return str((await request(access, "GET", f"/repos/{slug}/pulls/{number}"))["node_id"])
+
+
+def check_single_body_use(actions: Sequence[str]) -> None:
+    """Refuse a call where ``body`` would be both the new description and a comment's text."""
+    if "edit" in actions and BODY_TEXT_ACTIONS.intersection(actions):
+        raise GithubError(
+            "`body` would be both the new description (edit) and the text of "
+            f"{', '.join(sorted(BODY_TEXT_ACTIONS.intersection(actions)))}: make them in two "
+            "calls. Nothing was changed."
+        )
 
 
 async def write_pull(

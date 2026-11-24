@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from slack_bolt.context.ack.async_ack import AsyncAck
@@ -14,9 +15,12 @@ from slack_assistant.block_kit import (
     build_home_view,
     markdown_to_slack_mrkdwn,
     open_in_rocket_context,
+    pull_request_links,
 )
 from slack_assistant.bot import DEFAULT_COMMAND
 from slack_assistant.gates import SlackGatesMixin
+from slack_assistant.policy import INVITED_CHANNELS
+from specifications.interfaces.automation import MAX_CHAT_CHARS
 from specifications.interfaces.session import SessionRecord, SessionSource
 
 logger = logging.getLogger(__name__)
@@ -241,6 +245,13 @@ class SlackEntrypointsMixin(SlackGatesMixin):
 
     # -- scheduled missions ------------------------------------------------------------------
 
+    async def _mission_channel_allowed(self, allowed: frozenset[str], channel_id: str) -> bool:
+        """A mission may report where the organization lets the assistant post: anywhere when it
+        names no channel, the listed ones, or any channel the bot was invited to (``*``)."""
+        if not allowed or channel_id in allowed:
+            return True
+        return INVITED_CHANNELS in allowed and await self._bot_is_member(channel_id)
+
     async def post_mission_report(
         self,
         *,
@@ -250,23 +261,30 @@ class SlackEntrypointsMixin(SlackGatesMixin):
         session_id: str,
         answer: str,
         succeeded: bool,
+        pull_requests: Sequence[str] = (),
     ) -> bool:
-        """Post a finished mission run to the channel its owner chose; False if it could not."""
+        """Post a finished mission run to the channel its owner chose; False if it could not.
+
+        ``pull_requests`` are the ones the run opened: those the message does not link already
+        are linked under it, so the reader always reaches them."""
         if not self._slack_api_ready:
             return False
         policy = await self._load_org_policy(org_id)
-        if policy.outbound_channels and channel_id not in policy.outbound_channels:
+        if not await self._mission_channel_allowed(policy.outbound_channels, channel_id):
             logger.warning("Mission report to %s refused by the outbound allowlist", channel_id)
             return False
         verdict = ":white_check_mark: finished" if succeeded else ":warning: failed"
-        body = markdown_to_slack_mrkdwn(head_of(answer.strip() or "(no output)", 1500))
+        body = markdown_to_slack_mrkdwn(head_of(answer.strip() or "(no output)", MAX_CHAT_CHARS))
         blocks: list[dict[str, Any]] = [
             {
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": f"*{mission_name}* {verdict}\n{body}"[:2900]},
             }
         ]
-        if context := open_in_rocket_context(self._session_link(policy, session_id)):
+        unlinked = [url for url in pull_requests if url not in answer]
+        if context := open_in_rocket_context(
+            self._session_link(policy, session_id), pull_request_links(unlinked)
+        ):
             blocks.append(context)
         try:
             posted = await self.app.client.chat_postMessage(

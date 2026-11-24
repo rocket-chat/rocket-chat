@@ -215,13 +215,19 @@ async def _expand_slash_command(
     org_id: str,
     user_id: str,
     allowed_skill_ids: Sequence[str],
+    agent_team_id: str | None = None,
 ) -> str:
     """The instruction the model receives: ``/skill args`` becomes the skill's text."""
     invocation = parse_slash_command(prompt)
     if invocation is None:
         return prompt
     skill = await _find_visible_skill(
-        db_mgr, org_id, user_id, invocation.name, allowed_ids=allowed_skill_ids
+        db_mgr,
+        org_id,
+        user_id,
+        invocation.name,
+        allowed_ids=allowed_skill_ids,
+        agent_team_id=agent_team_id,
     )
     if skill is None or skill.runtime != "text" or not skill.body:
         return prompt

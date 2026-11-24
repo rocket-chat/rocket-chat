@@ -248,6 +248,29 @@ async function createTeamAgent(page: Page, teamId: string): Promise<{ id: string
   return (await res.json()) as { id: string; name: string };
 }
 
+test.describe("who may use a team's agent", () => {
+  test("its Access tab keeps it the team's by default and opens it to guests", async ({ page }) => {
+    const team = await createTeam(page, "Access team");
+    const agent = await createTeamAgent(page, team.id);
+    await page.goto(`/settings/agents?owner=team:${team.id}`);
+    await page.getByTestId(`agent-item-${agent.id}`).click();
+    await page.getByTestId("agent-section-access").click();
+
+    const access = page.getByTestId("agent-access");
+    await expect(access.getByTestId("agent-access-team")).toBeChecked();
+    await expect(access).toContainText("No grants: the team only.");
+
+    await access.getByTestId("agent-access-guests").check();
+    const saved = page.waitForResponse((res) => res.url().endsWith(`/v1/agents/${agent.id}/access`) && res.request().method() === "PUT");
+    await access.getByTestId("agent-access-save").click();
+    const body = (await (await saved).json()) as { grants: { principal_kind: string }[] };
+    expect(body.grants.map((g) => g.principal_kind)).toEqual(["guests"]);
+    await expect(access.getByRole("status")).toHaveText("Access saved.");
+    await expect(access.getByTestId("agent-access-team")).toBeChecked();
+    await expectNoBlockingViolations(page);
+  });
+});
+
 test.describe("a team's keys and limits", () => {
   test("a team's keys are added, rotated and deleted from Models & keys", async ({ page }) => {
     const team = await createTeam(page, "Keys team");
