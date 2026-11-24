@@ -173,7 +173,21 @@ async def test_the_cost_the_provider_billed_is_what_is_recorded_and_streamed(
     assert seen[-1].cost_usd == pytest.approx(0.0731)
 
 
-def test_a_gateway_model_name_is_priced_from_the_underlying_model() -> None:
+def test_a_gateway_model_name_is_priced_from_the_underlying_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # LiteLLM loads its price table from the network at import, and that table has since listed
+    # the gateway's own name at the gateway's price: the test pins the case it is about, a
+    # gateway name absent from the table, rather than whatever the table says that day.
+    listed_cost = litellm.cost_per_token
+
+    def cost_per_token(*, model: str, **kwargs: Any) -> Any:
+        if model.startswith("openrouter/"):
+            # What LiteLLM raises for a model missing from its table.
+            raise Exception(f"This model isn't mapped yet. model={model}")
+        return listed_cost(model=model, **kwargs)
+
+    monkeypatch.setattr(litellm, "cost_per_token", cost_per_token)
     gateway = LiteLLMGateway()
     listed = gateway._cost_usd("deepseek/deepseek-v4-pro", 1_000_000, 100_000, 0, 0)
 
