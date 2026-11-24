@@ -1202,6 +1202,80 @@ class ChangeProposalModel(Base):
     decided_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     decided_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     decision_note: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    change_request_url: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+
+
+class ExternalSourceModel(Base):
+    """A repository the organization imports objects (skills) from and keeps them in sync with.
+
+    Owned like every shared object. ``next_sync_at`` doubles as the periodic synchronisation's
+    claim token. Protected by forced RLS.
+    """
+
+    __tablename__ = "external_sources"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    scope: Mapped[str] = mapped_column(String(20), default="org", nullable=False, index=True)
+    user_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    team_id: Mapped[str | None] = _team_owner_column()
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    repository: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    ref: Mapped[str] = mapped_column(String(255), nullable=False)
+    auth: Mapped[str] = mapped_column(String(16), nullable=False, default="app")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    last_commit: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    last_synced_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    catalogue: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=True
+    )
+    next_sync_at: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0, index=True)
+    created_by: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+
+class ExternalSourceLinkModel(Base):
+    """Where an imported object comes from: its source, its folder there and its sync state.
+
+    ``object_id`` is not a foreign key: one table links every kind of object (skills today).
+    Protected by forced RLS.
+    """
+
+    __tablename__ = "external_source_links"
+    __table_args__ = (
+        UniqueConstraint("org_id", "kind", "object_id", name="uq_external_source_link_object"),
+    )
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    source_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("external_sources.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    object_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    plugin: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    commit: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    document_id: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    digest: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="synced")
+    problem: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    files: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON().with_variant(JSONB, "postgresql"), nullable=False, default=list
+    )
+    created_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_at: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
 
 class MemoryModel(Base):

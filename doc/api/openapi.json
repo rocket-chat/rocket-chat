@@ -1094,6 +1094,173 @@
         "title": "CandidateList",
         "type": "object"
       },
+      "CatalogueEntryResponse": {
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "imported": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogueImport"
+            },
+            "title": "Imported",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "plugins": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Plugins",
+            "type": "array"
+          },
+          "problem": {
+            "default": "",
+            "title": "Problem",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "name",
+          "url"
+        ],
+        "title": "CatalogueEntryResponse",
+        "type": "object"
+      },
+      "CatalogueImport": {
+        "properties": {
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "skill_id": {
+            "title": "Skill Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "skill_id",
+          "scope",
+          "status"
+        ],
+        "title": "CatalogueImport",
+        "type": "object"
+      },
+      "CataloguePluginResponse": {
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CataloguePluginResponse",
+        "type": "object"
+      },
+      "CatalogueResponse": {
+        "properties": {
+          "commit": {
+            "default": "",
+            "title": "Commit",
+            "type": "string"
+          },
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogueEntryResponse"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "has_manifest": {
+            "default": false,
+            "title": "Has Manifest",
+            "type": "boolean"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/CataloguePluginResponse"
+            },
+            "title": "Plugins",
+            "type": "array"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ExternalSourceResponse"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "CatalogueResponse",
+        "type": "object"
+      },
       "ChangePasswordRequest": {
         "properties": {
           "current_password": {
@@ -2475,6 +2642,17 @@
             "title": "Signature",
             "type": "string"
           },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SkillSourceResponse"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The external source it is synchronised with, if any"
+          },
           "team_id": {
             "anyOf": [
               {
@@ -2742,6 +2920,209 @@
           }
         },
         "title": "DevLoginRequest",
+        "type": "object"
+      },
+      "ExternalSourceRequest": {
+        "properties": {
+          "auth": {
+            "default": "app",
+            "description": "'app' (the organization's GitHub App) or 'member' (your linked GitHub account; personal sources only)",
+            "title": "Auth",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "description": "Display name; the repository when empty",
+            "title": "Name",
+            "type": "string"
+          },
+          "ref": {
+            "default": "main",
+            "description": "The branch to follow",
+            "title": "Ref",
+            "type": "string"
+          },
+          "repository": {
+            "description": "GitHub repository: owner/name or its URL",
+            "title": "Repository",
+            "type": "string"
+          },
+          "scope": {
+            "default": "org",
+            "description": "Owner: 'org', 'team' or 'user'",
+            "title": "Scope",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owning team for team sources",
+            "title": "Team Id"
+          }
+        },
+        "required": [
+          "repository"
+        ],
+        "title": "ExternalSourceRequest",
+        "type": "object"
+      },
+      "ExternalSourceResponse": {
+        "properties": {
+          "auth": {
+            "title": "Auth",
+            "type": "string"
+          },
+          "can_manage": {
+            "default": false,
+            "title": "Can Manage",
+            "type": "boolean"
+          },
+          "has_manifest": {
+            "default": false,
+            "title": "Has Manifest",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "imported_count": {
+            "default": 0,
+            "title": "Imported Count",
+            "type": "integer"
+          },
+          "last_commit": {
+            "default": "",
+            "title": "Last Commit",
+            "type": "string"
+          },
+          "last_error": {
+            "default": "",
+            "title": "Last Error",
+            "type": "string"
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "plugin_count": {
+            "default": 0,
+            "title": "Plugin Count",
+            "type": "integer"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "repository": {
+            "title": "Repository",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "skill_count": {
+            "default": 0,
+            "title": "Skill Count",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Id"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "repository",
+          "ref",
+          "auth",
+          "scope",
+          "status",
+          "url"
+        ],
+        "title": "ExternalSourceResponse",
+        "type": "object"
+      },
+      "ExternalSourceUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New display name",
+            "title": "Name"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New branch to follow",
+            "title": "Ref"
+          }
+        },
+        "title": "ExternalSourceUpdate",
         "type": "object"
       },
       "FeedbackRequest": {
@@ -3564,6 +3945,92 @@
           "preview"
         ],
         "title": "HunkView",
+        "type": "object"
+      },
+      "ImportConflictResponse": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "skill_id": {
+            "title": "Skill Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "name",
+          "skill_id"
+        ],
+        "title": "ImportConflictResponse",
+        "type": "object"
+      },
+      "ImportRequest": {
+        "properties": {
+          "merge": {
+            "description": "Folders whose skill may replace a skill of the same name (the source wins)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Merge",
+            "type": "array"
+          },
+          "paths": {
+            "description": "The folders of the skills to import",
+            "items": {
+              "type": "string"
+            },
+            "title": "Paths",
+            "type": "array"
+          },
+          "scope": {
+            "default": "user",
+            "description": "Owner of the skills: 'org', 'team' or 'user'",
+            "title": "Scope",
+            "type": "string"
+          },
+          "team_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Owning team for team skills",
+            "title": "Team Id"
+          }
+        },
+        "required": [
+          "paths"
+        ],
+        "title": "ImportRequest",
+        "type": "object"
+      },
+      "ImportResponse": {
+        "properties": {
+          "conflicts": {
+            "items": {
+              "$ref": "#/components/schemas/ImportConflictResponse"
+            },
+            "title": "Conflicts",
+            "type": "array"
+          },
+          "imported": {
+            "items": {
+              "$ref": "#/components/schemas/CustomSkillResponse"
+            },
+            "title": "Imported",
+            "type": "array"
+          }
+        },
+        "title": "ImportResponse",
         "type": "object"
       },
       "InstallationInfo": {
@@ -5917,6 +6384,12 @@
             "title": "Base Content",
             "type": "string"
           },
+          "change_request_url": {
+            "default": "",
+            "description": "For a skill that follows an external source: the pull request approving it opened",
+            "title": "Change Request Url",
+            "type": "string"
+          },
           "created_at": {
             "description": "Epoch seconds",
             "title": "Created At",
@@ -7904,6 +8377,147 @@
         "title": "SignInUrl",
         "type": "object"
       },
+      "SkillChangeRequest": {
+        "description": "A change to a skill linked to an external source, proposed as a pull request.",
+        "properties": {
+          "body": {
+            "description": "New instructions",
+            "title": "Body",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "description": "New description",
+            "title": "Description",
+            "type": "string"
+          },
+          "summary": {
+            "default": "",
+            "description": "One line for the pull request's title",
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "New name; unchanged when omitted",
+            "title": "Title"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "SkillChangeRequest",
+        "type": "object"
+      },
+      "SkillChangeResponse": {
+        "properties": {
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "repository": {
+            "title": "Repository",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "repository",
+          "number",
+          "url"
+        ],
+        "title": "SkillChangeResponse",
+        "type": "object"
+      },
+      "SkillSourceResponse": {
+        "description": "Where a skill imported from an external source comes from, and how it stands.",
+        "properties": {
+          "commit": {
+            "default": "",
+            "title": "Commit",
+            "type": "string"
+          },
+          "files": {
+            "description": "Files carried with the skill",
+            "items": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "name": {
+            "description": "The source's display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "description": "The skill's folder in the repository",
+            "title": "Path",
+            "type": "string"
+          },
+          "plugin": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The manifest plugin holding it",
+            "title": "Plugin"
+          },
+          "problem": {
+            "default": "",
+            "title": "Problem",
+            "type": "string"
+          },
+          "ref": {
+            "description": "The branch the source follows",
+            "title": "Ref",
+            "type": "string"
+          },
+          "repository": {
+            "title": "Repository",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "'synced', 'missing' (left the repository) or 'invalid'",
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "description": "The skill's folder on GitHub",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "name",
+          "repository",
+          "ref",
+          "path",
+          "status",
+          "url"
+        ],
+        "title": "SkillSourceResponse",
+        "type": "object"
+      },
       "SlackBotCreateRequest": {
         "description": "Payload to register a new Slack bot.",
         "properties": {
@@ -9167,6 +9781,43 @@
           "roles"
         ],
         "title": "SwitchOrgResponse",
+        "type": "object"
+      },
+      "SyncResponse": {
+        "properties": {
+          "error": {
+            "default": "",
+            "title": "Error",
+            "type": "string"
+          },
+          "invalid": {
+            "default": 0,
+            "title": "Invalid",
+            "type": "integer"
+          },
+          "missing": {
+            "default": 0,
+            "title": "Missing",
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ExternalSourceResponse"
+          },
+          "unchanged": {
+            "default": 0,
+            "title": "Unchanged",
+            "type": "integer"
+          },
+          "updated": {
+            "default": 0,
+            "title": "Updated",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "SyncResponse",
         "type": "object"
       },
       "TeamBody": {
@@ -14470,6 +15121,309 @@
         ]
       }
     },
+    "/v1/external-sources": {
+      "get": {
+        "description": "The repositories connected as sources that the caller may see and import from.",
+        "operationId": "list_external_sources_v1_external_sources_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ExternalSourceResponse"
+                  },
+                  "title": "Response List External Sources V1 External Sources Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List External Sources",
+        "tags": [
+          "External sources"
+        ]
+      },
+      "post": {
+        "description": "Connect a repository as a source and read it at once; a repository that cannot be read\nis still connected, with the reason in ``last_error``.",
+        "operationId": "connect_external_source_v1_external_sources_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalSourceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalSourceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect External Source",
+        "tags": [
+          "External sources"
+        ]
+      }
+    },
+    "/v1/external-sources/{source_id}": {
+      "delete": {
+        "description": "Disconnect a source. Its skills stay, no longer linked: they can then be edited here.",
+        "operationId": "delete_external_source_v1_external_sources__source_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "boolean"
+                  },
+                  "title": "Response Delete External Source V1 External Sources  Source Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete External Source",
+        "tags": [
+          "External sources"
+        ]
+      },
+      "put": {
+        "description": "Rename a source or change the branch it follows.",
+        "operationId": "update_external_source_v1_external_sources__source_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExternalSourceUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExternalSourceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update External Source",
+        "tags": [
+          "External sources"
+        ]
+      }
+    },
+    "/v1/external-sources/{source_id}/catalogue": {
+      "get": {
+        "description": "What the source offers as of its last read: plugins (when it has a manifest), every\nskill, and where the caller can see each one already imported.",
+        "operationId": "external_source_catalogue_v1_external_sources__source_id__catalogue_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "External Source Catalogue",
+        "tags": [
+          "External sources"
+        ]
+      }
+    },
+    "/v1/external-sources/{source_id}/import": {
+      "post": {
+        "description": "Import skills of the source for one owner. A skill of that owner with the same name is\nreported as a conflict and nothing is imported, unless its folder is in ``merge``: the\nexisting skill then takes the source's content and follows it.",
+        "operationId": "import_from_external_source_v1_external_sources__source_id__import_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import From External Source",
+        "tags": [
+          "External sources"
+        ]
+      }
+    },
+    "/v1/external-sources/{source_id}/sync": {
+      "post": {
+        "description": "Read the source again now and bring its imported skills in step with it.",
+        "operationId": "synchronise_external_source_v1_external_sources__source_id__sync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Synchronise External Source",
+        "tags": [
+          "External sources"
+        ]
+      }
+    },
     "/v1/github/setup": {
       "get": {
         "description": "GitHub's post-install redirect: map the installation to the organization in ``state``.",
@@ -16279,7 +17233,7 @@
     },
     "/v1/proposals/{proposal_id}/approve": {
       "post": {
-        "description": "Save the proposed text (or the caller's edit of it) to the agent or skill.",
+        "description": "Save the proposed text (or the caller's edit of it) to the agent or skill. A skill that\nfollows an external source is not saved: a pull request is opened on its repository with\nthe caller's linked GitHub account (``change_request_url``).",
         "operationId": "approve_proposal_v1_proposals__proposal_id__approve_post",
         "parameters": [
           {
@@ -20637,7 +21591,7 @@
     },
     "/v1/skills": {
       "get": {
-        "description": "The custom skills the caller may use: the organization's, their teams' and their own.",
+        "description": "The custom skills the caller may use: the organization's, their teams' and their own,\neach with the external source it is synchronised with, if any.",
         "operationId": "list_custom_skills_v1_skills_get",
         "responses": {
           "200": {
@@ -20811,6 +21765,59 @@
           }
         },
         "summary": "Delete Custom Skill",
+        "tags": [
+          "Sessions & Telemetry"
+        ]
+      }
+    },
+    "/v1/skills/{skill_id}/change-request": {
+      "post": {
+        "description": "Propose a change to a skill that follows an external source: a pull request on its\nrepository, opened with the caller's linked GitHub account. Nothing changes here until it\nis merged and the source is synchronised.",
+        "operationId": "propose_skill_change_request_v1_skills__skill_id__change_request_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillChangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillChangeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Propose Skill Change Request",
         "tags": [
           "Sessions & Telemetry"
         ]

@@ -580,6 +580,22 @@ export interface SubagentConfig {
   customized?: boolean;
 }
 
+/** The external source a skill is synchronised with (its repository is its source of truth). */
+export interface SkillSource {
+  source_id: string;
+  name: string;
+  repository: string;
+  ref: string;
+  path: string;
+  plugin: string | null;
+  commit: string;
+  /** `missing`: the skill left the repository (it is deactivated); `invalid`: it cannot be read. */
+  status: "synced" | "missing" | "invalid";
+  problem: string;
+  url: string;
+  files: string[];
+}
+
 export interface CustomSkillConfig {
   id: string;
   name?: string;
@@ -590,8 +606,10 @@ export interface CustomSkillConfig {
   user_id?: string | null;
   team_id?: string | null;
   org_id?: string | null;
+  is_active?: boolean;
   created_at?: string;
   updated_at?: string;
+  source?: SkillSource | null;
 }
 
 export interface KnowledgeBaseConfig {

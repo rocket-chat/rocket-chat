@@ -713,6 +713,22 @@ class CustomSkillImportRequest(BaseModel):
     team_id: str | None = Field(default=None, description="Owning team for team objects")
 
 
+class SkillSourceResponse(BaseModel):
+    """Where a skill imported from an external source comes from, and how it stands."""
+
+    source_id: str
+    name: str = Field(..., description="The source's display name")
+    repository: str
+    ref: str = Field(..., description="The branch the source follows")
+    path: str = Field(..., description="The skill's folder in the repository")
+    plugin: str | None = Field(default=None, description="The manifest plugin holding it")
+    commit: str = ""
+    status: str = Field(..., description="'synced', 'missing' (left the repository) or 'invalid'")
+    problem: str = ""
+    url: str = Field(..., description="The skill's folder on GitHub")
+    files: list[str] = Field(default_factory=list, description="Files carried with the skill")
+
+
 class CustomSkillResponse(BaseModel):
     id: str
     name: str
@@ -728,6 +744,24 @@ class CustomSkillResponse(BaseModel):
     code: str = ""
     created_at: int
     updated_at: int
+    source: SkillSourceResponse | None = Field(
+        default=None, description="The external source it is synchronised with, if any"
+    )
+
+
+class SkillChangeRequest(BaseModel):
+    """A change to a skill linked to an external source, proposed as a pull request."""
+
+    description: str = Field(default="", description="New description")
+    body: str = Field(..., description="New instructions")
+    title: str | None = Field(default=None, description="New name; unchanged when omitted")
+    summary: str = Field(default="", description="One line for the pull request's title")
+
+
+class SkillChangeResponse(BaseModel):
+    repository: str
+    number: int
+    url: str
 
 
 class CustomSkillTestRequest(BaseModel):

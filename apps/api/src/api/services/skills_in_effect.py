@@ -3,6 +3,7 @@
 from collections.abc import Sequence
 from typing import Any
 
+from api.services.skill_files import files_of, with_files
 from api.services.skills_lookup import _find_visible_skill
 from api.services.tool_loading import skills_read_of
 from specifications.interfaces.session import SessionRecord
@@ -27,5 +28,7 @@ async def skill_texts_for(
         )
         if skill is None or (skill.runtime == "python" and skill.code) or not skill.body.strip():
             continue
-        texts[name] = skill.body.strip()
+        # The same text ``execute_skill`` returned: a skill's files are part of it.
+        files = await files_of(db_mgr, session.tenant_org_id, skill.id)
+        texts[name] = with_files(name, skill.body, files)
     return texts

@@ -21,6 +21,7 @@ from api.auth.roles import can_write, is_admin
 from api.db.models import (
     AgentPersonaEntityModel,
     CustomSkillModel,
+    ExternalSourceModel,
     KnowledgeBaseModel,
     McpServerEntityModel,
     MissionModel,
@@ -46,6 +47,7 @@ OWNED_TABLES: dict[str, Any] = {
     "sandboxes": SandboxCatalogueModel,
     "missions": MissionModel,
     "templates": SessionTemplateModel,
+    "external_sources": ExternalSourceModel,
 }
 
 

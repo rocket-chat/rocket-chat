@@ -238,7 +238,9 @@ One proposal with its edits and both texts.
 
 ### `POST /v1/proposals/{proposal_id}/approve`
 
-Save the proposed text (or the caller's edit of it) to the agent or skill.
+Save the proposed text (or the caller's edit of it) to the agent or skill. A skill that
+follows an external source is not saved: a pull request is opened on its repository with
+the caller's linked GitHub account (``change_request_url``).
 
 **Parameters**
 
@@ -855,6 +857,111 @@ An organization credential needs an administrator; one's own needs ``bring_own_k
 | :--- | :--- | :--- | :--- |
 | provider | path | yes | string |
 | owner | query | no | `member` / `org` |
+
+**Responses:** `200`
+
+## External sources
+
+### `GET /v1/external-sources`
+
+The repositories connected as sources that the caller may see and import from.
+
+**Responses:** `200`
+
+### `POST /v1/external-sources`
+
+Connect a repository as a source and read it at once; a repository that cannot be read
+is still connected, with the reason in ``last_error``.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | no | Display name; the repository when empty |
+| repository | string | yes | GitHub repository: owner/name or its URL |
+| ref | string | no | The branch to follow |
+| auth | string | no | 'app' (the organization's GitHub App) or 'member' (your linked GitHub account; personal sources only) |
+| scope | string | no | Owner: 'org', 'team' or 'user' |
+| team_id | string | no | Owning team for team sources |
+
+**Responses:** `200`
+
+### `PUT /v1/external-sources/{source_id}`
+
+Rename a source or change the branch it follows.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| source_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| name | string | no | New display name |
+| ref | string | no | New branch to follow |
+
+**Responses:** `200`
+
+### `DELETE /v1/external-sources/{source_id}`
+
+Disconnect a source. Its skills stay, no longer linked: they can then be edited here.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| source_id | path | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/external-sources/{source_id}/catalogue`
+
+What the source offers as of its last read: plugins (when it has a manifest), every
+skill, and where the caller can see each one already imported.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| source_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/external-sources/{source_id}/import`
+
+Import skills of the source for one owner. A skill of that owner with the same name is
+reported as a conflict and nothing is imported, unless its folder is in ``merge``: the
+existing skill then takes the source's content and follows it.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| source_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| paths | list of string | yes | The folders of the skills to import |
+| scope | string | no | Owner of the skills: 'org', 'team' or 'user' |
+| team_id | string | no | Owning team for team skills |
+| merge | list of string | no | Folders whose skill may replace a skill of the same name (the source wins) |
+
+**Responses:** `200`
+
+### `POST /v1/external-sources/{source_id}/sync`
+
+Read the source again now and bring its imported skills in step with it.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| source_id | path | yes | string |
 
 **Responses:** `200`
 
@@ -2897,7 +3004,8 @@ including its later changes.
 
 ### `GET /v1/skills`
 
-The custom skills the caller may use: the organization's, their teams' and their own.
+The custom skills the caller may use: the organization's, their teams' and their own,
+each with the external source it is synchronised with, if any.
 
 **Responses:** `200`
 
@@ -2953,6 +3061,29 @@ Delete a custom skill (whoever may manage its owner).
 | Name | In | Required | Type |
 | :--- | :--- | :--- | :--- |
 | skill_id | path | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/skills/{skill_id}/change-request`
+
+Propose a change to a skill that follows an external source: a pull request on its
+repository, opened with the caller's linked GitHub account. Nothing changes here until it
+is merged and the source is synchronised.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| skill_id | path | yes | string |
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| description | string | no | New description |
+| body | string | yes | New instructions |
+| title | string | no | New name; unchanged when omitted |
+| summary | string | no | One line for the pull request's title |
 
 **Responses:** `200`
 

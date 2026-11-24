@@ -19,6 +19,7 @@ const ROUTES_TO_WARM = [
   "/settings/org/spend",
   "/settings/members",
   "/settings/skills",
+  "/settings/sources",
   "/settings/knowledge",
   "/invite",
 ];

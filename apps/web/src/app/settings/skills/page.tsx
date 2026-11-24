@@ -26,6 +26,8 @@ import {
   TeamScopeSection,
 } from "../../../components/settings/ScopedSettingsSection";
 import { StarterSkillsPanel } from "../../../components/settings/StarterSkillsPanel";
+import { SkillSourceBadge, SkillSourceNotice } from "../../../components/skills/SkillSourceBadge";
+import { SourceImportPanel } from "../../../components/skills/SourceImportPanel";
 import { OwnerBadge, OwnerSelect, useMoveConfirmation } from "../../../components/settings/Owner";
 import { useOwnedSections } from "../../../lib/useOwnedSections";
 import { ownerFields, ownerKey, ownerLabel, type OwnerKey } from "../../../lib/ownership";
@@ -48,9 +50,15 @@ export default function SkillsSettingsPage() {
   const [description, setDescription] = useState("");
   const [body, setBody] = useState("");
 
-  const [errorBanner, setErrorBanner] = useState<string | null>(null);
-  const [successBanner, setSuccessBanner] = useState<string | null>(null);
+  // A new skill is written here, or imported from a connected source.
+  const [formMode, setFormMode] = useState<"write" | "source">("write");
 
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [successBanner, setSuccessBanner] = useState<React.ReactNode>(null);
+
+  // The first skill opens on the first load only: depending on the open skill made closing it
+  // refetch the list and open the first one again, so one skill could never be closed.
+  const openedFirstSkill = useRef(false);
   const fetchSkills = useCallback(async () => {
     try {
       const res = await fetch("/v1/skills");
@@ -58,7 +66,8 @@ export default function SkillsSettingsPage() {
         const data = await res.json();
         if (Array.isArray(data)) {
           setSkills(data);
-          if (data.length > 0 && !expandedSkillId) {
+          if (data.length > 0 && !openedFirstSkill.current) {
+            openedFirstSkill.current = true;
             setExpandedSkillId(data[0].id);
           }
         }
@@ -66,7 +75,7 @@ export default function SkillsSettingsPage() {
     } catch (err) {
       console.warn("Failed fetching skills:", err);
     }
-  }, [expandedSkillId]);
+  }, []);
 
   useEffect(() => {
     fetchSkills();
@@ -84,7 +93,10 @@ export default function SkillsSettingsPage() {
   const isAdmin = access.isAdmin;
   const formScopeLabel = formOwner === "org" ? "organization" : formOwner === "me" ? "personal" : `team ${ownerLabel(formOwner, teams)}`;
 
+  const editingSource = skills.find((s) => s.id === editingSkillId)?.source ?? null;
+
   const handleOpenAddForm = (owner: OwnerKey) => {
+    setFormMode("write");
     setEditingSkillId(null);
     setStoredOwner(null);
     setFormOwner(owner);
@@ -95,6 +107,7 @@ export default function SkillsSettingsPage() {
   };
 
   const handleOpenEditForm = (skill: CustomSkillConfig) => {
+    setFormMode("write");
     setEditingSkillId(skill.id);
     setFormOwner(ownerKey(skill));
     setStoredOwner(ownerKey(skill));
@@ -105,9 +118,51 @@ export default function SkillsSettingsPage() {
     setExpandedSkillId(skill.id);
   };
 
+  const handleProposeChange = async () => {
+    if (!editingSkillId || !editingSource) return;
+    try {
+      const res = await fetch(`/v1/skills/${editingSkillId}/change-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim(), description: description.trim(), body: body.trim() }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "The pull request was not opened.");
+      }
+      const change: { url: string; number: number } = await res.json();
+      setShowAddForm(false);
+      setEditingSkillId(null);
+      setSuccessBanner(
+        <span data-testid="skill-change-opened">
+          Pull request opened on {editingSource.repository}:{" "}
+          <a href={change.url} target="_blank" rel="noreferrer" className="underline">
+            #{change.number}
+          </a>
+          . The skill changes here once it is merged.
+        </span>,
+      );
+      setTimeout(() => setSuccessBanner(null), 8000);
+    } catch (err: unknown) {
+      setErrorBanner(err instanceof Error ? err.message : "The pull request was not opened.");
+      setTimeout(() => setErrorBanner(null), 6000);
+    }
+  };
+
+  const handleSourceImported = (names: string[]) => {
+    setShowAddForm(false);
+    void fetchSkills();
+    setSuccessBanner(`Imported ${names.length === 1 ? `skill '${names[0]}'` : `${names.length} skills`} (${formScopeLabel})`);
+    setTimeout(() => setSuccessBanner(null), 4000);
+  };
+
   const handleSaveSkill = async () => {
     if (!title.trim() || !body.trim()) {
       setErrorBanner("Title and Skill Body instructions are required.");
+      return;
+    }
+    if (editingSource) {
+      await handleProposeChange();
       return;
     }
 
@@ -218,12 +273,17 @@ export default function SkillsSettingsPage() {
                   {skillTitle}
                 </span>
                 <OwnerBadge owned={skill} />
+                {skill.source && <SkillSourceBadge source={skill.source} />}
+                {skill.is_active === false && (
+                  <span className="text-[10px] text-muted-foreground">inactive</span>
+                )}
               </div>
               {skill.description && (
                 <p className="text-[11px] text-muted-foreground truncate mt-0.5">
                   {skill.description}
                 </p>
               )}
+              {skill.source && <SkillSourceNotice source={skill.source} />}
             </div>
           </div>
 
@@ -234,7 +294,8 @@ export default function SkillsSettingsPage() {
                   type="button"
                   onClick={() => handleOpenEditForm(skill)}
                   className="p-1.5 rounded-lg hover:bg-surface-elevated text-neutral-500 hover:text-brand transition-colors cursor-pointer"
-                  title="Edit skill"
+                  title={skill.source ? "Propose a change (pull request)" : "Edit skill"}
+                  aria-label={skill.source ? `Propose a change to ${skillTitle}` : `Edit ${skillTitle}`}
                 >
                   <Pencil className="w-3.5 h-3.5" />
                 </button>
@@ -252,6 +313,8 @@ export default function SkillsSettingsPage() {
               type="button"
               onClick={() => setExpandedSkillId(isExpanded ? null : skill.id)}
               className="p-1 rounded-lg hover:bg-surface-elevated text-neutral-400 cursor-pointer"
+              aria-expanded={isExpanded}
+              aria-label={`${isExpanded ? "Hide" : "Show"} the instructions of ${skillTitle}`}
             >
               {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
@@ -310,7 +373,7 @@ export default function SkillsSettingsPage() {
           <div className="flex items-center justify-between border-b border-border/60 pb-2">
             <div className="flex items-center gap-2">
               <span className="text-xs font-bold text-brand">
-                {editingSkillId ? "EDIT SKILL" : "CREATE NEW SKILL"}
+                {editingSource ? "PROPOSE A CHANGE" : editingSkillId ? "EDIT SKILL" : "ADD NEW SKILL"}
               </span>
               <span className="px-1.5 py-0.5 rounded-lg text-[9px] bg-brand/10 text-brand border border-brand/20">
                 {formOwner === "org" ? "Organization Scope" : formOwner === "me" ? "Personal Scope" : `Team · ${ownerLabel(formOwner, teams)}`}
@@ -325,6 +388,31 @@ onClick={() => { setShowAddForm(false); setEditingSkillId(null); }}
             </button>
           </div>
 
+          {!editingSkillId && (
+            <div className="flex gap-1" role="group" aria-label="How to add the skill">
+              <Button size="sm" variant={formMode === "write" ? "primary" : "ghost"} aria-pressed={formMode === "write"} data-testid="skill-mode-write" onClick={() => setFormMode("write")}>
+                Create new
+              </Button>
+              <Button size="sm" variant={formMode === "source" ? "primary" : "ghost"} aria-pressed={formMode === "source"} data-testid="skill-mode-source" onClick={() => setFormMode("source")}>
+                Import from source
+              </Button>
+            </div>
+          )}
+
+          {editingSource && (
+            <p className="rounded-lg border border-cyan/30 bg-cyan/5 p-3 text-[11px] text-foreground" data-testid="skill-source-edit-note">
+              This skill follows {editingSource.repository} ({editingSource.ref}). Your change is proposed as a pull request
+              on the repository, opened with your linked GitHub account; the skill changes here once it is merged.
+            </p>
+          )}
+
+          {formMode === "source" && !editingSkillId ? (
+            <>
+              <OwnerSelect testId="skill-owner" value={formOwner} options={sections.creatable} onChange={setFormOwner} />
+              <SourceImportPanel key={formOwner} owner={formOwner} onImported={handleSourceImported} />
+            </>
+          ) : (
+          <>
           <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
             <span>Have a SKILL.md already?</span>
             <input
@@ -377,10 +465,12 @@ onClick={() => { setShowAddForm(false); setEditingSkillId(null); }}
             <Button size="sm" variant="ghost" onClick={() => setShowAddForm(false)}>
               Cancel
             </Button>
-            <Button size="sm" variant="primary" onClick={handleSaveSkill}>
-              Save skill
+            <Button size="sm" variant="primary" onClick={handleSaveSkill} data-testid="skill-save">
+              {editingSource ? "Propose change" : "Save skill"}
             </Button>
           </div>
+          </>
+          )}
         </div>
       )}
 

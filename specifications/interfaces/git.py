@@ -148,6 +148,19 @@ class RepoEvent:
     head_sha: str = ""
 
 
+@dataclass(frozen=True)
+class PushEvent:
+    """A branch of a repository moved: the external sources that follow it read it again.
+
+    Kept apart from ``RepoEvent`` on purpose: a push is news for a source, not for the sessions
+    that follow a pull request (they hear about their own pushes from their turn)."""
+
+    repo_full_name: str
+    branch: str
+    head_sha: str
+    installation_id: int | None = None
+
+
 class GitEngineProtocol(ABC):
     """Contract for Git operations and automated GitHub session management."""
 

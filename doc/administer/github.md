@@ -61,7 +61,7 @@ Under **Permissions** > **Repository permissions**, configure the following acce
 | **Issues** | **Read & Write** | Read issue descriptions, inspect labels (`ai-fix`), and post progress updates. |
 | **Actions** | **Read & Write** (optional) | Read workflow runs and logs; write lets the agent re-run, cancel or start workflows. |
 | **Pull requests** | **Read & Write** | Open automated pull requests and update PR conversation threads. |
-| **Contents** | **Read & Write** | Clone target repositories, checkout branches, and push signed commits. |
+| **Contents** | **Read & Write** | Clone target repositories, checkout branches, and push signed commits. Skill sources only need read (their changes are pull requests opened with each member's own account). |
 | **Metadata** | **Read-only** | Mandatory default for GitHub Apps. |
 
 ---
@@ -75,6 +75,7 @@ Under **Subscribe to events**, select:
 - [x] **Pull request** (optional: lets sessions follow a pull request until it is merged or closed).
 - [x] **Pull request review**, **Pull request review comment** and **Check suite** (optional: lets sessions follow reviews, comments and CI results; see [Sessions that follow a pull request](#sessions-that-follow-a-pull-request)).
 - [x] **Workflow runs** (optional: for triggers on a failed workflow run, and CI results of sessions that follow a pull request).
+- [x] **Push** (optional: lets [skill sources](/use/skill-sources) follow their repository at once; without it they are read every 15 minutes). A push only schedules a read: the source is read with its own credential, never from the webhook's payload.
 
 What each event starts is the missions' choice: see [Missions](/use/automation#missions). GitLab, Jira and Linear send their webhooks to `/v1/webhooks/gitlab`, `/v1/webhooks/jira` and `/v1/webhooks/linear` (with `?org=<organization id>`), signed with the secrets in the [configuration reference](/install/configuration).
 

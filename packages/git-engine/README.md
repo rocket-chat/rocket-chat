@@ -13,6 +13,8 @@ The **Git Engine** governs all repository interactions, branch management, commi
   * Validates HMAC SHA-256 signatures with constant-time equality check.
   * Listens to `issues.labeled` (`ai-fix`) and `issue_comment.created` (`@RocketChat`).
   * Automated Session Resume: Wakes hibernated sandbox containers, mounts persistent volumes, and triggers agent turns without duplicating resources.
+* **Push events:** `GitEngine.parse_push_event` reports the branch a signed `push` webhook moved (tags and deleted branches are ignored), for the external sources that follow it.
+* **Repository sources:** `source_reader.GitHubSourceReader` lists a commit's tree and reads blobs over the REST API with a token the caller resolved (no clone, no sandbox); `GitHubSourceWriter` proposes a change to one file as a member: a branch, a commit and a pull request, refused when the file changed since it was read.
 * **100% Optional Integration:** The platform operates seamlessly with local repositories and scratchpads when GitHub credentials are not present.
 
 ---
@@ -26,7 +28,7 @@ uv sync
 
 Running unit and integration tests:
 ```bash
-uv run pytest tests/unit/test_git_engine.py -v
+uv run pytest tests/unit/test_git_engine.py tests/unit/test_source_reader.py -v
 uv run pytest tests/integration/test_git_and_webhook_interoperability.py -v
 ```
 
