@@ -4,8 +4,8 @@
 ``external_source_links`` where each imported object comes from, and ``change_proposals``
 gains the address of the pull request an approval opens for a skill linked to a source.
 
-Revision ID: 071_external_sources
-Revises: 070_change_proposals
+Revision ID: 073_external_sources
+Revises: 072_mission_delayed_runs
 Create Date: 2026-11-23 18:00:00.000000
 """
 
@@ -15,8 +15,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision: str = "071_external_sources"
-down_revision: str | None = "070_change_proposals"
+revision: str = "073_external_sources"
+down_revision: str | None = "072_mission_delayed_runs"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
