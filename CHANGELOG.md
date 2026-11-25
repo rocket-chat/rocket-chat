@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - `web`: **Propose change** on a synchronised skill (and **Save skill**) shows that it is working and takes no second click until the answer comes back. Clicking it twice used to open two identical pull requests.
+- `web`: a browser extension that adds attributes to the page's `<body>` (for example `data-testim-…`) no longer causes a hydration error.
 - `web`: the open MCP server in **Settings → MCP** can be closed. Closing it reloaded the list, which opened it again.
 
 ### Security
