@@ -133,6 +133,9 @@ test.describe("External sources", () => {
     await page.getByTestId("skill-mode-source").click();
     await page.getByTestId("source-import-select").selectOption("src_e2e");
 
+    // With several plugins every group starts closed; ticking one still takes all its skills.
+    await expect(page.getByTestId("source-group-plugin:data")).toBeVisible();
+    await expect(page.getByTestId(/^source-entry-/)).toHaveCount(0);
     await page.getByTestId("source-group-check-plugin:data").check();
     await expect(page.getByTestId("source-import-submit")).toHaveText("Import 2 skills");
     await page.getByTestId("source-import-submit").click();

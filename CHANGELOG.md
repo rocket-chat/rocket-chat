@@ -19,9 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+- `web`: every skill and every MCP server in **Settings** starts closed; you open the ones you want. In **Import from source**, a repository with several plugins shows every group closed (ticking a group still takes all its skills); one with a single group shows its skills at once.
 
 ### Fixed
 - `web`: **Propose change** on a synchronised skill (and **Save skill**) shows that it is working and takes no second click until the answer comes back. Clicking it twice used to open two identical pull requests.
+- `web`: the open MCP server in **Settings → MCP** can be closed. Closing it reloaded the list, which opened it again.
 
 ### Security
 

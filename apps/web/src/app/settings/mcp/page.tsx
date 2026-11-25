@@ -47,17 +47,12 @@ export default function McpSettingsPage() {
       const res = await fetch("/v1/mcp/servers");
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) {
-          setServers(data);
-          if (data.length > 0 && !expandedServerId) {
-            setExpandedServerId(data[0].id);
-          }
-        }
+        if (Array.isArray(data)) setServers(data);
       }
     } catch (err) {
       console.warn("Failed fetching MCP servers:", err);
     }
-  }, [expandedServerId]);
+  }, []);
 
   useEffect(() => {
     fetchServers();

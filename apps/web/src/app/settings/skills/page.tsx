@@ -57,21 +57,12 @@ export default function SkillsSettingsPage() {
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [successBanner, setSuccessBanner] = useState<React.ReactNode>(null);
 
-  // The first skill opens on the first load only: depending on the open skill made closing it
-  // refetch the list and open the first one again, so one skill could never be closed.
-  const openedFirstSkill = useRef(false);
   const fetchSkills = useCallback(async () => {
     try {
       const res = await fetch("/v1/skills");
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) {
-          setSkills(data);
-          if (data.length > 0 && !openedFirstSkill.current) {
-            openedFirstSkill.current = true;
-            setExpandedSkillId(data[0].id);
-          }
-        }
+        if (Array.isArray(data)) setSkills(data);
       }
     } catch (err) {
       console.warn("Failed fetching skills:", err);
