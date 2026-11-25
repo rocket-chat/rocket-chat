@@ -19,6 +19,7 @@ import secrets
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
@@ -27,6 +28,9 @@ from api.db.models import SessionModel, SlackPairingCodeModel, SlackWorkspaceMod
 from api.services.memberships import belongs_to, role_in
 
 PAIRING_CODE_TTL_SECONDS = 600
+# A code is revoked when the same Slack user asks for another one, so the cooldown is what keeps
+# a member who opens someone's session from flooding that person's direct messages.
+PAIRING_REQUEST_COOLDOWN_SECONDS = 60
 _CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O/1/I lookalikes
 _MAX_OUTSTANDING_CODES = 10_000
 
@@ -114,6 +118,45 @@ class PairingCodes:
                 )
             ).first()
         return (str(row[0]), str(row[1])) if row is not None else None
+
+    async def peek(self, code: str) -> tuple[str, str] | None:
+        """The ``(slack_user_id, team_id)`` a live code belongs to, without consuming it."""
+        if self._db is None:
+            self._purge_memory()
+            pending = self._pending.get(code.strip().upper())
+            return (pending.slack_user_id, pending.team_id) if pending is not None else None
+        async with self._db.session() as session:
+            row = (
+                await session.execute(
+                    select(
+                        SlackPairingCodeModel.slack_user_id, SlackPairingCodeModel.team_id
+                    ).where(
+                        SlackPairingCodeModel.code_hash == _hash(code),
+                        SlackPairingCodeModel.expires_at > int(self._clock()),
+                    )
+                )
+            ).first()
+        return (str(row[0]), str(row[1])) if row is not None else None
+
+    async def issued_recently(self, slack_user_id: str) -> bool:
+        """Whether a code was issued to this Slack user within the request cooldown."""
+        newest_allowed = self._clock() + self._ttl - PAIRING_REQUEST_COOLDOWN_SECONDS
+        if self._db is None:
+            self._purge_memory()
+            return any(
+                p.slack_user_id == slack_user_id and p.expires_at > newest_allowed
+                for p in self._pending.values()
+            )
+        async with self._db.session() as session:
+            row = (
+                await session.execute(
+                    select(SlackPairingCodeModel.code_hash).where(
+                        SlackPairingCodeModel.slack_user_id == slack_user_id,
+                        SlackPairingCodeModel.expires_at > int(newest_allowed),
+                    )
+                )
+            ).first()
+        return row is not None
 
 
 _memory_workspaces: dict[str, str] = {}
@@ -287,3 +330,32 @@ async def adopt_guest_sessions(
             .values(user_id=member_id)
         )
     return int(getattr(result, "rowcount", 0) or 0)
+
+
+def pairing_link(base_url: str, code: str, session_id: str | None = None) -> str:
+    """The page where a signed-in member confirms a pairing code; ``session_id`` is opened after."""
+    link = f"{base_url.rstrip('/')}/link-slack?code={code}"
+    return f"{link}&session={quote(session_id, safe='')}" if session_id else link
+
+
+async def slack_guest_of(db_mgr: Any, org_id: str, member_id: str) -> tuple[str, str] | None:
+    """``(team_id, slack_user_id)`` when ``member_id`` is the guest of one Slack user."""
+    if not _has_database(db_mgr):
+        return None
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        member = await session.get(UserModel, member_id)
+    settings = member.settings if member is not None and isinstance(member.settings, dict) else {}
+    guest = settings.get(GUEST_SETTINGS_KEY)
+    if not isinstance(guest, dict) or not guest.get("slack_user_id"):
+        return None
+    return str(guest.get("team_id") or ""), str(guest["slack_user_id"])
+
+
+async def linked_slack_user(db_mgr: Any, org_id: str, member_id: str) -> str | None:
+    """The Slack user this member is already paired with, if any."""
+    if not _has_database(db_mgr):
+        return None
+    async with db_mgr.session(tenant_org_id=org_id) as session:
+        member = await session.get(UserModel, member_id)
+    settings = member.settings if member is not None and isinstance(member.settings, dict) else {}
+    return str(settings["slack_user_id"]) if settings.get("slack_user_id") else None

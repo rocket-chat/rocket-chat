@@ -77,8 +77,12 @@ Your organization may connect multiple bots (e.g. `@RocketDev`, `@RocketOps`, `@
 
 Without a link, your direct messages belong to a **guest** member made for your Slack account (it cannot sign in, has no credentials of its own, and an administrator can see its sessions), and a channel conversation belongs to the workspace's guest (no one's personal credentials are ever used in a shared thread). Linking connects you to your own Rocket Chat account for direct messages: your GitHub access, your model keys, your spend limits and the agents you may use. When you link, the sessions your guest started become yours.
 
-1. In Slack run the bot's command with `pair` (for example `/rocky pair`). Rocket replies privately with an 8-character code, valid for 10 minutes and usable once.
-2. In Rocket Chat, signed in, open **Settings → Slack** (see [your settings](/use/personal-settings#slack)) and enter the code.
+1. In Slack run the bot's command with `pair` (for example `/rocky pair`). Rocket replies privately with a link, valid for 10 minutes and usable once (and the 8-character code it carries, for the manual way below).
+2. Open the link while signed in to Rocket Chat. The page names the Slack user it links to your account; confirm, and you are linked.
+
+If the link does not open for you, open **Settings → Slack** (see [your settings](/use/personal-settings#slack)) and enter the code instead.
+
+**Opening a conversation you started before linking.** A direct message you had with the bot before linking belongs to your guest, so a colleague, or you when you are not linked yet, cannot open it in Rocket Chat. Open its address anyway: Rocket Chat says the conversation was started in Slack by that Slack user and offers **Send me a link in Slack**. The bot then sends the link to that Slack user, in the direct message itself, saying who asked. Whoever opens it and confirms links *their own* account to that Slack user, and the conversation opens. Nobody else can read it meanwhile: nothing is shared, and a link is sent at most once a minute per Slack user. Ignore a message you did not expect. Your account must not already be linked to another Slack user, and administrators can always open any conversation.
 
 Administrators can also turn on **auto link by verified e-mail** (see [Administrator settings](/administer/slack#3-administrator-settings-settings-slack)), which matches the Slack profile e-mail against members of the workspace's own organization.
 

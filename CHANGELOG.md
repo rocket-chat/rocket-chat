@@ -10,10 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `orchestrator`:
+- `sandboxes`:
+- `api`:
+- `web`:
+- `settings`:
+- `git`:
+- `helm`:
+
+### Changed
+
+### Fixed
+
+### Security
+
+## [0.11.0] - 2026-11-24
+
+### Added
 - `missions`: **Monthly schedules, several repositories, pull request deliveries, optional deliveries and GitHub writes per mission.** A schedule can run every month on the first to fourth weekday of your choice (`0 9 * * 1#1`). The Task step names up to ten repositories to clone (`git_repos`, replacing `git_repo`; an event's own repository comes first) and has **Allow GitHub writes** (`github_write`): without it a run only reads GitHub (`GitPolicy.forge_writes`: pushing, opening a pull request and the GitHub tools' writes are refused in the tool registry, whoever the run acts as). A new **Pull request** delivery checks that the run opened one with `git_open_pr` and links it on the run; it, and `auto_fix`, need GitHub writes. Any delivery can be marked **optional**: the run may leave it out (it is then *skipped*). Every delivery is now sent only from the run's explicit `deliver` call: a Slack message or a GitHub comment no longer falls back to the run's final answer, so an optional one is truly left out and a required one without a call fails. The `deliver` schema now says where each output goes and in which format (a Slack message in Markdown converted to Slack's format, GitHub-flavored Markdown for comments and reviews), and a Slack message is limited to the 1,500 characters a channel shows instead of being cut after the schema accepted 3,000. The pull requests a run opened are linked under its Slack message when the message does not link them itself. Migration `071_mission_repos_writes` moves `git_repo` into `git_repos` and keeps GitHub writes on for every existing mission. [SVC-22464]
 - `missions`: **An event or webhook trigger can start its run later.** A trigger's `delay_minutes` (0 to 1,440; not on a schedule or Run now) keeps the event in `mission_delayed_runs` (forced RLS) and the mission scheduler starts the run once it is due, exactly once across replicas; a run whose mission was switched off or deleted meanwhile does not start, and a mission keeps at most 50 waiting. The webhook answers `scheduled` with `starts_at`, and `GET /v1/missions/{id}/runs` lists waiting runs as `scheduled`. The When step offers **Start the run** (right away to 24 hours later; any minutes in Advanced), and the mission's card says how long it waits. Migration `072_mission_delayed_runs`.
 - `orchestrator`: a skill imported from a repository brings the other files of its folder: loading it writes them under `/workspace/.rocket/skills/<name>/` in the sandbox (executables kept executable), and its instructions say where they are.
-- `sandboxes`:
 - `api`: **A team's agent can serve beyond its team, with its team's tools.** Its team's administrators set its **Access** (`PUT /v1/agents/{id}/access` now accepts team agents): every member, named people, roles or teams, and guests; without grants it stays the team's. Its turns use the skills, MCP servers and knowledge bases of the team that owns it, whoever asks, so a team's agent can run behind a Slack bot (whose public threads run as guests) with the team's own servers and skills. The agent picker lists another team's agent to the people its grants name.
 - `web`: The **Access** tab appears on a team's agent for the team's administrators (team members by default, or also every member, named people, roles and teams, and guests).
 - `api`: external sources (`/v1/external-sources`): connect a GitHub repository of skills (read with the organization's GitHub App, or with your own linked account for a personal source), browse what it offers (every folder with a `SKILL.md`, grouped by the plugins of `.claude-plugin/marketplace.json` when it has one) and import skills for yourself, a team or the organization. A skill with the same name is a conflict unless you merge it, the repository then winning. Imported skills follow their repository: updated on every push (and at least every 15 minutes), deactivated and flagged when they leave it, reactivated when they come back. Skills carry their `source` in `GET /v1/skills`; tables `external_sources` and `external_source_links` (migration `073`, forced row-level security).
@@ -21,7 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: **Settings → Sources** to connect, synchronise and disconnect repositories; the skill editor imports from a connected source (whole plugins or chosen skills, with conflicts merged on request); synchronised skills show a badge with their source and an *out of sync* notice when they left the repository, and editing one proposes a pull request.
 - `settings`, `slack`: **`outbound_channels: ["*"]`** lets the agent post and react in every channel its bot has been invited to (never direct messages), checked with Slack on each post, so a bot is usable anywhere it is invited without listing channel ids; missions may then deliver to any such channel.
 - `git`: `GitEngine.parse_push_event`, and a GitHub source reader and writer (`git_engine.source_reader`).
-- `helm`:
+- `api`, `web`, `slack`: **A Slack user's direct messages can be claimed from the web, without making them public.** A member who opens a conversation owned by a Slack guest (a Slack user who never paired) sees why, with **Send me a link in Slack**. `POST /v1/slack/pairing-requests` has the session's own bot post a pairing link in that direct message, naming who asked, so only that Slack user receives it; whoever opens the link and confirms links their own account to that Slack user, receives the guest's sessions (`adopt_guest_sessions`) and lands in the conversation. `GET /v1/slack/pairing-context` tells the cockpit when this applies, and `GET /v1/slack/pair/preview` shows the Slack user a link would pair without consuming its code. The bot's `pair` command now replies with that link (`/link-slack?code=…`), the code staying as the manual way. A request is limited to one per Slack user per minute, and an account already linked to another Slack user is refused before the code is spent.
 
 ### Changed
 - `web`: **The mission editor is a guided flow.** Each step is marked done or to finish, Back and Next walk through When → Agent → Task → Deliver, a list says what is still missing, and **Create mission** stays unavailable until every step is complete. A new mission asks what starts it (or that it runs only by hand) and where its result goes (or that its session is enough) instead of assuming a weekday schedule and the session. [SVC-22464]
@@ -44,6 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `web`: **MCP tools are readable in the agent editor.** Opened, an MCP server's group lists each tool by its own name (no `mcp__<server>__` prefix, which stays in the tooltip and in what is saved) instead of names cut to `mcp_…`; the agents page uses the screen's width with roomier tool columns; a tool's description no longer stays open after its checkbox is clicked. [SVC-22464]
 - `web`: in **Settings → Skills**, the skill open on arrival can be closed (closing it reloaded the list, which opened it again); its toggle now says whether it is open.
 - `web`: checkboxes and radios take the brand colour, and native controls follow the app's theme rather than the system's (a system in dark mode drew dark checkboxes on light pages).
+- `web`, `api`: **An administrator can add a command (stdio) MCP server for a team or for themselves, not only for the organization.** The wizard greyed the Command transport outside the organization scope, and the API applied the members' transport list (`mcp.user_allowed_transports`, which leaves commands out) to an administrator's personal server. Administrators are now held to `mcp.allowed_transports` for every owner; members still cannot register commands.
 
 ### Security
 - `api`: a synchronised skill's content is never saved on the platform (changes are pull requests opened with the asking member's own account, never the GitHub App), a push webhook only schedules a read (the source is read with its own credential, never from the payload), and skills of a source read with a member's account only ever go to that member's personal skills.

@@ -69,7 +69,7 @@ If your role holds `bring_own_keys` you can add **your own provider keys** (Anth
 
 ## Slack
 
-* **Link your Slack account** with the bot's `pair` command in Slack (for example `/rocky pair`) and the code it gives you (see [Slack](/use/slack)).
+* **Link your Slack account** with the bot's `pair` command in Slack (for example `/rocky pair`): open the link it gives you, or enter its code here (see [Slack](/use/slack)).
 
 ## Your own tools
 

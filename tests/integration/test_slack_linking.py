@@ -174,6 +174,9 @@ def test_a_member_outside_the_signed_in_organization_is_told_so(
     reset_memory_workspaces()
 
     class _Codes:
+        async def peek(self, code: str) -> tuple[str, str]:
+            return "U1", "T1"
+
         async def complete(self, code: str) -> tuple[str, str]:
             return "U1", "T1"
 

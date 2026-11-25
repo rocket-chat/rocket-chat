@@ -3,11 +3,9 @@
 import React from "react";
 import { Field, Input, Select } from "../../../ui/Field";
 import type { McpServerFormState, Transport } from "./useMcpServerForm";
-import type { OwnerScope } from "../../../../lib/ownership";
 
-function transportHint(isAdmin: boolean, scope: OwnerScope): string | undefined {
+function transportHint(isAdmin: boolean): string | undefined {
   if (!isAdmin) return "Command servers (npx, uvx or a program of your own) are added by an administrator - ask yours.";
-  if (scope !== "org") return "Command servers are organization servers: use Add org MCP.";
   return undefined;
 }
 
@@ -21,7 +19,7 @@ export const ConnectionStep: React.FC<{ form: McpServerFormState }> = ({ form })
           <Input {...control} placeholder="e.g. Stripe Billing MCP" value={form.serverName} onChange={(e) => form.setServerName(e.target.value)} />
         )}
       </Field>
-      <Field label="Transport" hint={transportHint(form.isAdmin, form.scope)}>
+      <Field label="Transport" hint={transportHint(form.isAdmin)}>
         {(control) => (
           <Select
             {...control}

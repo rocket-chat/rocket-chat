@@ -20,7 +20,10 @@ from api.services.slack_link import (
     adopt_guest_sessions,
     ensure_slack_guest,
     find_member,
+    link_member,
+    linked_slack_user,
     slack_guest_id,
+    slack_guest_of,
 )
 from api.services.title import generate_session_title
 
@@ -144,3 +147,15 @@ async def test_pairing_moves_the_guests_sessions_to_the_member(db_manager: Any) 
     async with db_manager.session(tenant_org_id="test_org") as session:
         row = await session.get(SessionModel, session_id)
         assert row is not None and row.user_id == "dev_user"
+
+
+@requires_db
+async def test_a_guest_names_its_slack_user_and_a_member_its_link(db_manager: Any) -> None:
+    slack_user = f"U{uuid.uuid4().hex[:8].upper()}"
+    guest = await ensure_slack_guest(db_manager, "test_org", "T1", slack_user)
+
+    assert await slack_guest_of(db_manager, "test_org", guest) == ("T1", slack_user)
+    assert await slack_guest_of(db_manager, "test_org", "dev_user") is None
+    assert await linked_slack_user(db_manager, "test_org", "dev_user") is None
+    assert await link_member(db_manager, "dev_user", "test_org", slack_user)
+    assert await linked_slack_user(db_manager, "test_org", "dev_user") == slack_user

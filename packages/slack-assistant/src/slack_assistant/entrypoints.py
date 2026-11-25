@@ -210,11 +210,18 @@ class SlackEntrypointsMixin(SlackGatesMixin):
         claims nothing; the reply is ephemeral, as the code is a secret."""
         if self._begin_pairing_fn is None:
             return "Account linking is not enabled for this workspace."
-        code = await self._begin_pairing_fn(
-            str(body.get("user_id", "")), str(body.get("team_id", "")) or self.team_id or ""
-        )
+        team_id = str(body.get("team_id", "")) or self.team_id or ""
+        code = await self._begin_pairing_fn(str(body.get("user_id", "")), team_id)
         if code is None:
             return "Account linking is not enabled for this workspace."
+        base = await self._web_base_of(team_id)
+        if base:
+            return (
+                "🔗 *Link your Rocket Chat account*\n"
+                f"<{base}/link-slack?code={code}|Open this link> while signed in to Rocket Chat "
+                f"and confirm (valid 10 minutes, single use). Or enter the code `{code}` in "
+                "*Settings → Slack & Chat Ops*."
+            )
         return (
             "🔗 *Link your Rocket Chat account*\n"
             "Open *Settings → Slack & Chat Ops* in Rocket Chat while signed in and enter the "
