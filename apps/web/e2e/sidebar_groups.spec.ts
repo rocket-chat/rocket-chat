@@ -9,21 +9,35 @@ async function newSession(request: import("@playwright/test").APIRequestContext,
 }
 
 /**
- * Send a mocked live update until the row shows ``status``. The status exists only in the mocked
- * event, so a sidebar reload landing after it (slower on PostgreSQL) restores the stored state.
+ * Send a mocked live update until ``seen`` holds. The state exists only in the mocked event, so a
+ * sidebar reload landing after it (slower on PostgreSQL) restores the stored state: everything a
+ * test then asserts must be part of ``seen``, or a reload between the two leaves it waiting for
+ * a state nobody sends again.
  */
+async function emitUntil(
+  socket: Awaited<ReturnType<typeof routeSessionSocket>>,
+  payload: Record<string, unknown>,
+  seen: () => Promise<boolean>,
+): Promise<void> {
+  await expect
+    .poll(async () => {
+      socket.emit("session_updated", payload);
+      return seen().catch(() => false);
+    })
+    .toBe(true);
+}
+
+async function statusOf(row: Locator): Promise<string | null> {
+  return row.getByTestId("session-status").getAttribute("data-status", { timeout: 1000 }).catch(() => null);
+}
+
 async function emitUntilStatus(
   socket: Awaited<ReturnType<typeof routeSessionSocket>>,
   row: Locator,
   payload: Record<string, unknown>,
   status: string,
 ): Promise<void> {
-  await expect
-    .poll(async () => {
-      socket.emit("session_updated", payload);
-      return row.getByTestId("session-status").getAttribute("data-status", { timeout: 1000 }).catch(() => null);
-    })
-    .toBe(status);
+  await emitUntil(socket, payload, async () => (await statusOf(row)) === status);
 }
 
 test.describe("Session sidebar", () => {
@@ -52,10 +66,12 @@ test.describe("Session sidebar", () => {
     const sidebar = page.getByTestId("session-sidebar");
     const row = sidebar.locator(`[data-testid="session-row"][data-session-id="${waiting}"]`);
     await expect(row).toBeVisible();
-    await emitUntilStatus(socket, row, { session_id: waiting, awaiting_input: "approval" }, "needs_you");
-
-    await expect(sidebar.getByRole("heading", { name: /^Needs you/ })).toBeVisible();
-    await expect(page.getByTestId("status-chip")).toHaveAttribute("data-status", "needs_you");
+    const heading = sidebar.getByRole("heading", { name: /^Needs you/ });
+    const chip = page.getByTestId("status-chip");
+    await emitUntil(socket, { session_id: waiting, awaiting_input: "approval" }, async () => {
+      const marked = (await statusOf(row)) === "needs_you" && (await heading.count()) > 0;
+      return marked && (await chip.getAttribute("data-status", { timeout: 1000 })) === "needs_you";
+    });
 
     socket.emit("session_updated", { session_id: waiting, awaiting_input: "" });
     await expect(sidebar.getByRole("heading", { name: /^Needs you/ })).toHaveCount(0);
