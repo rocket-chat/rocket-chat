@@ -286,3 +286,26 @@ def test_a_knowledge_base_is_renamed_and_moved_by_whoever_manages_both_owners(
     assert client.get(f"/v1/teams/{team_id}/members", headers=CAROL).json()["owned"] == {
         "knowledge_bases": 1
     }
+
+
+def test_an_organization_administrator_registers_a_command_server_for_a_team(
+    client: TestClient,
+) -> None:
+    team_id = _platform(client)
+    body = {
+        "name": "Team warehouse",
+        "transport": "stdio",
+        "endpoint_or_command": "node -e 'process.exit(0)'",
+        "scope": "team",
+        "team_id": team_id,
+    }
+
+    # A team's own administrator is not an organization administrator: commands run programs
+    # on the platform.
+    assert client.post("/v1/mcp/servers", json=body, headers=CAROL).status_code == 403
+    created = client.post("/v1/mcp/servers", json=body, headers=ADMIN)
+    assert created.status_code == 200, created.text
+    assert created.json()["team_id"] == team_id
+    assert created.json()["id"] in {
+        s["id"] for s in client.get("/v1/mcp/servers", headers=BOB).json()
+    }

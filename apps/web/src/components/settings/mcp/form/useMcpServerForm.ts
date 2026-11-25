@@ -78,7 +78,8 @@ export function useMcpServerForm({ owner: initialOwner, owners, confirmMove, isA
   const auth = useMcpAuthFields(editing, shared);
 
   const isCommand = transport === "stdio";
-  const canUseCommands = isAdmin && scope === "org";
+  // Commands run programs on the MCP runner: administrators register them, for any owner.
+  const canUseCommands = isAdmin;
   const commandBlocker = commandBlockerOf(canUseCommands, runner);
   // Saving opens the sign-in when the server is OAuth and this account is not connected yet.
   const signsIn = !isCommand && auth.authType === "oauth2" && editing?.oauth_status !== "connected";

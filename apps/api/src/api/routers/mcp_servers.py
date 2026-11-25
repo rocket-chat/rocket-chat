@@ -430,11 +430,14 @@ async def _enforce_mcp_policy(
     scope: str,
     transport: str,
     replacing_id: str | None,
+    is_admin: bool = False,
 ) -> None:
     """Apply the org's MCP policy (allowed transports, per-member server cap) or raise 400/403."""
     db_mgr = getattr(request.app.state, "db_manager", None)
     policy = await effective_settings(db_mgr, org_id, "mcp")
-    key = "user_allowed_transports" if scope == "user" else "allowed_transports"
+    # Administrators register under the administrators' transports, whoever owns the server:
+    # the members' list leaves command servers out, and it is not theirs to be held to.
+    key = "user_allowed_transports" if scope == "user" and not is_admin else "allowed_transports"
     allowed = {_canonical_transport(t) for t in policy.get(key) or []}
     if _canonical_transport(transport) not in allowed:
         raise HTTPException(
@@ -861,7 +864,9 @@ async def register_or_update_mcp_server(
     _check_stdio_environment(req.transport, req.auth)
 
     server_id = req.id or f"mcp-{uuid.uuid4().hex[:8]}"
-    await _enforce_mcp_policy(request, org_id, user_id, req.scope, req.transport, req.id)
+    await _enforce_mcp_policy(
+        request, org_id, user_id, req.scope, req.transport, req.id, is_admin=is_admin
+    )
 
     auth_dict = _encrypted_auth_payload(req)
     _carry_oauth_setup(auth_dict, req, stored)

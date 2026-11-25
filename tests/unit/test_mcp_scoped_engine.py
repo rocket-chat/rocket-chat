@@ -71,6 +71,30 @@ def test_admin_can_validate_and_register_stdio_mcp(client: TestClient) -> None:
     assert data["scope"] == "org"
 
 
+def test_admin_can_register_a_personal_stdio_mcp(client: TestClient) -> None:
+    """The members' transport list leaves commands out; an administrator is held to the
+    administrators' list for a server of their own too."""
+    admin_headers = {
+        "X-Tenant-Org-Id": "test_org",
+        "X-Tenant-User-Id": "admin_user",
+        "X-User-Role": "admin",
+    }
+
+    reg_resp = client.post(
+        "/v1/mcp/servers",
+        json={
+            "name": "Admin Personal Stdio",
+            "transport": "stdio",
+            "endpoint_or_command": "node -e 'process.exit(0)'",
+            "scope": "user",
+        },
+        headers=admin_headers,
+    )
+
+    assert reg_resp.status_code == 200, reg_resp.text
+    assert reg_resp.json()["scope"] == "user"
+
+
 def test_user_can_register_personal_sse_mcp(client: TestClient) -> None:
     """Regular users can register personal SSE/HTTP MCP servers with their own auth."""
     user_headers = {

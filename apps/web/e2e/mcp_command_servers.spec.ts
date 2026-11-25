@@ -113,6 +113,23 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
     await expect(page.locator("option[value=stdio]")).toBeDisabled();
   });
 
+  test("an administrator may add a command server for themselves and for a team", async ({ page }) => {
+    const team = await (await page.request.post(`${API}/v1/teams`, { data: { name: `E2E Commands ${Date.now()}` } })).json();
+    await page.goto("/settings/mcp");
+
+    for (const open of [
+      () => page.getByRole("button", { name: /^Add server$/ }).click(),
+      () => page.getByTestId(`new-team-mcp-${team.id}`).click(),
+    ]) {
+      await open();
+      await page.getByTestId("mcp-step-connection").click();
+      await expect(page.locator("option[value=stdio]")).toBeEnabled();
+      await expect(page.getByText(/organization servers: use Add org MCP/)).toHaveCount(0);
+      await page.getByTestId("mcp-server-modal").getByRole("button", { name: /^cancel$/i }).click();
+    }
+    await page.request.delete(`${API}/v1/teams/${team.id}`);
+  });
+
   test("a member is told to ask an administrator for command servers", async ({ page }) => {
     await asMember(page, ["register_mcp"]);
     await page.goto("/settings/mcp");
