@@ -499,3 +499,30 @@ async def test_a_reply_in_the_dm_thread_continues_the_private_session(bolt: Bolt
     answers = [p for p in bolt.client.sent("chat.postMessage") if "Fixed it." in json.dumps(p)]
     assert len(answers) == 2
     assert all((a["channel"], a.get("thread_ts")) == ("D1", thread.dm_thread_ts) for a in answers)
+
+
+@pytest.mark.asyncio
+async def test_rocket_pair_replies_privately_with_a_link_and_the_code(bolt: BoltStack) -> None:
+    async def begin(slack_user_id: str, team_id: str) -> str:
+        return "ABCD2345"
+
+    bolt.assistant._begin_pairing_fn = begin
+    await bolt.dispatch(payload("command_rocket", text="pair", trigger_id="TRIGGER_PAIR_1"))
+
+    reply = bolt.responses[-1]
+    assert reply["response_type"] == "ephemeral"
+    assert "<https://rocket.example/link-slack?code=ABCD2345|" in reply["text"]
+    assert "`ABCD2345`" in reply["text"], "the code stays as the manual way"
+
+
+@pytest.mark.asyncio
+async def test_rocket_pair_falls_back_to_the_code_without_a_web_address(bolt: BoltStack) -> None:
+    async def begin(slack_user_id: str, team_id: str) -> str:
+        return "ABCD2345"
+
+    bolt.assistant._begin_pairing_fn = begin
+    bolt.assistant.settings = bolt.assistant.settings.model_copy(update={"slack_web_base_url": ""})
+    await bolt.dispatch(payload("command_rocket", text="pair", trigger_id="TRIGGER_PAIR_2"))
+
+    assert "link-slack" not in bolt.responses[-1]["text"]
+    assert "`ABCD2345`" in bolt.responses[-1]["text"]

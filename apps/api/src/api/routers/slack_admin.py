@@ -16,6 +16,7 @@ from api.services.slack_link import (
     adopt_guest_sessions,
     bind_workspace,
     link_member,
+    linked_slack_user,
     unbind_workspace,
     workspace_org,
 )
@@ -56,6 +57,15 @@ async def complete_slack_pairing(body: PairRequest, request: Request) -> dict[st
     codes = getattr(request.app.state, "slack_pairing_codes", None) or PairingCodes(
         getattr(request.app.state, "db_manager", None)
     )
+    db_mgr = getattr(request.app.state, "db_manager", None)
+    # Checked before the code is consumed, so a refusal does not cost the person their link.
+    waiting = await codes.peek(body.code)
+    already = await linked_slack_user(db_mgr, org_id, user_id)
+    if waiting is not None and already and already != waiting[0]:
+        raise HTTPException(
+            status_code=409,
+            detail="Your account is already linked to another Slack user.",
+        )
     claimed = await codes.complete(body.code)
     if claimed is None:
         raise HTTPException(status_code=400, detail="That code is invalid or has expired")
@@ -67,7 +77,6 @@ async def complete_slack_pairing(body: PairRequest, request: Request) -> dict[st
         raise HTTPException(
             status_code=403, detail="This Slack workspace belongs to another organization"
         )
-    db_mgr = getattr(request.app.state, "db_manager", None)
     if db_mgr is None:
         raise HTTPException(status_code=503, detail="Account linking needs the PostgreSQL store")
     if not await link_member(db_mgr, user_id, org_id, slack_user_id):

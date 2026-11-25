@@ -3443,6 +3443,45 @@ Finish linking: the signed-in member claims the Slack user that issued the code.
 
 **Responses:** `200`
 
+### `GET /v1/slack/pair/preview`
+
+Which Slack user a pairing code would link, so the member confirms what they link.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| code | query | yes | string |
+
+**Responses:** `200`
+
+### `GET /v1/slack/pairing-context`
+
+Whether the signed-in member can open ``session_id`` by linking its Slack owner.
+
+**Parameters**
+
+| Name | In | Required | Type |
+| :--- | :--- | :--- | :--- |
+| session_id | query | yes | string |
+
+**Responses:** `200`
+
+### `POST /v1/slack/pairing-requests`
+
+Send the Slack owner of a direct-message session a link to pair their account.
+
+The link goes only to that Slack user, in their conversation with the bot that holds it;
+whoever confirms it links *their own* account to that Slack user.
+
+**Request body**
+
+| Field | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| session_id | string | yes |  |
+
+**Responses:** `202`
+
 ## Spend limits
 
 ### `GET /v1/admin/spend-limits`

@@ -72,6 +72,7 @@ from api.routers.sharing import router as sharing_router
 from api.routers.skills import router as skills_router
 from api.routers.slack_admin import router as slack_admin_router
 from api.routers.slack_bots import router as slack_bots_router
+from api.routers.slack_pairing import router as slack_pairing_router
 from api.routers.slack_status import router as slack_status_router
 from api.routers.spend_limits import router as spend_limits_router
 from api.routers.subagents import router as subagents_router
@@ -347,6 +348,7 @@ for _router in (
 app.include_router(terminal_router)
 app.include_router(turns_router)
 app.include_router(slack_admin_router)
+app.include_router(slack_pairing_router)
 app.include_router(slack_bots_router)
 app.include_router(subagents_router)
 app.include_router(api_tokens_router)

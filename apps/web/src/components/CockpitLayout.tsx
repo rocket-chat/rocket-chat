@@ -23,6 +23,7 @@ import { useMissionStore } from "../lib/store";
 import type { ApprovalRememberScope } from "../types/mission";
 import { useAuth } from "./AuthProvider";
 import { GripVertical, X } from "lucide-react";
+import { SessionAccessPrompt } from "./SessionAccessPrompt";
 
 interface CockpitLayoutProps {
   sessionId?: string;
@@ -53,6 +54,7 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
   const toggleTerminal = () => setTerminalOpen(!terminalExpanded);
 
   const [isMobile, setIsMobile] = React.useState(false);
+  const [accessDenied, setAccessDenied] = React.useState<string | null>(null);
 
   const setIsLeftSidebarOpen = useMissionStore((s) => s.setIsLeftSidebarOpen);
 
@@ -92,7 +94,10 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
     // The socket's snapshot is the baseline (it alone carries a running turn); this read only
     // shows the transcript sooner when the socket is slow, so it asks for the recent tail.
     fetch(`/v1/sessions/${sessionId}?tail=50`)
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => {
+        if (res.status === 403) setAccessDenied(sessionId);
+        return res.ok ? res.json() : null;
+      })
       .then((data) => {
         // Arriving after the snapshot, it would rewind the transcript live events built on.
         if (useMissionStore.getState().hydratedSessionId === sessionId) return;
@@ -206,6 +211,10 @@ export const CockpitLayout: React.FC<CockpitLayoutProps> = ({ sessionId }) => {
     wsRef.current?.submitApproval(actionId, false);
     useMissionStore.getState().setActiveApproval(null);
   };
+
+  if (accessDenied && accessDenied === sessionId) {
+    return <SessionAccessPrompt sessionId={accessDenied} />;
+  }
 
   return (
     <div className="h-full w-full flex flex-col bg-surface-base text-foreground font-sans overflow-hidden">

@@ -5784,6 +5784,84 @@
         "title": "PairRequest",
         "type": "object"
       },
+      "PairingContext": {
+        "properties": {
+          "pairing_required": {
+            "description": "True when the session is a Slack direct message of a Slack user who has not linked an account: linking it is how its owner opens it.",
+            "title": "Pairing Required",
+            "type": "boolean"
+          },
+          "slack_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "That Slack user, when required",
+            "title": "Slack User Id"
+          }
+        },
+        "required": [
+          "pairing_required"
+        ],
+        "title": "PairingContext",
+        "type": "object"
+      },
+      "PairingPreview": {
+        "properties": {
+          "slack_user_id": {
+            "title": "Slack User Id",
+            "type": "string"
+          },
+          "team_id": {
+            "title": "Team Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slack_user_id",
+          "team_id"
+        ],
+        "title": "PairingPreview",
+        "type": "object"
+      },
+      "PairingRequest": {
+        "properties": {
+          "session_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Session Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "title": "PairingRequest",
+        "type": "object"
+      },
+      "PairingRequestResult": {
+        "properties": {
+          "slack_user_id": {
+            "title": "Slack User Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "`sent`: the link is in the Slack user's direct messages",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "slack_user_id"
+        ],
+        "title": "PairingRequestResult",
+        "type": "object"
+      },
       "Participant": {
         "properties": {
           "guest_of": {
@@ -21915,6 +21993,136 @@
           }
         },
         "summary": "Complete Slack Pairing",
+        "tags": [
+          "Slack"
+        ]
+      }
+    },
+    "/v1/slack/pair/preview": {
+      "get": {
+        "description": "Which Slack user a pairing code would link, so the member confirms what they link.",
+        "operationId": "preview_pairing_v1_slack_pair_preview_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "minLength": 4,
+              "title": "Code",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingPreview"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Pairing",
+        "tags": [
+          "Slack"
+        ]
+      }
+    },
+    "/v1/slack/pairing-context": {
+      "get": {
+        "description": "Whether the signed-in member can open ``session_id`` by linking its Slack owner.",
+        "operationId": "get_pairing_context_v1_slack_pairing_context_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingContext"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Pairing Context",
+        "tags": [
+          "Slack"
+        ]
+      }
+    },
+    "/v1/slack/pairing-requests": {
+      "post": {
+        "description": "Send the Slack owner of a direct-message session a link to pair their account.\n\nThe link goes only to that Slack user, in their conversation with the bot that holds it;\nwhoever confirms it links *their own* account to that Slack user.",
+        "operationId": "request_pairing_v1_slack_pairing_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PairingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingRequestResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Pairing",
         "tags": [
           "Slack"
         ]
