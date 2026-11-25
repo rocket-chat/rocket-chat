@@ -18,6 +18,7 @@ import {
   ChevronRight,
   BookOpen,
   Pencil,
+  Loader2,
 } from "lucide-react";
 import {
   UserScopeSection,
@@ -156,7 +157,23 @@ export default function SkillsSettingsPage() {
     setTimeout(() => setSuccessBanner(null), 4000);
   };
 
+  // A pull request or a skill takes a moment to come back: a second click meanwhile would open a
+  // second, identical pull request. The ref guards the clicks that land before the re-render.
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const handleSaveSkill = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      await saveSkill();
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  const saveSkill = async () => {
     if (!title.trim() || !body.trim()) {
       setErrorBanner("Title and Skill Body instructions are required.");
       return;
@@ -465,8 +482,9 @@ onClick={() => { setShowAddForm(false); setEditingSkillId(null); }}
             <Button size="sm" variant="ghost" onClick={() => setShowAddForm(false)}>
               Cancel
             </Button>
-            <Button size="sm" variant="primary" onClick={handleSaveSkill} data-testid="skill-save">
-              {editingSource ? "Propose change" : "Save skill"}
+            <Button size="sm" variant="primary" onClick={handleSaveSkill} disabled={saving} aria-busy={saving} data-testid="skill-save">
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+              {editingSource ? (saving ? "Opening pull request…" : "Propose change") : saving ? "Saving…" : "Save skill"}
             </Button>
           </div>
           </>

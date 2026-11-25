@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 ### Fixed
+- `web`: **Propose change** on a synchronised skill (and **Save skill**) shows that it is working and takes no second click until the answer comes back. Clicking it twice used to open two identical pull requests.
 
 ### Security
 
