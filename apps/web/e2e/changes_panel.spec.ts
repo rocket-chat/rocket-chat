@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /**
  * The Changes tab lists what the session changed in each repository (read from the workspace),
@@ -7,7 +8,7 @@ import { test, expect } from "@playwright/test";
  * tests (`tests/unit/test_workspace_changes.py`).
  */
 test("the Changes tab lists files, switches scope and undoes one file", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Changes Mission" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Changes Mission" } });
   const sessionId: string = (await created.json()).session_id;
 
   const requests: string[] = [];
@@ -78,7 +79,7 @@ test("the Changes tab lists files, switches scope and undoes one file", async ({
 });
 
 test("a sandbox that is not running is said so", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Asleep Mission" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Asleep Mission" } });
   const sessionId: string = (await created.json()).session_id;
   await page.route(`**/v1/sessions/${sessionId}/changes?**`, async (route) => {
     await route.fulfill({

@@ -1,6 +1,5 @@
 import { test, expect, type Page, type Route } from "@playwright/test";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 const SOURCE = {
   id: "src_e2e",
@@ -114,7 +113,7 @@ test.describe("External sources", () => {
     await card.getByRole("button", { name: /disconnect/i }).click();
     await page.getByRole("alertdialog").getByRole("button", { name: "Disconnect", exact: true }).click();
     await expect(card).toHaveCount(0);
-    const left = (await (await request.get(`${API}/v1/external-sources`)).json()) as { repository: string }[];
+    const left = (await (await request.get(`${API_URL}/v1/external-sources`)).json()) as { repository: string }[];
     expect(left.some((s) => s.repository === repository)).toBe(false);
   });
 

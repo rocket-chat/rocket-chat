@@ -1,6 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 /** The model catalogue as the API returns it, far more than the placeholder list. */
 const CATALOGUE = {
@@ -44,7 +43,7 @@ test("the agent editor searches the full model catalogue", async ({ page }) => {
 });
 
 test("an answer keeps the agent that wrote it when the selection changes", async ({ page, request }) => {
-  const created = await request.post(`${API}/v1/sessions`, { data: { title: "Who answered" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Who answered" } });
   const sessionId = (await created.json()).session_id as string;
   const sent: Record<string, unknown>[] = [];
   await page.routeWebSocket(/\/v1\/sessions\/[^/]+\/ws/, (ws) => {

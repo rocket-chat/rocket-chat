@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect, type Page } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 async function expectNoBlockingViolations(page: Page): Promise<void> {
   await page.waitForLoadState("networkidle");
@@ -82,7 +83,7 @@ test.describe("settings reorganized by owner", () => {
   test("an administrator creates a team and adds a member to it", async ({ page, request }) => {
     // Only members of the organization can join a team: on PostgreSQL the teammate's first call
     // provisions them as one, so adding them below is accepted.
-    const teammate = await request.get("http://localhost:8000/v1/me/access", {
+    const teammate = await request.get(`${API_URL}/v1/me/access`, {
       headers: { "X-Tenant-User-Id": "teammate_e2e", "X-User-Role": "developer" },
     });
     expect(teammate.ok()).toBe(true);

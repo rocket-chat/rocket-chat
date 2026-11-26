@@ -1,8 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { test, expect, type APIRequestContext } from "@playwright/test";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 /** A real armored private key from GnuPG, made in a short temporary home (agent sockets live there). */
 function makeKey(uid: string, passphrase: string): string {
@@ -26,7 +25,7 @@ function makeKey(uid: string, passphrase: string): string {
 }
 
 async function setSigningMode(request: APIRequestContext, mode: string): Promise<void> {
-  const saved = await request.put(`${API}/v1/admin/settings/github`, {
+  const saved = await request.put(`${API_URL}/v1/admin/settings/github`, {
     data: { config: { signing: mode } },
   });
   expect(saved.ok()).toBeTruthy();
@@ -34,7 +33,7 @@ async function setSigningMode(request: APIRequestContext, mode: string): Promise
 
 test.describe("Commit signing", () => {
   test.afterEach(async ({ request }) => {
-    await request.delete(`${API}/v1/user/git-signing`);
+    await request.delete(`${API_URL}/v1/user/git-signing`);
     await setSigningMode(request, "github");
   });
 

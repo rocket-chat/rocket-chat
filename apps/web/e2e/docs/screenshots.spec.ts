@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import path from "node:path";
+import { API_URL } from "../support/env";
 
 /**
  * Regenerates the screenshots in doc/assets/screenshots from a deterministic stack
@@ -9,7 +10,6 @@ import path from "node:path";
  */
 test.skip(!process.env.DOCS_SCREENSHOTS, "Only runs when regenerating the documentation images");
 
-const BACKEND = "http://localhost:8000";
 const OUT = path.resolve(__dirname, "../../../../doc/assets/screenshots");
 
 test.use({ viewport: { width: 1440, height: 900 }, colorScheme: "light" });
@@ -29,16 +29,16 @@ test.beforeEach(async ({ page }) => {
 // Every image shows one conversation: the ones a test seeded are removed when it ends.
 const seeded: string[] = [];
 test.afterEach(async ({ request }) => {
-  for (const id of seeded.splice(0)) await request.delete(`${BACKEND}/v1/sessions/${id}`);
+  for (const id of seeded.splice(0)) await request.delete(`${API_URL}/v1/sessions/${id}`);
 });
 
 async function seedConversation(request: APIRequestContext): Promise<string> {
-  const created = await request.post(`${BACKEND}/v1/sessions`, {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     data: { title: "Fix the refund rounding bug" },
   });
   const { session_id: sessionId } = await created.json();
   seeded.push(sessionId);
-  await request.post(`${BACKEND}/v1/dev/sessions/${sessionId}/transcript`, {
+  await request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, {
     data: {
       messages: [
         {
@@ -137,7 +137,7 @@ test("the cockpit with the inspector", async ({ page, request }) => {
 
 test("the sandbox catalogue", async ({ page, request }) => {
   const name = "Devbox with browser";
-  const created = await request.post(`${BACKEND}/v1/admin/sandboxes`, {
+  const created = await request.post(`${API_URL}/v1/admin/sandboxes`, {
     data: {
       name,
       image: "registry.example.com/team/devbox-browser:1",
@@ -151,7 +151,7 @@ test("the sandbox catalogue", async ({ page, request }) => {
     await expect(page.getByTestId("sandbox-row").filter({ hasText: name })).toBeVisible();
     await page.screenshot({ path: path.join(OUT, "sandboxes.png") });
   } finally {
-    await request.delete(`${BACKEND}/v1/admin/sandboxes/${id}`);
+    await request.delete(`${API_URL}/v1/admin/sandboxes/${id}`);
   }
 });
 

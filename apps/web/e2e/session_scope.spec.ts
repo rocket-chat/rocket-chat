@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /**
  * Switching the sidebar's scope while a listing is still loading must end on the scope chosen
@@ -9,7 +10,7 @@ test("a slow organization listing does not overwrite the list switched to after 
   request,
 }) => {
   const theirs = `Teammate's slow mission ${Date.now()}`;
-  const created = await request.post("http://localhost:8000/v1/sessions", {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     headers: { "X-Tenant-User-Id": "teammate_slow_scope", "X-User-Role": "developer" },
     data: { title: theirs },
   });

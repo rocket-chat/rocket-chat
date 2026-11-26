@@ -1,11 +1,10 @@
 import { test, expect } from "@playwright/test";
-
-const BACKEND = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 async function seedSession(request: import("@playwright/test").APIRequestContext) {
-  const created = await request.post(`${BACKEND}/v1/sessions`, { data: { title: "Layout seed" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Layout seed" } });
   const { session_id: sessionId } = await created.json();
-  const patch = await request.post(`${BACKEND}/v1/dev/sessions/${sessionId}/transcript`, {
+  const patch = await request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, {
     data: {
       messages: [
         { role: "user", content: "Fix the greeting and run the tests" },
@@ -86,9 +85,9 @@ test.describe("Chat layout: minimal by default, detail on demand", () => {
   });
 
   test("a command that named no folder says where it ran", async ({ page, request }) => {
-    const created = await request.post(`${BACKEND}/v1/sessions`, { data: { title: "Folder seed" } });
+    const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Folder seed" } });
     const { session_id: sessionId } = await created.json();
-    const patch = await request.post(`${BACKEND}/v1/dev/sessions/${sessionId}/transcript`, {
+    const patch = await request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, {
       data: {
         messages: [
           { role: "user", content: "Build the web app" },
@@ -181,10 +180,10 @@ test.describe("Long content on an iPhone", () => {
   test.use({ viewport: { width: 402, height: 874 }, isMobile: true, hasTouch: true });
 
   test("wide code, long inline code and tables never make the chat scroll sideways", async ({ page, request }) => {
-    const created = await request.post(`${BACKEND}/v1/sessions`, { data: { title: "Wide content" } });
+    const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Wide content" } });
     const { session_id: sessionId } = await created.json();
     const wide = "x".repeat(160);
-    await request.post(`${BACKEND}/v1/dev/sessions/${sessionId}/transcript`, {
+    await request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, {
       data: {
         messages: [
           { role: "user", content: `Show me something wide ${wide}` },
@@ -241,7 +240,7 @@ test.describe("Long content on an iPhone", () => {
 });
 
 test("an unsent message survives a reload", async ({ page, request }) => {
-  const created = await request.post(`${BACKEND}/v1/sessions`, { data: { title: "Draft keeper" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Draft keeper" } });
   const { session_id: sessionId } = await created.json();
   await page.goto(`/chat/${sessionId}`);
   const input = page.getByTestId("instruction-input");

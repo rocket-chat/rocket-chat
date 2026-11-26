@@ -1,4 +1,5 @@
 import { request } from "@playwright/test";
+import { WEB_URL } from "./support/env";
 
 /**
  * Routes exercised by the E2E suite. Warm-up requests force the Next.js dev
@@ -25,7 +26,7 @@ const ROUTES_TO_WARM = [
 ];
 
 export default async function globalSetup(): Promise<void> {
-  const baseURL = process.env.PLAYWRIGHT_TEST_BASE_URL || "http://localhost:3000";
+  const baseURL = WEB_URL;
   const context = await request.newContext({ baseURL, timeout: 120_000 });
   try {
     for (const route of ROUTES_TO_WARM) {

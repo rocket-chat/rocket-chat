@@ -1,11 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { routeSessionSocket } from "./support/session-socket";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 /** A long turn says how it is going: elapsed time, step, the tool running now, and the model. */
 test("a running turn shows its step, its current tool and the model running it", async ({ page, request }) => {
-  const created = await request.post(`${API}/v1/sessions`, { data: { title: "Progress" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Progress" } });
   const sessionId: string = (await created.json()).session_id;
   const socket = await routeSessionSocket(page, sessionId);
   await page.goto(`/chat/${sessionId}`);

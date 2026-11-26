@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 const SKILL_MD = `---
 name: e2e-release-notes
@@ -22,10 +23,10 @@ test.describe("Skills: SKILL.md import", () => {
 
     await expect(page.getByText(/Imported skill 'e2e-release-notes'/)).toBeVisible();
 
-    const skills = await (await request.get("http://localhost:8000/v1/skills")).json();
+    const skills = await (await request.get(`${API_URL}/v1/skills`)).json();
     const imported = skills.find((s: { name: string }) => s.name === "e2e-release-notes");
     expect(imported.body).toContain("List merged PRs");
-    await request.delete(`http://localhost:8000/v1/skills/${imported.id}`);
+    await request.delete(`${API_URL}/v1/skills/${imported.id}`);
   });
 
   test("a malformed SKILL.md shows the reason instead of failing silently", async ({ page }) => {

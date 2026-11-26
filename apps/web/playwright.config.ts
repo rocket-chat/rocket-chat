@@ -1,4 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
+import { API_PORT, WEB_PORT, WEB_URL } from "./e2e/support/env";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -16,7 +17,7 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   globalSetup: "./e2e/global-setup.ts",
   use: {
-    baseURL: process.env.PLAYWRIGHT_TEST_BASE_URL || "http://localhost:3000",
+    baseURL: WEB_URL,
     actionTimeout: 15_000,
     navigationTimeout: 45_000,
     trace: "on-first-retry",
@@ -31,8 +32,8 @@ export default defineConfig({
     ? undefined
     : [
         {
-          command: "PYTHONPATH=apps/api/src uv run uvicorn api.main:app --port 8000",
-          url: "http://127.0.0.1:8000/v1/models",
+          command: `PYTHONPATH=apps/api/src uv run uvicorn api.main:app --port ${API_PORT}`,
+          url: `http://127.0.0.1:${API_PORT}/v1/models`,
           // Always start our own server locally: a stale dev server would run with
           // different env, so reusing one would silently change test behaviour.
           reuseExistingServer: false,
@@ -71,15 +72,18 @@ export default defineConfig({
           },
         },
         {
-          command: "pnpm dev",
-          url: "http://localhost:3000",
+          command: `pnpm exec next dev -p ${WEB_PORT}`,
+          url: `http://localhost:${WEB_PORT}`,
           // Also always fresh: the app must run with PLAYWRIGHT_TEST=true, so a
           // pre-existing dev server without it would redirect every test to /login.
           reuseExistingServer: false,
           timeout: 60000,
           env: {
             PLAYWRIGHT_TEST: "true",
-            NEXTAUTH_URL: "http://localhost:3000",
+            NEXTAUTH_URL: `http://localhost:${WEB_PORT}`,
+            // The app proxies to, and its browser socket dials, the API this run started.
+            BACKEND_INTERNAL_URL: `http://127.0.0.1:${API_PORT}`,
+            NEXT_PUBLIC_WS_URL: `ws://localhost:${API_PORT}`,
             NEXTAUTH_SECRET: "test-secret-at-least-thirty-two-chars-long",
           },
         },

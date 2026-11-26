@@ -1,6 +1,5 @@
 import { test, expect } from "@playwright/test";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 /**
  * An agent names the sandbox type its sessions start in; the composer's sandbox picker shows
@@ -10,7 +9,7 @@ test("an agent's sandbox type is saved and offered as the composer's default", a
   const suffix = Date.now();
   const boxName = `High CPU ${suffix}`;
   const agentName = `Backend builder ${suffix}`;
-  const created = await request.post(`${API}/v1/admin/sandboxes`, {
+  const created = await request.post(`${API_URL}/v1/admin/sandboxes`, {
     data: { name: boxName, image: `registry.example.com/team/high-cpu:${suffix}` },
   });
   expect(created.ok()).toBeTruthy();
@@ -38,10 +37,10 @@ test("an agent's sandbox type is saved and offered as the composer's default", a
       `Agent's: ${boxName}`,
     );
   } finally {
-    const agents = await (await request.get(`${API}/v1/agents`)).json();
+    const agents = await (await request.get(`${API_URL}/v1/agents`)).json();
     for (const agent of agents) {
-      if (agent.name === agentName) await request.delete(`${API}/v1/agents/${agent.id}`);
+      if (agent.name === agentName) await request.delete(`${API_URL}/v1/agents/${agent.id}`);
     }
-    await request.delete(`${API}/v1/admin/sandboxes/${box.id}`);
+    await request.delete(`${API_URL}/v1/admin/sandboxes/${box.id}`);
   }
 });

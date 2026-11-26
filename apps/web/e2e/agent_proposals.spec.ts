@@ -1,6 +1,5 @@
 import { test, expect } from "@playwright/test";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 /**
  * An agent with "Propose changes" stages an edit of its instructions; the change waits under
@@ -12,7 +11,7 @@ test("an agent's proposal waits for review and an edited approval saves the revi
 }) => {
   const suffix = Date.now();
   const agentName = `Data assistant ${suffix}`;
-  const created = await request.post(`${API}/v1/agents`, {
+  const created = await request.post(`${API_URL}/v1/agents`, {
     data: {
       id: `proposals-${suffix}`,
       name: agentName,
@@ -27,7 +26,7 @@ test("an agent's proposal waits for review and an edited approval saves the revi
   const agent = await created.json();
 
   try {
-    const seeded = await request.post(`${API}/v1/dev/agents/${agent.id}/proposals`, {
+    const seeded = await request.post(`${API_URL}/v1/dev/agents/${agent.id}/proposals`, {
       data: {
         old_text: "Always answer in English.",
         new_text: "Answer in the language you are asked in.",
@@ -48,14 +47,14 @@ test("an agent's proposal waits for review and an edited approval saves the revi
     await page.getByTestId("proposal-approve").click();
     await expect(detail).toBeHidden();
 
-    const agents = await (await request.get(`${API}/v1/agents`)).json();
+    const agents = await (await request.get(`${API_URL}/v1/agents`)).json();
     const saved = agents.find((a: { id: string }) => a.id === agent.id);
     expect(saved.system_prompt).toBe("You answer data questions, in the asker's language.");
 
     await page.getByTestId("proposals-status").selectOption("approved");
     await expect(page.getByTestId("proposals-list")).toContainText(`asker's language ${suffix}`);
   } finally {
-    await request.delete(`${API}/v1/agents/${agent.id}`);
+    await request.delete(`${API_URL}/v1/agents/${agent.id}`);
   }
 });
 
@@ -80,9 +79,9 @@ test("the agent editor saves the sandbox, session-reading and proposal switches"
     expect(saved.reads_agent_sessions).toBe(true);
     expect(saved.proposes_changes).toBe(true);
   } finally {
-    const agents = await (await request.get(`${API}/v1/agents`)).json();
+    const agents = await (await request.get(`${API_URL}/v1/agents`)).json();
     for (const agent of agents) {
-      if (agent.name === agentName) await request.delete(`${API}/v1/agents/${agent.id}`);
+      if (agent.name === agentName) await request.delete(`${API_URL}/v1/agents/${agent.id}`);
     }
   }
 });

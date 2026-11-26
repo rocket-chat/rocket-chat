@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { routeSessionSocket } from "./support/session-socket";
+import { API_URL } from "./support/env";
 
 /**
  * While a turn runs, Alt+Enter (or Queue) keeps a message for after the turn instead of steering
@@ -8,7 +9,7 @@ import { routeSessionSocket } from "./support/session-socket";
  */
 test.describe("Queued messages", () => {
   test("a queued message waits, can be withdrawn, and runs after the turn", async ({ page, request }) => {
-    const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Queue" } });
+    const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Queue" } });
     const sessionId: string = (await created.json()).session_id;
     const socket = await routeSessionSocket(page, sessionId, { intercept: ["turn", "cancel_message"] });
 

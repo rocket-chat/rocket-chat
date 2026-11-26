@@ -1,15 +1,14 @@
 import { test, expect } from "@playwright/test";
-
-const BACKEND = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 test("without the session list socket, a session I am not looking at still shows when it starts working", async ({ page }) => {
   // The list socket pushes such changes (sidebar_live_status.spec.ts); while it cannot connect,
   // the list falls back to being read again on a timer.
   await page.routeWebSocket(/\/v1\/sidebar\/ws/, (ws) => ws.close());
   const stamp = Date.now();
-  const other = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title: `Elsewhere ${stamp}` } });
+  const other = await page.request.post(`${API_URL}/v1/sessions`, { data: { title: `Elsewhere ${stamp}` } });
   const otherId = (await other.json()).session_id as string;
-  const open = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title: `Focused ${stamp}` } });
+  const open = await page.request.post(`${API_URL}/v1/sessions`, { data: { title: `Focused ${stamp}` } });
   const openId = (await open.json()).session_id as string;
 
   // The server marks the other session as working after the page has loaded: with no live

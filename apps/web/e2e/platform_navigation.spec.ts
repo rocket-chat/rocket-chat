@@ -40,17 +40,11 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     const sidebar = page.getByTestId("session-sidebar");
     await expect(sidebar).toBeVisible();
 
-    // Header toggle button
-    const toggleBtn = page.getByTitle(/Collapse Sidebar|Expand Sessions Sidebar/i);
-    await expect(toggleBtn).toBeVisible();
-
-    // Collapse sidebar
-    await toggleBtn.click();
+    // Collapse from the sidebar's own header: it leaves a rail with its own opener.
+    await page.getByRole("button", { name: "Collapse sidebar" }).click();
     await expect(sidebar).not.toBeVisible();
 
-    // Expand sidebar again
-    const expandBtn = page.getByTitle(/Expand Sessions Sidebar/i);
-    await expandBtn.click();
+    await page.getByTestId("session-rail").getByRole("button", { name: "Open conversations" }).click();
     await expect(sidebar).toBeVisible();
   });
 
@@ -83,7 +77,7 @@ test.describe("Full-Fledged Platform Navigation & Markdown Engine", () => {
     // Navigate to Custom Skills page
     await page.getByRole("link", { name: "Skills", exact: true }).click();
     await expect(page).toHaveURL(/\/settings\/skills/);
-    await expect(page.getByRole("heading", { name: /Skills & tools/i })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Skills" })).toBeVisible();
 
     // Navigate to Knowledge Bases page
     await page.getByRole("link", { name: "Knowledge bases", exact: true }).click();

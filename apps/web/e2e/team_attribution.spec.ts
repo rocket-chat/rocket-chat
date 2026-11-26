@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 // The e2e API acts as dev_user without signing in; tell the cockpit it is the person reading,
 // so it can tell "You" from the others.
@@ -14,7 +15,7 @@ test("a shared session names who wrote each message, including after a reload", 
   page,
   request,
 }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     data: { title: "Team mission", is_shared: true, initial_prompt: "First instruction from me" },
   });
   const sessionId: string = (await created.json()).session_id;
@@ -22,7 +23,7 @@ test("a shared session names who wrote each message, including after a reload", 
   // A teammate adds their own instruction to the shared session.
   await expect
     .poll(async () => {
-      const res = await request.post(`http://localhost:8000/v1/sessions/${sessionId}/turns`, {
+      const res = await request.post(`${API_URL}/v1/sessions/${sessionId}/turns`, {
         headers: { "X-Tenant-User-Id": "teammate_ana", "X-User-Role": "developer" },
         data: { prompt: "Second instruction from Ana" },
       });
@@ -45,14 +46,14 @@ test("a shared session names who wrote each message, including after a reload", 
 });
 
 test("an administrator who writes in a member's conversation is named there", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     data: { title: `Private mission ${Date.now()}`, initial_prompt: "My own instruction" },
   });
   const sessionId: string = (await created.json()).session_id;
 
   await expect
     .poll(async () => {
-      const res = await request.post(`http://localhost:8000/v1/sessions/${sessionId}/turns`, {
+      const res = await request.post(`${API_URL}/v1/sessions/${sessionId}/turns`, {
         headers: { "X-Tenant-User-Id": "admin_grace", "X-User-Role": "admin" },
         data: { prompt: "An administrator's follow-up" },
       });

@@ -1,18 +1,17 @@
 import { test, expect, type Page } from "@playwright/test";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 const GUIDANCE = "## Use for billing questions\n\nAlways **confirm the currency** first.\n\n- Check the customer\n- Never refund without approval";
 
 async function remove(page: Page, name: string): Promise<void> {
-  const servers: { id: string; name: string }[] = await (await page.request.get(`${API}/v1/mcp/servers`)).json();
+  const servers: { id: string; name: string }[] = await (await page.request.get(`${API_URL}/v1/mcp/servers`)).json();
   for (const server of servers.filter((s) => s.name === name)) {
-    await page.request.delete(`${API}/v1/mcp/servers/${server.id}`);
+    await page.request.delete(`${API_URL}/v1/mcp/servers/${server.id}`);
   }
 }
 
 async function register(page: Page, name: string, guidance: string): Promise<void> {
-  const created = await page.request.post(`${API}/v1/mcp/servers`, {
+  const created = await page.request.post(`${API_URL}/v1/mcp/servers`, {
     data: {
       name,
       transport: "http",
@@ -97,7 +96,7 @@ test.describe("MCP server guidance", () => {
       await page.getByRole("button", { name: /Probe & connect server/i }).click();
       await expect(page.getByText(/limit is 8,000/)).toBeVisible();
 
-      const servers: { name: string; guidance: string }[] = await (await page.request.get(`${API}/v1/mcp/servers`)).json();
+      const servers: { name: string; guidance: string }[] = await (await page.request.get(`${API_URL}/v1/mcp/servers`)).json();
       expect(servers.find((s) => s.name === name)?.guidance).toBe("");
     } finally {
       await remove(page, name);

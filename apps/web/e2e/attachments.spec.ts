@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /**
  * Attachment upload flow.
@@ -16,7 +17,7 @@ const PNG_BYTES = Buffer.from(
 );
 
 async function createSession(request: Page["request"], title: string): Promise<string> {
-  const res = await request.post("http://localhost:8000/v1/sessions", {
+  const res = await request.post(`${API_URL}/v1/sessions`, {
     data: { title, initial_prompt: `${title} bootstrap turn` },
   });
   expect(res.ok()).toBeTruthy();

@@ -1,8 +1,9 @@
 import { test, expect, type Page } from "@playwright/test";
 import { routeSessionSocket, type SessionSocket } from "./support/session-socket";
+import { API_URL } from "./support/env";
 
 async function openSession(page: Page, request: import("@playwright/test").APIRequestContext) {
-  const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "PR mission" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "PR mission" } });
   const sessionId: string = (await created.json()).session_id;
   const socket = await routeSessionSocket(page, sessionId);
   await page.goto(`/chat/${sessionId}`);

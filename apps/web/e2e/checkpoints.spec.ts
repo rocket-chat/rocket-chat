@@ -1,8 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /** The e2e backend has no git sandbox, so the checkpoint API is stubbed; the API itself is covered by tests/unit/test_checkpoint_api.py. */
 test("lists checkpoints and rewinds after a confirmation", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     data: { title: "Checkpoint Mission" },
   });
   const sessionId: string = (await created.json()).session_id;

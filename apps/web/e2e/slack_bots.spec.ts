@@ -7,7 +7,7 @@ import { asMember } from "./support/access";
 test("administrator views slack bots, opens editor and configures routing", async ({ page }) => {
   await page.goto("/settings/slack");
 
-  await expect(page.getByRole("heading", { name: /Slack & chat ops/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Slack", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Slack bots" })).toBeVisible();
   // Whether linked members' own requests keep the restricted tools is an organization setting.
   await expect(page.getByText("Restrict Linked Members")).toBeVisible();

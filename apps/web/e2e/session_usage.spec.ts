@@ -1,6 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 const totals = (over: Record<string, number> = {}) => ({
   calls: 0,
@@ -37,7 +36,7 @@ const usage = (sessionId: string, cost: number) => ({
 });
 
 async function newSession(page: Page): Promise<string> {
-  const created = await page.request.post(`${API}/v1/sessions`, { data: { title: "Usage" } });
+  const created = await page.request.post(`${API_URL}/v1/sessions`, { data: { title: "Usage" } });
   return (await created.json()).session_id;
 }
 

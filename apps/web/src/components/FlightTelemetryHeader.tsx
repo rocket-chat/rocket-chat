@@ -144,12 +144,10 @@ export const FlightTelemetryHeader: React.FC = () => {
           tokenRate={tokenRate}
         />
 
-        <div className="hidden sm:block">
-          <SessionUsageChip
-            sessionId={session && !session.is_draft ? session.session_id : undefined}
-            running={isExecuting}
-          />
-        </div>
+        <SessionUsageChip
+          sessionId={session && !session.is_draft ? session.session_id : undefined}
+          running={isExecuting}
+        />
 
         <div className="hidden sm:block">
           <SpendLimitChip

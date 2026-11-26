@@ -1,13 +1,12 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
-
-const BACKEND = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 async function resetOrgSettings(request: APIRequestContext) {
-  await request.put(`${BACKEND}/v1/admin/settings/user_preferences`, {
+  await request.put(`${API_URL}/v1/admin/settings/user_preferences`, {
     data: { config: {}, locked_keys: [] },
   });
-  await request.put(`${BACKEND}/v1/admin/settings/models`, { data: { config: {}, locked_keys: [] } });
-  await request.put(`${BACKEND}/v1/admin/settings/sandboxes`, { data: { config: {}, locked_keys: [] } });
+  await request.put(`${API_URL}/v1/admin/settings/models`, { data: { config: {}, locked_keys: [] } });
+  await request.put(`${API_URL}/v1/admin/settings/sandboxes`, { data: { config: {}, locked_keys: [] } });
 }
 
 test.describe("Schema-driven settings forms", () => {

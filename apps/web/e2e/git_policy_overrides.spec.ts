@@ -1,11 +1,10 @@
 import { test, expect } from "@playwright/test";
-
-const BACKEND = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 /** A member makes the organization's git policy their own, and gives it back. */
 test.describe("Personal git policy", () => {
   test.afterEach(async ({ request }) => {
-    await request.delete(`${BACKEND}/v1/settings/github`);
+    await request.delete(`${API_URL}/v1/settings/github`);
   });
 
   test("a member chooses who publishes, then follows the organization again", async ({ page }) => {

@@ -1,10 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { routeSessionSocket } from "./support/session-socket";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 async function openSession(page: import("@playwright/test").Page, request: import("@playwright/test").APIRequestContext) {
-  const created = await request.post(`${API}/v1/sessions`, { data: { title: "Screen mission" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Screen mission" } });
   const sessionId: string = (await created.json()).session_id;
   const socket = await routeSessionSocket(page, sessionId);
   await page.goto(`/chat/${sessionId}`);

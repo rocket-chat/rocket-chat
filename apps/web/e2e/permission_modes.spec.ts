@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /**
  * Permission modes are enforced by the platform, not requested of the model: in Ask mode a
@@ -67,7 +68,7 @@ test.describe("Permission modes", () => {
     await expect(page).toHaveURL(/\/chat\/(session_.+)/, { timeout: 15000 });
     const sessionId = page.url().split("/chat/")[1];
 
-    const session = await (await request.get(`http://localhost:8000/v1/sessions/${sessionId}`)).json();
+    const session = await (await request.get(`${API_URL}/v1/sessions/${sessionId}`)).json();
     expect(session.metadata.permission_mode).toBe("plan");
   });
 

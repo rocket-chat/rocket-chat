@@ -1,8 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 test.describe("Blank sessions and GitHub settings", () => {
   test("a session starts blank and ignores a repository sent at creation", async ({ request }) => {
-    const res = await request.post("http://localhost:8000/v1/sessions", {
+    const res = await request.post(`${API_URL}/v1/sessions`, {
       data: { git_repo: "https://github.com/acme/widgets", git_branch: "develop" },
     });
     expect(res.ok()).toBeTruthy();

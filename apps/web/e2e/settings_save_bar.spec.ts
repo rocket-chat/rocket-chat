@@ -1,11 +1,10 @@
 import { test, expect } from "@playwright/test";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 test.describe("Settings: one save bar, search and grouped fields", () => {
   test.afterEach(async ({ request }) => {
-    await request.delete(`${API}/v1/settings/user_preferences`);
-    await request.put(`${API}/v1/admin/settings/budgets`, { data: { config: {}, locked_keys: [] } });
+    await request.delete(`${API_URL}/v1/settings/user_preferences`);
+    await request.put(`${API_URL}/v1/admin/settings/budgets`, { data: { config: {}, locked_keys: [] } });
   });
 
   test("edits across several sections are saved or discarded together", async ({ page }) => {

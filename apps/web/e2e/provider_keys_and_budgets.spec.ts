@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { routeSessionSocket } from "./support/session-socket";
+import { API_URL } from "./support/env";
 
 test.describe("Provider credentials and spend limits", () => {
   test.describe.configure({ mode: "serial" });
@@ -78,7 +79,7 @@ test.describe("Provider credentials and spend limits", () => {
   });
 
   test("what is left this month follows a running turn's spend", async ({ page, request }) => {
-    const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Spend live" } });
+    const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Spend live" } });
     const sessionId: string = (await created.json()).session_id;
     let remaining = 10;
     await page.route(`**/v1/sessions/${sessionId}/spend`, (route) => {

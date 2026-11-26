@@ -1,12 +1,11 @@
 import { test, expect, type WebSocketRoute } from "@playwright/test";
-
-const BACKEND = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 test("an artifact the agent saved is a card in the conversation that opens it, live or reloaded", async ({ page }) => {
-  const created = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title: "Deliverables" } });
+  const created = await page.request.post(`${API_URL}/v1/sessions`, { data: { title: "Deliverables" } });
   const sessionId = (await created.json()).session_id as string;
   // The turn as the history keeps it: the call that saved the artifact, with the tool's answer.
-  await page.request.post(`${BACKEND}/v1/dev/sessions/${sessionId}/transcript`, {
+  await page.request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, {
     data: {
       messages: [
         { role: "user", content: "Write the migration plan" },
@@ -61,12 +60,12 @@ test("an artifact the agent saved is a card in the conversation that opens it, l
 });
 
 test("a card being saved settles in place, without a second entry for the same artifact", async ({ page }) => {
-  const created = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title: "Live deliverable" } });
+  const created = await page.request.post(`${API_URL}/v1/sessions`, { data: { title: "Live deliverable" } });
   const sessionId = (await created.json()).session_id as string;
-  await page.request.post(`${BACKEND}/v1/dev/sessions/${sessionId}/transcript`, {
+  await page.request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, {
     data: { messages: [{ role: "user", content: "Draw the architecture" }] },
   });
-  const record = await (await page.request.get(`${BACKEND}/v1/sessions/${sessionId}`)).json();
+  const record = await (await page.request.get(`${API_URL}/v1/sessions/${sessionId}`)).json();
   let socket: WebSocketRoute | null = null;
   await page.routeWebSocket(/\/v1\/sessions\/[^/]+\/ws/, (ws) => {
     socket = ws;

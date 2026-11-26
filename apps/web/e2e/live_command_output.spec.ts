@@ -1,12 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { routeSessionSocket } from "./support/session-socket";
+import { API_URL } from "./support/env";
 
 /**
  * A command's output reaches the cockpit while the command runs: under its step in the
  * conversation (and in the Agent output terminal), and the step's final result replaces it.
  */
 test("a running command shows what it prints before it finishes", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     data: { title: "Live Output Mission" },
   });
   const sessionId: string = (await created.json()).session_id;
