@@ -24,6 +24,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [0.11.1] - 2026-11-26
+
+### Added
+
+### Changed
+
+
+### Fixed
+- `slack`: a message sent while the agent works now steers the running turn (one answer, taken at its next step) instead of waiting for a turn of its own, and the "Queued — I'll take this next." reply is gone: the thread's status says the message arrived. The chat bridges (Teams, Mattermost) steer the same way and post nothing.
+- `slack`: editing the request a turn is working on tells the turn what changed instead of stopping it; once the turn has ended, the edit still runs the request again.
+- `api`: messages queued for after a turn (the web composer's "queue") run as one turn per author instead of one turn each; a message sent while a turn cut off by a restart awaits its resume is held and taken by the resumed turn.
+
+### Security
+
 ## [0.11.0] - 2026-11-24
 
 ### Added
