@@ -332,8 +332,9 @@ class SessionQueuedMessageModel(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     delivery: Mapped[str] = mapped_column(String(16), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    # Epoch milliseconds: messages sent within one second must keep their order when merged.
     created_at: Mapped[int] = mapped_column(
-        BigInteger, default=lambda: int(time.time()), nullable=False
+        BigInteger, default=lambda: time.time_ns() // 1_000_000, nullable=False
     )
 
 

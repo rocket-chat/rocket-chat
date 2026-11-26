@@ -41,7 +41,7 @@ class QueuedMessage:
     content: str
     delivery: str
     author_user_id: str | None
-    created_at: int
+    created_at: int  # epoch milliseconds: messages sent in one second keep their order
 
 
 @dataclass(frozen=True)
@@ -109,7 +109,7 @@ class QueuedMessageStore:
             delivery=delivery,
             author_user_id=author_user_id,
             status=PENDING,
-            created_at=int(time.time()),
+            created_at=time.time_ns() // 1_000_000,
         )
         if self._db is None:
             _memory.setdefault(org_id, {})[message_id] = row
@@ -203,7 +203,7 @@ async def stranded_sessions(admin_db: Any, now: int | None = None) -> list[tuple
 
     Read on the schema-owner connection: the sweeper serves every organization.
     """
-    cutoff = int(now if now is not None else time.time()) - STRANDED_AFTER_SECONDS
+    cutoff = (int(now if now is not None else time.time()) - STRANDED_AFTER_SECONDS) * 1000
     if admin_db is None:
         return sorted(
             {
