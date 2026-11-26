@@ -7,7 +7,7 @@ import { Button } from "../../../components/ui/Button";
 import { useConfirm } from "../../../components/ui/ConfirmDialog";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { Field, Input, Select } from "../../../components/ui/Field";
-import { PageHeader } from "../../../components/ui/PageHeader";
+import { SettingsPage } from "../../../components/settings/SettingsPage";
 import { OwnerBadge, OwnerSelect } from "../../../components/settings/Owner";
 import { useOwnedSections } from "../../../lib/useOwnedSections";
 import { listSources, sendJson, shortCommit, type ExternalSource } from "../../../lib/external-sources";
@@ -141,7 +141,7 @@ const SourceCard: React.FC<{
       </p>
     )}
     {source.notes.map((note) => (
-      <p key={note} className="text-[11px] text-amber-700 dark:text-amber-400">{note}</p>
+      <p key={note} className="text-[12px] text-amber-700 dark:text-amber-400">{note}</p>
     ))}
   </li>
 );
@@ -189,21 +189,21 @@ export default function SourcesPage() {
   const visible = [...(sections.mine ?? []), ...sections.teamSections.flatMap((t) => t.items), ...(sections.org ?? [])];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-8">
+    <SettingsPage
+      section="Build"
+      title="Sources"
+      icon={<GitBranch className="h-5 w-5" aria-hidden="true" />}
+      description="Repositories skills are imported from. The repository stays their source of truth: they follow it on every push, and a change to one becomes a pull request."
+      actions={
+        sections.creatable.length > 0 && (
+          <Button size="sm" variant="secondary" data-testid="source-connect" onClick={() => setConnecting(true)}>
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            Connect a repository
+          </Button>
+        )
+      }
+    >
       {confirmDialog}
-      <PageHeader
-        title="Sources"
-        icon={<GitBranch className="h-5 w-5" aria-hidden="true" />}
-        description="Repositories skills are imported from. The repository stays their source of truth: they follow it on every push, and a change to one becomes a pull request."
-        actions={
-          sections.creatable.length > 0 && (
-            <Button size="sm" variant="secondary" data-testid="source-connect" onClick={() => setConnecting(true)}>
-              <Plus className="h-3.5 w-3.5" aria-hidden="true" />
-              Connect a repository
-            </Button>
-          )
-        }
-      />
       {banner && (
         <p className="rounded-lg border border-border bg-surface-elevated p-3 text-xs text-foreground" role="status" data-testid="source-banner">
           {banner}
@@ -234,6 +234,6 @@ export default function SourcesPage() {
           ))}
         </ul>
       )}
-    </div>
+    </SettingsPage>
   );
 }

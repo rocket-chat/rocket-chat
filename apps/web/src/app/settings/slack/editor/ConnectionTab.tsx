@@ -70,13 +70,13 @@ const Manifest: React.FC<{ manifest: string; loading: boolean; fileName: string 
     link.click();
     URL.revokeObjectURL(url);
   };
-  const action = "flex items-center gap-1 rounded border border-border bg-surface-elevated px-2.5 py-1 text-[11px] text-foreground hover:bg-surface-subnav";
+  const action = "flex items-center gap-1 rounded border border-border bg-surface-elevated px-2.5 py-1 text-[12px] text-foreground hover:bg-surface-subnav";
   return (
     <div className="space-y-2 border-t border-border/60 pt-4">
       <div className="flex items-center justify-between">
         <div>
           <span className="text-xs font-semibold text-foreground">Slack App Manifest</span>
-          <p className="text-[10px] text-muted-foreground">Paste this manifest into api.slack.com to configure scopes and Socket Mode events.</p>
+          <p className="text-[11px] text-muted-foreground">Paste this manifest into api.slack.com to configure scopes and Socket Mode events.</p>
         </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => void navigator.clipboard.writeText(manifest)} className={action}>
@@ -87,7 +87,7 @@ const Manifest: React.FC<{ manifest: string; loading: boolean; fileName: string 
           </button>
         </div>
       </div>
-      <pre className="max-h-48 overflow-y-auto rounded-lg border border-surface-border bg-surface-subnav p-3 font-mono text-[10px] text-foreground">
+      <pre className="max-h-48 overflow-y-auto rounded-lg border border-surface-border bg-surface-subnav p-3 font-mono text-[11px] text-foreground">
         {loading ? "Generating manifest..." : manifest}
       </pre>
     </div>

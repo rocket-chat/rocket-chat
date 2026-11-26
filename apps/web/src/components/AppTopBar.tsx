@@ -3,47 +3,43 @@ import Link from "next/link";
 import { Terminal } from "lucide-react";
 import { ThemeToggle } from "./Theme/ThemeToggle";
 import { UserHeaderCapsule } from "./UserHeaderCapsule";
-import { RocketChatIcon } from "./RocketChatLogo";
+import { BrandLink } from "./RocketChatLogo";
 
 interface AppTopBarProps {
   /** The current page, shown after "Cockpit /". */
   current: { icon: React.ReactNode; label: string };
+  /** A page's mobile sidebar toggle: the leftmost thing in the bar, before the logo, icon-only. */
+  mobileMenu?: React.ReactNode;
   /** Page-specific controls placed before the theme toggle. */
-  leading?: React.ReactNode;
+  actions?: React.ReactNode;
 }
 
 /** The bar every page outside the cockpit shares, so navigation looks and behaves the same. */
-export const AppTopBar: React.FC<AppTopBarProps> = ({ current, leading }) => (
-  <header className="z-30 flex h-14 flex-shrink-0 items-center justify-between border-b border-surface-border bg-surface-sidebar px-4 sm:px-6">
-    <div className="flex min-w-0 items-center gap-4">
-      <Link href="/" className="group flex items-center gap-2.5">
-        {/* Rounded to match the icon's own squircle (~22% corner radius) so the hover ring hugs
-            its silhouette instead of boxing it in a rectangle. */}
-        <div className="rounded-[22%] transition-shadow duration-200 group-hover:shadow-[0_0_0_2px_var(--brand)]">
-          <RocketChatIcon className="h-8 w-8" />
-        </div>
-        <span className="font-display text-sm font-semibold tracking-tight text-foreground">Rocket</span>
-      </Link>
-      <div className="h-4 w-px bg-surface-border" />
-      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-sm">
+export const AppTopBar: React.FC<AppTopBarProps> = ({ current, mobileMenu, actions }) => (
+  <header className="z-30 flex h-14 flex-shrink-0 items-center justify-between gap-2 border-b border-surface-border bg-surface-sidebar pl-3 pr-1.5 sm:pl-4 sm:pr-2">
+    <div className="flex min-w-0 flex-1 items-center gap-3 sm:gap-4">
+      {mobileMenu}
+      <BrandLink label="Rocket" labelClassName="hidden sm:inline" className="shrink-0" />
+      <div className="hidden h-4 w-px shrink-0 bg-surface-border sm:block" />
+      <nav aria-label="Breadcrumb" className="flex min-w-0 flex-1 items-center gap-2 text-sm">
         <Link
           href="/"
-          className="flex items-center gap-1.5 text-neutral-500 transition-colors hover:text-foreground dark:text-neutral-400"
+          className="hidden shrink-0 items-center gap-1.5 whitespace-nowrap text-neutral-500 transition-colors hover:text-foreground dark:text-neutral-400 sm:flex"
         >
           <Terminal className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Cockpit</span>
         </Link>
-        <span aria-hidden="true" className="text-neutral-400 dark:text-neutral-600">
+        <span aria-hidden="true" className="hidden text-neutral-400 dark:text-neutral-600 sm:inline">
           /
         </span>
-        <span aria-current="page" className="flex items-center gap-1.5 truncate font-medium text-brand">
+        <span aria-current="page" className="flex min-w-0 items-center gap-1.5 truncate font-medium text-brand">
           {current.icon}
           <span className="truncate">{current.label}</span>
         </span>
       </nav>
     </div>
-    <div className="flex items-center gap-2.5">
-      {leading}
+    <div className="flex shrink-0 items-center gap-2.5">
+      {actions}
       <ThemeToggle />
       <div className="h-4 w-px bg-surface-border" />
       <UserHeaderCapsule />

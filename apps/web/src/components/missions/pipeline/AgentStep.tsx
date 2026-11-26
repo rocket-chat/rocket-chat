@@ -3,6 +3,7 @@
 import React from "react";
 import { Eye, Hammer } from "lucide-react";
 import { Field, Select } from "../../ui/Field";
+import { CHECKBOX_CLASS } from "../../ui/checkbox";
 import { SUPERVISION_OPTIONS } from "../../../lib/supervision";
 import { MODEL_TIERS, type MissionBody } from "../../../lib/missions";
 import { Tile, TileGroup } from "./Tile";
@@ -54,7 +55,12 @@ export const AgentStep: React.FC<{
       />
     </TileGroup>
     <label className="flex items-center gap-2 text-sm text-foreground">
-      <input type="checkbox" checked={draft.auto_fix} onChange={(e) => patch({ auto_fix: e.target.checked })} />
+      <input
+        type="checkbox"
+        checked={draft.auto_fix}
+        onChange={(e) => patch({ auto_fix: e.target.checked })}
+        className={CHECKBOX_CLASS}
+      />
       Follow up its pull request (failed checks, review comments)
     </label>
     {advanced && (

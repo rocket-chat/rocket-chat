@@ -6,7 +6,7 @@ import { Badge, type BadgeTone } from "../../../components/ui/Badge";
 import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { Field, Select, Textarea } from "../../../components/ui/Field";
-import { PageHeader } from "../../../components/ui/PageHeader";
+import { SettingsPage } from "../../../components/settings/SettingsPage";
 
 type Status = "pending" | "approved" | "rejected" | "all";
 
@@ -90,30 +90,29 @@ export default function ProposalsPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
-      <PageHeader
-        title="Proposals"
-        icon={<GitPullRequestDraft className="h-5 w-5" aria-hidden="true" />}
-        description="Changes agents propose to their own instructions and skills. Nothing changes until you approve it; you see the proposals of the agents and skills you may edit."
-        actions={
-          <Field label="Status" className="w-40">
-            {(control) => (
-              <Select
-                {...control}
-                data-testid="proposals-status"
-                value={status}
-                onChange={(e) => setStatus(e.target.value as Status)}
-              >
-                <option value="pending">Pending</option>
-                <option value="approved">Approved</option>
-                <option value="rejected">Rejected</option>
-                <option value="all">All</option>
-              </Select>
-            )}
-          </Field>
-        }
-      />
-
+    <SettingsPage
+      section="Build"
+      title="Proposals"
+      icon={<GitPullRequestDraft className="h-5 w-5" aria-hidden="true" />}
+      description="Changes agents propose to their own instructions and skills. Nothing changes until you approve it; you see the proposals of the agents and skills you may edit."
+      actions={
+        <Field label="Status" className="w-40">
+          {(control) => (
+            <Select
+              {...control}
+              data-testid="proposals-status"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as Status)}
+            >
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="all">All</option>
+            </Select>
+          )}
+        </Field>
+      }
+    >
       {rows.length === 0 ? (
         <EmptyState
           icon={<GitPullRequestDraft className="h-5 w-5" aria-hidden="true" />}
@@ -226,6 +225,6 @@ export default function ProposalsPage() {
           )}
         </section>
       )}
-    </div>
+    </SettingsPage>
   );
 }

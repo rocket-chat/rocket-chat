@@ -81,7 +81,7 @@ export const DecisionCard: React.FC<DecisionCardProps> = ({ decision, onSubmit }
                 </span>
                 <span className="text-foreground">{option}</span>
                 {option === recommended && (
-                  <span className="rounded border border-cyan/40 px-1.5 py-0.5 text-[10px] text-cyan-800 dark:text-cyan">
+                  <span className="rounded border border-cyan/40 px-1.5 py-0.5 text-[11px] text-cyan-800 dark:text-cyan">
                     Recommended
                   </span>
                 )}

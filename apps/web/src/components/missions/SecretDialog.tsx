@@ -32,7 +32,7 @@ const CopyBlock: React.FC<{ label: string; text: string; testId: string }> = ({ 
           {copied ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : <Copy className="h-3.5 w-3.5" aria-hidden="true" />}
         </Button>
       </div>
-      <pre data-testid={testId} className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-surface-border bg-surface-subnav p-2 font-mono text-[11px] text-foreground">
+      <pre data-testid={testId} className="max-h-48 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-surface-border bg-surface-subnav p-2 font-mono text-[12px] text-foreground">
         {text}
       </pre>
     </div>

@@ -2,6 +2,7 @@
 
 import { CheckpointsPanel } from "./CheckpointsPanel";
 import { useConfirm } from "./ui/ConfirmDialog";
+import { Badge } from "./ui/Badge";
 import React, { useCallback, useEffect, useState } from "react";
 import { useMissionStore } from "../lib/store";
 import { useSessionUsage } from "../lib/useSessionUsage";
@@ -167,12 +168,12 @@ const TurnRow: React.FC<{
       {confirmDialog}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-[11px] font-mono text-neutral-500">
+          <span className="text-[12px] font-mono text-neutral-500">
             #{String(turn.turn_index).padStart(2, "0")}
           </span>
           <span
             data-testid="turn-status"
-            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase tracking-wide ${statusClass}`}
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-mono uppercase tracking-wide ${statusClass}`}
           >
             {STATUS_ICONS[turn.status]}
             {turn.status}
@@ -181,18 +182,18 @@ const TurnRow: React.FC<{
             <span
               data-testid="turn-resumed"
               title="The server restarted mid-task; the agent continued from the saved conversation."
-              className="text-[10px] font-mono uppercase tracking-wide text-sky-300"
+              className="text-[11px] font-mono uppercase tracking-wide text-sky-300"
             >
               resumed
             </span>
           )}
         </div>
-        <span className="text-[10px] font-mono text-neutral-500 shrink-0">
+        <span className="text-[11px] font-mono text-neutral-500 shrink-0">
           {formatEpoch(turn.started_at)} · {formatDuration(turn.started_at, turn.ended_at)}
         </span>
       </div>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono text-neutral-500">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono text-neutral-500">
         <span className="inline-flex items-center gap-1">
           <Wrench className="w-3 h-3" />
           {toolCount} {toolCount === 1 ? "tool" : "tools"}
@@ -219,9 +220,9 @@ const TurnRow: React.FC<{
           <span className="inline-flex items-center gap-1" title="Prompt tokens (cached / total)">
             <span>{promptTokens} in</span>
             {typeof cacheRatio === "number" && cacheRatio > 0 && (
-              <span className="px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[9px]">
+              <Badge tone="success" shape="pill" className="text-[10px]">
                 {cacheRatio}% cached
-              </span>
+              </Badge>
             )}
           </span>
         )}
@@ -239,7 +240,7 @@ const TurnRow: React.FC<{
           {turn.tool_calls.map((tool, index) => (
             <li
               key={`${turn.id}-tool-${index}`}
-              className="px-2 py-0.5 rounded-md bg-surface-elevated border border-surface-border text-[10px] font-mono text-neutral-400"
+              className="px-2 py-0.5 rounded-md bg-surface-elevated border border-surface-border text-[11px] font-mono text-neutral-400"
             >
               {typeof tool?.name === "string" ? tool.name : "tool"}
             </li>
@@ -254,7 +255,7 @@ const TurnRow: React.FC<{
             data-testid="turn-calls-toggle"
             aria-expanded={isCallsOpen}
             onClick={() => setIsCallsOpen((open) => !open)}
-            className="inline-flex items-center gap-1 text-[10px] font-mono text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1 text-[11px] font-mono text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer"
           >
             {isCallsOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
             <span>Model calls ({calls.length})</span>
@@ -264,7 +265,7 @@ const TurnRow: React.FC<{
               {calls.map((call, idx) => (
                 <div
                   key={idx}
-                  className="p-2 rounded-lg bg-surface-elevated/70 border border-surface-border text-[10px] font-mono space-y-1"
+                  className="p-2 rounded-lg bg-surface-elevated/70 border border-surface-border text-[11px] font-mono space-y-1"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-semibold text-neutral-300 truncate">
@@ -292,7 +293,7 @@ const TurnRow: React.FC<{
           {turn.attachments.map((attachment, index) => (
             <li
               key={`${turn.id}-att-${attachment.id ?? index}`}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-surface-border bg-surface-elevated px-2 py-0.5 text-[11px] text-neutral-600 dark:text-neutral-300"
+              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-surface-border bg-surface-elevated px-2 py-0.5 text-[12px] text-neutral-600 dark:text-neutral-300"
             >
               <Paperclip className="h-3 w-3 shrink-0" aria-hidden="true" />
               <span className="truncate">{attachment.name}</span>
@@ -305,7 +306,7 @@ const TurnRow: React.FC<{
       {turn.diff_paths.length > 0 && (
         <ul className="space-y-0.5">
           {turn.diff_paths.map((path) => (
-            <li key={`${turn.id}-${path}`} className="text-[10px] font-mono text-neutral-500 truncate">
+            <li key={`${turn.id}-${path}`} className="text-[11px] font-mono text-neutral-500 truncate">
               {path}
             </li>
           ))}
@@ -313,7 +314,7 @@ const TurnRow: React.FC<{
       )}
 
       {turn.error && (
-        <p className="text-[11px] text-rose-700 dark:text-rose-300 font-sans">{turn.error}</p>
+        <p className="text-[12px] text-rose-700 dark:text-rose-300 font-sans">{turn.error}</p>
       )}
 
       {turn.reasoning_summary && (
@@ -323,13 +324,13 @@ const TurnRow: React.FC<{
             data-testid="turn-reasoning-toggle"
             aria-expanded={isReasoningOpen}
             onClick={() => setIsReasoningOpen((open) => !open)}
-            className="inline-flex items-center gap-1.5 text-[11px] text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-[12px] text-neutral-400 hover:text-neutral-200 transition-colors cursor-pointer"
           >
             {isReasoningOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
             Reasoning summary
           </button>
           {isReasoningOpen && (
-            <p className="mt-1.5 pl-4 border-l-2 border-surface-border/80 text-[11px] text-neutral-400 font-sans leading-relaxed">
+            <p className="mt-1.5 pl-4 border-l-2 border-surface-border/80 text-[12px] text-neutral-400 font-sans leading-relaxed">
               {turn.reasoning_summary}
             </p>
           )}
@@ -342,7 +343,7 @@ const TurnRow: React.FC<{
           data-testid={`turn-fork-${turn.turn_index}`}
           disabled={isForking}
           onClick={handleFork}
-          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-surface-elevated hover:bg-surface-border/60 border border-surface-border text-neutral-300 transition-colors cursor-pointer"
+          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-surface-elevated hover:bg-surface-border/60 border border-surface-border text-neutral-300 transition-colors cursor-pointer"
           title="Create a new session branched from this turn"
         >
           <GitFork className="w-3 h-3 text-brand" />
@@ -354,14 +355,14 @@ const TurnRow: React.FC<{
           data-testid={`turn-rewind-${turn.turn_index}`}
           disabled={isRewinding}
           onClick={handleRewind}
-          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium bg-surface-elevated hover:bg-amber-500/20 hover:border-amber-500/40 border border-surface-border text-neutral-400 hover:text-amber-200 transition-colors cursor-pointer"
+          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium bg-surface-elevated hover:bg-amber-500/20 hover:border-amber-500/40 border border-surface-border text-neutral-400 hover:text-amber-200 transition-colors cursor-pointer"
           title="Rewind this session and workspace back to this turn"
         >
           <RotateCcw className="w-3 h-3 text-amber-400" />
           <span>{isRewinding ? "Rewinding..." : "Rewind to here"}</span>
         </button>
         {rewindError && (
-          <span role="alert" data-testid={`turn-rewind-error-${turn.turn_index}`} className="text-[10px] text-rose-600 dark:text-rose-400">
+          <span role="alert" data-testid={`turn-rewind-error-${turn.turn_index}`} className="text-[11px] text-rose-600 dark:text-rose-400">
             Rewind failed: {rewindError}
           </span>
         )}
@@ -373,7 +374,7 @@ const TurnRow: React.FC<{
             disabled={!retryPrompt}
             title={retryPrompt ? "Re-run this interrupted turn" : "No prior prompt available to retry"}
             onClick={() => retryPrompt && onRetry(retryPrompt)}
-            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+            className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
               retryPrompt
                 ? "bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-200 cursor-pointer"
                 : "bg-surface-elevated border border-surface-border text-neutral-500 cursor-not-allowed"
@@ -463,7 +464,7 @@ export const TurnInspector: React.FC<TurnInspectorProps> = ({ onRetryTurn }) => 
             Turn Inspector
           </span>
           {sessionId && (
-            <span className="text-[10px] font-mono text-neutral-500 truncate max-w-[10rem]">
+            <span className="text-[11px] font-mono text-neutral-500 truncate max-w-[10rem]">
               {sessionId}
             </span>
           )}

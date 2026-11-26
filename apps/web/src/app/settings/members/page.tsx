@@ -26,6 +26,7 @@ export default function MembersAndTeamsPage() {
     <SettingsPage
       section="Governance"
       title="Members & teams"
+      icon={<Users className="h-5 w-5" aria-hidden="true" />}
       description="Who belongs to the organization and with which role, and the teams that own agents, skills, MCP servers and knowledge bases of their own."
     >
       <div className="space-y-6">

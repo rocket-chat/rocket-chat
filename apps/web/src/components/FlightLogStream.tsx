@@ -31,6 +31,7 @@ import { describeArtifactCall, isArtifactCall, mentionOfArtifact, type ArtifactM
 import { ArtifactCard } from "./ArtifactCard";
 import { CockpitEmptyState } from "./CockpitEmptyState";
 import { SessionLoadingScreen } from "./SessionLoadingScreen";
+import { IconButton } from "./ui/IconButton";
 import {
   ArrowDown,
   Check,
@@ -411,7 +412,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
                 {item.entry.attachments.map((att) => (
                   <span
                     key={att.attachmentId}
-                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-surface-border bg-surface/60 text-[11px] font-mono text-neutral-300"
+                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border border-surface-border bg-surface/60 text-[12px] font-mono text-neutral-300"
                   >
                     {att.preview ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -436,7 +437,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
                 busy={isExecuting}
               />
               {item.entry.timestamp && (
-                <span suppressHydrationWarning className="text-right text-[11px] text-neutral-500">
+                <span suppressHydrationWarning className="text-right text-[12px] text-neutral-500">
                   {item.entry.timestamp}
                 </span>
               )}
@@ -483,7 +484,7 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
             </span>
             <div className="flex items-center gap-2">
               {item.entry.timestamp && (
-                <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">
+                <span suppressHydrationWarning className="font-mono text-[11px] text-neutral-500/70">
                   {item.entry.timestamp}
                 </span>
               )}
@@ -584,15 +585,9 @@ export const FlightLogStream: React.FC<FlightLogStreamProps> = ({
           <TranscriptSearchResults sessionId={session && !session.is_draft ? session.session_id : null} query={searchQuery} />
         )}
         {isSearchOpen ? null : (
-          <button
-            type="button"
-            data-testid="stream-search-toggle"
-            aria-label="Search this conversation"
-            onClick={openSearch}
-            className="rounded-lg border border-surface-border bg-surface-card/80 p-1.5 text-neutral-400 hover:bg-surface-elevated hover:text-foreground transition-colors shadow-sm"
-          >
+          <IconButton data-testid="stream-search-toggle" label="Search this conversation" onClick={openSearch}>
             <Search className="h-3.5 w-3.5" />
-          </button>
+          </IconButton>
         )}
       </div>
 
@@ -739,7 +734,7 @@ function AnsweredBy({ binding }: { binding: TurnBinding | null }) {
   return (
     <>
       <span data-testid="answered-by">{binding.agentName || "Raw model"}</span>
-      <span className="font-mono text-[11px] font-normal text-neutral-500">
+      <span className="font-mono text-[12px] font-normal text-neutral-500">
         {binding.model.split("/").pop()}
       </span>
     </>

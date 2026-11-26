@@ -80,7 +80,7 @@ export const UsageBreakdown: React.FC<{ scope: "org" | "user" }> = ({ scope }) =
           ["On members' own keys", `$${(usage?.own_key_cost_usd ?? 0).toFixed(2)}`],
         ].map(([label, value]) => (
           <div key={label} className="rounded-xl border border-surface-border bg-surface-card p-4">
-            <p className="text-[11px] text-neutral-500">{label}</p>
+            <p className="text-[12px] text-neutral-500">{label}</p>
             <p className="font-display text-lg font-semibold text-foreground">{value}</p>
           </div>
         ))}
@@ -112,7 +112,7 @@ export const UsageBreakdown: React.FC<{ scope: "org" | "user" }> = ({ scope }) =
         className="overflow-x-auto rounded-xl border border-surface-border bg-surface-card"
       >
         <table className="w-full text-xs">
-          <thead className="text-[10px] text-muted-foreground">
+          <thead className="text-[11px] text-muted-foreground">
             <tr>
               <th className="px-4 py-2 text-left">{VIEWS.find((v) => v.key === view)?.label.replace("By ", "")}</th>
               <th className="px-4 py-2 text-right">Tokens</th>

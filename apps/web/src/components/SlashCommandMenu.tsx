@@ -77,7 +77,7 @@ export function SlashCommandMenu({
             className={`w-full cursor-pointer px-3 py-1.5 text-left hover:bg-elevated ${index === active ? "bg-elevated" : ""}`}
           >
             <span className="font-mono text-xs text-foreground">/{c.name}</span>
-            {c.description && <span className="ml-2 truncate text-[11px] text-neutral-600 dark:text-neutral-400">{c.description}</span>}
+            {c.description && <span className="ml-2 truncate text-[12px] text-neutral-600 dark:text-neutral-400">{c.description}</span>}
           </button>
         </li>
       ))}

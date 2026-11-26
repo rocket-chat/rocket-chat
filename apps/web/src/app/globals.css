@@ -8,23 +8,45 @@
 :root {
   color-scheme: light;
 
-  /* Modern Neutral Palette - Light Mode */
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --surface: #ffffff;
-  --surface-base: #f8fafc;
-  --surface-sidebar: #f1f5f9;
-  --surface-card: #ffffff;
-  --surface-elevated: #e2e8f0;
-  --surface-highlight: #cbd5e1;
-  --surface-subnav: #f1f5f9;
-  --surface-border: #e2e8f0;
-  --surface-border-subtle: #f1f5f9;
-  --elevated: #f1f5f9;
-  --overlay: #e2e8f0;
-  --muted: #64748b;
-  --muted-foreground: #475569;
-  --border: #e2e8f0;
+  /* Modern Neutral Palette - Light Mode
+     Every color below also has a "-rgb" (space-separated R G B channels, no rgb() wrapper) twin.
+     Tailwind's colour-opacity modifiers (e.g. bg-surface-elevated/60) only work on a colour whose
+     theme value is itself a channel expression (rgb(var(--x-rgb) / <alpha-value>)) — a plain
+     var(--x) reference can't be sliced by "/60", so Tailwind silently drops the whole utility and
+     the element falls back to its CSS default (border-color: the browser/Tailwind-preflight
+     gray-200, a bright line that stays bright in dark mode). Keep both in sync when editing. */
+  --background-rgb: 248 250 252;
+  --background: rgb(var(--background-rgb));
+  --foreground-rgb: 15 23 42;
+  --foreground: rgb(var(--foreground-rgb));
+  --surface-rgb: 255 255 255;
+  --surface: rgb(var(--surface-rgb));
+  --surface-base-rgb: 248 250 252;
+  --surface-base: rgb(var(--surface-base-rgb));
+  --surface-sidebar-rgb: 241 245 249;
+  --surface-sidebar: rgb(var(--surface-sidebar-rgb));
+  --surface-card-rgb: 255 255 255;
+  --surface-card: rgb(var(--surface-card-rgb));
+  --surface-elevated-rgb: 226 232 240;
+  --surface-elevated: rgb(var(--surface-elevated-rgb));
+  --surface-highlight-rgb: 203 213 225;
+  --surface-highlight: rgb(var(--surface-highlight-rgb));
+  --surface-subnav-rgb: 241 245 249;
+  --surface-subnav: rgb(var(--surface-subnav-rgb));
+  --surface-border-rgb: 226 232 240;
+  --surface-border: rgb(var(--surface-border-rgb));
+  --surface-border-subtle-rgb: 241 245 249;
+  --surface-border-subtle: rgb(var(--surface-border-subtle-rgb));
+  --elevated-rgb: 241 245 249;
+  --elevated: rgb(var(--elevated-rgb));
+  --overlay-rgb: 226 232 240;
+  --overlay: rgb(var(--overlay-rgb));
+  --muted-rgb: 100 116 139;
+  --muted: rgb(var(--muted-rgb));
+  --muted-foreground-rgb: 71 85 105;
+  --muted-foreground: rgb(var(--muted-foreground-rgb));
+  --border-rgb: 226 232 240;
+  --border: rgb(var(--border-rgb));
   --border-line: rgba(0, 0, 0, 0.08);
 
   /* Modern Rocket Brand Accents - Stitch Design */
@@ -36,58 +58,87 @@
   --primary-rgb: 194 65 12;
   --primary-hover-rgb: 154 52 18;
   --primary-dim: rgba(254, 88, 37, 0.12);
-  --cyan: #0369a1;
+  --cyan-rgb: 3 105 161;
+  --cyan: rgb(var(--cyan-rgb));
   --accent: #c2410c;
 
   /* Diff & Status */
-  --diff-add: #16a34a;
+  --diff-add-rgb: 22 163 74;
+  --diff-add: rgb(var(--diff-add-rgb));
   --diff-add-bg: rgba(22, 163, 74, 0.08);
-  --diff-del: #dc2626;
+  --diff-del-rgb: 220 38 38;
+  --diff-del: rgb(var(--diff-del-rgb));
   --diff-del-bg: rgba(220, 38, 38, 0.08);
-  --status-live: #16a34a;
-  --status-idle: #94a3b8;
+  --status-live-rgb: 22 163 74;
+  --status-live: rgb(var(--status-live-rgb));
+  --status-idle-rgb: 148 163 184;
+  --status-idle: rgb(var(--status-idle-rgb));
 }
 
 .dark {
   color-scheme: dark;
-  /* Modern Neutral Palette - Dark Mode (Stitch Flat AI Theme) */
-  --background: #0d1017;
-  --foreground: #f4f4f5;
-  --surface: #131722;
-  --surface-base: #0d1017;
-  --surface-sidebar: #0a0c12;
-  --surface-card: #131722;
-  --surface-elevated: #181d2a;
-  --surface-highlight: #1e2434;
-  --surface-subnav: #10141f;
-  --surface-border: #202534;
-  --surface-border-subtle: #181d28;
-  --elevated: #181d2a;
-  --overlay: #202534;
-  --muted: #71717a;
-  --muted-foreground: #a8adb7;
-  --border: #202534;
+  /* Modern Neutral Palette - Dark Mode (Stitch Flat AI Theme)
+     Background lifted a few points off true black and the foreground/brand pulled back from
+     their most saturated extremes: at full brightness/saturation both read as glare rather
+     than contrast on long reading passes (chat transcripts, settings pages). */
+  --background-rgb: 18 21 28;
+  --background: rgb(var(--background-rgb));
+  --foreground-rgb: 232 232 234;
+  --foreground: rgb(var(--foreground-rgb));
+  --surface-rgb: 19 23 34;
+  --surface: rgb(var(--surface-rgb));
+  --surface-base-rgb: 18 21 28;
+  --surface-base: rgb(var(--surface-base-rgb));
+  --surface-sidebar-rgb: 13 15 22;
+  --surface-sidebar: rgb(var(--surface-sidebar-rgb));
+  --surface-card-rgb: 19 23 34;
+  --surface-card: rgb(var(--surface-card-rgb));
+  --surface-elevated-rgb: 24 29 42;
+  --surface-elevated: rgb(var(--surface-elevated-rgb));
+  --surface-highlight-rgb: 30 36 52;
+  --surface-highlight: rgb(var(--surface-highlight-rgb));
+  --surface-subnav-rgb: 16 20 31;
+  --surface-subnav: rgb(var(--surface-subnav-rgb));
+  --surface-border-rgb: 32 37 52;
+  --surface-border: rgb(var(--surface-border-rgb));
+  --surface-border-subtle-rgb: 24 29 40;
+  --surface-border-subtle: rgb(var(--surface-border-subtle-rgb));
+  --elevated-rgb: 24 29 42;
+  --elevated: rgb(var(--elevated-rgb));
+  --overlay-rgb: 32 37 52;
+  --overlay: rgb(var(--overlay-rgb));
+  --muted-rgb: 113 113 122;
+  --muted: rgb(var(--muted-rgb));
+  --muted-foreground-rgb: 168 173 183;
+  --muted-foreground: rgb(var(--muted-foreground-rgb));
+  --border-rgb: 32 37 52;
+  --border: rgb(var(--border-rgb));
   --border-line: rgba(255, 255, 255, 0.08);
 
   /* Modern Rocket Brand Accents - Stitch Design */
-  --brand: #fe5825;
-  --brand-rgb: 254 88 37;
-  --brand-hover: #ea4c1d;
-  --primary: #fe5825;
-  --primary-hover: #ea4c1d;
-  --primary-rgb: 254 88 37;
-  --primary-hover-rgb: 234 76 29;
-  --primary-dim: rgba(254, 88, 37, 0.12);
-  --cyan: #38bdf8;
-  --accent: #fe5825;
+  --brand: #f2672f;
+  --brand-rgb: 242 103 47;
+  --brand-hover: #d8551f;
+  --primary: #f2672f;
+  --primary-hover: #d8551f;
+  --primary-rgb: 242 103 47;
+  --primary-hover-rgb: 216 85 31;
+  --primary-dim: rgba(242, 103, 47, 0.12);
+  --cyan-rgb: 56 189 248;
+  --cyan: rgb(var(--cyan-rgb));
+  --accent: #f2672f;
 
   /* Diff & Status */
-  --diff-add: #10b981;
+  --diff-add-rgb: 16 185 129;
+  --diff-add: rgb(var(--diff-add-rgb));
   --diff-add-bg: rgba(16, 185, 129, 0.1);
-  --diff-del: #ef4444;
+  --diff-del-rgb: 239 68 68;
+  --diff-del: rgb(var(--diff-del-rgb));
   --diff-del-bg: rgba(239, 68, 68, 0.1);
-  --status-live: #10b981;
-  --status-idle: #64748b;
+  --status-live-rgb: 16 185 129;
+  --status-live: rgb(var(--status-live-rgb));
+  --status-idle-rgb: 100 116 139;
+  --status-idle: rgb(var(--status-idle-rgb));
 }
 
 * {

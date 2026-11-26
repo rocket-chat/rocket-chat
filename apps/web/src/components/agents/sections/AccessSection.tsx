@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { Field, Select } from "../../ui/Field";
+import { CHECKBOX_CLASS } from "../../ui/checkbox";
 import { useTeams } from "../../../lib/teams";
 import type { SectionProps } from "./types";
 
@@ -146,7 +147,13 @@ export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin, canEdit 
         </div>
       )}
       <label className="flex items-center gap-2 text-xs text-foreground">
-        <input type="checkbox" data-testid="agent-access-guests" checked={guests} onChange={(e) => setGuests(e.target.checked)} />
+        <input
+          type="checkbox"
+          data-testid="agent-access-guests"
+          checked={guests}
+          onChange={(e) => setGuests(e.target.checked)}
+          className={CHECKBOX_CLASS}
+        />
         Guests too (Slack users who have not paired, guest API tokens)
       </label>
       <div className="flex items-center gap-3">
@@ -163,7 +170,7 @@ export const AccessSection: React.FC<SectionProps> = ({ draft, isAdmin, canEdit 
             {status}
           </span>
         )}
-        <span className="text-[11px] text-neutral-500">{grants.length === 0 ? (teamAgent ? "No grants: the team only." : "No grants: every member.") : `${grants.length} grant(s).`}</span>
+        <span className="text-[12px] text-neutral-500">{grants.length === 0 ? (teamAgent ? "No grants: the team only." : "No grants: every member.") : `${grants.length} grant(s).`}</span>
       </div>
     </div>
   );

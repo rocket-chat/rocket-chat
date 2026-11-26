@@ -47,7 +47,7 @@ export const OAuthFields: React.FC<{ form: McpServerFormState }> = ({ form }) =>
         defaultOpen={form.signIn === "needs_client" || !!(oauth.clientId || oauth.authorizationUrl)}
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <p className="text-[10px] text-muted-foreground sm:col-span-2">
+          <p className="text-[11px] text-muted-foreground sm:col-span-2">
             Only for a provider that does not let applications register themselves. Its callback URL is{" "}
             <code className="font-mono">{oauthCallbackUrl()}</code>.
           </p>

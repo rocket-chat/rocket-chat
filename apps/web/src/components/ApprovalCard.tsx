@@ -76,7 +76,7 @@ const GateCard: React.FC<ApprovalCardProps> = ({ approval, onApprove, onReject }
           {approval.subagent_role ? `The ${approval.subagent_role.replace(/_/g, " ")} subagent asks: ` : ""}
           Approve {approval.action_type}?
         </span>
-        <span className="ml-auto rounded-full border border-current px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+        <span className="ml-auto rounded-full border border-current px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
           {RISK_LABEL[approval.risk_level] ?? approval.risk_level}
         </span>
       </div>
@@ -131,7 +131,7 @@ const GateCard: React.FC<ApprovalCardProps> = ({ approval, onApprove, onReject }
         >
           <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
           <span>Approve</span>
-          {!critical && <kbd className="rounded bg-white/20 px-1 text-[10px] font-mono">Enter</kbd>}
+          {!critical && <kbd className="rounded bg-white/20 px-1 text-[11px] font-mono">Enter</kbd>}
         </button>
         {!critical &&
           (approval.remember_options ?? []).map((scope) => (
@@ -153,7 +153,7 @@ const GateCard: React.FC<ApprovalCardProps> = ({ approval, onApprove, onReject }
           className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-surface-elevated px-3.5 py-1.5 text-xs font-semibold text-foreground transition-colors hover:bg-surface-border"
         >
           <span>Deny</span>
-          <kbd className="rounded border border-border px-1 text-[10px] font-mono text-muted-foreground">Esc</kbd>
+          <kbd className="rounded border border-border px-1 text-[11px] font-mono text-muted-foreground">Esc</kbd>
         </button>
       </div>
     </div>

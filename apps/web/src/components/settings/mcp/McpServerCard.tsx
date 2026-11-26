@@ -2,6 +2,7 @@
 
 import React from "react";
 import { OwnerBadge } from "../Owner";
+import { Badge, type BadgeTone } from "../../ui/Badge";
 import {
   ChevronDown,
   ChevronRight,
@@ -36,6 +37,14 @@ function TransportIcon({ transport: t }: { transport: string }) {
       return <Server className="w-3.5 h-3.5 text-neutral-400" />;
   }
 }
+
+const STATUS_TONE: Record<McpServerConfig["status"], BadgeTone> = {
+  connected: "success",
+  needs_sign_in: "warning",
+  error: "danger",
+  probing: "neutral",
+  offline: "neutral",
+};
 
 interface McpServerCardProps {
   server: McpServerConfig;
@@ -90,29 +99,17 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
                 {server.name}
               </span>
               <OwnerBadge owned={server} />
-              <span className="px-1.5 py-0.2 rounded-lg text-[9px] bg-surface border border-border text-neutral-400">
-                {server.transport}
-              </span>
-              <span
-                className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-lg text-[9px] ${
-                  server.status === "connected"
-                    ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                    : server.status === "needs_sign_in"
-                    ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/30"
-                    : server.status === "error"
-                    ? "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-                    : "bg-neutral-500/10 text-neutral-400 border border-neutral-500/20"
-                }`}
-              >
+              <Badge tone="neutral" shape="tag">{server.transport}</Badge>
+              <Badge tone={STATUS_TONE[server.status] ?? "neutral"} shape="pill">
                 <span
                   className={`w-1 h-1 rounded-full ${
                     server.status === "connected" ? "bg-emerald-400" : "bg-neutral-400"
                   }`}
                 />
                 {server.status === "needs_sign_in" ? "sign-in required" : server.status}
-              </span>
+              </Badge>
             </div>
-            <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+            <p className="text-[11px] text-muted-foreground truncate mt-0.5">
               {server.endpoint_or_command}
             </p>
           </div>
@@ -123,7 +120,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
             <button
               type="button"
               onClick={() => onAuthorize(server.id)}
-              className="px-2 py-1 rounded-lg border border-brand/30 bg-brand/10 hover:bg-brand/20 text-brand text-[10px] font-semibold transition-all flex items-center gap-1 cursor-pointer"
+              className="px-2 py-1 rounded-lg border border-brand/30 bg-brand/10 hover:bg-brand/20 text-brand text-[11px] font-semibold transition-all flex items-center gap-1 cursor-pointer"
               title="Authenticate via OAuth 2.1 PKCE"
             >
               <ExternalLink className="w-3 h-3" />
@@ -143,7 +140,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
             type="button"
             onClick={() => onProbe(server.id)}
             disabled={probing}
-            className="px-2 py-1 rounded-lg border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-[10px] text-neutral-300 transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+            className="px-2 py-1 rounded-lg border border-border bg-surface-elevated hover:bg-surface-elevated/80 text-[11px] text-neutral-300 transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
             title="Refresh / probe active tools"
           >
             <RefreshCw
@@ -202,7 +199,7 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
                 </p>
               )}
               {canManage && server.install_command && (
-                <pre className="max-h-32 overflow-auto rounded-lg border border-border/60 bg-surface-card p-2 font-mono text-[11px]">
+                <pre className="max-h-32 overflow-auto rounded-lg border border-border/60 bg-surface-card p-2 font-mono text-[12px]">
                   {server.install_command}
                 </pre>
               )}
@@ -244,11 +241,11 @@ export const McpServerCard: React.FC<McpServerCardProps> = ({
                       <Zap className="w-3 h-3 text-brand" />
                       <span>{t.name}</span>
                     </div>
-                    <p className="text-[10px] text-muted-foreground line-clamp-2">
+                    <p className="text-[11px] text-muted-foreground line-clamp-2">
                       {t.description || "No description provided"}
                     </p>
                     {t.parameters_summary && (
-                      <div className="text-[9px] text-neutral-400 truncate">
+                      <div className="text-[10px] text-neutral-400 truncate">
                         {t.parameters_summary}
                       </div>
                     )}

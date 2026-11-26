@@ -4,7 +4,6 @@ import { SessionUsageChip } from "./SessionUsageChip";
 import { SpendLimitChip } from "./SpendLimitChip";
 import { useShallow } from "zustand/react/shallow";
 import React, { useState } from "react";
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useMissionStore } from "../lib/store";
 import { ViewMenu } from "./ViewMenu";
@@ -33,7 +32,7 @@ const StatusChip: React.FC<{ status: SessionStatus; tokenRate: number }> = ({ st
     idle: "border-surface-border text-neutral-700 dark:text-neutral-300",
   };
   return (
-    <div data-testid="status-chip" data-status={status} className={`flex items-center gap-1.5 rounded-md border bg-surface-card px-2.5 py-1 text-[11px] ${tone[status]}`}>
+    <div data-testid="status-chip" data-status={status} className={`flex items-center gap-1.5 rounded-md border bg-surface-card px-2.5 py-1 text-[12px] ${tone[status]}`}>
       {status === "working" ? (
         <Zap className="h-3.5 w-3.5 animate-pulse" aria-hidden="true" />
       ) : (
@@ -93,73 +92,77 @@ export const FlightTelemetryHeader: React.FC = () => {
       : selectedModel.split("/").pop() || selectedModel;
 
   return (
-    <header className="sticky top-0 z-30 h-14 shrink-0 px-4 sm:px-6 bg-surface-base/90 backdrop-blur-md border-b border-surface-border flex items-center justify-between select-none transition-colors">
-      {/* Left: Sidebar toggle, Thread Title & Model Tag */}
-      <div className="flex items-center gap-3">
+    <header className="sticky top-0 z-30 h-14 shrink-0 pl-3 pr-1.5 sm:pl-4 sm:pr-2 bg-surface-sidebar/90 backdrop-blur-md border-b border-surface-border flex items-center justify-between gap-2 select-none transition-colors">
+      {/* Left: Sidebar toggle (mobile only — the collapsed rail has its own at md+; the sidebar
+          itself, open or as that rail, is where the brand mark lives here), Thread Title & Model Tag */}
+      <div className="flex min-w-0 flex-1 items-center gap-3">
         {!isLeftSidebarOpen && (
-          <div className="flex items-center gap-2">
-            <IconButton label="Expand Sessions Sidebar" onClick={() => setIsLeftSidebarOpen(true)}>
-              <PanelLeftOpen className="h-4 w-4" />
-            </IconButton>
-            <Link href="/" className="flex items-center gap-2">
-              <span className="hidden font-display text-sm font-semibold tracking-tight text-foreground sm:inline">
-                Rocket Chat
-              </span>
-            </Link>
-          </div>
+          <IconButton
+            label="Expand Sessions Sidebar"
+            onClick={() => setIsLeftSidebarOpen(true)}
+            className="shrink-0 md:hidden"
+          >
+            <PanelLeftOpen className="h-4 w-4" />
+          </IconButton>
         )}
 
         {/* Thread Title (click to rename) */}
-        <SessionTitle
-          title={displayTitle}
-          sessionId={session && !session.is_draft && session.session_id === (routeSessionId ?? session.session_id) ? session.session_id : null}
-        />
+        <div className="min-w-0 flex-1">
+          <SessionTitle
+            title={displayTitle}
+            sessionId={session && !session.is_draft && session.session_id === (routeSessionId ?? session.session_id) ? session.session_id : null}
+          />
+        </div>
         {binding?.url && (
           <a
             href={binding.url}
             target="_blank"
             rel="noopener noreferrer"
             data-testid={binding.platform === "slack" ? "open-in-slack" : "open-thread-header"}
-            className="hidden sm:inline-flex items-center gap-1 shrink-0 text-xs text-neutral-500 hover:text-brand dark:text-neutral-400"
+            className="hidden lg:inline-flex items-center gap-1 shrink-0 whitespace-nowrap text-xs text-neutral-500 hover:text-brand dark:text-neutral-400"
           >
             <ChannelIcon platform={binding.platform} />
             Open in {binding.label}
           </a>
         )}
 
-        <div className="h-3.5 w-px bg-surface-border hidden sm:block" />
+        <div className="h-3.5 w-px bg-surface-border hidden lg:block shrink-0" />
 
         {/* Real Model / Persona Tag */}
-        <div className="hidden sm:flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 bg-surface-card hover:bg-surface-elevated px-2 py-0.5 rounded border border-surface-border transition-colors">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand" />
-          <span className="font-mono text-[11px] text-neutral-700 dark:text-neutral-300">
+        <div className="hidden min-w-0 shrink items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400 bg-surface-card hover:bg-surface-elevated px-2 py-0.5 rounded border border-surface-border transition-colors lg:flex">
+          <span className="w-1.5 h-1.5 rounded-full bg-brand shrink-0" />
+          <span className="max-w-[10rem] truncate font-mono text-[12px] text-neutral-700 dark:text-neutral-300">
             {activeModelDisplayName}
           </span>
         </div>
       </div>
 
       {/* Right: run state, then view controls, then account */}
-      <div className="flex items-center gap-2 text-xs">
+      <div className="flex shrink-0 items-center gap-2 text-xs">
         <StatusChip
           status={session ? (isExecuting && statusOf(session) !== "needs_you" ? "working" : statusOf(session)) : isExecuting ? "working" : "idle"}
           tokenRate={tokenRate}
         />
 
-        <SessionUsageChip
-          sessionId={session && !session.is_draft ? session.session_id : undefined}
-          running={isExecuting}
-        />
+        <div className="hidden sm:block">
+          <SessionUsageChip
+            sessionId={session && !session.is_draft ? session.session_id : undefined}
+            running={isExecuting}
+          />
+        </div>
 
-        <SpendLimitChip
-          sessionId={session && !session.is_draft ? session.session_id : undefined}
-          running={isExecuting}
-        />
+        <div className="hidden sm:block">
+          <SpendLimitChip
+            sessionId={session && !session.is_draft ? session.session_id : undefined}
+            running={isExecuting}
+          />
+        </div>
 
         {goal && goal.status === "active" && (
           <div
             data-testid="goal-chip"
             title="Budget used by this long task across its continuation turns"
-            className="hidden items-center gap-1.5 rounded-md border border-surface-border bg-surface-card px-2.5 py-1 text-[11px] text-neutral-600 dark:text-neutral-400 md:flex"
+            className="hidden items-center gap-1.5 rounded-md border border-surface-border bg-surface-card px-2.5 py-1 text-[12px] text-neutral-600 dark:text-neutral-400 md:flex"
           >
             <span>Long task</span>
             <span className="font-mono">{formatTokens(goal.consumedTokens)}</span>

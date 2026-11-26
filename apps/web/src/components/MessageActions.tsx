@@ -150,7 +150,7 @@ export const AnswerActions: React.FC<{ sessionId: string | null; turn: number; p
           </button>
         </span>
       )}
-      {note && <span role="status" className="text-[11px] text-neutral-600 dark:text-neutral-400">{note}</span>}
+      {note && <span role="status" className="text-[12px] text-neutral-600 dark:text-neutral-400">{note}</span>}
     </>
   );
 };

@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { useSettingsFormHandle } from "./SettingsSave";
+import { CHECKBOX_CLASS } from "../ui/checkbox";
 
 const CAPABILITIES: { key: string; label: string; hint: string }[] = [
   { key: "create_personal_agents", label: "Create personal agents", hint: "Agents of their own" },
@@ -78,7 +79,7 @@ export const CapabilitiesPanel: React.FC = () => {
       </div>
       <div className="overflow-x-auto rounded-xl border border-surface-border bg-surface-card">
         <table className="w-full text-xs">
-          <thead className="text-[10px] text-muted-foreground">
+          <thead className="text-[11px] text-muted-foreground">
             <tr>
               <th scope="col" className="px-4 py-2 text-left">
                 Capability
@@ -95,7 +96,7 @@ export const CapabilitiesPanel: React.FC = () => {
               <tr key={capability.key} className="border-t border-surface-border/60">
                 <th scope="row" className="px-4 py-2 text-left font-normal">
                   <span className="block text-foreground">{capability.label}</span>
-                  <span className="text-[10px] text-neutral-500">{capability.hint}</span>
+                  <span className="text-[11px] text-neutral-500">{capability.hint}</span>
                 </th>
                 {ROLES.map((role) => (
                   <td key={role} className="px-4 py-2 text-center">
@@ -105,7 +106,7 @@ export const CapabilitiesPanel: React.FC = () => {
                       aria-label={`${capability.label}: ${role}`}
                       checked={(grid[capability.key] ?? []).includes(role)}
                       onChange={(e) => toggle(capability.key, role, e.target.checked)}
-                      className="h-4 w-4 accent-orange-500"
+                      className={CHECKBOX_CLASS}
                     />
                   </td>
                 ))}

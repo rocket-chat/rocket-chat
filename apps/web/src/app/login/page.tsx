@@ -258,7 +258,7 @@ function LoginForm() {
           {(hasAnySSO || providers?.local) && providers?.devLogin && (
             <div className="relative flex items-center justify-center my-4">
               <div className="border-t border-surface-border w-full" />
-              <span className="bg-surface-card px-3 text-[11px] text-neutral-400 absolute">
+              <span className="bg-surface-card px-3 text-[12px] text-neutral-400 absolute">
                 OR DIRECT LOGIN
               </span>
             </div>

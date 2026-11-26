@@ -28,7 +28,7 @@ const Banner: React.FC<{
             {icon}
             <span className={`text-xs font-semibold uppercase tracking-wide ${palette.title}`}>{title}</span>
           </div>
-          {aside && <span className={`font-mono text-[10px] ${palette.aside}`}>{aside}</span>}
+          {aside && <span className={`font-mono text-[11px] ${palette.aside}`}>{aside}</span>}
         </div>
         <div className={`font-sans text-xs leading-relaxed ${palette.body}`}>{children}</div>
       </div>
@@ -49,7 +49,7 @@ const Pill: React.FC<{ kind: string; tone: "neutral" | "amber" | "rose"; icon: R
   }[tone];
   return (
     <div data-testid="system-notice" data-kind={kind} className="my-2 flex justify-center">
-      <div className={`inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1 font-mono text-[11px] ${palette}`}>
+      <div className={`inline-flex max-w-full items-center gap-2 rounded-full border px-3 py-1 font-mono text-[12px] ${palette}`}>
         {icon}
         <span className="min-w-0 [overflow-wrap:anywhere]">{text}</span>
       </div>

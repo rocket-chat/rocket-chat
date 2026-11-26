@@ -64,7 +64,7 @@ export const McpMemberEnv: React.FC<McpMemberEnvProps> = ({ serverId, onChanged 
       <div className="flex items-center gap-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300">
         <KeyRound className="h-3.5 w-3.5" aria-hidden="true" /> Your own values
       </div>
-      <p className="text-[11px] text-neutral-500">
+      <p className="text-[12px] text-neutral-500">
         This server runs with the organization&apos;s values unless you set your own. Yours apply only to your sessions and are
         never shown again.
       </p>

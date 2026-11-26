@@ -151,7 +151,7 @@ export const SubagentsPanel: React.FC = () => {
                       {sub.role}
                     </span>
                     <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase ${
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-mono uppercase ${
                         isSuccess
                           ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-300"
                           : "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-300"
@@ -187,7 +187,7 @@ export const SubagentsPanel: React.FC = () => {
               )}
 
               {sub.changed_files.length > 0 && (
-                <div className="flex flex-wrap gap-1 font-mono text-[10px]">
+                <div className="flex flex-wrap gap-1 font-mono text-[11px]">
                   {sub.changed_files.map((file, idx) => (
                     <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-elevated border border-surface-border text-neutral-600 dark:text-neutral-400">
                       <FileCode className="w-2.5 h-2.5" />
@@ -197,7 +197,7 @@ export const SubagentsPanel: React.FC = () => {
                 </div>
               )}
 
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-mono text-neutral-600 dark:text-neutral-400 pt-1 border-t border-surface-border/50">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-mono text-neutral-600 dark:text-neutral-400 pt-1 border-t border-surface-border/50">
                 <span className="inline-flex items-center gap-1">
                   <Clock className="w-3 h-3" />
                   {formatElapsed(sub.duration_ms)}
@@ -216,7 +216,7 @@ export const SubagentsPanel: React.FC = () => {
 
               {isSelected && (
                 <div className="pt-2 border-t border-surface-border space-y-2">
-                  <h4 className="text-[11px] font-mono uppercase tracking-wider text-neutral-600 dark:text-neutral-400">
+                  <h4 className="text-[12px] font-mono uppercase tracking-wider text-neutral-600 dark:text-neutral-400">
                     Execution Transcript
                   </h4>
                   {isDetailLoading ? (
@@ -235,7 +235,7 @@ export const SubagentsPanel: React.FC = () => {
                               : "bg-surface-card/80 text-foreground"
                           }`}
                         >
-                          <div className="font-mono text-[10px] text-neutral-500 uppercase mb-1">
+                          <div className="font-mono text-[11px] text-neutral-500 uppercase mb-1">
                             {msg.role}
                           </div>
                           <div className="leading-relaxed">

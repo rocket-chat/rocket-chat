@@ -8,10 +8,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMissionStore } from "../../lib/store";
 import { SessionData } from "../../types/mission";
-import { RocketChatIcon } from "../RocketChatLogo";
+import { BrandLink } from "../RocketChatLogo";
 import { OrgSwitcher } from "../OrgSwitcher";
 import { ThemeToggle } from "../Theme/ThemeToggle";
 import { IconButton } from "../ui/IconButton";
+import { NAV_ACTIVE_CLASSES } from "../ui/navActiveStyle";
 import { useSession } from "../AuthProvider";
 import {
   Trash2,
@@ -38,6 +39,9 @@ import {
   Slack,
 } from "lucide-react";
 import { useConfirm } from "../ui/ConfirmDialog";
+import { Kbd } from "../ui/Kbd";
+import { buttonClass } from "../ui/Button";
+import { SIDE_NAV_TOP_SECTION_GAP } from "../ui/layout";
 import { useSessionSearch } from "../../lib/useSessionSearch";
 import { ago, groupSessions, STATUS_LABEL, statusOf, type SessionStatus } from "../../lib/session-groups";
 
@@ -218,7 +222,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
         >
           {needingYou ? <CircleAlert className="h-4 w-4 text-amber-500" /> : <Search className="h-4 w-4" />}
           {needingYou > 0 && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-semibold text-white">
+            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[11px] font-semibold text-white">
               {needingYou}
             </span>
           )}
@@ -235,12 +239,15 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
     );
   }
 
-  const chip = (active: boolean) =>
-    `rounded-full border px-2.5 py-1 text-[11px] cursor-pointer transition-colors ${
+  // "All / Shared / Slack" are one choice (filter), never more than one active at a time, so
+  // they render as segments of a single pill, not three separate toggle buttons — "Archived" and
+  // "Everyone" next to it are independent, combinable toggles and keep their own buttons.
+  const segment = (active: boolean, extra: string) =>
+    `flex h-full cursor-pointer items-center justify-center rounded-full text-[12px] transition-colors ${extra} ${
       active
         ? // On the tint, the darker shade keeps the label at 4.5:1 in light mode.
-          "border-brand/50 bg-brand/10 text-brand-hover dark:text-brand"
-        : "border-surface-border text-neutral-600 hover:text-foreground dark:text-neutral-300"
+          "bg-brand/10 text-brand-hover dark:text-brand"
+        : "text-neutral-600 hover:bg-surface-elevated hover:text-foreground dark:text-neutral-400"
     }`;
 
   return (
@@ -259,14 +266,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
         <div className="flex flex-col h-full overflow-hidden">
           {/* Brand & Toggle Header */}
           <div className="flex items-center justify-between border-b border-surface-borderSubtle px-3 py-2.5">
-            <Link href="/" className="group flex items-center gap-2">
-              {/* Bare artwork, no frame around it; a hairline appears on hover. */}
-              <RocketChatIcon
-                size={32}
-                className="h-8 w-8 rounded-[22%] ring-1 ring-transparent transition-shadow duration-200 group-hover:ring-brand/50"
-              />
-              <span className="font-display font-semibold text-sm tracking-tight text-foreground">Rocket Chat</span>
-            </Link>
+            <BrandLink />
             <button
               type="button"
               onClick={() => setIsLeftSidebarOpen(false)}
@@ -279,19 +279,24 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
           </div>
 
           {/* Quick Action: New Thread (with ⌘⇧O indicator) */}
-          <div className="px-3 pt-3 pb-2 space-y-2">
-            <OrgSwitcher compact />
+          <div className={`px-3 pt-3 pb-2 ${SIDE_NAV_TOP_SECTION_GAP}`}>
+            <OrgSwitcher />
             <button
               type="button"
               data-testid="new-conversation-btn"
               onClick={handleCreateNewSession}
-              className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium text-foreground bg-surface-card hover:bg-surface-elevated border border-surface-border hover:border-neutral-400 dark:hover:border-neutral-600 rounded-lg transition-all group cursor-pointer"
+              className={buttonClass("secondary", "md", {
+                fullWidth: true,
+                // Matches the org-switcher pill right above it: same horizontal inset, so the
+                // two stacked controls' content lines up instead of each picking its own.
+                className: "!justify-between !px-2.5 group",
+              })}
             >
-              <span className="flex items-center gap-2">
-                <Edit className="w-3.5 h-3.5 text-brand" />
-                <span>New conversation</span>
+              <span className="flex min-w-0 items-center gap-2">
+                <Edit className="w-3.5 h-3.5 shrink-0 text-brand" />
+                <span className="truncate">New conversation</span>
               </span>
-              <kbd className="text-[10px] font-mono text-neutral-500 dark:text-neutral-400 bg-surface-base px-1.5 py-0.5 rounded border border-surface-border">⌘⇧O</kbd>
+              <Kbd keys="⌘⇧O" className="bg-surface-base py-0.5" />
             </button>
 
             <div className="relative">
@@ -307,33 +312,50 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
               />
             </div>
 
-            <div className="flex items-center gap-1.5" role="group" aria-label="Filter conversations">
-              <button type="button" aria-pressed={filter === "all"} onClick={() => setFilter("all")} className={chip(filter === "all")}>All</button>
-              <IconButton
-                label="Shared"
-                title="Shared: conversations shared with you, or that you shared"
-                pressed={filter === "shared"}
-                onClick={() => setFilter(filter === "shared" ? "all" : "shared")}
-                className="h-7 w-7"
+            <div className="flex items-center gap-1.5">
+              <div
+                role="radiogroup"
+                aria-label="Filter conversations"
+                className="inline-flex h-8 items-center gap-0.5 rounded-full border border-surface-border bg-surface-card p-0.5"
               >
-                <Share2 className="h-3.5 w-3.5" />
-              </IconButton>
-              <IconButton
-                label="Slack"
-                title="Slack: conversations started from Slack"
-                pressed={filter === "slack"}
-                onClick={() => setFilter(filter === "slack" ? "all" : "slack")}
-                className="h-7 w-7"
-              >
-                <Slack className="h-3.5 w-3.5" />
-              </IconButton>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={filter === "all"}
+                  onClick={() => setFilter("all")}
+                  className={segment(filter === "all", "px-2")}
+                >
+                  All
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={filter === "shared"}
+                  aria-label="Shared"
+                  title="Shared: conversations shared with you, or that you shared"
+                  onClick={() => setFilter("shared")}
+                  className={segment(filter === "shared", "aspect-square")}
+                >
+                  <Share2 className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={filter === "slack"}
+                  aria-label="Slack"
+                  title="Slack: conversations started from Slack"
+                  onClick={() => setFilter("slack")}
+                  className={segment(filter === "slack", "aspect-square")}
+                >
+                  <Slack className="h-3.5 w-3.5" />
+                </button>
+              </div>
               <IconButton
                 label="Archived"
                 title={showArchived ? "Archived: back to your active conversations" : "Archived: show only archived conversations"}
                 data-testid="toggle-archived-btn"
                 pressed={showArchived}
                 onClick={handleToggleArchivedView}
-                className="h-7 w-7"
               >
                 <Archive className="h-3.5 w-3.5" />
               </IconButton>
@@ -344,7 +366,6 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                   data-testid="toggle-org-sessions-btn"
                   pressed={showingOrganization}
                   onClick={handleToggleOrganizationView}
-                  className="h-7 w-7"
                 >
                   <Users className="h-3.5 w-3.5" />
                 </IconButton>
@@ -373,7 +394,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
             ) : null}
             {groups.map((group) => (
               <section key={group.name} aria-label={group.name} className="mb-3">
-                <h3 className={`px-2 pb-1 text-[11px] font-semibold ${group.name === "Needs you" ? "text-amber-600 dark:text-amber-400" : "text-neutral-500 dark:text-neutral-400"}`}>
+                <h3 className={`px-2 pb-1 text-[12px] font-semibold ${group.name === "Needs you" ? "text-amber-600 dark:text-amber-400" : "text-neutral-500 dark:text-neutral-400"}`}>
                   {group.name}
                   <span className="ml-1 font-normal">({group.sessions.length})</span>
                 </h3>
@@ -405,7 +426,7 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                 data-testid="load-more-sessions-btn"
                 disabled={isLoadingSessions}
                 onClick={() => void loadMoreSessions()}
-                className="w-full mt-1 px-2.5 py-1.5 text-[11px] text-neutral-600 hover:text-foreground border border-dashed border-surface-border rounded-md transition-colors cursor-pointer disabled:opacity-50 dark:text-neutral-300"
+                className="w-full mt-1 px-2.5 py-1.5 text-[12px] text-neutral-600 hover:text-foreground border border-dashed border-surface-border rounded-md transition-colors cursor-pointer disabled:opacity-50 dark:text-neutral-300"
               >
                 {isLoadingSessions ? "Loading…" : "Load more"}
               </button>
@@ -417,13 +438,13 @@ export const SessionSidebar: React.FC<SessionSidebarProps> = ({ onSelectSession 
                 data-testid="clear-all-sessions-btn"
                 title="Delete all of your own sessions"
                 onClick={handleClearOwnSessions}
-                className="mt-3 w-full text-center text-[11px] text-neutral-500 hover:text-rose-500"
+                className="mt-3 w-full text-center text-[12px] text-neutral-500 hover:text-rose-500"
               >
                 Clear my conversations
               </button>
             )}
             {clearError && (
-              <p role="alert" data-testid="clear-sessions-error" className="mt-2 text-center text-[11px] text-rose-600 dark:text-rose-400">
+              <p role="alert" data-testid="clear-sessions-error" className="mt-2 text-center text-[12px] text-rose-600 dark:text-rose-400">
                 {clearError}
               </p>
             )}
@@ -547,9 +568,7 @@ const SessionRow: React.FC<SessionRowProps> = ({ session: s, selected, showOwner
         onMenu(e.clientX, e.clientY);
       }}
       className={`group flex items-center justify-between rounded-md px-2.5 py-1.5 text-xs transition-colors ${
-        selected
-          ? "border-l-2 border-brand bg-surface-elevated font-semibold text-foreground"
-          : "text-neutral-700 hover:bg-surface-card hover:text-foreground dark:text-neutral-300 dark:hover:text-neutral-100"
+        selected ? NAV_ACTIVE_CLASSES : "text-neutral-700 hover:bg-surface-card hover:text-foreground dark:text-neutral-300 dark:hover:text-neutral-100"
       }`}
     >
       <div className="mr-1 flex min-w-0 flex-1 items-center">
@@ -611,12 +630,12 @@ const SessionRow: React.FC<SessionRowProps> = ({ session: s, selected, showOwner
               </span>
             )}
             {s.is_archived && (
-              <span data-testid="session-archived-indicator" title="Archived" className="ml-1 shrink-0 text-[9px] text-neutral-500">
+              <span data-testid="session-archived-indicator" title="Archived" className="ml-1 shrink-0 text-[10px] text-neutral-500">
                 ARCH
               </span>
             )}
           </div>
-          {detail && <div className="truncate text-[10px] font-normal text-neutral-500 dark:text-neutral-400">{detail}</div>}
+          {detail && <div className="truncate text-[11px] font-normal text-neutral-500 dark:text-neutral-400">{detail}</div>}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">

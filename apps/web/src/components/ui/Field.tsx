@@ -2,9 +2,12 @@ import React, { useId } from "react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "./cn";
 
+// Same hover/focus language as Button (ui/Button.tsx): a brand-tinted border on hover, a
+// brand-tinted ring on focus — every clickable/editable control reaches for the same accent
+// instead of each picking its own (this one used to hover to a plain neutral grey).
 const CONTROL =
   "w-full rounded-lg border border-surface-border bg-surface-card text-sm text-foreground placeholder:text-neutral-500 " +
-  "transition-colors hover:border-neutral-400 dark:hover:border-neutral-600 " +
+  "transition-colors hover:border-brand/50 " +
   "focus:outline-none focus:border-brand/60 focus:ring-2 focus:ring-brand/20 disabled:opacity-60";
 
 interface FieldProps {

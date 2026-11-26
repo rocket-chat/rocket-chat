@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { Field, Input, Select, Textarea } from "../../../../components/ui/Field";
+import { CHECKBOX_CLASS } from "../../../../components/ui/checkbox";
 import type { ResponseMode, RoutingRow } from "./routing";
 
 const INSTRUCTIONS_LIMIT = 2000;
@@ -118,7 +119,7 @@ const IntentDetails: React.FC<RoutingRowDetailsProps> = ({ row, onChange }) => (
     </Field>
     <ResponseModeField value={row.response_mode} onChange={(response_mode) => onChange({ response_mode })} />
     <label className="flex items-center gap-2 self-end pb-2 text-xs text-foreground">
-      <input type="checkbox" checked={row.enabled} onChange={(e) => onChange({ enabled: e.target.checked })} />
+      <input type="checkbox" checked={row.enabled} onChange={(e) => onChange({ enabled: e.target.checked })} className={CHECKBOX_CLASS} />
       Enabled
     </label>
   </div>

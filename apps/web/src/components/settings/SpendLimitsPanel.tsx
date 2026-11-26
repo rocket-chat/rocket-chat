@@ -5,6 +5,7 @@ import { AlertCircle, Plus, Trash2 } from "lucide-react";
 import { Field, Input, Select } from "../ui/Field";
 import { hasCapability, useAccess } from "../../lib/access";
 import { useTeams } from "../../lib/teams";
+import { CHECKBOX_CLASS } from "../ui/checkbox";
 
 export interface SpendLimit {
   id: string;
@@ -160,7 +161,7 @@ export const SpendLimitsPanel: React.FC<{ team?: { id: string; name: string } }>
       )}
       <div className="overflow-x-auto rounded-xl border border-surface-border bg-surface-card">
         <table className="w-full text-xs">
-          <thead className="text-[10px] text-muted-foreground">
+          <thead className="text-[11px] text-muted-foreground">
             <tr>
               <th className="px-4 py-2 text-left">Subject</th>
               <th className="px-4 py-2 text-left">Period</th>
@@ -183,14 +184,14 @@ export const SpendLimitsPanel: React.FC<{ team?: { id: string; name: string } }>
                 <td className="px-4 py-2 text-foreground">
                   {SUBJECTS.find((s) => s.value === limit.subject_kind)?.label ?? limit.subject_kind}
                   {limit.subject_id && <span className="text-neutral-500"> · {subjectName(limit)}</span>}
-                  {limit.is_ceiling && <span className="ml-1 text-[10px] text-neutral-500">(ceiling)</span>}
+                  {limit.is_ceiling && <span className="ml-1 text-[11px] text-neutral-500">(ceiling)</span>}
                   {team && !limit.team_id && (
-                    <span data-testid="spend-limit-org-note" className="ml-1 text-[10px] text-neutral-600 dark:text-neutral-400">
+                    <span data-testid="spend-limit-org-note" className="ml-1 text-[11px] text-neutral-600 dark:text-neutral-400">
                       Set by the organization
                     </span>
                   )}
                   {!team && limit.team_id && (
-                    <span className="ml-1 text-[10px] text-neutral-600 dark:text-neutral-400">Set by the team {teamName(limit.team_id)}</span>
+                    <span className="ml-1 text-[11px] text-neutral-600 dark:text-neutral-400">Set by the team {teamName(limit.team_id)}</span>
                   )}
                 </td>
                 <td className="px-4 py-2">{PERIODS.find((p) => p.value === limit.period)?.label ?? limit.period}</td>
@@ -200,7 +201,7 @@ export const SpendLimitsPanel: React.FC<{ team?: { id: string; name: string } }>
                     type="button"
                     disabled={!editable(limit)}
                     onClick={() => void toggleMode(limit)}
-                    className="rounded border border-surface-border px-1.5 py-0.5 text-[10px] capitalize disabled:opacity-60"
+                    className="rounded border border-surface-border px-1.5 py-0.5 text-[11px] capitalize disabled:opacity-60"
                   >
                     {limit.mode}
                   </button>
@@ -315,7 +316,7 @@ export const SpendLimitsPanel: React.FC<{ team?: { id: string; name: string } }>
           </Field>
           {!team && (subject === "member" || subject === "agent_member") && (
             <label className="flex items-center gap-2 text-xs text-foreground">
-              <input type="checkbox" checked={ceiling} onChange={(e) => setCeiling(e.target.checked)} />
+              <input type="checkbox" checked={ceiling} onChange={(e) => setCeiling(e.target.checked)} className={CHECKBOX_CLASS} />
               A ceiling: a limit for one member may only be lower
             </label>
           )}

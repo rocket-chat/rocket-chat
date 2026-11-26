@@ -131,7 +131,7 @@ export const InteractiveTerminal: React.FC<{ active: boolean }> = ({ active }) =
   return (
     <div className="h-full flex flex-col" data-testid="interactive-terminal">
       {(message || status === "closed") && (
-        <div className="px-3 py-1.5 text-[11px] font-mono text-amber-400 bg-surface flex items-center justify-between">
+        <div className="px-3 py-1.5 text-[12px] font-mono text-amber-400 bg-surface flex items-center justify-between">
           <span>{message ?? "Disconnected."}</span>
           <button type="button" onClick={open} className="underline hover:text-amber-300">
             Reconnect

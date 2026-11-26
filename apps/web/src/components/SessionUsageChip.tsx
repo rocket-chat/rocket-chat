@@ -20,11 +20,11 @@ import { Badge } from "./ui/Badge";
 // faster than the conversation and are no measure of its size (the context gauge is).
 const Figures: React.FC<{ totals: UsageTotals }> = ({ totals }) => (
   <div className="space-y-1.5">
-    <p data-testid="session-usage-processed" className="text-[11px] text-neutral-600 dark:text-neutral-400">
+    <p data-testid="session-usage-processed" className="text-[12px] text-neutral-600 dark:text-neutral-400">
       Tokens processed over {totals.calls} calls: <span className="font-mono text-foreground">{formatCount(totals.total_tokens)}</span>,{" "}
       {cacheHitPercent(totals)}% from the cache. Each call re-sends the conversation, so this grows much faster than the conversation itself.
     </p>
-    <dl className="grid grid-cols-4 gap-2 text-[11px]">
+    <dl className="grid grid-cols-4 gap-2 text-[12px]">
       <div>
         <dt className="text-neutral-500">In</dt>
         <dd className="font-mono text-foreground">{formatCount(totals.prompt_tokens)}</dd>
@@ -117,7 +117,7 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
         aria-haspopup="dialog"
         onClick={() => setOpen((value) => !value)}
         title="Cost and context of this session"
-        className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-surface-border bg-surface-card px-2.5 text-[11px] text-neutral-600 transition-colors hover:bg-surface-elevated dark:text-neutral-300"
+        className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border border-surface-border bg-surface-card px-2.5 text-[12px] text-neutral-600 transition-colors hover:bg-surface-elevated dark:text-neutral-300"
       >
         <Coins className="h-3.5 w-3.5 text-brand" aria-hidden="true" />
         <span data-testid="session-usage-cost" className="font-mono font-medium text-foreground">
@@ -180,7 +180,7 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
             >
               Context
               {contextFillPct != null && (
-                <span className="ml-1 text-[10px] font-mono opacity-80">
+                <span className="ml-1 text-[11px] font-mono opacity-80">
                   ({contextFillPct}%)
                 </span>
               )}
@@ -203,7 +203,7 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
           <div className={activeTab === "overview" ? "space-y-3" : "hidden"}>
             {contextTokens != null && contextLimit != null && (
               <div className="rounded-lg border border-surface-border bg-surface-card p-2.5 space-y-2">
-                <div className="flex items-center justify-between text-[11px]">
+                <div className="flex items-center justify-between text-[12px]">
                   <span className="font-semibold text-foreground">Active Context Window</span>
                   <span className="font-mono text-neutral-600 dark:text-neutral-300">
                     {formatCount(contextTokens)} / {formatCount(contextLimit)} ({contextFillPct}%)
@@ -229,7 +229,7 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
                     style={{ left: "85%" }}
                   />
                 </div>
-                <div className="flex items-center justify-between text-[10px]">
+                <div className="flex items-center justify-between text-[11px]">
                   <span className="text-neutral-500">
                     Pruning at 70% · Compaction at 85%
                   </span>
@@ -247,15 +247,15 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
             <Figures totals={totals} />
 
             {totals.own_key_cost_usd > 0 && (
-              <p className="text-[11px] text-neutral-500">
+              <p className="text-[12px] text-neutral-500">
                 {formatUsd(totals.own_key_cost_usd)} of it was paid with your own provider key.
               </p>
             )}
 
             {usage.models.length > 0 && (
               <div>
-                <h3 className="mb-1 text-[11px] font-semibold text-neutral-600 dark:text-neutral-300">By model</h3>
-                <ul className="space-y-0.5 text-[11px]">
+                <h3 className="mb-1 text-[12px] font-semibold text-neutral-600 dark:text-neutral-300">By model</h3>
+                <ul className="space-y-0.5 text-[12px]">
                   {usage.models.map((model) => (
                     <li key={model.model} className="flex items-center justify-between gap-3">
                       <span className="min-w-0 truncate font-mono text-neutral-600 dark:text-neutral-300" title={model.model}>
@@ -275,17 +275,13 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
           <div className={activeTab === "context" ? "space-y-3" : "hidden"}>
             {contextTokens != null && contextLimit != null ? (
               <div className="rounded-lg border border-surface-border bg-surface-card p-3 space-y-2.5">
-                <div className="flex items-center justify-between text-[11px]">
+                <div className="flex items-center justify-between text-[12px]">
                   <div className="flex items-center gap-1.5">
                     <span className="font-semibold text-foreground">Active Context Window</span>
                     {isCappedByTarget ? (
-                      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-500 border border-amber-500/20">
-                        Capped Target
-                      </span>
+                      <Badge tone="warning" shape="pill">Capped Target</Badge>
                     ) : isOverride ? (
-                      <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-medium text-sky-400 border border-sky-500/20">
-                        Override
-                      </span>
+                      <Badge tone="info" shape="pill">Override</Badge>
                     ) : null}
                   </div>
                   <span className="font-mono text-neutral-600 dark:text-neutral-300">
@@ -316,13 +312,13 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
                   <div className="rounded border border-surface-border/60 bg-surface-elevated/40 p-2">
                     <div className="text-neutral-500">Tier 2 Pruning (70%)</div>
                     <div className="font-mono font-medium text-foreground">
                       ~{formatCount(contextTier2Tokens ?? Math.round(contextLimit * 0.7))} tok
                     </div>
-                    <div className="text-[9px] text-neutral-400 mt-0.5">
+                    <div className="text-[10px] text-neutral-400 mt-0.5">
                       Verbose tool outputs pruned to receipts
                     </div>
                   </div>
@@ -331,13 +327,13 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
                     <div className="font-mono font-medium text-foreground">
                       ~{formatCount(contextTier3Tokens ?? Math.round(contextLimit * 0.85))} tok
                     </div>
-                    <div className="text-[9px] text-neutral-400 mt-0.5">
+                    <div className="text-[10px] text-neutral-400 mt-0.5">
                       History summarized & memory anchored
                     </div>
                   </div>
                 </div>
 
-                <div className="rounded border border-surface-border/60 bg-surface-elevated/30 p-2 text-[10px] text-neutral-500 space-y-1">
+                <div className="rounded border border-surface-border/60 bg-surface-elevated/30 p-2 text-[11px] text-neutral-500 space-y-1">
                   <div className="flex items-center justify-between text-neutral-400">
                     <span>Model Raw Window:</span>
                     <span className="font-mono text-foreground">
@@ -358,7 +354,7 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
                 </div>
 
                 <div className="flex items-center justify-between pt-0.5">
-                  <span className="text-[10px] text-neutral-500">Pruning at 70% · Compaction at 85%</span>
+                  <span className="text-[11px] text-neutral-500">Pruning at 70% · Compaction at 85%</span>
                   {!running && sessionId && (
                     <button
                       type="button"
@@ -378,7 +374,7 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
                           setCompacting(false);
                         }
                       }}
-                      className="inline-flex items-center gap-1 rounded bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand hover:bg-brand/20 transition-colors disabled:opacity-50 cursor-pointer"
+                      className="inline-flex items-center gap-1 rounded bg-brand/10 px-2 py-0.5 text-[11px] font-medium text-brand hover:bg-brand/20 transition-colors disabled:opacity-50 cursor-pointer"
                     >
                       <Sparkles className="h-3 w-3" />
                       {compacting ? "Compacting..." : compactMessage || "Compact now"}
@@ -387,7 +383,7 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
                 </div>
               </div>
             ) : (
-              <p className="text-neutral-500 text-[11px] p-2">Context metrics will appear once session data is available.</p>
+              <p className="text-neutral-500 text-[12px] p-2">Context metrics will appear once session data is available.</p>
             )}
           </div>
 
@@ -396,16 +392,16 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
             <Figures totals={totals} />
 
             {totals.own_key_cost_usd > 0 && (
-              <p className="text-[11px] text-neutral-500">
+              <p className="text-[12px] text-neutral-500">
                 {formatUsd(totals.own_key_cost_usd)} of it was paid with your own provider key.
               </p>
             )}
 
             {usage.turns.length > 0 && (
               <div>
-                <h3 className="mb-1 text-[11px] font-semibold text-neutral-600 dark:text-neutral-300">By turn</h3>
+                <h3 className="mb-1 text-[12px] font-semibold text-neutral-600 dark:text-neutral-300">By turn</h3>
                 <div className="max-h-56 overflow-y-auto rounded-lg border border-surface-border">
-                  <table className="w-full text-left text-[11px]" data-testid="session-usage-turns">
+                  <table className="w-full text-left text-[12px]" data-testid="session-usage-turns">
                     <caption className="sr-only">Tokens and cost of each turn</caption>
                     <thead className="sticky top-0 bg-surface-card text-neutral-500">
                       <tr>
@@ -445,7 +441,7 @@ export const SessionUsageChip: React.FC<{ sessionId: string | undefined; running
               </div>
             )}
 
-            <p className="text-[10px] leading-relaxed text-neutral-500">
+            <p className="text-[11px] leading-relaxed text-neutral-500">
               Cost as billed by the provider; cached tokens cost less. A turn includes the calls made when it ends
               (title, summary, suggested prompt).
             </p>

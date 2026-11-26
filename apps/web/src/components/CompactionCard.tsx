@@ -46,7 +46,7 @@ export const CompactionCard: React.FC<{ content: string; headline?: string; summ
               </p>
             )}
           </div>
-          <span className="shrink-0 font-mono text-[10px] text-emerald-800 dark:text-emerald-400/80">Checkpoint saved</span>
+          <span className="shrink-0 font-mono text-[11px] text-emerald-800 dark:text-emerald-400/80">Checkpoint saved</span>
         </div>
 
         {summary && (
@@ -56,7 +56,7 @@ export const CompactionCard: React.FC<{ content: string; headline?: string; summ
               data-testid="compaction-toggle"
               aria-expanded={open}
               onClick={() => setOpen((value) => !value)}
-              className="inline-flex cursor-pointer items-center gap-1 rounded-md py-0.5 text-[11px] text-neutral-600 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 dark:text-neutral-400"
+              className="inline-flex cursor-pointer items-center gap-1 rounded-md py-0.5 text-[12px] text-neutral-600 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 dark:text-neutral-400"
             >
               <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-90")} aria-hidden="true" />
               {open ? "Hide the summary" : `Show the summary the agent continued from (${lines} lines)`}

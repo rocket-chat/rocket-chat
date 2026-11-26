@@ -4,6 +4,7 @@ import React, { useState, useEffect, Suspense } from "react";
 import { useConfirm } from "../../../components/ui/ConfirmDialog";
 import { useSearchParams } from "next/navigation";
 import { SchemaSettingsForm } from "../../../components/settings/SchemaSettingsForm";
+import { Badge } from "../../../components/ui/Badge";
 import {
   ExternalLink,
   CheckCircle2,
@@ -17,6 +18,7 @@ import {
 import { GitSigningPanel } from "../../../components/settings/GitSigningPanel";
 import { GitLabTokenPanel } from "../../../components/settings/GitLabTokenPanel";
 import { UserScopeSection } from "../../../components/settings/ScopedSettingsSection";
+import { SettingsPage } from "../../../components/settings/SettingsPage";
 
 // How the platform reads GitHub for the member's sessions; the sandbox itself holds no credential.
 const READ_ACCESS_LABELS: Record<string, string> = {
@@ -132,20 +134,13 @@ function GitHubSettingsContent() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
+    <SettingsPage
+      section="You"
+      title="Git identity"
+      icon={<GitPullRequest className="h-5 w-5" aria-hidden="true" />}
+      description="Personal Git identity, PAT tokens, and organization-wide GitHub App governance policies."
+    >
       {confirmDialog}
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
-        <div>
-          <h1 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2.5">
-            <GitPullRequest className="w-5 h-5 text-brand" />
-            Git &amp; version control
-          </h1>
-          <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 mt-1">
-            Personal Git identity, PAT tokens, and organization-wide GitHub App governance policies.
-          </p>
-        </div>
-      </div>
 
       {errorBanner && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
@@ -178,17 +173,11 @@ function GitHubSettingsContent() {
                   <span className="text-xs font-semibold text-foreground">
                     {credStatus?.is_linked ? `@${credStatus.username}` : "No GitHub Account Linked"}
                   </span>
-                  <span
-                    className={`px-1.5 py-0.2 rounded-lg text-[9px] border ${
-                      credStatus?.is_linked
-                        ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
-                        : "bg-neutral-500/10 text-neutral-400 border-neutral-500/20"
-                    }`}
-                  >
+                  <Badge tone={credStatus?.is_linked ? "success" : "neutral"} shape="pill">
                     {credStatus?.is_linked ? "AUTHENTICATED" : "UNLINKED"}
-                  </span>
+                  </Badge>
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
+                <p className="text-[12px] text-muted-foreground mt-0.5">
                   {credStatus?.is_linked
                     ? `Mode: ${credStatus.auth_type} • GitHub reads via: ${READ_ACCESS_LABELS[credStatus.injection_mode] ?? credStatus.injection_mode}`
                     : "Connect via OAuth or provide a Personal Access Token below."}
@@ -258,7 +247,7 @@ function GitHubSettingsContent() {
             <div className="text-xs font-semibold text-foreground">
               Personal Access Token (PAT)
             </div>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-[12px] text-muted-foreground">
               Provide a fine-grained or classic token with <code>repo</code> permissions to push branches from sandboxes.
             </p>
             <div className="flex gap-2">
@@ -290,8 +279,7 @@ function GitHubSettingsContent() {
           </div>
         </div>
       </UserScopeSection>
-
-    </div>
+    </SettingsPage>
   );
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useState } from "react";
+import { CHECKBOX_CLASS } from "../ui/checkbox";
 
 interface StarterSkill {
   name: string;
@@ -69,6 +70,7 @@ export const StarterSkillsPanel: React.FC<{ isAdmin: boolean }> = ({ isAdmin }) 
                 checked={skill.enabled}
                 disabled={!isAdmin}
                 onChange={(e) => void toggle(skill.name, e.target.checked)}
+                className={CHECKBOX_CLASS}
               />
               {skill.enabled ? "On" : "Off"}
             </label>

@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { ChevronRight, KeyRound, Trash2 } from "lucide-react";
 import { Field, Input, Select } from "../../ui/Field";
 import { ModelPicker } from "../../ui/ModelPicker";
+import { CHECKBOX_CLASS } from "../../ui/checkbox";
 import type { ReasoningEffort } from "../draft";
 import type { SectionProps } from "./types";
 import type { Credential } from "../../settings/CredentialsPanel";
@@ -129,14 +130,14 @@ export const ModelSection: React.FC<SectionProps> = (props) => {
           <legend className="flex items-center gap-1.5 px-1 text-xs font-semibold text-foreground">
             <KeyRound className="h-3.5 w-3.5 text-brand" aria-hidden="true" /> Credentials
           </legend>
-          <p className="text-[11px] text-neutral-600 dark:text-neutral-400">
+          <p className="text-[12px] text-neutral-600 dark:text-neutral-400">
             A call on a bound provider uses the bound key; other calls use the usual chain unless the binding is strict.
           </p>
           {draft.credential_bindings.length === 0 && <p className="text-xs text-neutral-500">No binding: the usual keys.</p>}
           <ul className="space-y-1">
             {draft.credential_bindings.map((binding) => (
               <li key={binding.provider} className="flex items-center gap-2 text-xs" data-testid={`agent-binding-${binding.provider}`}>
-                <span className="rounded border border-surface-border px-1.5 py-0.5 text-[10px]">{binding.provider}</span>
+                <span className="rounded border border-surface-border px-1.5 py-0.5 text-[11px]">{binding.provider}</span>
                 <span className="text-foreground">{labelOf(binding.credential_id)}</span>
                 {mayBind && !lockedBinding(binding.credential_id) && (
                   <button
@@ -154,7 +155,7 @@ export const ModelSection: React.FC<SectionProps> = (props) => {
             ))}
           </ul>
           {mayBind && teamAgent && !isAdmin && (
-            <p data-testid="agent-team-binding-note" className="text-[11px] text-neutral-600 dark:text-neutral-400">
+            <p data-testid="agent-team-binding-note" className="text-[12px] text-neutral-600 dark:text-neutral-400">
               Organization keys are bound by organization administrators. You can bind members&apos; keys their owners
               shared with this agent.
             </p>
@@ -204,6 +205,7 @@ export const ModelSection: React.FC<SectionProps> = (props) => {
               disabled={!mayBind}
               checked={draft.strict_binding}
               onChange={(e) => patch({ strict_binding: e.target.checked })}
+              className={CHECKBOX_CLASS}
             />
             Strict: refuse any call on a provider without a binding (never billed elsewhere)
           </label>

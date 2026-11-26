@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { X } from "lucide-react";
 import type { McpServerFormState } from "./useMcpServerForm";
+import { CHECKBOX_CLASS } from "../../../ui/checkbox";
 
 const FIELD = "flex-1 rounded-lg border border-border bg-void px-2.5 py-1 text-xs text-foreground";
 
@@ -41,8 +42,8 @@ export const CustomHeadersFields: React.FC<{ form: McpServerFormState }> = ({ fo
           onChange={(e) => setValue(e.target.value)}
           className={FIELD}
         />
-        <label className="flex cursor-pointer select-none items-center gap-1 text-[11px] text-muted-foreground">
-          <input type="checkbox" checked={secret} onChange={(e) => setSecret(e.target.checked)} className="rounded-lg border-border" />
+        <label className="flex cursor-pointer select-none items-center gap-1 text-[12px] text-muted-foreground">
+          <input type="checkbox" checked={secret} onChange={(e) => setSecret(e.target.checked)} className={CHECKBOX_CLASS} />
           <span>Secret</span>
         </label>
         <button type="button" onClick={add} className="rounded-lg border border-border bg-surface-elevated px-2.5 py-1 text-xs text-foreground">
@@ -54,7 +55,7 @@ export const CustomHeadersFields: React.FC<{ form: McpServerFormState }> = ({ fo
           {customHeaders.map((header, index) => (
             <li
               key={`${header.name}-${index}`}
-              className="flex items-center gap-1 rounded-lg border border-border bg-surface px-2 py-0.5 text-[10px]"
+              className="flex items-center gap-1 rounded-lg border border-border bg-surface px-2 py-0.5 text-[11px]"
             >
               <span>
                 {header.name}: {header.is_secret ? "••••••••" : header.value}

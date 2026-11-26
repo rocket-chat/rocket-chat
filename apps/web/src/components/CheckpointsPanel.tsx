@@ -60,7 +60,7 @@ export const CheckpointsPanel: React.FC<{ sessionId: string }> = ({ sessionId })
   return (
     <section data-testid="checkpoints-panel" aria-label="Checkpoints" className="space-y-2">
       <div className="flex items-center justify-between">
-        <h3 className="text-[11px] font-mono uppercase tracking-wider text-neutral-400">
+        <h3 className="text-[12px] font-mono uppercase tracking-wider text-neutral-400">
           Checkpoints
         </h3>
         <button
@@ -68,18 +68,18 @@ export const CheckpointsPanel: React.FC<{ sessionId: string }> = ({ sessionId })
           data-testid="checkpoint-create"
           disabled={busy || !available}
           onClick={() => void call(`/v1/sessions/${sessionId}/checkpoints`, {}, "Checkpoint created.")}
-          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-surface-border text-[11px] text-neutral-300 hover:bg-surface-elevated disabled:opacity-40 cursor-pointer"
+          className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-surface-border text-[12px] text-neutral-300 hover:bg-surface-elevated disabled:opacity-40 cursor-pointer"
         >
           <Save className="w-3 h-3" /> Save now
         </button>
       </div>
       {!available && (
-        <p className="text-[11px] text-neutral-500">
+        <p className="text-[12px] text-neutral-500">
           Available once the sandbox is running a git workspace.
         </p>
       )}
       {available && checkpoints.length === 0 && (
-        <p className="text-[11px] text-neutral-500">
+        <p className="text-[12px] text-neutral-500">
           None yet. One is saved automatically before the agent first changes anything in a turn.
         </p>
       )}
@@ -88,7 +88,7 @@ export const CheckpointsPanel: React.FC<{ sessionId: string }> = ({ sessionId })
           <li
             key={c.name}
             data-testid="checkpoint-item"
-            className="flex items-center justify-between gap-2 text-[11px] font-mono text-neutral-300"
+            className="flex items-center justify-between gap-2 text-[12px] font-mono text-neutral-300"
           >
             <span className="truncate" title={`${c.name} @ ${c.sha}`}>
               {c.name.replace("rocket-checkpoint-", "#")} ·{" "}
@@ -135,7 +135,7 @@ export const CheckpointsPanel: React.FC<{ sessionId: string }> = ({ sessionId })
         ))}
       </ul>
       {message && (
-        <p role="status" className="text-[11px] text-sky-300">
+        <p role="status" className="text-[12px] text-sky-300">
           {message}
         </p>
       )}

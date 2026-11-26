@@ -16,6 +16,10 @@ import { useAccess } from "../../lib/access";
 import { useTeams, type Team } from "../../lib/teams";
 import { useOwnerFilter, useOwnerFilterSync } from "../../lib/useOwnerFilter";
 import type { OwnerFilter } from "../../lib/ownership";
+import { NAV_ACTIVE_CLASSES } from "../ui/navActiveStyle";
+import { Badge } from "../ui/Badge";
+import { SIDE_NAV_TOP_SECTION_GAP } from "../ui/layout";
+import { buttonClass } from "../ui/Button";
 
 export const SettingsNav: React.FC = () => {
   const pathname = usePathname();
@@ -66,13 +70,15 @@ export const SettingsNav: React.FC = () => {
             : "hidden md:flex"
         } md:relative md:w-72 md:inset-auto md:z-auto flex-shrink-0 bg-surface-sidebar border-r border-surface-border flex-col justify-between overflow-y-auto select-none transition-all duration-200`}
       >
-        <div className="p-3.5 space-y-5">
+        <div className={`p-3.5 ${SIDE_NAV_TOP_SECTION_GAP}`}>
           {/* Header row with back button and mobile close button */}
           <div className="flex items-center gap-2">
             <Link
               href={backHref}
               onClick={handleNavClick}
-              className="flex-1 flex items-center gap-2 px-3 py-2 rounded-lg border border-surface-border hover:border-brand/40 bg-surface-card/60 hover:bg-surface-elevated text-xs text-neutral-600 hover:text-foreground dark:text-neutral-300 dark:hover:text-white transition-all shadow-sm group"
+              className={buttonClass("flat", "md", {
+                className: "!justify-start flex-1 gap-2 text-neutral-600 hover:text-foreground dark:text-neutral-300 dark:hover:text-white group",
+              })}
             >
               <ArrowLeft className="w-4 h-4 text-brand group-hover:-translate-x-0.5 transition-transform" />
               <span>Back to the cockpit</span>
@@ -96,8 +102,8 @@ export const SettingsNav: React.FC = () => {
           {sections.map((section) => (
             <div key={section.title}>
               <div className="flex items-baseline justify-between px-2.5 pb-1.5">
-                <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-300">{section.title}</span>
-                <span className="text-[10px] text-neutral-500">{section.hint}</span>
+                <span className="text-[12px] font-semibold text-neutral-600 dark:text-neutral-300">{section.title}</span>
+                <span className="text-[11px] text-neutral-500">{section.hint}</span>
               </div>
               <nav className="space-y-0.5" aria-label={section.title}>
                 {section.items.map((item) => {
@@ -110,9 +116,7 @@ export const SettingsNav: React.FC = () => {
                       onClick={handleNavClick}
                       aria-current={isActive ? "page" : undefined}
                       className={`group flex items-center justify-between rounded-lg px-2.5 py-2 text-xs transition-colors ${
-                        isActive
-                          ? "border-l-2 border-brand bg-surface-elevated font-semibold text-foreground shadow-sm"
-                          : "text-neutral-700 hover:bg-surface-elevated/60 hover:text-foreground dark:text-neutral-300"
+                        isActive ? NAV_ACTIVE_CLASSES : "text-neutral-700 hover:bg-surface-elevated/60 hover:text-foreground dark:text-neutral-300"
                       }`}
                     >
                       <span className="flex items-center gap-2.5">
@@ -121,13 +125,9 @@ export const SettingsNav: React.FC = () => {
                       </span>
                       {/* Marked for administrators too: what they change here applies to everyone. */}
                       {item.requiresAdmin && access.isAdmin && (
-                        <span
-                          data-testid="nav-admin-only"
-                          title="Administrators only: applies to the whole organization"
-                          className="rounded-lg border border-surface-border bg-surface-card px-1.5 py-0.5 text-[9px] text-neutral-700 dark:text-neutral-300"
-                        >
-                          ADMIN
-                        </span>
+                        <Badge data-testid="nav-admin-only" title="Administrators only: applies to the whole organization">
+                          Admin
+                        </Badge>
                       )}
                     </Link>
                   );
@@ -137,7 +137,7 @@ export const SettingsNav: React.FC = () => {
           ))}
         </div>
 
-        <div className="p-3 border-t border-surface-border bg-surface-sidebar/50 text-[11px] text-neutral-500 dark:text-neutral-400">
+        <div className="p-3 border-t border-surface-border bg-surface-sidebar/50 text-[12px] text-neutral-500 dark:text-neutral-400">
           Rocket Chat <AppVersion />
         </div>
       </aside>

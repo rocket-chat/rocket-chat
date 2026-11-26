@@ -16,10 +16,10 @@ interface TryResult {
 
 const Probabilities: React.FC<{ result: TryResult }> = ({ result }) => (
   <div className="space-y-1 border-t border-border/40 pt-1.5">
-    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">Calibrated Probabilities (System One)</span>
+    <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Calibrated Probabilities (System One)</span>
     <div className="flex flex-wrap gap-1.5">
       {Object.entries(result.probabilities).map(([name, probability]) => (
-        <div key={name} className="flex items-center gap-1 rounded border border-border/60 bg-surface-card px-2 py-0.5 text-[11px]">
+        <div key={name} className="flex items-center gap-1 rounded border border-border/60 bg-surface-card px-2 py-0.5 text-[12px]">
           <span className="font-mono text-muted-foreground">{name}:</span>
           <span className={`font-semibold ${name === result.route ? "text-brand" : "text-foreground"}`}>{Math.round(probability * 100)}%</span>
         </div>
@@ -99,12 +99,12 @@ export const RouterTryBox: React.FC<{ botId: string }> = ({ botId }) => {
             <span className="font-semibold text-foreground">
               Chosen route: <code className="text-brand">{result.route}</code> (applied: <code>{result.applied}</code>)
             </span>
-            <span className="text-[10px] text-muted-foreground">
+            <span className="text-[11px] text-muted-foreground">
               Confidence: {Math.round(result.confidence * 100)}% · {result.latency_ms}ms
             </span>
           </div>
           {Object.keys(result.probabilities ?? {}).length > 0 && <Probabilities result={result} />}
-          <p className="text-[11px] text-neutral-500">{result.reason}</p>
+          <p className="text-[12px] text-neutral-500">{result.reason}</p>
         </div>
       )}
     </div>

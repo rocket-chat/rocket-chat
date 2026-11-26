@@ -71,7 +71,7 @@ export const SessionTitle: React.FC<{ title: string; sessionId: string | null }>
         </button>
       )}
       {error && (
-        <span role="alert" className="text-[11px] font-normal text-rose-500">
+        <span role="alert" className="text-[12px] font-normal text-rose-500">
           Not renamed
         </span>
       )}

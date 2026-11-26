@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { BookMarked, Bug, FileSearch, FlaskConical, GitPullRequest } from "lucide-react";
 import { useMissionStore } from "../lib/store";
 import { RocketChatIcon } from "./RocketChatLogo";
+import { Kbd } from "./ui/Kbd";
 
 interface TemplateSummary {
   id: string;
@@ -112,8 +113,8 @@ export const CockpitEmptyState: React.FC = () => {
       )}
 
       <p className="text-center text-xs text-neutral-600 dark:text-neutral-400">
-        <kbd className="rounded border border-surface-border bg-surface-card px-1.5 py-0.5 font-mono text-[10px] text-neutral-600 dark:text-neutral-400">/</kbd> for commands ·{" "}
-        <kbd className="rounded border border-surface-border bg-surface-card px-1.5 py-0.5 font-mono text-[10px] text-neutral-600 dark:text-neutral-400">⌘K</kbd> new conversation
+        <Kbd keys="/" className="bg-surface-card py-0.5 text-neutral-600 dark:text-neutral-400" /> for commands ·{" "}
+        <Kbd keys="⌘K" className="bg-surface-card py-0.5 text-neutral-600 dark:text-neutral-400" /> new conversation
       </p>
     </div>
   );

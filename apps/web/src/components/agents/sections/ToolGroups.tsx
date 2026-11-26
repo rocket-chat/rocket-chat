@@ -3,6 +3,7 @@
 import React, { useEffect, useId, useRef } from "react";
 import { ChevronRight } from "lucide-react";
 import { cn } from "../../ui/cn";
+import { CHECKBOX_CLASS } from "../../ui/checkbox";
 import { mcpToolName, type AgentRegistries } from "../useAgentRegistries";
 
 export interface PickableTool {
@@ -78,7 +79,7 @@ const TriStateCheckbox: React.FC<{
       disabled={disabled}
       checked={checked}
       onChange={onChange}
-      className="h-3.5 w-3.5 shrink-0"
+      className={CHECKBOX_CLASS}
     />
   );
 };
@@ -137,7 +138,7 @@ export const ToolGroupSection: React.FC<ToolGroupSectionProps> = ({
           <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-90")} aria-hidden="true" />
           <span className="truncate">{group.title}</span>
           {group.mcp && (
-            <span className="rounded border border-border/70 px-1 text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
+            <span className="rounded border border-border/70 px-1 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
               MCP
             </span>
           )}

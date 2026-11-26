@@ -108,7 +108,7 @@ export const MemoryInspector: React.FC = () => {
                 Long-Term Memory
               </span>
               {memories.length > 0 && (
-                <span className="text-[10px] font-mono text-neutral-500">
+                <span className="text-[11px] font-mono text-neutral-500">
                   {memories.length}
                 </span>
               )}
@@ -157,14 +157,14 @@ export const MemoryInspector: React.FC = () => {
                       <div className="flex items-center gap-1.5 min-w-0">
                         <span
                           data-testid="memory-scope"
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-mono uppercase tracking-wide ${
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] font-mono uppercase tracking-wide ${
                             SCOPE_STYLES[memory.scope] ||
                             "border-surface-border bg-surface-card text-neutral-400"
                           }`}
                         >
                           {memory.scope}
                         </span>
-                        <span className="text-[10px] font-mono text-neutral-500">
+                        <span className="text-[11px] font-mono text-neutral-500">
                           {memory.kind}
                         </span>
                       </div>
@@ -183,7 +183,7 @@ export const MemoryInspector: React.FC = () => {
                     <p className="text-[12px] text-neutral-200 font-sans leading-relaxed break-words">
                       {memory.content}
                     </p>
-                    <div className="flex items-center gap-3 text-[10px] font-mono text-neutral-500">
+                    <div className="flex items-center gap-3 text-[11px] font-mono text-neutral-500">
                       <span>learned {formatEpoch(memory.created_at)}</span>
                       <span>used {formatEpoch(memory.last_used_at)}</span>
                     </div>

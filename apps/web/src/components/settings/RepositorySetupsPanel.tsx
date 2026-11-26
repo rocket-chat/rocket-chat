@@ -74,7 +74,7 @@ export const RepositorySetupsPanel: React.FC = () => {
                     {setup.folder ? ` / ${setup.folder}` : " (root)"}
                     {!setup.enabled && <span className="ml-2 text-neutral-500">disabled</span>}
                   </p>
-                  <pre className="mt-1 whitespace-pre-wrap font-mono text-[11px] text-neutral-600 dark:text-neutral-400">
+                  <pre className="mt-1 whitespace-pre-wrap font-mono text-[12px] text-neutral-600 dark:text-neutral-400">
                     {setup.command}
                   </pre>
                 </div>

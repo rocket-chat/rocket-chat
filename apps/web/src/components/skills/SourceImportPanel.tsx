@@ -17,8 +17,7 @@ import {
   type ImportConflict,
 } from "../../lib/external-sources";
 import { ownerFields, type OwnerKey } from "../../lib/ownership";
-
-const CHECKBOX = "h-4 w-4";
+import { CHECKBOX_CLASS } from "../ui/checkbox";
 
 interface Props {
   owner: OwnerKey;
@@ -77,7 +76,7 @@ const GroupCheckbox: React.FC<{
         data-testid={testId}
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className={CHECKBOX}
+        className={CHECKBOX_CLASS}
       />
       <span>{label}</span>
     </label>
@@ -98,18 +97,18 @@ const EntryRow: React.FC<{
         disabled={!!entry.problem}
         checked={selected}
         onChange={(e) => onToggle(e.target.checked)}
-        className={`${CHECKBOX} mt-0.5`}
+        className={`${CHECKBOX_CLASS} mt-0.5`}
       />
       <span className="min-w-0">
         <span className="font-medium">{entry.name}</span>
         {importedHere(entry, owner) && (
-          <span className="ml-1.5 text-[10px] text-emerald-700 dark:text-emerald-400">already imported here</span>
+          <span className="ml-1.5 text-[11px] text-emerald-700 dark:text-emerald-400">already imported here</span>
         )}
         {entry.description && <span className="block text-muted-foreground">{entry.description}</span>}
         {entry.problem && <span className="block text-rose-600 dark:text-rose-400">{entry.problem}</span>}
       </span>
     </label>
-    <a href={entry.url} target="_blank" rel="noreferrer" className="shrink-0 text-[10px] text-brand hover:underline">
+    <a href={entry.url} target="_blank" rel="noreferrer" className="shrink-0 text-[11px] text-brand hover:underline">
       {entry.path}
     </a>
   </li>
@@ -145,7 +144,7 @@ const GroupBlock: React.FC<{
           {open ? <ChevronDown className="h-4 w-4" aria-hidden="true" /> : <ChevronRight className="h-4 w-4" aria-hidden="true" />}
         </button>
       </div>
-      {group.description && <p className="mt-1 text-[11px] text-muted-foreground">{group.description}</p>}
+      {group.description && <p className="mt-1 text-[12px] text-muted-foreground">{group.description}</p>}
       {open && (
         <ul className="mt-2 divide-y divide-border/60">
           {group.entries.map((entry) => (
@@ -252,7 +251,7 @@ export const SourceImportPanel: React.FC<Props> = ({ owner, onImported }) => {
       </Field>
 
       {source && (
-        <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <p className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
           <GitBranch className="h-3 w-3" aria-hidden="true" />
           {source.status === "error"
             ? `Last read failed: ${source.last_error}`
@@ -260,7 +259,7 @@ export const SourceImportPanel: React.FC<Props> = ({ owner, onImported }) => {
         </p>
       )}
       {catalogue?.notes.map((note) => (
-        <p key={note} className="text-[11px] text-amber-700 dark:text-amber-400">{note}</p>
+        <p key={note} className="text-[12px] text-amber-700 dark:text-amber-400">{note}</p>
       ))}
 
       {catalogue && (
@@ -289,7 +288,7 @@ export const SourceImportPanel: React.FC<Props> = ({ owner, onImported }) => {
                     return next;
                   })
                 }
-                className={CHECKBOX}
+                className={CHECKBOX_CLASS}
               />
               <span>Merge “{c.name}”: the source&apos;s version replaces it, and it follows the repository from now on</span>
             </label>

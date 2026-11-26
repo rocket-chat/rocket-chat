@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { Coins } from "lucide-react";
 import { SettingsPage } from "../../../../components/settings/SettingsPage";
 import { SpendLimitsPanel } from "../../../../components/settings/SpendLimitsPanel";
 import { UsageBreakdown } from "../../../../components/settings/UsageBreakdown";
@@ -14,6 +15,7 @@ export default function Page() {
     <SettingsPage
       section="Governance"
       title="Spend & usage"
+      icon={<Coins className="h-5 w-5" aria-hidden="true" />}
       description="Limits on what the organization, its teams, members and agents spend, and where the money goes."
     >
       {unmanaged && <NotManaged team={unmanaged} what="spend limits" />}

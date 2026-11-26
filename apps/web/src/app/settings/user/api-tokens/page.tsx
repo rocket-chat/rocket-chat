@@ -3,9 +3,9 @@
 import React from "react";
 import { ExternalLink, KeyRound } from "lucide-react";
 import { ApiTokensPanel } from "@/components/settings/ApiTokensPanel";
+import { SettingsPage } from "@/components/settings/SettingsPage";
 import { Badge } from "@/components/ui/Badge";
 import { Card, SectionTitle } from "@/components/ui/Card";
-import { PageBody, PageHeader } from "@/components/ui/PageHeader";
 import { useAccess } from "../../../../lib/access";
 
 const API_REFERENCE_URL = "https://rocket-chat.mintlify.site/api/rest";
@@ -14,12 +14,12 @@ export default function ApiAccessPage() {
   const { isAdmin } = useAccess();
 
   return (
-    <PageBody>
-      <PageHeader
-        icon={<KeyRound className="h-5 w-5" aria-hidden="true" />}
-        title="API access"
-        description="Tokens let scripts and other tools call the API without signing in through the browser."
-      />
+    <SettingsPage
+      section="You"
+      title="API tokens"
+      icon={<KeyRound className="h-5 w-5" aria-hidden="true" />}
+      description="Tokens let scripts and other tools call the API without signing in through the browser."
+    >
       <div className="space-y-6">
         <Card className="space-y-2 p-5">
           <SectionTitle title="How tokens authenticate" />
@@ -51,6 +51,6 @@ export default function ApiAccessPage() {
           </section>
         )}
       </div>
-    </PageBody>
+    </SettingsPage>
   );
 }

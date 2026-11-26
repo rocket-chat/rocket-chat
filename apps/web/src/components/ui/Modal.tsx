@@ -49,7 +49,7 @@ export const Modal: React.FC<ModalProps> = ({ title, onClose, children, classNam
           className
         )}
       >
-        <div className="flex items-center justify-between border-b border-surface-border px-5 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-surface-border px-5 py-3">
           <h2 id={titleId} className="text-sm font-semibold text-foreground">
             {title}
           </h2>
@@ -62,7 +62,7 @@ export const Modal: React.FC<ModalProps> = ({ title, onClose, children, classNam
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="space-y-4 overflow-y-auto px-5 py-4">{children}</div>
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4">{children}</div>
       </div>
     </div>
   );

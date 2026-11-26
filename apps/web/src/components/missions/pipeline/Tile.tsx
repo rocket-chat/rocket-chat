@@ -31,7 +31,7 @@ export const Tile: React.FC<{
     <Icon className={`h-4 w-4 ${selected ? "text-brand" : "text-neutral-500"}`} aria-hidden="true" />
     <span className="text-xs font-medium">{label}</span>
     {hint && (
-      <span title={hint} className="line-clamp-3 text-[11px] leading-snug text-neutral-600 dark:text-neutral-400">
+      <span title={hint} className="line-clamp-3 text-[12px] leading-snug text-neutral-600 dark:text-neutral-400">
         {hint}
       </span>
     )}

@@ -145,7 +145,7 @@ export const ArtifactsPanel: React.FC = () => {
       {/* Left List of Artifacts */}
       <div className="w-1/3 overflow-y-auto border-r border-border p-2">
         <div className="mb-2 flex items-center justify-between px-1">
-          <span className="text-[11px] font-mono text-muted-foreground uppercase">
+          <span className="text-[12px] font-mono text-muted-foreground uppercase">
             Artifacts ({storeArtifacts.length})
           </span>
           <button
@@ -185,7 +185,7 @@ export const ArtifactsPanel: React.FC = () => {
                     )}
                     <span className="truncate text-xs font-medium">{art.title}</span>
                   </div>
-                  <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
+                  <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
                     <span className="truncate font-mono">{art.filename}</span>
                     <span className="rounded bg-surface-card px-1 border border-border">
                       v{art.version}
@@ -208,7 +208,7 @@ export const ArtifactsPanel: React.FC = () => {
                 <h3 className="truncate text-xs font-semibold text-foreground">
                   {activeArtifact.title}
                 </h3>
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                   <span className="font-mono">{activeArtifact.filename}</span>
                   <span>•</span>
                   <span className="capitalize">{activeArtifact.artifact_type}</span>
@@ -222,7 +222,7 @@ export const ArtifactsPanel: React.FC = () => {
                         const chosen = Number(e.target.value);
                         setShownVersion(chosen === activeArtifact.version ? null : chosen);
                       }}
-                      className="rounded border border-border bg-surface-card px-1 text-[10px]"
+                      className="rounded border border-border bg-surface-card px-1 text-[11px]"
                     >
                       {[...versions].reverse().map((v) => (
                         <option key={v.version} value={v.version}>

@@ -157,7 +157,7 @@ export const PermissionModePicker: React.FC<{ disabled?: boolean; bare?: boolean
             <span className="font-semibold text-xs tracking-wide uppercase text-muted-foreground">
               Permission Modes
             </span>
-            <span className="text-[10px] text-muted-foreground">Supervision Levels</span>
+            <span className="text-[11px] text-muted-foreground">Supervision Levels</span>
           </div>
 
           <div className="space-y-2.5 max-h-[min(20rem,50vh)] overflow-y-auto pr-1">
@@ -176,19 +176,19 @@ export const PermissionModePicker: React.FC<{ disabled?: boolean; bare?: boolean
                     <span className="font-medium text-foreground flex items-center gap-1.5">
                       {opt.label}
                       {isActive && (
-                        <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-primary/20 text-primary font-semibold">
+                        <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-primary/20 text-primary font-semibold">
                           Active
                         </span>
                       )}
                     </span>
-                    <span className="text-[10px] opacity-75">
+                    <span className="text-[11px] opacity-75">
                       Edits: {opt.edits}
                     </span>
                   </div>
-                  <p className="text-[11px] leading-relaxed mb-1.5 text-foreground/90">
+                  <p className="text-[12px] leading-relaxed mb-1.5 text-foreground/90">
                     {opt.summary}
                   </p>
-                  <div className="flex items-center gap-2 text-[10px] opacity-80 pt-1 border-t border-border/40">
+                  <div className="flex items-center gap-2 text-[11px] opacity-80 pt-1 border-t border-border/40">
                     <span>Terminal: <strong className="text-foreground">{opt.commands}</strong></span>
                     <span>•</span>
                     <span>Publish: <strong className="text-foreground">{opt.publishing}</strong></span>
@@ -198,7 +198,7 @@ export const PermissionModePicker: React.FC<{ disabled?: boolean; bare?: boolean
             })}
           </div>
 
-          <div className="mt-2.5 pt-2 border-t border-border text-[10px] text-muted-foreground leading-normal">
+          <div className="mt-2.5 pt-2 border-t border-border text-[11px] text-muted-foreground leading-normal">
             💡 <strong>No approvals</strong> runs everything unattended. It needs <code className="text-foreground">Allow bypass permissions</code> enabled in Settings &gt; Security &amp; data.
           </div>
         </div>

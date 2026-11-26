@@ -42,14 +42,14 @@ const CodeBlock: React.FC<CodeBlockProps> = ({ children, className, inline }) =>
 
   return (
     <div className="my-3 max-w-full rounded-lg border border-surface-border bg-neutral-950 shadow-sm overflow-hidden">
-      <div className="flex items-center justify-between px-3.5 py-1.5 bg-neutral-900/90 border-b border-white/[0.08] text-[11px] font-mono text-neutral-400">
+      <div className="flex items-center justify-between px-3.5 py-1.5 bg-neutral-900/90 border-b border-white/[0.08] text-[12px] font-mono text-neutral-400">
         <span className="font-mono lowercase tracking-normal text-neutral-400">
           {language || "code"}
         </span>
         <button
           type="button"
           onClick={handleCopy}
-          className="flex items-center gap-1.5 text-[11px] text-neutral-400 hover:text-neutral-200 px-2 py-0.5 rounded border border-white/10 hover:border-white/20 bg-white/[0.04] transition-colors cursor-pointer"
+          className="flex items-center gap-1.5 text-[12px] text-neutral-400 hover:text-neutral-200 px-2 py-0.5 rounded border border-white/10 hover:border-white/20 bg-white/[0.04] transition-colors cursor-pointer"
           title="Copy code"
         >
           {copied ? (
@@ -145,7 +145,7 @@ const MARKDOWN_COMPONENTS: Components = {
     return <thead className="bg-surface-elevated/70 text-neutral-500 dark:text-neutral-400 border-b border-surface-border">{children}</thead>;
   },
   th({ children }) {
-    return <th className="px-3.5 py-2 font-medium uppercase tracking-wider text-[10.5px]">{children}</th>;
+    return <th className="px-3.5 py-2 font-medium uppercase tracking-wider text-[12px]">{children}</th>;
   },
   td({ children }) {
     return <td className="px-3.5 py-2 border-t border-surface-border text-foreground/90 text-xs font-mono">{children}</td>;

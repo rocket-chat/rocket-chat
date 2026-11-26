@@ -6,6 +6,7 @@ import { Check, Copy, Globe, Link2Off, Users, X } from "lucide-react";
 import { Button } from "./ui/Button";
 import { Field, Select, Textarea } from "./ui/Field";
 import { Badge } from "./ui/Badge";
+import { CHECKBOX_CLASS } from "./ui/checkbox";
 import { useTeams } from "../lib/teams";
 
 interface Member {
@@ -166,7 +167,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
         data-testid="share-dialog"
         className="flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-surface-border bg-surface-base shadow-2xl focus:outline-none sm:max-w-lg sm:rounded-2xl"
       >
-        <div className="flex items-center justify-between border-b border-surface-border px-5 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-surface-border px-5 py-3">
           <h2
             id="share-title"
             className="text-sm font-semibold text-foreground"
@@ -183,7 +184,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
           </button>
         </div>
 
-        <div className="space-y-6 overflow-y-auto px-5 py-4">
+        <div className="flex-1 space-y-6 overflow-y-auto px-5 py-4">
           <section className="space-y-3">
             <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-neutral-500">
               <Users className="h-3.5 w-3.5" aria-hidden="true" /> People
@@ -239,6 +240,7 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({
                 checked={orgWide}
                 disabled={!sharing}
                 onChange={(event) => setOrgWide(event.target.checked)}
+                className={CHECKBOX_CLASS}
               />
               Everyone in the organization
             </label>
