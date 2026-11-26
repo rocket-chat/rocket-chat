@@ -33,12 +33,11 @@ test.describe("MCP server guidance", () => {
     await register(page, name, `## ${trigger}\n\nAlways **confirm the currency** first.\n\n- Check the customer\n- Never refund without approval`);
     try {
       await page.goto("/settings/mcp");
-      // One card is open at a time and the page opens the first server's once the list has
-      // loaded: let that settle, then open this server's details.
+      // Every server starts closed.
       const card = page.locator(`[data-testid="mcp-server-card"][data-server-name="${name}"]`);
-      await expect(page.locator('[data-testid="mcp-server-card"] [aria-expanded="true"]')).toHaveCount(1);
-      const expand = card.getByRole("button", { name: "Expand server details" });
-      if (await expand.count()) await expand.click();
+      await expect(card).toBeVisible();
+      await expect(page.locator('[data-testid="mcp-server-card"] [aria-expanded="true"]')).toHaveCount(0);
+      await card.getByRole("button", { name: "Expand server details" }).click();
       await expect(card.getByRole("button", { name: "Collapse server details" })).toBeVisible();
       await expect(card.getByTestId("mcp-guidance-trigger")).toHaveText(trigger);
 

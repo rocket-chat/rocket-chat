@@ -18,6 +18,7 @@ import {
   ChevronRight,
   BookOpen,
   Pencil,
+  Loader2,
 } from "lucide-react";
 import {
   UserScopeSection,
@@ -56,21 +57,12 @@ export default function SkillsSettingsPage() {
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [successBanner, setSuccessBanner] = useState<React.ReactNode>(null);
 
-  // The first skill opens on the first load only: depending on the open skill made closing it
-  // refetch the list and open the first one again, so one skill could never be closed.
-  const openedFirstSkill = useRef(false);
   const fetchSkills = useCallback(async () => {
     try {
       const res = await fetch("/v1/skills");
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data)) {
-          setSkills(data);
-          if (data.length > 0 && !openedFirstSkill.current) {
-            openedFirstSkill.current = true;
-            setExpandedSkillId(data[0].id);
-          }
-        }
+        if (Array.isArray(data)) setSkills(data);
       }
     } catch (err) {
       console.warn("Failed fetching skills:", err);
@@ -156,7 +148,23 @@ export default function SkillsSettingsPage() {
     setTimeout(() => setSuccessBanner(null), 4000);
   };
 
+  // A pull request or a skill takes a moment to come back: a second click meanwhile would open a
+  // second, identical pull request. The ref guards the clicks that land before the re-render.
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const handleSaveSkill = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      await saveSkill();
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
+  };
+
+  const saveSkill = async () => {
     if (!title.trim() || !body.trim()) {
       setErrorBanner("Title and Skill Body instructions are required.");
       return;
@@ -465,8 +473,9 @@ onClick={() => { setShowAddForm(false); setEditingSkillId(null); }}
             <Button size="sm" variant="ghost" onClick={() => setShowAddForm(false)}>
               Cancel
             </Button>
-            <Button size="sm" variant="primary" onClick={handleSaveSkill} data-testid="skill-save">
-              {editingSource ? "Propose change" : "Save skill"}
+            <Button size="sm" variant="primary" onClick={handleSaveSkill} disabled={saving} aria-busy={saving} data-testid="skill-save">
+              {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+              {editingSource ? (saving ? "Opening pull request…" : "Propose change") : saving ? "Saving…" : "Save skill"}
             </Button>
           </div>
           </>

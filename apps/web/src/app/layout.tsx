@@ -59,7 +59,9 @@ export default function RootLayout({
           }}
         />
       </head>
-      <body className="bg-void text-foreground antialiased selection:bg-primary/25 selection:text-foreground">
+      {/* Browser extensions write their own attributes on <body> before React hydrates. This
+          ignores mismatches of the body's own attributes only, never of its children. */}
+      <body suppressHydrationWarning className="bg-void text-foreground antialiased selection:bg-primary/25 selection:text-foreground">
         <ViewportSync />
         <AuthProvider>{children}</AuthProvider>
         <LaunchRocketHost />

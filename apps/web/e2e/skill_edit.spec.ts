@@ -15,24 +15,23 @@ async function createSkills(page: Page, prefix: string, count: number): Promise<
 }
 
 test.describe("Opening and closing skills", () => {
-  test("the skill open on arrival can be closed, and every skill stays closed", async ({ page }) => {
+  test("every skill starts closed, and an opened skill can be closed again", async ({ page }) => {
     const prefix = `Close skill ${Date.now()}`;
     const ids = await createSkills(page, prefix, 2);
     try {
       await page.goto("/settings/skills");
-      const opened = page.getByRole("button", { name: /^Hide the instructions of / });
-      await expect(opened).toHaveCount(1);
-
-      await opened.click();
-
-      await expect(page.getByRole("button", { name: /^Show the instructions of / }).first()).toBeVisible();
-      await expect(page.getByText("Skill Prompt Instructions:")).toHaveCount(0);
-      // The list is fetched again after a close: nothing may reopen a skill on its own.
-      await page.waitForLoadState("networkidle");
+      await expect(page.getByRole("button", { name: `Show the instructions of ${prefix} 1` })).toBeVisible();
       await expect(page.getByRole("button", { name: /^Hide the instructions of / })).toHaveCount(0);
+      await expect(page.getByText("Skill Prompt Instructions:")).toHaveCount(0);
 
       await page.getByRole("button", { name: `Show the instructions of ${prefix} 1` }).click();
-      await expect(page.getByRole("button", { name: `Hide the instructions of ${prefix} 1` })).toBeVisible();
+      const opened = page.getByRole("button", { name: `Hide the instructions of ${prefix} 1` });
+      await expect(opened).toBeVisible();
+      await opened.click();
+
+      // Nothing may reopen a skill on its own once the page has settled.
+      await page.waitForLoadState("networkidle");
+      await expect(page.getByRole("button", { name: /^Hide the instructions of / })).toHaveCount(0);
     } finally {
       for (const id of ids) await page.request.delete(`${API}/v1/skills/${id}`);
     }

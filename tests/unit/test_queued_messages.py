@@ -58,8 +58,8 @@ async def test_a_message_left_pending_is_found_by_the_sweeper_after_a_while() ->
     store = QueuedMessageStore(None)
     sent = await store.add(ORG, SESSION, "m1", "text", "queue", "u1")
 
-    assert await stranded_sessions(None, now=sent.created_at) == []
-    later = sent.created_at + STRANDED_AFTER_SECONDS
+    assert await stranded_sessions(None, now=sent.created_at // 1000) == []
+    later = sent.created_at // 1000 + STRANDED_AFTER_SECONDS + 1
     assert await stranded_sessions(None, now=later) == [(ORG, SESSION)]
 
 

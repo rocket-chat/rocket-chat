@@ -133,6 +133,9 @@ test.describe("External sources", () => {
     await page.getByTestId("skill-mode-source").click();
     await page.getByTestId("source-import-select").selectOption("src_e2e");
 
+    // With several plugins every group starts closed; ticking one still takes all its skills.
+    await expect(page.getByTestId("source-group-plugin:data")).toBeVisible();
+    await expect(page.getByTestId(/^source-entry-/)).toHaveCount(0);
     await page.getByTestId("source-group-check-plugin:data").check();
     await expect(page.getByTestId("source-import-submit")).toHaveText("Import 2 skills");
     await page.getByTestId("source-import-submit").click();
@@ -147,14 +150,19 @@ test.describe("External sources", () => {
     expect(calls[1]).toMatchObject({ merge: ["teams/data/pr-ci"] });
   });
 
-  test("a synchronised skill shows its source, and editing it opens a pull request", async ({ page }) => {
+  test("a synchronised skill shows its source, and editing it opens one pull request however often it is clicked", async ({ page }) => {
     let proposed: Record<string, unknown> | null = null;
+    let requests = 0;
+    let answer: () => void = () => {};
+    const answered = new Promise<void>((resolve) => (answer = resolve));
     await page.route("**/v1/skills", async (route: Route) => {
       if (route.request().method() === "GET") await route.fulfill({ json: [SYNCED_SKILL, MISSING_SKILL] });
       else await route.continue();
     });
     await page.route("**/v1/skills/skill-synced/change-request", async (route: Route) => {
+      requests += 1;
       proposed = route.request().postDataJSON() as Record<string, unknown>;
+      await answered;
       await route.fulfill({ json: { repository: "acme/agent-skills", number: 42, url: "https://github.com/acme/agent-skills/pull/42" } });
     });
     await page.goto("/settings/skills");
@@ -168,10 +176,18 @@ test.describe("External sources", () => {
     await expect(form).toContainText("PROPOSE A CHANGE");
     await expect(form.getByTestId("skill-source-edit-note")).toContainText("pull request");
     await form.getByLabel("Skill Instructions / Prompt Body *").fill("New steps.");
-    await form.getByTestId("skill-save").click();
+    const save = form.getByTestId("skill-save");
+    await save.dblclick();
+
+    // While GitHub answers, the button says so and takes no other click.
+    await expect(save).toBeDisabled();
+    await expect(save).toHaveText("Opening pull request…");
+    await save.click({ force: true });
+    answer();
 
     await expect(page.getByTestId("skill-change-opened")).toContainText("#42");
     expect(proposed).toMatchObject({ title: "signoz", body: "New steps." });
+    expect(requests).toBe(1);
   });
 
   test("without a connected source the editor says where to connect one", async ({ page }) => {

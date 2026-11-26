@@ -120,8 +120,10 @@ const GroupBlock: React.FC<{
   owner: OwnerKey;
   selection: Set<string>;
   setMany: (paths: string[], checked: boolean) => void;
-}> = ({ group, owner, selection, setMany }) => {
-  const [open, setOpen] = useState(group.key === "loose");
+  // A repository with one group (no plugins) shows its skills at once; with several, all start closed.
+  alone: boolean;
+}> = ({ group, owner, selection, setMany, alone }) => {
+  const [open, setOpen] = useState(alone);
   const usable = group.entries.filter((e) => !e.problem).map((e) => e.path);
   const chosen = usable.filter((p) => selection.has(p)).length;
   return (
@@ -235,6 +237,7 @@ export const SourceImportPanel: React.FC<Props> = ({ owner, onImported }) => {
 
   const source = catalogue?.source;
   const unresolved = conflicts.filter((c) => !merge.has(c.path));
+  const groups = catalogue ? groupsOf(catalogue) : [];
 
   return (
     <div className="space-y-3" data-testid="source-import">
@@ -265,8 +268,8 @@ export const SourceImportPanel: React.FC<Props> = ({ owner, onImported }) => {
 
       {catalogue && (
         <div className="space-y-2">
-          {groupsOf(catalogue).map((group) => (
-            <GroupBlock key={group.key} group={group} owner={owner} selection={selection} setMany={setMany} />
+          {groups.map((group) => (
+            <GroupBlock key={group.key} group={group} owner={owner} selection={selection} setMany={setMany} alone={groups.length === 1} />
           ))}
           {catalogue.entries.length === 0 && <p className="text-xs text-muted-foreground">This repository has no skill (no folder with a SKILL.md).</p>}
         </div>

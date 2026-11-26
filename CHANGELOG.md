@@ -24,6 +24,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+## [0.11.2] - 2026-11-26
+
+### Added
+
+### Changed
+- `web`: every skill and every MCP server in **Settings** starts closed; you open the ones you want. In **Import from source**, a repository with several plugins shows every group closed (ticking a group still takes all its skills); one with a single group shows its skills at once.
+
+### Fixed
+- `api`: messages sent within the same second while a turn runs are merged in the order they were sent (the queue now keeps millisecond timestamps).
+- `web`: **Propose change** on a synchronised skill (and **Save skill**) shows that it is working and takes no second click until the answer comes back. Clicking it twice used to open two identical pull requests.
+- `web`: a browser extension that adds attributes to the page's `<body>` (for example `data-testim-…`) no longer causes a hydration error.
+- `web`: the open MCP server in **Settings → MCP** can be closed. Closing it reloaded the list, which opened it again.
+
+### Security
+
 ## [0.11.1] - 2026-11-26
 
 ### Added
