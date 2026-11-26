@@ -155,11 +155,11 @@ export function ModelPicker({
             {matches.slice(0, MAX_SHOWN).map((m) => (
               <Option key={m.id} selected={m.id === value} onChoose={() => choose(m.id)}>
                 <span className="font-medium">{m.name}</span>
-                <span className="ml-2 font-mono text-[11px] text-neutral-500 dark:text-neutral-400">{m.id}</span>
+                <span className="ml-2 font-mono text-[12px] text-neutral-500 dark:text-neutral-400">{m.id}</span>
               </Option>
             ))}
             {matches.length > MAX_SHOWN && (
-              <li className="px-2 py-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+              <li className="px-2 py-1.5 text-[12px] text-neutral-500 dark:text-neutral-400">
                 {matches.length - MAX_SHOWN} more: refine the search.
               </li>
             )}

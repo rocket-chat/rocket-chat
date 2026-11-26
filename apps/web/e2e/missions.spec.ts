@@ -1,11 +1,10 @@
 import { createHmac } from "node:crypto";
 import AxeBuilder from "@axe-core/playwright";
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 async function newTeam(request: APIRequestContext, prefix: string): Promise<{ id: string; name: string }> {
-  const res = await request.post(`${API}/v1/teams`, { data: { name: `${prefix} ${Date.now().toString(36)}` } });
+  const res = await request.post(`${API_URL}/v1/teams`, { data: { name: `${prefix} ${Date.now().toString(36)}` } });
   expect(res.status()).toBe(201);
   return (await res.json()) as { id: string; name: string };
 }
@@ -51,7 +50,7 @@ test.describe("Missions", () => {
 
   test("Run now starts a run, listed with its session; a mission is paused and deleted", async ({ page, request }) => {
     const name = `Nightly triage ${Date.now().toString(36)}`;
-    const res = await request.post(`${API}/v1/missions`, {
+    const res = await request.post(`${API_URL}/v1/missions`, {
       data: { name, instructions: "Triage new issues", triggers: [{ source: "schedule", schedule: "0 3 * * *" }] },
     });
     expect(res.status()).toBe(200);
@@ -115,13 +114,13 @@ test.describe("Missions", () => {
     const body = JSON.stringify({ alert: "disk full" });
     const timestamp = Math.floor(Date.now() / 1000);
     const signature = `sha256=${createHmac("sha256", saved.inbound_secret).update(`${timestamp}.${body}`).digest("hex")}`;
-    const call = await request.post(`${API}${saved.inbound_path}`, {
+    const call = await request.post(`${API_URL}${saved.inbound_path}`, {
       headers: { "Content-Type": "application/json", "X-Rocket-Timestamp": String(timestamp), "X-Rocket-Signature": signature },
       data: body,
     });
     expect(call.status()).toBe(200);
     expect(((await call.json()) as { session_id: string }).session_id).not.toBe("");
-    const unsigned = await request.post(`${API}${saved.inbound_path}`, { headers: { "Content-Type": "application/json" }, data: body });
+    const unsigned = await request.post(`${API_URL}${saved.inbound_path}`, { headers: { "Content-Type": "application/json" }, data: body });
     expect(unsigned.status()).toBe(401);
   });
 
@@ -245,7 +244,7 @@ test.describe("Missions", () => {
 
   test("a mission with a custom schedule opens in Advanced, hiding nothing", async ({ page, request }) => {
     const name = `Odd hours ${Date.now().toString(36)}`;
-    const res = await request.post(`${API}/v1/missions`, {
+    const res = await request.post(`${API_URL}/v1/missions`, {
       data: { name, instructions: "Check the queue", triggers: [{ source: "schedule", schedule: "15 */6 * * *" }] },
     });
     expect(res.status()).toBe(200);
@@ -261,7 +260,7 @@ test.describe("Missions", () => {
 
   test("a webhook that waits an hour says so, and its run waits as scheduled", async ({ page, request }) => {
     const name = `After deploy ${Date.now().toString(36)}`;
-    const res = await request.post(`${API}/v1/missions`, {
+    const res = await request.post(`${API_URL}/v1/missions`, {
       data: { name, instructions: "Check the logs", triggers: [{ source: "webhook", delay_minutes: 60 }] },
     });
     expect(res.status()).toBe(200);
@@ -269,7 +268,7 @@ test.describe("Missions", () => {
     const body = JSON.stringify({ environment: "omega" });
     const stamp = Math.floor(Date.now() / 1000);
     const signature = `sha256=${createHmac("sha256", mission.inbound_secret).update(`${stamp}.${body}`).digest("hex")}`;
-    const call = await request.post(`${API}${mission.inbound_path}`, {
+    const call = await request.post(`${API_URL}${mission.inbound_path}`, {
       data: body,
       headers: { "Content-Type": "application/json", "X-Rocket-Timestamp": String(stamp), "X-Rocket-Signature": signature },
     });
@@ -287,7 +286,7 @@ test.describe("Missions", () => {
   });
 
   test("an unsafe schedule is explained, not silently accepted", async ({ request }) => {
-    const res = await request.post(`${API}/v1/missions`, {
+    const res = await request.post(`${API_URL}/v1/missions`, {
       data: { name: "x", triggers: [{ source: "schedule", schedule: "* * * * *" }] },
     });
     expect(res.status()).toBe(422);

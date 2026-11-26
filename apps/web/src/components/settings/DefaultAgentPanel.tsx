@@ -107,24 +107,24 @@ export const DefaultAgentPanel: React.FC = () => {
           inheritLabel={inheritLabel}
           includePersonal
         />
-        <p className="text-[11px] leading-snug text-neutral-600 dark:text-neutral-400" data-testid="default-agent-effective">
+        <p className="text-[12px] leading-snug text-neutral-600 dark:text-neutral-400" data-testid="default-agent-effective">
           {view?.agent_id
             ? `New sessions start with ${view.agent_name || view.agent_id}, from ${levelName(view.source, teamName)}.`
             : "No default applies: the cockpit keeps the agent you last chose, and other sessions use the general agent."}
           {view && !view.team_id && teams.some((t) => t.my_role) && " Your teams' defaults do not apply: you belong to more than one team."}
         </p>
         {view?.locked && (
-          <p className="flex items-center gap-1.5 text-[11px] text-neutral-600 dark:text-neutral-400">
+          <p className="flex items-center gap-1.5 text-[12px] text-neutral-600 dark:text-neutral-400">
             <Lock className="h-3 w-3" aria-hidden="true" /> An administrator locked the organization&apos;s default.
           </p>
         )}
         {view && view.skipped.length > 0 && (
-          <p className="flex items-center gap-1.5 text-[11px] text-amber-700 dark:text-amber-400" data-testid="default-agent-skipped">
+          <p className="flex items-center gap-1.5 text-[12px] text-amber-700 dark:text-amber-400" data-testid="default-agent-skipped">
             <AlertCircle className="h-3 w-3 shrink-0" aria-hidden="true" />
             Skipped {view.skipped.map((s) => levelName(s, teamName)).join(" and ")}: its agent is no longer available to you.
           </p>
         )}
-        {error && <p className="text-[11px] text-rose-500">{error}</p>}
+        {error && <p className="text-[12px] text-rose-500">{error}</p>}
       </div>
     </section>
   );

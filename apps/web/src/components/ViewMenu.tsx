@@ -57,7 +57,7 @@ export const ViewMenu: React.FC<ViewMenuProps> = ({ artifactCount, onMemory, onT
           <button role="menuitem" type="button" data-testid="artifacts-drawer-toggle" className={item} onClick={choose(onArtifacts)}>
             <FileText className="h-4 w-4 text-orange-500" aria-hidden="true" />
             <span className="flex-1">Artifacts</span>
-            {artifactCount > 0 && <span className="rounded-full bg-brand/15 px-1.5 text-[10px] font-semibold text-brand">{artifactCount}</span>}
+            {artifactCount > 0 && <span className="rounded-full bg-brand/15 px-1.5 text-[11px] font-semibold text-brand">{artifactCount}</span>}
           </button>
           <button role="menuitem" type="button" data-testid="turn-inspector-toggle" className={item} onClick={choose(onTurns)}>
             <History className="h-4 w-4" aria-hidden="true" />

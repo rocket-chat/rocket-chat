@@ -1,6 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
+import { API_URL } from "./support/env";
 
-const API = "http://localhost:8000";
 const PERMALINK = "https://acme.slack.com/archives/C123/p1700000000000100";
 const SLACK = {
   slack_channel_id: "C123",
@@ -36,7 +36,7 @@ async function asSlackSession(page: Page, sessionId: string, history?: unknown[]
 }
 
 async function newSession(request: import("@playwright/test").APIRequestContext, title: string): Promise<string> {
-  const created = await request.post(`${API}/v1/sessions`, { data: { title } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title } });
   return (await created.json()).session_id as string;
 }
 
@@ -78,7 +78,7 @@ test("a session is renamed from its title, and the name stays", async ({ page, r
   await input.press("Enter");
   expect((await saved).ok()).toBeTruthy();
   await expect(page.getByTestId("session-title")).toHaveText("Fix the login redirect");
-  const stored = await (await request.get(`${API}/v1/sessions/${sessionId}`)).json();
+  const stored = await (await request.get(`${API_URL}/v1/sessions/${sessionId}`)).json();
   expect(stored.title).toBe("Fix the login redirect");
   expect(stored.metadata.title_source).toBe("user");
 });
@@ -95,7 +95,7 @@ test("a session is renamed from the sidebar menu", async ({ page, request }) => 
   await input.press("Enter");
   expect((await saved).ok()).toBeTruthy();
   await expect(row).toContainText("Renamed from the list");
-  const stored = await (await request.get(`${API}/v1/sessions/${sessionId}`)).json();
+  const stored = await (await request.get(`${API_URL}/v1/sessions/${sessionId}`)).json();
   expect(stored.title).toBe("Renamed from the list");
 });
 

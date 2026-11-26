@@ -1,10 +1,9 @@
 import { test, expect, type Locator } from "@playwright/test";
 import { routeSessionSocket } from "./support/session-socket";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 async function newSession(request: import("@playwright/test").APIRequestContext, title: string): Promise<string> {
-  const created = await request.post(`${API}/v1/sessions`, { data: { title } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title } });
   return (await created.json()).session_id;
 }
 
@@ -136,16 +135,16 @@ test.describe("Session sidebar", () => {
     const sessionId = await newSession(request, "Filters");
     await page.goto(`/chat/${sessionId}`);
 
-    const filters = page.getByRole("group", { name: "Filter conversations" });
-    await expect(filters.getByRole("button", { name: "All" })).toHaveText("All");
+    const filters = page.getByRole("radiogroup", { name: "Filter conversations" });
+    await expect(filters.getByRole("radio", { name: "All" })).toHaveText("All");
     for (const [name, detail] of [
       ["Shared", /shared with you/],
       ["Slack", /started from Slack/],
-      ["Archived", /archived conversations/],
     ] as const) {
-      const button = filters.getByRole("button", { name });
-      await expect(button).toHaveText("");
-      await expect(button).toHaveAttribute("title", detail);
+      const segment = filters.getByRole("radio", { name });
+      await expect(segment).toHaveText("");
+      await expect(segment).toHaveAttribute("title", detail);
     }
+    await expect(page.getByTestId("toggle-archived-btn")).toHaveAttribute("title", /archived conversations/);
   });
 });

@@ -58,7 +58,7 @@ export const SpendLimitChip: React.FC<{ sessionId: string | undefined; running: 
       title={`${tightest.label}: $${tightest.remaining.toFixed(2)} of $${tightest.amount.toFixed(2)} left${
         tightest.resets_at ? `, resets ${new Date(tightest.resets_at * 1000).toLocaleString()}` : ""
       }`}
-      className={`hidden items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] md:flex ${
+      className={`hidden items-center gap-1.5 rounded-md border px-2.5 py-1 text-[12px] md:flex ${
         low
           ? "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300"
           : "border-surface-border bg-surface-card text-neutral-600 dark:text-neutral-400"

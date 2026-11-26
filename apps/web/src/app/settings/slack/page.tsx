@@ -17,6 +17,7 @@ import {
   Globe,
 } from "lucide-react";
 import { SchemaSettingsForm } from "../../../components/settings/SchemaSettingsForm";
+import { Badge } from "../../../components/ui/Badge";
 import {
   UserScopeSection,
   ScopeDivider,
@@ -25,6 +26,7 @@ import {
 import { BotEditor } from "./BotEditor";
 import { SlackBot } from "./types";
 import { useAccess } from "../../../lib/access";
+import { SettingsPage } from "../../../components/settings/SettingsPage";
 
 interface SlackStatusData {
   socket_mode_active: boolean;
@@ -279,19 +281,13 @@ export default function SlackSettingsPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
+    <SettingsPage
+      section="Resources"
+      title="Slack"
+      icon={<MessageSquare className="h-5 w-5" aria-hidden="true" />}
+      description="Configure multiple Slack bots, response modes, message routing, and workspace policies."
+    >
       {confirmDialog}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
-        <div>
-          <h1 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2.5">
-            <MessageSquare className="w-5 h-5 text-brand" />
-            Slack &amp; chat ops
-          </h1>
-          <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 mt-1">
-            Configure multiple Slack bots, response modes, message routing, and workspace policies.
-          </p>
-        </div>
-      </div>
 
       {errorBanner && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
@@ -315,7 +311,7 @@ export default function SlackSettingsPage() {
       </UserScopeSection>
 
       <ScopeDivider label="Organization Scope" />
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="text-[12px] font-semibold uppercase tracking-wider text-muted-foreground">
         Organization · managed by administrators
       </p>
 
@@ -350,7 +346,7 @@ export default function SlackSettingsPage() {
               <div className="p-8 text-center border border-dashed border-border rounded-xl space-y-2 bg-surface-card/40">
                 <Bot className="w-8 h-8 text-muted-foreground mx-auto" />
                 <p className="text-xs font-medium text-foreground">No Slack bots configured yet</p>
-                <p className="text-[11px] text-muted-foreground max-w-sm mx-auto">
+                <p className="text-[12px] text-muted-foreground max-w-sm mx-auto">
                   Add a bot to connect a Slack app handle, choose its agent or router, and pick whether it responds publicly or
                   privately.
                 </p>
@@ -371,7 +367,7 @@ export default function SlackSettingsPage() {
                             <span className="text-xs text-brand font-medium">@{b.handle}</span>
                           )}
                         </div>
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-[12px] text-muted-foreground">
                           {b.team_name ? `Workspace: ${b.team_name}` : "Slack App connection"}
                         </p>
                       </div>
@@ -394,31 +390,29 @@ export default function SlackSettingsPage() {
                       </button>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2 text-[10px]">
-                      {/* Brain Badge */}
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
                       {b.router ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium">
+                        <Badge tone="purple" shape="pill">
                           <Layers className="w-3 h-3" />
                           <span>Router ({b.router.routes?.length || 0} routes)</span>
-                        </span>
+                        </Badge>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-medium">
+                        <Badge tone="info" shape="pill">
                           <Bot className="w-3 h-3" />
                           <span>One Agent</span>
-                        </span>
+                        </Badge>
                       )}
 
-                      {/* Response Mode Badge */}
                       {b.response_mode === "private" ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
+                        <Badge tone="warning" shape="pill">
                           <Lock className="w-2.5 h-2.5" />
                           <span>Private session</span>
-                        </span>
+                        </Badge>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                        <Badge tone="success" shape="pill">
                           <Globe className="w-2.5 h-2.5" />
                           <span>Thread public</span>
-                        </span>
+                        </Badge>
                       )}
                     </div>
 
@@ -462,7 +456,7 @@ export default function SlackSettingsPage() {
                 <span className="text-xs font-semibold text-foreground">
                   {slackStatus.connected ? "Socket Mode Active" : "Socket Mode Offline / Standby"}
                 </span>
-                <p className="text-[10px] text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   {slackStatus.channels_linked} Slack conversations seen since startup.
                 </p>
               </div>
@@ -497,6 +491,6 @@ export default function SlackSettingsPage() {
           onSaved={handleBotSaved}
         />
       )}
-    </div>
+    </SettingsPage>
   );
 }

@@ -285,7 +285,7 @@ export const ChangesPanel: React.FC = () => {
                 data-testid={`changes-scope-${value}`}
                 aria-pressed={scope === value}
                 onClick={() => setScope(value)}
-                className={`px-2 py-0.5 text-[11px] ${scope === value ? "bg-cyan/15 text-cyan" : "text-muted-foreground hover:text-foreground"}`}
+                className={`px-2 py-0.5 text-[12px] ${scope === value ? "bg-cyan/15 text-cyan" : "text-muted-foreground hover:text-foreground"}`}
               >
                 {value === "session" ? "Whole session" : "Latest turn"}
               </button>
@@ -297,7 +297,7 @@ export const ChangesPanel: React.FC = () => {
           <button type="button" onClick={load} title="Read the workspace again" aria-label="Refresh changes" className="p-1 rounded border border-border text-muted-foreground hover:text-foreground">
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           </button>
-          <button type="button" onClick={() => setInline(!inline)} title="Toggle side-by-side or inline diff" className="p-1 rounded border border-border text-muted-foreground hover:text-foreground font-mono text-[10px] flex items-center gap-1">
+          <button type="button" onClick={() => setInline(!inline)} title="Toggle side-by-side or inline diff" className="p-1 rounded border border-border text-muted-foreground hover:text-foreground font-mono text-[11px] flex items-center gap-1">
             <Split className="w-3.5 h-3.5 text-cyan" />
             {inline ? "INLINE" : "SIDE-BY-SIDE"}
           </button>
@@ -321,8 +321,8 @@ export const ChangesPanel: React.FC = () => {
                     {multiple && repositoryName ? `${repositoryName}/` : ""}
                     {file.path}
                   </span>
-                  <span className="text-[10px] text-diff-add font-bold">+{file.additions}</span>
-                  <span className="text-[10px] text-diff-del font-bold">-{file.deletions}</span>
+                  <span className="text-[11px] text-diff-add font-bold">+{file.additions}</span>
+                  <span className="text-[11px] text-diff-del font-bold">-{file.deletions}</span>
                 </button>
               </li>
             );

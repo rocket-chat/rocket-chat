@@ -6,7 +6,7 @@ test("admin-only settings are flagged for administrators too", async ({ page }) 
   await page.goto("/settings/github");
 
   const nav = page.getByRole("link", { name: /Members & teams/ });
-  await expect(nav.getByTestId("nav-admin-only")).toHaveText("ADMIN");
+  await expect(nav.getByTestId("nav-admin-only")).toHaveText("Admin");
   await expect(page.getByRole("link", { name: /^Profile/ }).getByTestId("nav-admin-only")).toHaveCount(0);
   // Every member links their own Slack account there: not an administrator's page.
   await expect(page.getByRole("link", { name: /^Slack/ }).getByTestId("nav-admin-only")).toHaveCount(0);

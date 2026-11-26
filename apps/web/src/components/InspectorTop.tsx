@@ -75,7 +75,7 @@ export const InspectorTop: React.FC = () => {
                 <span
                   data-testid={`tab-${id}-count`}
                   title={`${badge.value} ${badge.label}`}
-                  className="rounded-full bg-brand/15 px-1.5 text-[10px] font-semibold text-brand"
+                  className="rounded-full bg-brand/15 px-1.5 text-[11px] font-semibold text-brand"
                 >
                   {badge.value}
                 </span>

@@ -1,9 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
-
-const BACKEND = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 async function createSession(page: Page, title: string): Promise<string> {
-  const res = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title } });
+  const res = await page.request.post(`${API_URL}/v1/sessions`, { data: { title } });
   return (await res.json()).session_id as string;
 }
 

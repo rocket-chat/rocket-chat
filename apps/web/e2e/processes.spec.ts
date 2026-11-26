@@ -1,11 +1,12 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /** The e2e sandbox is a fake, so the process endpoints are stubbed; the tools and the tracker run against a real shell in tests/unit. */
 test("the Processes tab lists background processes, shows a log and opens a port in Preview", async ({
   page,
   request,
 }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     data: { title: "Processes Mission" },
   });
   const sessionId: string = (await created.json()).session_id;
@@ -107,7 +108,7 @@ test("the Processes tab lists background processes, shows a log and opens a port
 });
 
 test("the Processes tab says so when nothing runs", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     data: { title: "Empty Processes" },
   });
   const sessionId: string = (await created.json()).session_id;

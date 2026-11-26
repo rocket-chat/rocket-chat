@@ -11,6 +11,7 @@ import { useSessionSearch } from "../lib/useSessionSearch";
 import type { SessionData } from "../types/mission";
 import { NAV_SECTIONS } from "./settings/nav-data";
 import { visible } from "./settings/SettingsNav";
+import { Kbd } from "./ui/Kbd";
 
 type Group = "Actions" | "Conversations" | "Agents" | "Settings";
 
@@ -209,7 +210,7 @@ export const CommandPalette: React.FC = () => {
             placeholder="Search conversations, agents, settings and actions"
             className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-neutral-500"
           />
-          <kbd className="rounded border border-surface-border px-1.5 text-[10px] text-neutral-500">Esc</kbd>
+          <kbd className="rounded border border-surface-border px-1.5 text-[11px] text-neutral-500">Esc</kbd>
         </div>
         <ul id={listId} role="listbox" aria-label="Results" className="max-h-[55vh] overflow-y-auto p-1.5">
           {items.length === 0 && (
@@ -235,9 +236,9 @@ export const CommandPalette: React.FC = () => {
                 <Icon className="h-3.5 w-3.5 shrink-0 text-neutral-500" aria-hidden="true" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-medium text-foreground">{item.title}</span>
-                  <span className="block truncate text-[11px] text-neutral-500">{[item.group, item.detail].filter(Boolean).join(" · ")}</span>
+                  <span className="block truncate text-[12px] text-neutral-500">{[item.group, item.detail].filter(Boolean).join(" · ")}</span>
                 </span>
-                {item.shortcut && <kbd className="rounded border border-surface-border px-1.5 text-[10px] text-neutral-500">{item.shortcut}</kbd>}
+                {item.shortcut && <Kbd keys={item.shortcut} />}
                 {index === active && <CornerDownLeft className="h-3.5 w-3.5 text-neutral-500" aria-hidden="true" />}
               </li>
             );

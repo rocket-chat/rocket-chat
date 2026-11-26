@@ -2,9 +2,7 @@
 
 import { Button } from "../../../components/ui/Button";
 import { useConfirm } from "../../../components/ui/ConfirmDialog";
-import { PageHeader } from "../../../components/ui/PageHeader";
-
-
+import { SettingsPage } from "../../../components/settings/SettingsPage";
 
 import React, { useState, useEffect, useCallback } from "react";
 import { McpRunnerStatus, McpServerConfig } from "../../../types/mission";
@@ -212,15 +210,14 @@ export default function McpSettingsPage() {
   );
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
+    <SettingsPage
+      section="Build"
+      title="MCP servers"
+      icon={<Server className="h-5 w-5" aria-hidden="true" />}
+      description="Connect tool providers over HTTP, SSE or as a command. Secrets are encrypted and never shown again."
+    >
       {confirmDialog}
       {moveDialog}
-      <PageHeader
-        title="MCP servers"
-        icon={<Server className="h-5 w-5" aria-hidden="true" />}
-        description="Connect tool providers over HTTP, SSE or as a command. Secrets are encrypted and never shown again."
-      />
-
       {errorBanner && (
         <div className="flex items-center gap-2 p-3 rounded-lg bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
@@ -339,6 +336,6 @@ export default function McpSettingsPage() {
           description="Which transports members may use and how many personal servers each may register."
         />
       )}
-    </div>
+    </SettingsPage>
   );
 }

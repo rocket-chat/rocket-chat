@@ -1,10 +1,11 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 test("typing / offers prompt skills and the conversation keeps what was typed", async ({
   page,
   request,
 }) => {
-  const created = await request.post("http://localhost:8000/v1/skills", {
+  const created = await request.post(`${API_URL}/v1/skills`, {
     data: {
       name: "e2e-review",
       description: "Review the given path",
@@ -34,6 +35,6 @@ test("typing / offers prompt skills and the conversation keeps what was typed", 
       timeout: 15000,
     });
   } finally {
-    await request.delete(`http://localhost:8000/v1/skills/${skillId}`);
+    await request.delete(`${API_URL}/v1/skills/${skillId}`);
   }
 });

@@ -6,6 +6,7 @@ import { InheritanceBadge, type Provenance } from "./InheritanceBadge";
 import { useSettingsFormHandle } from "./SettingsSave";
 import { humanize, settingLabel } from "../../lib/settings-labels";
 import { useAccess } from "../../lib/access";
+import { CHECKBOX_CLASS } from "../ui/checkbox";
 
 type Kind = "bool" | "int" | "float" | "str" | "enum" | "list" | "dict";
 /** Who decides a setting (`config_engine.policy`). */
@@ -372,7 +373,7 @@ export function SchemaSettingsForm({
               checked={Boolean(value)}
               disabled={disabled}
               onChange={(e) => set(e.target.checked)}
-              className="h-4 w-4 accent-orange-500"
+              className={CHECKBOX_CLASS}
             />
             <span className="text-xs text-foreground">{value ? "On" : "Off"}</span>
           </label>
@@ -411,7 +412,7 @@ export function SchemaSettingsForm({
               className={`${inputClass} ${field.unit ? "pr-20" : ""}`}
             />
             {field.unit && (
-              <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[11px] text-neutral-500">
+              <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[12px] text-neutral-500">
                 {field.unit}
               </span>
             )}
@@ -510,19 +511,19 @@ export function SchemaSettingsForm({
             {field.deprecated ? " (deprecated)" : ""}
           </label>
           <span className="flex flex-wrap items-center gap-2">
-            {modified && <span className="text-[10px] font-medium text-brand">Edited</span>}
+            {modified && <span className="text-[11px] font-medium text-brand">Edited</span>}
             {mode === "org" && !atDefault && canEdit && field.key in defaults && (
               <button
                 type="button"
                 data-testid={`settings-default-${key}-${field.key}`}
                 onClick={() => setValues((prev) => ({ ...prev, [field.key]: toEditable(field, defaults[field.key]) }))}
-                className="text-[10px] text-neutral-500 underline-offset-2 hover:text-foreground hover:underline"
+                className="text-[11px] text-neutral-500 underline-offset-2 hover:text-foreground hover:underline"
               >
                 Reset to default
               </button>
             )}
             {memberLocked && (
-              <span className="inline-flex items-center gap-1 rounded-lg border border-brand/20 bg-brand/10 px-1.5 py-0.5 text-[10px] text-brand">
+              <span className="inline-flex items-center gap-1 rounded-lg border border-brand/20 bg-brand/10 px-1.5 py-0.5 text-[11px] text-brand">
                 <Lock className="h-3 w-3" /> LOCKED BY ORG
               </span>
             )}
@@ -538,14 +539,14 @@ export function SchemaSettingsForm({
             )}
             {field.ceiling && (
               <span
-                className="text-[10px] text-neutral-500"
+                className="text-[11px] text-neutral-500"
                 title="Agents and members may lower this value, never raise it"
               >
                 Ceiling
               </span>
             )}
             {mode === "org" && field.policy === "org_default" && canEdit && (
-              <label className="inline-flex items-center gap-1 text-[10px] text-neutral-500 dark:text-neutral-400">
+              <label className="inline-flex items-center gap-1 text-[11px] text-neutral-500 dark:text-neutral-400">
                 <input
                   type="checkbox"
                   data-testid={`settings-lock-${key}-${field.key}`}
@@ -555,6 +556,7 @@ export function SchemaSettingsForm({
                   onChange={(e) =>
                     setLockedKeys((prev) => (e.target.checked ? [...prev, field.key] : prev.filter((k) => k !== field.key)))
                   }
+                  className={CHECKBOX_CLASS}
                 />
                 {field.member_override === false ? "Lock for bots" : "Lock for members"}
               </label>
@@ -562,8 +564,8 @@ export function SchemaSettingsForm({
           </span>
         </div>
         {renderControl(field)}
-        <p className="text-[11px] leading-snug text-neutral-600 dark:text-neutral-400">{field.description}</p>
-        {issue && <p className="text-[11px] text-rose-500">{issue}</p>}
+        <p className="text-[12px] leading-snug text-neutral-600 dark:text-neutral-400">{field.description}</p>
+        {issue && <p className="text-[12px] text-rose-500">{issue}</p>}
       </div>
     );
   };

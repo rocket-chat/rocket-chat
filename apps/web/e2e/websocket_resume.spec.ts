@@ -1,4 +1,5 @@
 import { test, expect, type Page, type WebSocketRoute } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /** Parses a received frame, returning undefined for unparseable payloads. */
 function parseFrame(payload: string | Buffer): Record<string, unknown> | undefined {
@@ -78,7 +79,7 @@ test.describe("WebSocket Resume — forced reconnect loses nothing", () => {
     page,
     request,
   }) => {
-    const createRes = await request.post("http://localhost:8000/v1/sessions", {
+    const createRes = await request.post(`${API_URL}/v1/sessions`, {
       data: { title: "Forced Reconnect Mission" },
     });
     expect(createRes.ok()).toBeTruthy();

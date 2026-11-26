@@ -1,11 +1,10 @@
 import { test, expect } from "@playwright/test";
-
-const BACKEND = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 test("a sidebar row follows a change to another conversation without a reload", async ({ page }) => {
-  const created = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title: "Watched from the list" } });
+  const created = await page.request.post(`${API_URL}/v1/sessions`, { data: { title: "Watched from the list" } });
   const watched = (await created.json()).session_id as string;
-  const open = (await (await page.request.post(`${BACKEND}/v1/sessions`, { data: { title: "Open one" } })).json())
+  const open = (await (await page.request.post(`${API_URL}/v1/sessions`, { data: { title: "Open one" } })).json())
     .session_id as string;
 
   // Only the sidebar socket may refresh the list from here on: any read of it fails the test.
@@ -20,7 +19,7 @@ test("a sidebar row follows a change to another conversation without a reload", 
   });
 
   // Changed elsewhere (another tab, a teammate, the agent): the open conversation's socket is not told.
-  const pinned = await page.request.patch(`${BACKEND}/v1/sessions/${watched}/flags`, { data: { is_pinned: true } });
+  const pinned = await page.request.patch(`${API_URL}/v1/sessions/${watched}/flags`, { data: { is_pinned: true } });
   expect(pinned.ok()).toBe(true);
 
   await expect(row).toHaveAttribute("data-pinned", "true", { timeout: 4000 });

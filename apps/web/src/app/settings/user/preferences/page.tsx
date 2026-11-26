@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { SlidersHorizontal } from "lucide-react";
 import { SchemaSettingsForm, type CustomControl } from "../../../../components/settings/SchemaSettingsForm";
 import { RememberedApprovalsPanel } from "../../../../components/settings/RememberedApprovalsPanel";
 import { DefaultAgentPanel } from "../../../../components/settings/DefaultAgentPanel";
@@ -24,8 +25,9 @@ const CONTROLS = {
 export default function Page() {
   return (
     <SettingsPage
-      section="Personal"
+      section="You"
       title="Preferences"
+      icon={<SlidersHorizontal className="h-5 w-5" aria-hidden="true" />}
       description="Your default agent and model, how much the agent waits for you, notifications and appearance."
     >
       <DefaultAgentPanel />

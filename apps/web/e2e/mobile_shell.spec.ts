@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /**
  * On a phone the application shell must never become scrollable: the document is exactly the
@@ -7,10 +8,8 @@ import { test, expect, type Page } from "@playwright/test";
  */
 test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
-const BACKEND = "http://localhost:8000";
-
 async function createSession(page: Page): Promise<string> {
-  const res = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title: "Mobile shell" } });
+  const res = await page.request.post(`${API_URL}/v1/sessions`, { data: { title: "Mobile shell" } });
   expect(res.ok()).toBeTruthy();
   return (await res.json()).session_id as string;
 }

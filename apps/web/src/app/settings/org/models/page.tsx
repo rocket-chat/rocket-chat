@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { Cpu } from "lucide-react";
 import { SchemaSettingsForm } from "../../../../components/settings/SchemaSettingsForm";
 import { CredentialsPanel } from "../../../../components/settings/CredentialsPanel";
 import type { CustomControl } from "../../../../components/settings/SchemaSettingsForm";
@@ -36,6 +37,7 @@ export default function Page() {
     <SettingsPage
       section="Resources"
       title="Models & keys"
+      icon={<Cpu className="h-5 w-5" aria-hidden="true" />}
       description="The keys the organization and its teams pay for, which models members may use, fail-over and routing."
     >
       {unmanaged && <NotManaged team={unmanaged} what="keys" />}

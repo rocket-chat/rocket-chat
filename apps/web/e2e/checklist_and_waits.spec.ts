@@ -1,8 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { routeSessionSocket } from "./support/session-socket";
+import { API_URL } from "./support/env";
 
 test("the task checklist follows the plan the agent sends", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     data: { title: "Checklist Mission" },
   });
   const sessionId: string = (await created.json()).session_id;
@@ -35,7 +36,7 @@ test("the task checklist follows the plan the agent sends", async ({ page, reque
 });
 
 test("a CI wait is one inline card with the pull request and settles in place", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     data: { title: "Wait Mission" },
   });
   const sessionId: string = (await created.json()).session_id;
@@ -85,7 +86,7 @@ test("a CI wait is one inline card with the pull request and settles in place", 
 });
 
 test("a wait that timed out says so on its own card", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Timeout Mission" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Timeout Mission" } });
   const sessionId: string = (await created.json()).session_id;
   const socket = await routeSessionSocket(page, sessionId);
   await page.goto(`/chat/${sessionId}`);

@@ -25,7 +25,7 @@ export const LiveToolOutput: React.FC<{ callId?: string }> = ({ callId }) => {
       ref={ref}
       data-testid="tool-live-output"
       aria-label="Live command output"
-      className="ml-6 mt-1 max-h-28 overflow-auto whitespace-pre-wrap rounded-lg border border-surface-border bg-surface-base px-3 py-2 font-mono text-[11px] leading-4 text-neutral-600 dark:text-neutral-400"
+      className="ml-6 mt-1 max-h-28 overflow-auto whitespace-pre-wrap rounded-lg border border-surface-border bg-surface-base px-3 py-2 font-mono text-[12px] leading-4 text-neutral-600 dark:text-neutral-400"
     >
       {tail}
     </pre>

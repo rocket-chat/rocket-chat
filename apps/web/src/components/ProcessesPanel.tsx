@@ -179,11 +179,11 @@ export const ProcessesPanel: React.FC<{ onOpenPreview: (port: number) => void }>
               )}
             </span>
           </div>
-          <code className="block mt-1 truncate text-[11px] text-muted-foreground">{p.command}</code>
+          <code className="block mt-1 truncate text-[12px] text-muted-foreground">{p.command}</code>
           {openLog === p.process_id && (
             <pre
               data-testid="process-log"
-              className="mt-2 max-h-48 overflow-auto rounded bg-void p-2 text-[11px] leading-snug whitespace-pre-wrap"
+              className="mt-2 max-h-48 overflow-auto rounded bg-void p-2 text-[12px] leading-snug whitespace-pre-wrap"
             >
               {log || "(no output yet)"}
             </pre>

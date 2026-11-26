@@ -116,7 +116,7 @@ test("the API access page is listed under You in the settings", async ({ page })
   await stubTokens(page, []);
   await page.goto("/settings/user/profile");
   await page.getByRole("navigation", { name: "You" }).getByRole("link", { name: /API tokens/ }).click();
-  await expect(page.getByRole("heading", { name: "API access" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "API tokens" })).toBeVisible();
 });
 
 test("the create form lines its controls up on one row", async ({ page }) => {

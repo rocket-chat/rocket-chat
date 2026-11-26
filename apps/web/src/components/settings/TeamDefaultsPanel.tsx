@@ -62,7 +62,7 @@ export const TeamDefaultsPanel: React.FC<{ team: Team }> = ({ team }) => {
           <h3 id={`team-defaults-${team.id}`} className="flex items-center gap-1.5 text-xs font-semibold text-foreground">
             <SlidersHorizontal className="h-3.5 w-3.5 text-brand" aria-hidden="true" /> Team defaults
           </h3>
-          <p className="text-[11px] text-neutral-600 dark:text-neutral-400">
+          <p className="text-[12px] text-neutral-600 dark:text-neutral-400">
             Used in the turns of the team&apos;s agents, above the organization&apos;s value; a member&apos;s own choice still wins and the organization&apos;s locks still hold. The default agent is the one new sessions start with, for members of no other team.
           </p>
         </div>

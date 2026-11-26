@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Field, Input, Select, Textarea } from "../../ui/Field";
+import { CHECKBOX_CLASS } from "../../ui/checkbox";
 import type { SubagentInherit, SubagentIsolation, SubagentTier } from "../../../types/mission";
 import { DEFAULT_SUBAGENT_FIELDS, parsedOutputSchema, type SubagentFields } from "../draft";
 import type { SectionProps } from "./types";
@@ -111,6 +112,7 @@ export const SubagentLimits: React.FC<SectionProps> = ({ draft, patch, canEdit }
           disabled={!canEdit}
           checked={fields.can_ask_user}
           onChange={(e) => set({ can_ask_user: e.target.checked })}
+          className={CHECKBOX_CLASS}
         />
         May ask the person (approvals and questions); otherwise they are refused and it reports instead
       </label>
@@ -129,6 +131,7 @@ export const SubagentLimits: React.FC<SectionProps> = ({ draft, patch, canEdit }
                     : fields.inherit.filter((value) => value !== option.value),
                 })
               }
+              className={CHECKBOX_CLASS}
             />
             {option.label}
           </label>

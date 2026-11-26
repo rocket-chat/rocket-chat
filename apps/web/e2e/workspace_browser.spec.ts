@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 test("browse the workspace and save an edit that the API (and so the agent) sees", async ({
   page,
@@ -31,7 +32,7 @@ test("browse the workspace and save an edit that the API (and so the agent) sees
   await expect(browser.getByRole("status")).toHaveText("Saved.");
 
   const file = await (
-    await request.get(`http://localhost:8000/v1/sessions/${sessionId}/workspace/file`, {
+    await request.get(`${API_URL}/v1/sessions/${sessionId}/workspace/file`, {
       params: { path: "src/util.py" },
     })
   ).json();

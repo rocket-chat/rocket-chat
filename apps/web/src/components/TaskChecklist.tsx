@@ -45,7 +45,7 @@ export const TaskChecklist: React.FC = () => {
             {goal.continuationCount}/{goal.maxContinuations || "∞"} continuations
           </span>
         )}
-        <span className="ml-auto shrink-0 font-mono text-[11px] text-muted-foreground">
+        <span className="ml-auto shrink-0 font-mono text-[12px] text-muted-foreground">
           {completedCount}/{checklist.length}
         </span>
       </summary>

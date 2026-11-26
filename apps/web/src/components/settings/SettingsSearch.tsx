@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { CornerDownLeft, Search } from "lucide-react";
 import { NAV_SECTIONS } from "./nav-data";
 import { settingLabel } from "../../lib/settings-labels";
+import { Kbd } from "../ui/Kbd";
+import { buttonClass } from "../ui/Button";
 
 interface SchemaField {
   key: string;
@@ -124,11 +126,11 @@ export const SettingsSearchButton: React.FC = () => {
         type="button"
         data-testid="settings-search-open"
         onClick={() => setOpen(true)}
-        className="flex w-full items-center gap-2 rounded-lg border border-surface-border bg-surface-card/60 px-3 py-2 text-xs text-neutral-600 hover:border-brand/40 hover:text-foreground dark:text-neutral-300"
+        className={buttonClass("flat", "md", { fullWidth: true, className: "!justify-start gap-2 text-neutral-600 dark:text-neutral-300" })}
       >
         <Search className="h-3.5 w-3.5" aria-hidden="true" />
         <span className="flex-1 text-left">Search settings</span>
-        <kbd className="rounded border border-surface-border px-1.5 text-[10px] text-neutral-500">⌘K</kbd>
+        <Kbd keys="⌘K" />
       </button>
 
       {open && (
@@ -179,12 +181,12 @@ export const SettingsSearchButton: React.FC = () => {
                     onClick={() => go(result)}
                     className={`flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left ${index === active ? "bg-surface-elevated" : ""}`}
                   >
-                    <span className="mt-0.5 rounded border border-surface-border px-1.5 text-[10px] uppercase text-neutral-500">
+                    <span className="mt-0.5 rounded border border-surface-border px-1.5 text-[11px] uppercase text-neutral-500">
                       {result.kind === "page" ? "Page" : "Setting"}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-xs font-medium text-foreground">{result.title}</span>
-                      <span className="block truncate text-[11px] text-neutral-500">{result.detail}</span>
+                      <span className="block truncate text-[12px] text-neutral-500">{result.detail}</span>
                     </span>
                     {index === active && <CornerDownLeft className="mt-1 h-3.5 w-3.5 text-neutral-500" aria-hidden="true" />}
                   </button>

@@ -28,7 +28,7 @@ const ValidationFeedback: React.FC<{ result: ValidationResult }> = ({ result }) 
     )}
     <div>
       <div className="font-semibold">{headline(result)}</div>
-      <div className="mt-0.5 text-[11px] opacity-90">
+      <div className="mt-0.5 text-[12px] opacity-90">
         {result.message || result.error || `Discovered ${result.tools_count ?? result.tools?.length ?? 0} active tools.`}
       </div>
     </div>

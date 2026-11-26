@@ -75,7 +75,7 @@ export const LimitsSection: React.FC<SectionProps> = (props) => {
         >
           {(control) =>
             modeLocked !== null ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1 text-[11px] text-muted-foreground">
+              <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-1 text-[12px] text-muted-foreground">
                 <Lock className="h-3 w-3" aria-hidden="true" /> Locked by admin: {modeLocked || "default"}
               </span>
             ) : (

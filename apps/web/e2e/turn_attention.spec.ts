@@ -1,7 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { routeSessionSocket } from "./support/session-socket";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 /** A conversation in a background tab says it needs its person, or is done, in the title and a notification. */
 test("the tab title and a notification say when a background turn needs you or is done", async ({ page, request, context }) => {
@@ -20,10 +19,10 @@ test("the tab title and a notification say when a background turn needs you or i
     // The tab is in the background for the whole test.
     Object.defineProperty(document, "hidden", { get: () => true });
   });
-  await request.put(`${API}/v1/settings/user_preferences`, { data: { overrides: { turn_notifications: true } } });
+  await request.put(`${API_URL}/v1/settings/user_preferences`, { data: { overrides: { turn_notifications: true } } });
 
   try {
-    const created = await request.post(`${API}/v1/sessions`, { data: { title: "Attention" } });
+    const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Attention" } });
     const sessionId: string = (await created.json()).session_id;
     const socket = await routeSessionSocket(page, sessionId);
     await page.goto(`/chat/${sessionId}`);
@@ -40,6 +39,6 @@ test("the tab title and a notification say when a background turn needs you or i
     const shown = await page.evaluate(() => (window as unknown as { shownNotifications: string[] }).shownNotifications);
     expect(shown).toEqual(["Rocket Chat needs you", "Rocket Chat is done"]);
   } finally {
-    await request.delete(`${API}/v1/settings/user_preferences/turn_notifications`);
+    await request.delete(`${API_URL}/v1/settings/user_preferences/turn_notifications`);
   }
 });

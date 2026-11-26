@@ -50,7 +50,7 @@ export const StepStrip: React.FC<{
                   />
                   <span className="sr-only">{done ? "(complete)" : "(to finish)"}</span>
                 </span>
-                <span data-testid={`mission-step-${id}-summary`} className="line-clamp-2 text-[11px] leading-snug text-neutral-600 dark:text-neutral-400">
+                <span data-testid={`mission-step-${id}-summary`} className="line-clamp-2 text-[12px] leading-snug text-neutral-600 dark:text-neutral-400">
                   {summaries[id]}
                 </span>
               </button>

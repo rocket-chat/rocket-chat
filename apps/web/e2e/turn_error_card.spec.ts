@@ -1,13 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { routeSessionSocket } from "./support/session-socket";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 /** A failed turn is a card where it happened, with Retry, another model, and the setting to fix. */
 test("a provider failure offers retry, another model and the model settings", async ({ page, request }) => {
-  const created = await request.post(`${API}/v1/sessions`, { data: { title: "Failure" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Failure" } });
   const sessionId: string = (await created.json()).session_id;
-  await request.post(`${API}/v1/dev/sessions/${sessionId}/transcript`, {
+  await request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, {
     data: { messages: [{ role: "user", content: "Summarise the repository" }] },
   });
   const socket = await routeSessionSocket(page, sessionId);
@@ -28,7 +27,7 @@ test("a provider failure offers retry, another model and the model settings", as
 });
 
 test("an internal failure offers retry but no settings", async ({ page, request }) => {
-  const created = await request.post(`${API}/v1/sessions`, { data: { title: "Internal" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Internal" } });
   const sessionId: string = (await created.json()).session_id;
   const socket = await routeSessionSocket(page, sessionId);
   await page.goto(`/chat/${sessionId}`);

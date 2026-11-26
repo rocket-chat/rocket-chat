@@ -1,8 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /** The e2e sandbox is a fake without a network, so the preview endpoints are stubbed; the proxy itself is covered by tests/unit/test_preview.py and a real container. */
 test("the preview tab embeds the app in a sandboxed frame", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     data: { title: "Preview Mission" },
   });
   const sessionId: string = (await created.json()).session_id;
@@ -44,7 +45,7 @@ test("the preview tab embeds the app in a sandboxed frame", async ({ page, reque
 });
 
 test("a port outside the allowed range is explained", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     data: { title: "Preview Port" },
   });
   const sessionId: string = (await created.json()).session_id;

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { openConversation } from "./support/conversation";
+import { API_URL } from "./support/env";
 
 test.describe("Composer", () => {
   test("shows one status line and names the permission modes plainly", async ({ page }) => {
@@ -33,7 +34,7 @@ test.describe("Composer", () => {
   });
 
   test("@ offers the workspace's files and inserts the one chosen", async ({ page, request }) => {
-    const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Mentions" } });
+    const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Mentions" } });
     const sessionId: string = (await created.json()).session_id;
     await page.route(`**/v1/sessions/${sessionId}/workspace/tree**`, async (route) => {
       const path = new URL(route.request().url()).searchParams.get("path");

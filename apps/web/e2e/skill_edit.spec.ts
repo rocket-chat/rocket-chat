@@ -1,11 +1,10 @@
 import { test, expect, type Page } from "@playwright/test";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 async function createSkills(page: Page, prefix: string, count: number): Promise<string[]> {
   const ids: string[] = [];
   for (let i = 0; i < count; i++) {
-    const res = await page.request.post(`${API}/v1/skills`, {
+    const res = await page.request.post(`${API_URL}/v1/skills`, {
       data: { title: `${prefix} ${i}`, description: `Skill number ${i}`, body: `Instructions ${i}`, scope: "user" },
     });
     expect(res.ok()).toBeTruthy();
@@ -34,7 +33,7 @@ test.describe("Opening and closing skills", () => {
       await page.getByRole("button", { name: `Show the instructions of ${prefix} 1` }).click();
       await expect(page.getByRole("button", { name: `Hide the instructions of ${prefix} 1` })).toBeVisible();
     } finally {
-      for (const id of ids) await page.request.delete(`${API}/v1/skills/${id}`);
+      for (const id of ids) await page.request.delete(`${API_URL}/v1/skills/${id}`);
     }
   });
 });
@@ -62,7 +61,7 @@ test.describe("Editing a skill", () => {
       await expect(page.getByText(`${prefix} renamed`).first()).toBeVisible();
       await expect(form).toHaveCount(0);
     } finally {
-      for (const id of ids) await page.request.delete(`${API}/v1/skills/${id}`);
+      for (const id of ids) await page.request.delete(`${API_URL}/v1/skills/${id}`);
     }
   });
 });

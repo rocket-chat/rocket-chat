@@ -107,7 +107,7 @@ export function MembersPanel() {
 
       <div className="rounded-lg border border-border bg-surface-card overflow-hidden">
         <table className="w-full text-xs">
-          <thead className="bg-surface/60 text-muted-foreground text-[10px]">
+          <thead className="bg-surface/60 text-muted-foreground text-[11px]">
             <tr>
               <th className="text-left px-4 py-2">Member</th>
               <th className="text-left px-4 py-2">Email</th>
@@ -155,7 +155,7 @@ export function MembersPanel() {
         </table>
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[12px] text-muted-foreground">
         A role change applies to the member&apos;s open sessions within 15 seconds. The last
         administrator of an organization cannot be demoted, and only an owner can make an owner.
       </p>

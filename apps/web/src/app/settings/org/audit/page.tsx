@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { ScrollText, AlertCircle, RefreshCw } from "lucide-react";
 import { Field, Select } from "../../../../components/ui/Field";
 import { useAccess } from "../../../../lib/access";
+import { SettingsPage } from "../../../../components/settings/SettingsPage";
 
 interface AuditEvent {
   id: string;
@@ -71,29 +72,23 @@ export default function AuditLogPage() {
 
   if (!isAdmin) {
     return (
-      <div className="max-w-5xl mx-auto px-4 py-8 sm:px-8 text-sm text-neutral-500">
-        The audit log is managed by organization administrators.
-      </div>
+      <SettingsPage section="Governance" title="Audit log" icon={<ScrollText className="h-5 w-5" aria-hidden="true" />}>
+        <p className="text-sm text-neutral-500">The audit log is managed by organization administrators.</p>
+      </SettingsPage>
     );
   }
 
   const visible = typeFilter ? events.filter((event) => event.event_type === typeFilter) : events;
+  const retentionNote =
+    auditDays === null ? "Events are kept indefinitely." : `Events are kept for ${auditDays} days (Settings → Security & data).`;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-border/70">
-        <div>
-          <h1 className="font-display text-xl font-semibold tracking-tight text-foreground flex items-center gap-2.5">
-            <ScrollText className="w-5 h-5 text-brand" />
-            Audit log
-          </h1>
-          <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400 mt-1">
-            Approvals, tool calls, credential and settings changes, newest first.{" "}
-            {auditDays === null
-              ? "Events are kept indefinitely."
-              : `Events are kept for ${auditDays} days (Settings → Security & data).`}
-          </p>
-        </div>
+    <SettingsPage
+      section="Governance"
+      title="Audit log"
+      icon={<ScrollText className="h-5 w-5" aria-hidden="true" />}
+      description={`Approvals, tool calls, credential and settings changes, newest first. ${retentionNote}`}
+      actions={
         <button
           type="button"
           onClick={() => void load(null)}
@@ -102,8 +97,8 @@ export default function AuditLogPage() {
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           <span>Refresh</span>
         </button>
-      </div>
-
+      }
+    >
       {error && (
         <div role="alert" className="flex items-center gap-2 p-3 rounded-lg border border-rose-500/30 bg-rose-500/10 text-xs text-rose-500">
           <AlertCircle className="w-4 h-4 shrink-0" />
@@ -173,6 +168,6 @@ export default function AuditLogPage() {
           Load older events
         </button>
       )}
-    </div>
+    </SettingsPage>
   );
 }

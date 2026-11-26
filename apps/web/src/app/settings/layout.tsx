@@ -19,7 +19,7 @@ export default function SettingsLayout({
     <div className="h-full w-full flex flex-col bg-surface-base text-foreground font-sans overflow-hidden">
       <AppTopBar
         current={{ icon: <Settings className="h-3.5 w-3.5" aria-hidden="true" />, label: "Settings Console" }}
-        leading={<SettingsMobileToggle />}
+        mobileMenu={<SettingsMobileToggle />}
       />
 
       {/* Main Settings Console Body */}

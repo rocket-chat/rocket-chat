@@ -78,7 +78,7 @@ export const IdentitySection: React.FC<SectionProps> = ({ draft, patch, canEdit 
               type="button"
               aria-pressed={!preview}
               onClick={() => setPreview(false)}
-              className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] ${!preview ? "bg-surface-elevated text-foreground" : "text-neutral-500"}`}
+              className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${!preview ? "bg-surface-elevated text-foreground" : "text-neutral-500"}`}
             >
               <Edit3 className="h-3 w-3" aria-hidden="true" /> Edit
             </button>
@@ -86,7 +86,7 @@ export const IdentitySection: React.FC<SectionProps> = ({ draft, patch, canEdit 
               type="button"
               aria-pressed={preview}
               onClick={() => setPreview(true)}
-              className={`flex items-center gap-1 rounded px-2 py-0.5 text-[10px] ${preview ? "bg-surface-elevated text-foreground" : "text-neutral-500"}`}
+              className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${preview ? "bg-surface-elevated text-foreground" : "text-neutral-500"}`}
             >
               <Eye className="h-3 w-3" aria-hidden="true" /> Preview
             </button>

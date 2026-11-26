@@ -170,7 +170,7 @@ export const WorkspaceBrowser: React.FC = () => {
         <button
           type="button"
           onClick={() => setTreeKey(treeKey + 1)}
-          className="w-full px-2 pb-1 text-left text-[10px] font-mono uppercase text-neutral-500 hover:text-foreground cursor-pointer"
+          className="w-full px-2 pb-1 text-left text-[11px] font-mono uppercase text-neutral-500 hover:text-foreground cursor-pointer"
         >
           Refresh
         </button>

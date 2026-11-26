@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /**
  * The deterministic E2E backend runs with `TEST_DATABASE_URL=""`, so `GET
@@ -12,14 +13,14 @@ test.describe("Cockpit Turn Inspector", () => {
     page,
     request,
   }) => {
-    const createRes = await request.post("http://localhost:8000/v1/sessions", {
+    const createRes = await request.post(`${API_URL}/v1/sessions`, {
       data: { title: "Turn Inspector Mission" },
     });
     expect(createRes.ok()).toBeTruthy();
     const sessionId: string = (await createRes.json()).session_id;
 
     // Give the session a prior prompt so the retry affordance has something to re-run.
-    await request.post(`http://localhost:8000/v1/dev/sessions/${sessionId}/transcript`, {
+    await request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, {
       data: { messages: [{ role: "user", content: "inspect the workspace" }] },
     });
 
@@ -129,7 +130,7 @@ test.describe("Cockpit Turn Inspector", () => {
   });
 
   test("a turn that is still running shows what it has used so far", async ({ page, request }) => {
-    const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Running turn" } });
+    const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Running turn" } });
     const sessionId: string = (await created.json()).session_id;
     const none = { calls: 0, prompt_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, completion_tokens: 0, total_tokens: 0, cost_usd: 0, own_key_cost_usd: 0 };
 

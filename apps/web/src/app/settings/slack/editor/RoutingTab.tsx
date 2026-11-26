@@ -56,7 +56,7 @@ const RoutingTableRow: React.FC<RowProps> = ({ row, index, agentOptions, expande
   return (
     <tr data-testid={`routing-row-${index}`} className="align-middle">
       <td className="p-2">
-        <span className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground">
+        <span className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[11px] text-foreground">
           <Icon className="h-3 w-3" aria-hidden="true" /> {KIND_LABEL[row.kind]}
         </span>
       </td>
@@ -75,7 +75,7 @@ const RoutingTableRow: React.FC<RowProps> = ({ row, index, agentOptions, expande
       </td>
       <td className="p-2">
         {row.kind === "default" ? (
-          <span className="text-[11px] text-muted-foreground">Chosen in the conversation</span>
+          <span className="text-[12px] text-muted-foreground">Chosen in the conversation</span>
         ) : (
           <Input aria-label={`Repository of ${name}`} data-testid={`routing-repository-${index}`} value={row.repository} onChange={(e) => onChange({ repository: e.target.value })} placeholder="owner/name" className={CELL} />
         )}

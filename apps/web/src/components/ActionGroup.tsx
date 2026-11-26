@@ -103,7 +103,7 @@ const StepRow: React.FC<StepRowProps> = ({ icon, label, meta, tone = "default", 
 };
 
 const DiffChips: React.FC<{ additions: number; deletions: number }> = ({ additions, deletions }) => (
-  <span className="font-mono text-[11px]">
+  <span className="font-mono text-[12px]">
     <span className="text-diff-add">+{additions}</span> <span className="text-diff-del">−{deletions}</span>
   </span>
 );
@@ -209,7 +209,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
       {isOpen && (
         <div className="mt-1 ml-1 space-y-1">
           {entries.length >= 8 && (
-            <div className="flex items-center gap-1 px-1 py-0.5 text-[11px]" data-testid="action-group-filter-bar">
+            <div className="flex items-center gap-1 px-1 py-0.5 text-[12px]" data-testid="action-group-filter-bar">
               {(["all", "edits", "errors", "subagents"] as const).map((mode) => (
                 <button
                   key={mode}
@@ -238,7 +238,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                   label={<TitledPreview title={entry.id === liveThoughtId ? "Thinking…" : "Thought"} text={entry.reasoning} />}
                   meta={
                     entry.timestamp ? (
-                      <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">
+                      <span suppressHydrationWarning className="font-mono text-[11px] text-neutral-500/70">
                         {entry.timestamp}
                       </span>
                     ) : undefined
@@ -263,7 +263,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                   label={<TitledPreview title="Step intent" text={entry.content} />}
                   meta={
                     entry.timestamp ? (
-                      <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">
+                      <span suppressHydrationWarning className="font-mono text-[11px] text-neutral-500/70">
                         {entry.timestamp}
                       </span>
                     ) : undefined
@@ -308,7 +308,7 @@ export const ActionGroup: React.FC<ActionGroupProps> = ({ entries, isActive = fa
                     <>
                       {entry.subagent.duration_ms ? <span>{formatElapsed(entry.subagent.duration_ms)}</span> : null}
                       {entry.timestamp ? (
-                        <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">
+                        <span suppressHydrationWarning className="font-mono text-[11px] text-neutral-500/70">
                           {entry.timestamp}
                         </span>
                       ) : null}
@@ -368,12 +368,12 @@ const ToolRow: React.FC<{
           {counts && <DiffChips additions={counts.additions} deletions={counts.deletions} />}
           {failed && <span className="text-diff-del">failed</span>}
           {!isPending(call) && typeof call.duration_ms === "number" && call.duration_ms >= 1000 && (
-            <span data-testid="step-duration" className="font-mono text-[10px] text-neutral-500">
+            <span data-testid="step-duration" className="font-mono text-[11px] text-neutral-500">
               {formatElapsed(call.duration_ms)}
             </span>
           )}
           {timestamp && (
-            <span suppressHydrationWarning className="font-mono text-[10px] text-neutral-500/70">
+            <span suppressHydrationWarning className="font-mono text-[11px] text-neutral-500/70">
               {timestamp}
             </span>
           )}

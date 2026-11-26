@@ -50,12 +50,12 @@ export const GithubInstallationsPanel: React.FC = () => {
       <div className="text-xs font-semibold text-foreground">
         GitHub App installations
       </div>
-      <p className="text-[11px] text-muted-foreground">
+      <p className="text-[12px] text-muted-foreground">
         Agents use the App only on the accounts you install it on here; another organization can
         never use your installation.
       </p>
       {!data.app_configured && (
-        <p className="text-[11px] text-amber-300">
+        <p className="text-[12px] text-amber-300">
           The platform has no GitHub App configured (GITHUB_APP_ID / GITHUB_APP_PRIVATE_KEY).
         </p>
       )}
@@ -80,7 +80,7 @@ export const GithubInstallationsPanel: React.FC = () => {
           </li>
         ))}
         {data.installations.length === 0 && data.app_configured && (
-          <li className="text-[11px] text-neutral-500">No installation is mapped yet.</li>
+          <li className="text-[12px] text-neutral-500">No installation is mapped yet.</li>
         )}
       </ul>
       {data.install_url && (
@@ -93,7 +93,7 @@ export const GithubInstallationsPanel: React.FC = () => {
         </a>
       )}
       {data.app_configured && !data.install_url && (
-        <p className="text-[11px] text-neutral-500">
+        <p className="text-[12px] text-neutral-500">
           Set GITHUB_APP_SLUG (the App&apos;s URL name) to enable the install link.
         </p>
       )}

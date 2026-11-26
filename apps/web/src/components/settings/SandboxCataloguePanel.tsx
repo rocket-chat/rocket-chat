@@ -11,6 +11,7 @@ import { OwnerBadge, useMoveConfirmation } from "./Owner";
 import { useAccess } from "../../lib/access";
 import { useTeams } from "../../lib/teams";
 import { creatableOwners, ownerFields, type OwnerKey } from "../../lib/ownership";
+import { CHECKBOX_CLASS } from "../ui/checkbox";
 
 interface Sandbox {
   id: string;
@@ -155,7 +156,7 @@ const SandboxForm: React.FC<SandboxFormProps> = ({ initial, browserHelp, profile
         <input
           type="checkbox"
           data-testid="sandbox-browser"
-          className="mt-0.5"
+          className={`mt-0.5 ${CHECKBOX_CLASS}`}
           checked={form.browser}
           onChange={(e) => setForm({ ...form, browser: e.target.checked })}
         />
@@ -424,7 +425,7 @@ export const SandboxCataloguePanel: React.FC<{ team?: { id: string; name: string
                     </Badge>
                   )}
                 </div>
-                <code className="block truncate text-[11px] text-neutral-500">{box.image}</code>
+                <code className="block truncate text-[12px] text-neutral-500">{box.image}</code>
                 {box.description && (
                   <p className="text-xs text-neutral-600 dark:text-neutral-400">{box.description}</p>
                 )}

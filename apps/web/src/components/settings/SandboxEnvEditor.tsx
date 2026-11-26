@@ -3,6 +3,7 @@
 import React from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "../ui/Button";
+import { CHECKBOX_CLASS } from "../ui/checkbox";
 
 export interface SandboxEnvRow {
   name: string;
@@ -48,7 +49,7 @@ export const SandboxEnvEditor: React.FC<SandboxEnvEditorProps> = ({ rows, onChan
   return (
     <fieldset data-testid="sandbox-env" className="md:col-span-2 space-y-2 rounded-lg border border-surface-border p-3">
       <legend className="px-1 text-xs font-medium text-foreground">Environment variables</legend>
-      <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+      <p className="text-[12px] text-neutral-500 dark:text-neutral-400">
         Set for every command of this type&apos;s sessions, for example <code>GOPRIVATE</code>. A secret is stored
         encrypted, never shown again and never given to the model; the agent only learns its name.
       </p>
@@ -70,11 +71,12 @@ export const SandboxEnvEditor: React.FC<SandboxEnvEditorProps> = ({ rows, onChan
             value={row.value}
             onChange={(e) => update(index, { value: e.target.value })}
           />
-          <label className="flex cursor-pointer items-center gap-1 text-[11px] text-neutral-600 dark:text-neutral-300">
+          <label className="flex cursor-pointer items-center gap-1 text-[12px] text-neutral-600 dark:text-neutral-300">
             <input
               type="checkbox"
               checked={row.secret}
               onChange={(e) => update(index, { secret: e.target.checked, stored: false })}
+              className={CHECKBOX_CLASS}
             />
             Secret
           </label>

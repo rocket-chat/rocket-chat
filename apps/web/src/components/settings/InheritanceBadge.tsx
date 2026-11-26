@@ -3,6 +3,7 @@
 import React from "react";
 import { Bot, Building2, Lock, MessageSquare, RotateCcw, Server, User, Users } from "lucide-react";
 import { useTeams } from "../../lib/teams";
+import { Badge } from "../ui/Badge";
 
 /** Where a setting's value comes from, as the API reports it (`provenance`). */
 export interface Provenance {
@@ -20,9 +21,6 @@ interface InheritanceBadgeProps {
   className?: string;
 }
 
-const base =
-  "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium select-none";
-
 function presetLabel(source: string, names: Record<string, string> | undefined): string {
   const [kind, id = ""] = source.split(":", 2);
   const name = names?.[source] ?? id;
@@ -32,6 +30,7 @@ function presetLabel(source: string, names: Record<string, string> | undefined):
   return source;
 }
 
+/** Shared by every reset button below: `hover:bg-current/10` tints with each badge's own tone. */
 const ResetButton: React.FC<{ onReset: () => void }> = ({ onReset }) => (
   <button
     type="button"
@@ -40,7 +39,7 @@ const ResetButton: React.FC<{ onReset: () => void }> = ({ onReset }) => (
       e.stopPropagation();
       onReset();
     }}
-    className="rounded p-0.5 transition-colors hover:bg-primary/20"
+    className="rounded p-0.5 transition-colors hover:bg-current/10"
     aria-label="Use the organization's value"
     title="Use the organization's value"
   >
@@ -49,19 +48,21 @@ const ResetButton: React.FC<{ onReset: () => void }> = ({ onReset }) => (
 );
 
 /** `From team "<name>"`: the value a team set for its agents' turns. */
-const TeamBadge: React.FC<{ teamId: string; onReset?: () => void; className: string }> = ({ teamId, onReset, className }) => {
+const TeamBadge: React.FC<{ teamId: string; onReset?: () => void; className?: string }> = ({ teamId, onReset, className }) => {
   const { teams } = useTeams();
   const name = teams.find((t) => t.id === teamId)?.name ?? teamId;
   return (
-    <span
+    <Badge
+      tone="info"
+      shape="pill"
       data-provenance="team"
-      className={`${base} border-cyan/30 bg-surface-card text-foreground ${className}`}
       title="The team's value, for the turns of its agents"
+      className={className}
     >
       <Users className="h-2.5 w-2.5" aria-hidden="true" />
       From team &quot;{name}&quot;
       {onReset && <ResetButton onReset={onReset} />}
-    </span>
+    </Badge>
   );
 };
 
@@ -75,65 +76,35 @@ export const InheritanceBadge: React.FC<InheritanceBadgeProps> = ({
   const { source, locked_by: lockedBy } = provenance;
   if (lockedBy === "instance" || (source === "instance" && !lockedBy)) {
     return (
-      <span
-        data-provenance="instance"
-        className={`${base} border-border bg-secondary text-muted-foreground ${className}`}
-        title="Set by the operator in the deployment's environment"
-      >
+      <Badge tone="neutral" shape="pill" data-provenance="instance" title="Set by the operator in the deployment's environment" className={className}>
         <Server className="h-2.5 w-2.5" aria-hidden="true" />
         Set by operator
-      </span>
+      </Badge>
     );
   }
   if (lockedBy === "org") {
     return (
-      <span
-        data-provenance="locked"
-        className={`${base} border-border bg-secondary text-muted-foreground ${className}`}
-        title="An administrator locked this setting for everyone"
-      >
+      <Badge tone="neutral" shape="pill" data-provenance="locked" title="An administrator locked this setting for everyone" className={className}>
         <Lock className="h-2.5 w-2.5" aria-hidden="true" />
         Locked by admin
-      </span>
+      </Badge>
     );
   }
   if (source === "member") {
     return (
-      <span
-        data-provenance="member"
-        className={`${base} border-primary/30 bg-primary/10 text-primary ${className}`}
-        title="Your own value"
-      >
+      <Badge tone="brand" shape="pill" data-provenance="member" title="Your own value" className={className}>
         <User className="h-2.5 w-2.5" aria-hidden="true" />
         Yours
-        {onReset && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              onReset();
-            }}
-            className="rounded p-0.5 transition-colors hover:bg-primary/20"
-            aria-label="Use the organization's value"
-            title="Use the organization's value"
-          >
-            <RotateCcw className="h-2.5 w-2.5" aria-hidden="true" />
-          </button>
-        )}
-      </span>
+        {onReset && <ResetButton onReset={onReset} />}
+      </Badge>
     );
   }
   if (source === "org") {
     return (
-      <span
-        data-provenance="org"
-        className={`${base} border-emerald-600/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 ${className}`}
-        title="The organization's value"
-      >
+      <Badge tone="success" shape="pill" data-provenance="org" title="The organization's value" className={className}>
         <Building2 className="h-2.5 w-2.5" aria-hidden="true" />
         From organization
-      </span>
+      </Badge>
     );
   }
   if (source.startsWith("team:")) {
@@ -142,23 +113,15 @@ export const InheritanceBadge: React.FC<InheritanceBadgeProps> = ({
   if (source.startsWith("agent:") || source.startsWith("slack_bot:") || source === "session") {
     const Icon = source.startsWith("slack_bot:") ? MessageSquare : Bot;
     return (
-      <span
-        data-provenance="preset"
-        className={`${base} border-brand/30 bg-brand/10 text-brand ${className}`}
-        title="Chosen at session level, within the organization's policy"
-      >
+      <Badge tone="brand" shape="pill" data-provenance="preset" title="Chosen at session level, within the organization's policy" className={className}>
         <Icon className="h-2.5 w-2.5" aria-hidden="true" />
         {presetLabel(source, presetNames)}
-      </span>
+      </Badge>
     );
   }
   return (
-    <span
-      data-provenance="default"
-      className={`${base} border-border bg-surface-card text-muted-foreground ${className}`}
-      title="The platform's default"
-    >
+    <Badge tone="neutral" shape="pill" data-provenance="default" title="The platform's default" className={className}>
       Default
-    </span>
+    </Badge>
   );
 };

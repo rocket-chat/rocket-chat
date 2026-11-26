@@ -1,6 +1,7 @@
 import { test, expect, type WebSocketRoute } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { API_URL } from "../support/env";
 
 /**
  * Records the animated demo in the README (doc/assets/demo.gif): the real cockpit on the
@@ -111,7 +112,7 @@ test("the demo recording", async ({ page }) => {
   await expect(page).toHaveURL(/\/chat\/session_.+/, { timeout: 15000 });
   sessionId = page.url().split("/chat/")[1];
   // The backend's stub titler would call this conversation "stub title".
-  await page.request.patch(`http://localhost:8000/v1/sessions/${sessionId}`, {
+  await page.request.patch(`${API_URL}/v1/sessions/${sessionId}`, {
     data: { title: "Fix the failing refund test" },
   });
   await expect.poll(() => synced, { timeout: 15000 }).toBe(true);

@@ -3,6 +3,7 @@
 import React from "react";
 import { Field, Input, Select } from "../../../../components/ui/Field";
 import { ModelPicker } from "../../../../components/ui/ModelPicker";
+import { CHECKBOX_CLASS } from "../../../../components/ui/checkbox";
 import type { ClassifierSettings as Settings, RoutingRow } from "./routing";
 
 interface ClassifierSettingsProps {
@@ -11,8 +12,6 @@ interface ClassifierSettingsProps {
   agentOptions: { value: string; label: string }[];
   onChange: (next: Settings) => void;
 }
-
-const CHECKBOX = "rounded border-border text-brand focus:ring-brand";
 
 /** How the bot recognises the intents of the routing table, and what it does when unsure. */
 export const ClassifierSettings: React.FC<ClassifierSettingsProps> = ({ value, rows, agentOptions, onChange }) => {
@@ -67,7 +66,7 @@ export const ClassifierSettings: React.FC<ClassifierSettingsProps> = ({ value, r
         </Field>
       </div>
       <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
-        <input type="checkbox" checked={value.allow_dismiss} onChange={(e) => patch({ allow_dismiss: e.target.checked })} className={CHECKBOX} />
+        <input type="checkbox" checked={value.allow_dismiss} onChange={(e) => patch({ allow_dismiss: e.target.checked })} className={CHECKBOX_CLASS} />
         <span>Allow dismissal (no session created)</span>
       </label>
       {value.allow_dismiss && (
@@ -83,7 +82,7 @@ export const ClassifierSettings: React.FC<ClassifierSettingsProps> = ({ value, r
         </Field>
       )}
       <label className="flex cursor-pointer items-center gap-2 text-xs text-foreground">
-        <input type="checkbox" checked={value.sticky} onChange={(e) => patch({ sticky: e.target.checked })} className={CHECKBOX} />
+        <input type="checkbox" checked={value.sticky} onChange={(e) => patch({ sticky: e.target.checked })} className={CHECKBOX_CLASS} />
         <span>Sticky (follow-ups in a thread keep its intent)</span>
       </label>
     </fieldset>

@@ -1,6 +1,5 @@
 import { test, expect, type Page, type WebSocketRoute } from "@playwright/test";
-
-const BACKEND = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 async function openSession(page: Page): Promise<{ socket: WebSocketRoute; sessionId: string }> {
   let socket: WebSocketRoute | null = null;
@@ -8,9 +7,9 @@ async function openSession(page: Page): Promise<{ socket: WebSocketRoute; sessio
     ws.connectToServer();
     socket = ws;
   });
-  const created = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title: "Thinking" } });
+  const created = await page.request.post(`${API_URL}/v1/sessions`, { data: { title: "Thinking" } });
   const sessionId = (await created.json()).session_id as string;
-  await page.request.post(`${BACKEND}/v1/dev/sessions/${sessionId}/transcript`, {
+  await page.request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, {
     data: { messages: [{ role: "user", content: "Look into it" }] },
   });
   await page.goto(`/chat/${sessionId}`);

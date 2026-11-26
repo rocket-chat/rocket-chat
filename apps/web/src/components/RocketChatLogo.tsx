@@ -1,4 +1,6 @@
 import React, { useId } from "react";
+import Link from "next/link";
+import { cn } from "./ui/cn";
 
 interface RocketChatLogoProps {
   className?: string;
@@ -126,6 +128,31 @@ export const RocketChatIcon: React.FC<{
   );
 };
 
+/**
+ * The clickable brand mark every header opens with: icon + wordmark, home link, hover ring. One
+ * component so the hover treatment can't drift between the cockpit and the rest of the app again
+ * (it had: a ring on the icon itself here vs. a box-shadow on a wrapper div in the settings bar).
+ */
+export const BrandLink: React.FC<{
+  label?: string;
+  labelClassName?: string;
+  iconClassName?: string;
+  className?: string;
+}> = ({ label = "Rocket Chat", labelClassName, iconClassName = "h-8 w-8", className }) => (
+  <Link href="/" className={cn("group flex items-center gap-2", className)}>
+    <RocketChatIcon
+      size={32}
+      className={cn(
+        "rounded-[22%] ring-1 ring-transparent transition-shadow duration-200 group-hover:ring-brand/50",
+        iconClassName
+      )}
+    />
+    <span className={cn("whitespace-nowrap font-display text-sm font-semibold tracking-tight text-foreground", labelClassName)}>
+      {label}
+    </span>
+  </Link>
+);
+
 export const RocketChatLogo: React.FC<RocketChatLogoProps> = ({
   className = "",
   size = "md",
@@ -144,7 +171,7 @@ export const RocketChatLogo: React.FC<RocketChatLogoProps> = ({
   };
 
   const badgeSizes = {
-    sm: "text-[10px] px-1 py-0.2",
+    sm: "text-[11px] px-1 py-0.2",
     md: "text-xs px-1.5 py-0.5",
     lg: "text-xs px-2 py-0.5",
   };

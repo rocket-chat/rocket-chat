@@ -1,12 +1,11 @@
 import { test, expect } from "@playwright/test";
 import { routeSessionSocket } from "./support/session-socket";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 async function openSession(page: import("@playwright/test").Page, request: import("@playwright/test").APIRequestContext, title: string) {
-  const created = await request.post(`${API}/v1/sessions`, { data: { title } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title } });
   const sessionId: string = (await created.json()).session_id;
-  await request.post(`${API}/v1/dev/sessions/${sessionId}/transcript`, {
+  await request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, {
     data: {
       messages: [
         { role: "user", content: "First question" },
@@ -102,7 +101,7 @@ test("an answer can be rated down with a comment", async ({ page, request }) => 
   await page.getByTestId("answer-feedback-form").getByRole("textbox").fill("Wrong file");
   await page.getByTestId("answer-feedback-form").getByRole("button", { name: "Send" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Thanks, noted." })).toBeVisible();
-  const mine = await (await request.get(`${API}/v1/sessions/${sessionId}/feedback`)).json();
+  const mine = await (await request.get(`${API_URL}/v1/sessions/${sessionId}/feedback`)).json();
   expect(mine).toEqual([expect.objectContaining({ turn_number: 2, rating: "down", comment: "Wrong file" })]);
 });
 

@@ -5,6 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "../../ui/Button";
 import { Field, Input, Textarea } from "../../ui/Field";
 import { MAX_REPOSITORIES, needsGithubWrite, type MissionBody } from "../../../lib/missions";
+import { CHECKBOX_CLASS } from "../../ui/checkbox";
 
 const Repositories: React.FC<{ repos: string[]; onChange: (repos: string[]) => void }> = ({ repos, onChange }) => {
   const rows = repos.length ? repos : [""];
@@ -77,6 +78,7 @@ export const TaskStep: React.FC<{
             disabled={forced}
             aria-describedby="mission-github-write-note"
             onChange={(e) => patch({ github_write: e.target.checked })}
+            className={CHECKBOX_CLASS}
           />
           Allow GitHub writes (push branches, open pull requests)
         </label>

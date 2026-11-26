@@ -1,8 +1,8 @@
 import path from "node:path";
 import { test, expect, type Page } from "@playwright/test";
 import { asMember } from "./support/access";
+import { API_URL } from "./support/env";
 
-const API = "http://localhost:8000";
 const ENV_SERVER = path.resolve(__dirname, "../../../tests/support/env_mcp_server.py");
 
 async function openOrgForm(page: Page): Promise<void> {
@@ -31,9 +31,9 @@ async function fillVariable(page: Page, index: number, name: string, value: stri
 }
 
 async function removeServer(page: Page, name: string): Promise<void> {
-  const servers: { id: string; name: string }[] = await (await page.request.get(`${API}/v1/mcp/servers`)).json();
+  const servers: { id: string; name: string }[] = await (await page.request.get(`${API_URL}/v1/mcp/servers`)).json();
   for (const server of servers.filter((s) => s.name === name)) {
-    await page.request.delete(`${API}/v1/mcp/servers/${server.id}`);
+    await page.request.delete(`${API_URL}/v1/mcp/servers/${server.id}`);
   }
 }
 
@@ -114,7 +114,7 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
   });
 
   test("an administrator may add a command server for themselves and for a team", async ({ page }) => {
-    const team = await (await page.request.post(`${API}/v1/teams`, { data: { name: `E2E Commands ${Date.now()}` } })).json();
+    const team = await (await page.request.post(`${API_URL}/v1/teams`, { data: { name: `E2E Commands ${Date.now()}` } })).json();
     await page.goto("/settings/mcp");
 
     for (const open of [
@@ -127,7 +127,7 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
       await expect(page.getByText(/organization servers: use Add org MCP/)).toHaveCount(0);
       await page.getByTestId("mcp-server-modal").getByRole("button", { name: /^cancel$/i }).click();
     }
-    await page.request.delete(`${API}/v1/teams/${team.id}`);
+    await page.request.delete(`${API_URL}/v1/teams/${team.id}`);
   });
 
   test("a member is told to ask an administrator for command servers", async ({ page }) => {
@@ -142,7 +142,7 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
 
   test("an administrator edits an organization command server and keeps its secret", async ({ page }) => {
     const name = `E2E Editable ${Date.now()}`;
-    const created = await page.request.post(`${API}/v1/mcp/servers`, {
+    const created = await page.request.post(`${API_URL}/v1/mcp/servers`, {
       data: {
         name,
         transport: "stdio",
@@ -176,7 +176,7 @@ test.describe("Command (stdio) MCP servers on the MCP runner", () => {
       await expect(dialog).toBeHidden({ timeout: 30000 });
 
       const servers: { name: string; headers_preview: { name: string; value: string }[] }[] = await (
-        await page.request.get(`${API}/v1/mcp/servers`)
+        await page.request.get(`${API_URL}/v1/mcp/servers`)
       ).json();
       const after = servers.find((s) => s.name === name)!;
       expect(after.headers_preview.find((h) => h.name === "BASE_URL")?.value).toBe("https://grafana.example/v2");

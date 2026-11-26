@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Field, Select } from "../../ui/Field";
+import { CHECKBOX_CLASS } from "../../ui/checkbox";
 import { useTeams } from "../../../lib/teams";
 import type { SectionProps } from "./types";
 
@@ -23,6 +24,7 @@ export const SandboxSection: React.FC<SectionProps> = ({ draft, patch, canEdit, 
           disabled={!canEdit}
           checked={draft.sandbox_enabled}
           onChange={(e) => patch({ sandbox_enabled: e.target.checked })}
+          className={CHECKBOX_CLASS}
         />
         <span>
           Run with a sandbox. Off: no shell, git or repository checkout, and no sandbox is ever
@@ -36,6 +38,7 @@ export const SandboxSection: React.FC<SectionProps> = ({ draft, patch, canEdit, 
           disabled={!canEdit}
           checked={draft.reads_agent_sessions}
           onChange={(e) => patch({ reads_agent_sessions: e.target.checked })}
+          className={CHECKBOX_CLASS}
         />
         <span>
           Read its other sessions: the agent may list and read the organization&apos;s sessions it
@@ -49,6 +52,7 @@ export const SandboxSection: React.FC<SectionProps> = ({ draft, patch, canEdit, 
           disabled={!canEdit}
           checked={draft.proposes_changes}
           onChange={(e) => patch({ proposes_changes: e.target.checked })}
+          className={CHECKBOX_CLASS}
         />
         <span>
           Propose changes to its instructions and skills. Nothing changes until someone who may

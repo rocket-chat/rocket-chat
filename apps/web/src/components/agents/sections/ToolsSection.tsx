@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { ChevronRight, Pin, Zap } from "lucide-react";
 import { Field, Input, Textarea } from "../../ui/Field";
 import { Button } from "../../ui/Button";
+import { CHECKBOX_CLASS } from "../../ui/checkbox";
 import { ToolLoadBadge, ToolLoadSummary } from "../../settings/ToolLoadState";
 import { useToolLoadingPreview } from "../../../lib/useToolLoadingPreview";
 import { buildToolGroups, matchesQuery, ToolGroupSection, type PickableTool } from "./ToolGroups";
@@ -80,6 +81,7 @@ export const ToolsSection: React.FC<SectionProps> = ({ draft, patch, canEdit, re
           checked={checked}
           onChange={() => toggleTool(name)}
           aria-describedby={description ? hintId : undefined}
+          className={CHECKBOX_CLASS}
         />
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1">
@@ -87,7 +89,7 @@ export const ToolsSection: React.FC<SectionProps> = ({ draft, patch, canEdit, re
               {withoutMcpPrefix(name)}
             </span>
             {approval && (
-              <span title={approval.hint} className="shrink-0 text-[10px] text-neutral-600 dark:text-neutral-400">
+              <span title={approval.hint} className="shrink-0 text-[11px] text-neutral-600 dark:text-neutral-400">
                 · {approval.label}
               </span>
             )}
@@ -117,7 +119,7 @@ export const ToolsSection: React.FC<SectionProps> = ({ draft, patch, canEdit, re
           <span
             id={hintId}
             role="tooltip"
-            className="pointer-events-none absolute left-6 top-full z-20 mt-0.5 hidden w-72 max-w-[80vw] rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-[11px] leading-snug text-foreground shadow-lg group-hover:block group-has-[:focus-visible]:block"
+            className="pointer-events-none absolute left-6 top-full z-20 mt-0.5 hidden w-72 max-w-[80vw] rounded-md border border-border bg-surface-elevated px-2 py-1.5 text-[12px] leading-snug text-foreground shadow-lg group-hover:block group-has-[:focus-visible]:block"
           >
             {description}
           </span>
@@ -135,6 +137,7 @@ export const ToolsSection: React.FC<SectionProps> = ({ draft, patch, canEdit, re
           disabled={!canEdit}
           checked={allowAll}
           onChange={() => patch({ whitelisted_tools: allowAll ? ["file_read", "grep_search"] : ["*"] })}
+          className={CHECKBOX_CLASS}
         />
         Every tool, including ones added later
       </label>
@@ -214,6 +217,7 @@ export const ToolsSection: React.FC<SectionProps> = ({ draft, patch, canEdit, re
                     disabled={!canEdit}
                     checked={draft.skill_ids.includes(skill.id)}
                     onChange={() => patch({ skill_ids: toggle(draft.skill_ids, skill.id) })}
+                    className={CHECKBOX_CLASS}
                   />
                   {skill.title || skill.name}
                 </label>
@@ -231,6 +235,7 @@ export const ToolsSection: React.FC<SectionProps> = ({ draft, patch, canEdit, re
                     disabled={!canEdit}
                     checked={draft.knowledge_base_ids.includes(kb.id)}
                     onChange={() => patch({ knowledge_base_ids: toggle(draft.knowledge_base_ids, kb.id) })}
+                    className={CHECKBOX_CLASS}
                   />
                   {kb.name}
                 </label>

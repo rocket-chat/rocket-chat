@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /**
  * The deterministic E2E backend runs with `TEST_DATABASE_URL=""`, so durable memory is
@@ -8,7 +9,7 @@ import { test, expect } from "@playwright/test";
  */
 test.describe("Cockpit Memory Inspector", () => {
   test("lists long-term memories and forgets one", async ({ page, request }) => {
-    const createRes = await request.post("http://localhost:8000/v1/sessions", {
+    const createRes = await request.post(`${API_URL}/v1/sessions`, {
       data: { title: "Memory Inspector Mission" },
     });
     expect(createRes.ok()).toBeTruthy();

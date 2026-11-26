@@ -1,6 +1,6 @@
 import { test, expect, type Page, type WebSocketRoute } from "@playwright/test";
+import { API_URL } from "./support/env";
 
-const BACKEND = "http://localhost:8000";
 let stepCounter = 0;
 
 /** A long conversation, so the stream has something to scroll through. */
@@ -14,13 +14,13 @@ async function openLongSession(page: Page): Promise<WebSocketRoute> {
     socket = ws;
   });
 
-  const created = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title: "Scroll" } });
+  const created = await page.request.post(`${API_URL}/v1/sessions`, { data: { title: "Scroll" } });
   const sessionId = (await created.json()).session_id as string;
   const messages = Array.from({ length: 40 }, (_, i) => [
     { role: "user", content: `Question number ${i}` },
     { role: "assistant", content: `Answer number ${i}. ${"Some detail of the investigation. ".repeat(12)}` },
   ]).flat();
-  await page.request.post(`${BACKEND}/v1/dev/sessions/${sessionId}/transcript`, { data: { messages } });
+  await page.request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, { data: { messages } });
 
   await page.goto(`/chat/${sessionId}`);
   await expect(page.getByTestId("flight-log-stream")).toContainText("Answer number 39");

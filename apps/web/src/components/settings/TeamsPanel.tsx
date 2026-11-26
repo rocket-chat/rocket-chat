@@ -118,7 +118,7 @@ export const TeamsPanel: React.FC = () => {
                   <span className="truncate font-semibold text-foreground">{team.name}</span>
                   {team.my_role && <Badge tone={team.my_role === "admin" ? "brand" : "neutral"}>{team.my_role === "admin" ? "Team admin" : "Member"}</Badge>}
                 </span>
-                <span className="mt-0.5 block text-[11px] text-neutral-600 dark:text-neutral-400">
+                <span className="mt-0.5 block text-[12px] text-neutral-600 dark:text-neutral-400">
                   {team.member_count} {team.member_count === 1 ? "member" : "members"}
                 </span>
               </button>

@@ -3,10 +3,12 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AlertCircle, KeyRound, RefreshCw, Share2, Star, Trash2 } from "lucide-react";
 import { Field, Input, Select } from "../ui/Field";
+import { Button } from "../ui/Button";
 import { OwnerBadge, useMoveConfirmation } from "./Owner";
 import { useAccess } from "../../lib/access";
 import { useTeams } from "../../lib/teams";
 import { creatableOwners, ownerFields, ownerKey } from "../../lib/ownership";
+import { CHECKBOX_CLASS } from "../ui/checkbox";
 
 /** A stored credential as the API shows it: a fingerprint, never the secret. */
 export interface Credential {
@@ -243,27 +245,27 @@ export function CredentialsPanel({ mode, team }: CredentialsPanelProps) {
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-foreground">{credential.label}</span>
               {mode !== "user" && <OwnerBadge owned={credentialOwner(credential)} />}
-              <span className="rounded border border-surface-border px-1.5 py-0.5 text-[10px] text-neutral-500">
+              <span className="rounded border border-surface-border px-1.5 py-0.5 text-[11px] text-neutral-500">
                 {credential.provider}
               </span>
               <span className="font-mono text-neutral-500">{credential.fingerprint}</span>
               {credential.kind === "oauth" && (
-                <span className="rounded border border-surface-border px-1.5 py-0.5 text-[10px] text-neutral-500">Signed in</span>
+                <span className="rounded border border-surface-border px-1.5 py-0.5 text-[11px] text-neutral-500">Signed in</span>
               )}
               {credential.default_for_provider && (
-                <span className="inline-flex items-center gap-1 text-[10px] text-brand">
+                <span className="inline-flex items-center gap-1 text-[11px] text-brand">
                   <Star className="h-3 w-3" aria-hidden="true" /> Default
                 </span>
               )}
               {credential.restricted_to_agents && (
-                <span className="text-[10px] text-amber-600 dark:text-amber-400">Bound agents only</span>
+                <span className="text-[11px] text-amber-600 dark:text-amber-400">Bound agents only</span>
               )}
               <span className="ml-auto flex items-center gap-1">
                 {!credential.default_for_provider && !credential.restricted_to_agents && (
                   <button
                     type="button"
                     onClick={() => void patch(credential.id, { default_for_provider: true })}
-                    className="rounded px-1.5 py-0.5 text-[10px] text-neutral-500 hover:text-foreground"
+                    className="rounded px-1.5 py-0.5 text-[11px] text-neutral-500 hover:text-foreground"
                   >
                     Make default
                   </button>
@@ -277,7 +279,7 @@ export function CredentialsPanel({ mode, team }: CredentialsPanelProps) {
                         default_for_provider: credential.restricted_to_agents,
                       })
                     }
-                    className="rounded px-1.5 py-0.5 text-[10px] text-neutral-500 hover:text-foreground"
+                    className="rounded px-1.5 py-0.5 text-[11px] text-neutral-500 hover:text-foreground"
                   >
                     {credential.restricted_to_agents ? "Use for everyone" : "Restrict to bound agents"}
                   </button>
@@ -287,7 +289,7 @@ export function CredentialsPanel({ mode, team }: CredentialsPanelProps) {
                     type="button"
                     data-testid={`credential-move-${credential.id}`}
                     onClick={() => void move(credential)}
-                    className="rounded px-1.5 py-0.5 text-[10px] text-neutral-500 hover:text-foreground"
+                    className="rounded px-1.5 py-0.5 text-[11px] text-neutral-500 hover:text-foreground"
                   >
                     Move…
                   </button>
@@ -328,7 +330,7 @@ export function CredentialsPanel({ mode, team }: CredentialsPanelProps) {
               </div>
             )}
             {mode === "user" && agents.length > 0 && (
-              <fieldset className="flex flex-wrap items-center gap-3 text-[11px] text-neutral-600 dark:text-neutral-400">
+              <fieldset className="flex flex-wrap items-center gap-3 text-[12px] text-neutral-600 dark:text-neutral-400">
                 <legend className="mb-1 inline-flex items-center gap-1">
                   <Share2 className="h-3 w-3" aria-hidden="true" /> Shared with organization agents
                 </legend>
@@ -338,6 +340,7 @@ export function CredentialsPanel({ mode, team }: CredentialsPanelProps) {
                       type="checkbox"
                       checked={credential.shared_with_org_agents.includes(agent.id)}
                       onChange={(e) => toggleShare(credential, agent.id, e.target.checked)}
+                      className={CHECKBOX_CLASS}
                     />
                     {agent.name}
                   </label>
@@ -409,18 +412,14 @@ export function CredentialsPanel({ mode, team }: CredentialsPanelProps) {
         </Field>
         {sharedKeys && (
           <label className="flex items-center gap-2 text-xs text-foreground sm:col-span-2">
-            <input type="checkbox" checked={restricted} onChange={(e) => setRestricted(e.target.checked)} />
+            <input type="checkbox" checked={restricted} onChange={(e) => setRestricted(e.target.checked)} className={CHECKBOX_CLASS} />
             Only for the agents I bind it to (skipped for everything else)
           </label>
         )}
         <div className="sm:col-span-2">
-          <button
-            type="submit"
-            data-testid={`credential-save-${suffix}`}
-            className="rounded-lg bg-brand px-4 py-2 text-xs font-semibold text-white hover:bg-brand-hover"
-          >
+          <Button type="submit" variant="primary" size="sm" data-testid={`credential-save-${suffix}`}>
             Add key
-          </button>
+          </Button>
         </div>
       </form>
     </section>
@@ -463,16 +462,11 @@ function ProviderSignIn({ owner, onError }: { owner: "member" | "org"; onError: 
   return (
     <div className="flex flex-wrap items-center gap-2" data-testid="provider-sign-in">
       {providers.map((provider) => (
-        <button
-          key={provider.provider}
-          type="button"
-          onClick={() => signIn(provider.provider)}
-          className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-foreground hover:border-brand/50"
-        >
+        <Button key={provider.provider} variant="secondary" size="sm" onClick={() => signIn(provider.provider)}>
           Sign in with {provider.label}
-        </button>
+        </Button>
       ))}
-      <span className="text-[11px] text-neutral-500">Instead of pasting a key. Subscriptions such as Claude Pro or ChatGPT Plus cannot be used here: their providers do not allow it.</span>
+      <span className="text-[12px] text-neutral-500">Instead of pasting a key. Subscriptions such as Claude Pro or ChatGPT Plus cannot be used here: their providers do not allow it.</span>
     </div>
   );
 }

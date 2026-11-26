@@ -3,9 +3,8 @@
 import React from "react";
 import { Field, Input, Select } from "../../../../components/ui/Field";
 import { InheritanceBadge } from "../../../../components/settings/InheritanceBadge";
+import { CHECKBOX_CLASS } from "../../../../components/ui/checkbox";
 import type { BotEditorState } from "./useBotEditor";
-
-const CHECKBOX = "rounded border-border text-brand focus:ring-brand";
 
 const PrivateModeSettings: React.FC<{ editor: BotEditorState }> = ({ editor }) => {
   const { form, patch } = editor;
@@ -35,7 +34,7 @@ const PolicyOverrides: React.FC<{ editor: BotEditorState }> = ({ editor }) => {
         <span className="flex items-center gap-2">
           <InheritanceBadge provenance={{ source: overridden ? source : "org", locked_by: null }} presetNames={{ [source]: form.name || "this bot" }} />
           {overridden && (
-            <button type="button" onClick={() => patch({ policy: {} })} className="text-[10px] text-neutral-500 hover:text-foreground">
+            <button type="button" onClick={() => patch({ policy: {} })} className="text-[11px] text-neutral-500 hover:text-foreground">
               Use the organization&apos;s
             </button>
           )}
@@ -115,7 +114,7 @@ export const BehaviourTab: React.FC<{ editor: BotEditorState }> = ({ editor }) =
         <div className="space-y-3 rounded-lg border border-border bg-surface-subnav/30 p-3.5">
           <span className="text-xs font-semibold text-foreground">Triggers &amp; Channels</span>
           <label className="flex cursor-pointer items-center gap-2.5 text-xs text-foreground">
-            <input type="checkbox" checked={form.respondInDms} onChange={(e) => patch({ respondInDms: e.target.checked })} className={CHECKBOX} />
+            <input type="checkbox" checked={form.respondInDms} onChange={(e) => patch({ respondInDms: e.target.checked })} className={CHECKBOX_CLASS} />
             <span>Respond to direct messages (DMs) with this bot</span>
           </label>
           <Field

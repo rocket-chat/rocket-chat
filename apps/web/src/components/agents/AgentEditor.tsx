@@ -5,6 +5,7 @@ import { tabKeyHandler } from "../../lib/tab-keys";
 import { AlertCircle, CheckCircle2, Copy, Download, RotateCcw, Save, Upload } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useMissionStore } from "../../lib/store";
+import { CHECKBOX_CLASS } from "../ui/checkbox";
 import { fromMarkdown, toMarkdown, type AgentDraft } from "./draft";
 import type { AgentRegistries } from "./useAgentRegistries";
 import { IdentitySection } from "./sections/IdentitySection";
@@ -95,13 +96,20 @@ export const AgentEditor: React.FC<AgentEditorProps> = ({ canEdit, isAdmin, stor
           <h2 className="text-sm font-bold text-foreground" data-testid="agent-editor-title">
             {draft.name}
           </h2>
-          <span className="text-[10px] text-muted-foreground">
+          <span className="text-[11px] text-muted-foreground">
             {draft.kind === "subagent" ? "Subagent role" : draft.scope === "user" ? "Personal agent" : draft.scope === "team" ? "Team agent" : "Organization agent"} · {draft.id}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <label className="flex items-center gap-1.5 text-xs text-foreground">
-            <input type="checkbox" data-testid="agent-enabled" disabled={!canEdit} checked={draft.enabled} onChange={(e) => patch({ enabled: e.target.checked })} />
+            <input
+              type="checkbox"
+              data-testid="agent-enabled"
+              disabled={!canEdit}
+              checked={draft.enabled}
+              onChange={(e) => patch({ enabled: e.target.checked })}
+              className={CHECKBOX_CLASS}
+            />
             Enabled
           </label>
           <TestRunButton draft={draft} ready={stored && !dirty} />

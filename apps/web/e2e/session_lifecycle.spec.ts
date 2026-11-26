@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /**
  * Locates the user's own prompt bubble in the flight stream.
@@ -113,7 +114,7 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     // turn latency is model/sandbox bound (and can exceed a minute), so waiting
     // for one made this test flaky. UI-driven session creation is covered by the
     // lifecycle test above.
-    const createRes = await request.post("http://localhost:8000/v1/sessions", {
+    const createRes = await request.post(`${API_URL}/v1/sessions`, {
       data: { title: "Collaborative Session" },
     });
     expect(createRes.ok()).toBeTruthy();
@@ -179,7 +180,7 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     // 1. Create a session on backend pre-populated with thinking process and tool calls
     const testReasoning = `Plan phase: Validate AST integrity and sandbox boundaries ${Date.now()}`;
     const testOutput = "total 128 - rw-r--r-- sample.py";
-    const createRes = await request.post("http://localhost:8000/v1/sessions", {
+    const createRes = await request.post(`${API_URL}/v1/sessions`, {
       data: {
         title: "Reasoning Persistence Mission",
       },
@@ -190,7 +191,7 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
 
     // Patch session with conversation containing reasoning and tool calls
     const patchRes = await request.post(
-      `http://localhost:8000/v1/dev/sessions/${sessionId}/transcript`,
+      `${API_URL}/v1/dev/sessions/${sessionId}/transcript`,
       {
       data: {
         messages: [
@@ -241,7 +242,7 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     // 3. Leave the chat by navigating to settings
     await page.goto("/settings/github");
     await expect(page).toHaveURL("/settings/github");
-    await expect(page.getByText(/Git & version control/i).first()).toBeVisible();
+    await expect(page.getByText(/Git identity/i).first()).toBeVisible();
 
     // 4. Return to the chat session
     await page.goto(`/chat/${sessionId}`);
@@ -262,7 +263,7 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
     page,
     request,
   }) => {
-    const createRes = await request.post("http://localhost:8000/v1/sessions", {
+    const createRes = await request.post(`${API_URL}/v1/sessions`, {
       data: {
         title: "Step Preface Grouping Mission",
       },
@@ -277,7 +278,7 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
 
     // Seed session with an intermediate preface message before tool execution, followed by the final answer
     const patchRes = await request.post(
-      `http://localhost:8000/v1/dev/sessions/${sessionId}/transcript`,
+      `${API_URL}/v1/dev/sessions/${sessionId}/transcript`,
       {
         data: {
           messages: [
@@ -337,8 +338,8 @@ test.describe("Session Lifecycle, Multi-User Sync & Navigation Integrity", () =>
   test("an admin sees other members' sessions only on request, and CLEAR deletes only their own", async ({ page, request }) => {
     const mine = `Mission mine ${Date.now()}`;
     const theirs = `Mission of a teammate ${Date.now()}`;
-    await request.post("http://localhost:8000/v1/sessions", { data: { title: mine } });
-    const teammate = await request.post("http://localhost:8000/v1/sessions", {
+    await request.post(`${API_URL}/v1/sessions`, { data: { title: mine } });
+    const teammate = await request.post(`${API_URL}/v1/sessions`, {
       headers: { "X-Tenant-User-Id": "teammate_scope", "X-User-Role": "developer" },
       data: { title: theirs },
     });

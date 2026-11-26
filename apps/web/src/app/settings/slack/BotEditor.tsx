@@ -39,7 +39,7 @@ export function BotEditor({ bot, agentOptions, onClose, onSaved }: BotEditorProp
       data-testid="slack-bot-editor"
     >
       <div className="relative flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-surface-card shadow-2xl">
-        <div className="flex items-center justify-between border-b border-border/70 bg-surface-subnav/50 px-6 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-border/70 bg-surface-subnav/50 px-6 py-4">
           <div>
             <h2 id="bot-editor-title" className="flex items-center gap-2 text-base font-semibold text-foreground">
               <Cpu className="h-4 w-4 text-brand" aria-hidden="true" />
@@ -52,7 +52,7 @@ export function BotEditor({ bot, agentOptions, onClose, onSaved }: BotEditorProp
           </button>
         </div>
 
-        <div role="tablist" aria-label="Bot settings" className="flex gap-2 overflow-x-auto border-b border-border bg-surface-subnav/20 px-6 text-xs">
+        <div role="tablist" aria-label="Bot settings" className="flex shrink-0 gap-2 overflow-x-auto border-b border-border bg-surface-subnav/20 px-6 text-xs">
           {tabs.map((t) => (
             <button
               key={t.id}
@@ -87,7 +87,7 @@ export function BotEditor({ bot, agentOptions, onClose, onSaved }: BotEditorProp
           {tab === "activity" && bot && <ActivityTab botId={bot.id} />}
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-border/70 bg-surface-subnav/50 px-6 py-3">
+        <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border/70 bg-surface-subnav/50 px-6 py-3">
           <button type="button" onClick={onClose} className="rounded-lg border border-border px-4 py-2 text-xs text-foreground hover:bg-surface-elevated">
             Cancel
           </button>

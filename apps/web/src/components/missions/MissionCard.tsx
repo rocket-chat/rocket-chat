@@ -6,6 +6,7 @@ import { History, KeyRound, Pencil, Play, Trash2 } from "lucide-react";
 import { Badge, type BadgeTone } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
+import { CHECKBOX_CLASS } from "../ui/checkbox";
 import { OwnerBadge } from "../settings/Owner";
 import { deliveryLabel, scheduleLabel, sourceLabel, triggerLabel, type Mission, type MissionRun } from "../../lib/missions";
 
@@ -137,7 +138,7 @@ export const MissionCard: React.FC<MissionCardProps> = ({ mission, onToggle, onR
             )}
           </p>
           {mission.inbound_path && (
-            <p className="truncate font-mono text-[11px] text-neutral-600 dark:text-neutral-400" data-testid="mission-inbound-path">
+            <p className="truncate font-mono text-[12px] text-neutral-600 dark:text-neutral-400" data-testid="mission-inbound-path">
               Webhook: POST {mission.inbound_path}
             </p>
           )}
@@ -145,7 +146,13 @@ export const MissionCard: React.FC<MissionCardProps> = ({ mission, onToggle, onR
         <div className="flex shrink-0 flex-wrap items-center gap-1">
           {mission.can_manage && (
             <label className="mr-1 inline-flex items-center gap-1.5 text-xs text-foreground">
-              <input type="checkbox" data-testid="mission-toggle" checked={mission.enabled} onChange={() => onToggle(mission)} />
+              <input
+                type="checkbox"
+                data-testid="mission-toggle"
+                checked={mission.enabled}
+                onChange={() => onToggle(mission)}
+                className={CHECKBOX_CLASS}
+              />
               On
             </label>
           )}

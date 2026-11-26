@@ -1,5 +1,6 @@
 import React from "react";
 import { cn } from "./cn";
+import { PAGE_MAX_WIDTH } from "./pageWidth";
 
 interface PageHeaderProps {
   title: string;
@@ -18,7 +19,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, description, icon
         <span className="truncate">{title}</span>
       </h1>
       {description && (
-        <p className="max-w-2xl text-sm leading-relaxed text-neutral-600 dark:text-neutral-400">{description}</p>
+        <p className="max-w-2xl text-sm leading-snug text-neutral-600 dark:text-neutral-400">{description}</p>
       )}
     </div>
     {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
@@ -31,7 +32,7 @@ export const PageBody: React.FC<{ children: React.ReactNode; wide?: boolean; cla
   wide,
   className,
 }) => (
-  <div className={cn("mx-auto w-full px-4 py-8 sm:px-8", wide ? "max-w-6xl" : "max-w-3xl", className)}>
+  <div className={cn("mx-auto w-full px-4 py-8 sm:px-8", wide ? PAGE_MAX_WIDTH.wide : PAGE_MAX_WIDTH.normal, className)}>
     {children}
   </div>
 );

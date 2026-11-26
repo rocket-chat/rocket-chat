@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 test.describe("Long Session UI & Virtualization", () => {
   test("renders 2000-step transcript with first paint < 2s and verifies cards & subagents", async ({
@@ -6,7 +7,7 @@ test.describe("Long Session UI & Virtualization", () => {
     request,
   }) => {
     // 1. Create a session
-    const createRes = await request.post("http://localhost:8000/v1/sessions", {
+    const createRes = await request.post(`${API_URL}/v1/sessions`, {
       data: { title: "2000 Step Benchmark Mission" },
     });
     expect(createRes.ok()).toBeTruthy();
@@ -45,7 +46,7 @@ test.describe("Long Session UI & Virtualization", () => {
     }
 
     // Seed into session history via dev route
-    await request.post(`http://localhost:8000/v1/dev/sessions/${sessionId}/transcript`, {
+    await request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, {
       data: { messages },
     });
 
@@ -143,14 +144,14 @@ test.describe("Long Session UI & Virtualization", () => {
 test.describe("Streaming into a long conversation", () => {
   test("2,000 streamed tokens keep the page responsive", async ({ page, request }) => {
     const { routeSessionSocket } = await import("./support/session-socket");
-    const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Streaming benchmark" } });
+    const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Streaming benchmark" } });
     const sessionId: string = (await created.json()).session_id;
     const messages: Array<{ role: string; content: string }> = [{ role: "user", content: "Start" }];
     for (let i = 0; i < 400; i++) {
       messages.push({ role: "assistant", content: `Answer ${i}: **done** with \`code\` and a [link](https://example.com).` });
       messages.push({ role: "user", content: `Next ${i}` });
     }
-    await request.post(`http://localhost:8000/v1/dev/sessions/${sessionId}/transcript`, { data: { messages } });
+    await request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, { data: { messages } });
     const socket = await routeSessionSocket(page, sessionId);
     await page.goto(`/chat/${sessionId}`);
     await socket.ready;

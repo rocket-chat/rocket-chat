@@ -1,7 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { routeSessionSocket } from "./support/session-socket";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 // What a real compaction summary looks like: sections, nested lists, a few thousand characters.
 const SUMMARY = [
@@ -17,7 +16,7 @@ const SUMMARY = [
 
 test.describe("Compaction card", () => {
   test("shows what happened in one line and folds the long summary away", async ({ page, request }) => {
-    const created = await request.post(`${API}/v1/sessions`, { data: { title: "Compaction" } });
+    const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Compaction" } });
     const sessionId: string = (await created.json()).session_id;
     const socket = await routeSessionSocket(page, sessionId);
     await page.setViewportSize({ width: 1280, height: 800 });
@@ -60,7 +59,7 @@ test.describe("Compaction card", () => {
   });
 
   test("says when the summary had to be rebuilt from the tool history", async ({ page, request }) => {
-    const created = await request.post(`${API}/v1/sessions`, { data: { title: "Digest" } });
+    const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Digest" } });
     const sessionId: string = (await created.json()).session_id;
     const socket = await routeSessionSocket(page, sessionId);
 
@@ -81,7 +80,7 @@ test.describe("Compaction card", () => {
   });
 
   test("a message that merely mentions compaction is not shown as one", async ({ page, request }) => {
-    const created = await request.post(`${API}/v1/sessions`, { data: { title: "Not a compaction" } });
+    const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Not a compaction" } });
     const sessionId: string = (await created.json()).session_id;
     const socket = await routeSessionSocket(page, sessionId);
 

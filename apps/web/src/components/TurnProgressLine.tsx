@@ -45,7 +45,7 @@ export const TurnProgressLine: React.FC<{ now: number }> = ({ now }) => {
   if (binding?.model) parts.push(binding.model.split("/").pop() || binding.model);
 
   return (
-    <div data-testid="turn-progress" className="truncate font-mono text-[11px] text-neutral-500 dark:text-neutral-400">
+    <div data-testid="turn-progress" className="truncate font-mono text-[12px] text-neutral-500 dark:text-neutral-400">
       {parts.join(" · ")}
     </div>
   );

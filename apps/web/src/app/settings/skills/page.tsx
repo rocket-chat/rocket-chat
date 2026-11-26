@@ -2,7 +2,7 @@
 
 import { Button } from "../../../components/ui/Button";
 import { useConfirm } from "../../../components/ui/ConfirmDialog";
-import { PageHeader } from "../../../components/ui/PageHeader";
+import { SettingsPage } from "../../../components/settings/SettingsPage";
 
 import { Field, Input, Textarea } from "../../../components/ui/Field";
 import React, { useState, useEffect, useCallback, useRef } from "react";
@@ -275,11 +275,11 @@ export default function SkillsSettingsPage() {
                 <OwnerBadge owned={skill} />
                 {skill.source && <SkillSourceBadge source={skill.source} />}
                 {skill.is_active === false && (
-                  <span className="text-[10px] text-muted-foreground">inactive</span>
+                  <span className="text-[11px] text-muted-foreground">inactive</span>
                 )}
               </div>
               {skill.description && (
-                <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                <p className="text-[12px] text-muted-foreground truncate mt-0.5">
                   {skill.description}
                 </p>
               )}
@@ -323,7 +323,7 @@ export default function SkillsSettingsPage() {
 
         {isExpanded && (
           <div className="px-4 py-3 border-t border-border bg-surface/40 space-y-2">
-            <div className="text-[10px] text-muted-foreground font-semibold flex items-center gap-1.5">
+            <div className="text-[11px] text-muted-foreground font-semibold flex items-center gap-1.5">
               <BookOpen className="w-3 h-3 text-brand" />
               <span>Skill Prompt Instructions:</span>
             </div>
@@ -337,16 +337,14 @@ export default function SkillsSettingsPage() {
   };
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 px-4 py-8 sm:px-8">
+    <SettingsPage
+      section="Build"
+      title="Skills"
+      icon={<Code2 className="h-5 w-5" aria-hidden="true" />}
+      description="Prompt-based guidelines and procedural knowledge injected into autonomous agents."
+    >
       {confirmDialog}
       {moveDialog}
-      {/* Header */}
-      <PageHeader
-        title="Skills &amp; tools"
-        icon={<Code2 className="h-5 w-5" aria-hidden="true" />}
-        description="Prompt-based guidelines and procedural knowledge injected into autonomous agents."
-      />
-
       <StarterSkillsPanel isAdmin={isAdmin} />
 
       {errorBanner && (
@@ -375,7 +373,7 @@ export default function SkillsSettingsPage() {
               <span className="text-xs font-bold text-brand">
                 {editingSource ? "PROPOSE A CHANGE" : editingSkillId ? "EDIT SKILL" : "ADD NEW SKILL"}
               </span>
-              <span className="px-1.5 py-0.5 rounded-lg text-[9px] bg-brand/10 text-brand border border-brand/20">
+              <span className="px-1.5 py-0.5 rounded-lg text-[10px] bg-brand/10 text-brand border border-brand/20">
                 {formOwner === "org" ? "Organization Scope" : formOwner === "me" ? "Personal Scope" : `Team · ${ownerLabel(formOwner, teams)}`}
               </span>
             </div>
@@ -400,7 +398,7 @@ onClick={() => { setShowAddForm(false); setEditingSkillId(null); }}
           )}
 
           {editingSource && (
-            <p className="rounded-lg border border-cyan/30 bg-cyan/5 p-3 text-[11px] text-foreground" data-testid="skill-source-edit-note">
+            <p className="rounded-lg border border-cyan/30 bg-cyan/5 p-3 text-[12px] text-foreground" data-testid="skill-source-edit-note">
               This skill follows {editingSource.repository} ({editingSource.ref}). Your change is proposed as a pull request
               on the repository, opened with your linked GitHub account; the skill changes here once it is merged.
             </p>
@@ -413,7 +411,7 @@ onClick={() => { setShowAddForm(false); setEditingSkillId(null); }}
             </>
           ) : (
           <>
-          <label className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
             <span>Have a SKILL.md already?</span>
             <input
               type="file"
@@ -423,7 +421,7 @@ onClick={() => { setShowAddForm(false); setEditingSkillId(null); }}
                 void handleImportSkillFile(e.target.files?.[0]);
                 e.target.value = "";
               }}
-              className="text-[11px]"
+              className="text-[12px]"
             />
           </label>
 
@@ -543,6 +541,6 @@ onClick={() => { setShowAddForm(false); setEditingSkillId(null); }}
           </OrgScopeSection>
         </>
       )}
-    </div>
+    </SettingsPage>
   );
 }

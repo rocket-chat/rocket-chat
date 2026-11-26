@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Keyboard } from "lucide-react";
+import { Kbd } from "../ui/Kbd";
 
 const SEEN_KEY = "rocket.composerHintsSeen";
 
@@ -62,8 +63,14 @@ export const ComposerHints: React.FC = () => {
           <p className="mb-2 text-xs font-medium text-foreground">Shortcuts</p>
           <dl className="space-y-1.5">
             {HINTS.map(([keys, what]) => (
-              <div key={keys} className="flex items-baseline justify-between gap-3 text-[11px]">
-                <dt><kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-foreground">{keys}</kbd></dt>
+              <div key={keys} className="flex items-baseline justify-between gap-3 text-[12px]">
+                <dt>
+                  {/[⌘⇧⌥⌃⏎]/.test(keys) ? (
+                    <Kbd keys={keys} className="bg-transparent py-0.5 text-foreground" />
+                  ) : (
+                    <kbd className="rounded border border-border px-1.5 py-0.5 font-mono text-[11px] text-foreground">{keys}</kbd>
+                  )}
+                </dt>
                 <dd className="text-right text-muted-foreground">{what}</dd>
               </div>
             ))}

@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { routeSessionSocket } from "./support/session-socket";
+import { API_URL } from "./support/env";
 
 /**
  * While a turn runs, the composer sends the message to it instead of waiting: the message waits
@@ -7,7 +8,7 @@ import { routeSessionSocket } from "./support/session-socket";
  * conversation where the agent read it, once; the running turn is left as it is.
  */
 test("a message sent while the agent works steers the running turn", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", {
+  const created = await request.post(`${API_URL}/v1/sessions`, {
     data: { title: "Steering Mission" },
   });
   const sessionId: string = (await created.json()).session_id;

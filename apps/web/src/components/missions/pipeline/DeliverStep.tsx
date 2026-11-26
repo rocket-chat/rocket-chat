@@ -6,6 +6,7 @@ import { Field, Input, Select, Textarea } from "../../ui/Field";
 import { DELIVERY_OPTIONS, blankDelivery, parseOutputSchema, type DeliveryKind, type MissionDelivery } from "../../../lib/missions";
 import { Tile, TileGroup } from "./Tile";
 import type { Named } from "./AgentStep";
+import { CHECKBOX_CLASS } from "../../ui/checkbox";
 
 const DELIVERY_ICONS: Record<string, LucideIcon> = {
   pull_request: GitPullRequest,
@@ -43,6 +44,7 @@ const DeliveryFields: React.FC<{
             data-testid={`mission-delivery-optional-${delivery.kind}`}
             checked={delivery.optional}
             onChange={(e) => onChange({ ...delivery, optional: e.target.checked })}
+            className={CHECKBOX_CLASS}
           />
           Optional
         </label>

@@ -41,7 +41,7 @@ function titleOf(owner: OwnerKey, editing?: McpServerConfig): string {
 }
 
 const StepList: React.FC<{ form: McpServerFormState }> = ({ form }) => (
-  <ol aria-label="Steps" className="flex flex-wrap gap-2 text-[11px]">
+  <ol aria-label="Steps" className="flex flex-wrap gap-2 text-[12px]">
     {form.steps.map((name, index) => (
       <li key={name}>
         <button

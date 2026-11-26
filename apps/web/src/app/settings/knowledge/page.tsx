@@ -2,7 +2,7 @@
 
 import { Button } from "../../../components/ui/Button";
 import { useConfirm } from "../../../components/ui/ConfirmDialog";
-import { PageHeader } from "../../../components/ui/PageHeader";
+import { SettingsPage } from "../../../components/settings/SettingsPage";
 
 import { Field, Input } from "../../../components/ui/Field";
 import React, { useState, useEffect, useCallback } from "react";
@@ -230,13 +230,13 @@ export default function KnowledgeSettingsPage() {
             <span className="text-xs font-semibold text-foreground truncate">
               {kb.name}
             </span>
-            <span className="px-1.5 py-0.2 rounded-lg text-[9px] bg-surface border border-border text-neutral-400">
+            <span className="px-1.5 py-0.2 rounded-lg text-[10px] bg-surface border border-border text-neutral-400">
               {kb.documents_count ?? 0} docs
             </span>
             <OwnerBadge owned={kb} />
           </div>
           {kb.description && (
-            <p className="text-[10px] text-muted-foreground truncate mt-0.5">
+            <p className="text-[11px] text-muted-foreground truncate mt-0.5">
               {kb.description}
             </p>
           )}
@@ -268,16 +268,14 @@ export default function KnowledgeSettingsPage() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 px-4 py-8 sm:px-8">
+    <SettingsPage
+      section="Build"
+      title="Knowledge bases"
+      icon={<Database className="h-5 w-5" aria-hidden="true" />}
+      description="Personal and organization vector collections, document ingestion, and hybrid dense-sparse retrieval."
+    >
       {confirmDialog}
       {moveDialog}
-      {/* Page Header */}
-      <PageHeader
-        title="Knowledge bases"
-        icon={<Database className="h-5 w-5" aria-hidden="true" />}
-        description="Personal and organization vector collections, document ingestion, and hybrid dense-sparse retrieval."
-      />
-
       {errorBanner && (
         <div className="flex items-center gap-2 p-3.5 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-400 text-xs">
           <AlertCircle className="w-4 h-4 shrink-0" />
@@ -397,7 +395,7 @@ export default function KnowledgeSettingsPage() {
 
               {/* Live Search & Hybrid Test */}
               <div className="space-y-3">
-                <div className="text-[10px] text-muted-foreground font-semibold">
+                <div className="text-[11px] text-muted-foreground font-semibold">
                   Test Retrieval & Similarity Search:
                 </div>
                 <div className="flex gap-2">
@@ -424,7 +422,7 @@ export default function KnowledgeSettingsPage() {
 
                 {searchResults.length > 0 && (
                   <div className="space-y-2 pt-2">
-                    <div className="text-[10px] text-muted-foreground font-semibold">
+                    <div className="text-[11px] text-muted-foreground font-semibold">
                       Matching Vector Chunks ({searchResults.length}):
                     </div>
                     {searchResults.map((res) => (
@@ -434,11 +432,11 @@ export default function KnowledgeSettingsPage() {
                       >
                         <div className="flex items-center justify-between">
                           <span className="font-semibold text-brand">{res.title}</span>
-                          <span className="text-[10px] text-cyan">
+                          <span className="text-[11px] text-cyan">
                             Score: {(res.score * 100).toFixed(1)}%
                           </span>
                         </div>
-                        <p className="text-[11px] text-neutral-300 whitespace-pre-wrap leading-relaxed">
+                        <p className="text-[12px] text-neutral-300 whitespace-pre-wrap leading-relaxed">
                           {res.content}
                         </p>
                       </div>
@@ -475,7 +473,7 @@ export default function KnowledgeSettingsPage() {
             <form onSubmit={handleCreateKb} className="space-y-3">
               <OwnerSelect testId="knowledge-owner" value={createOwner} options={sections.creatable} onChange={setCreateOwner} />
               {editingKb && (
-                <p className="text-[11px] text-neutral-600 dark:text-neutral-400">
+                <p className="text-[12px] text-neutral-600 dark:text-neutral-400">
                   Another owner moves the collection with its documents.
                 </p>
               )}
@@ -536,6 +534,6 @@ export default function KnowledgeSettingsPage() {
           }}
         />
       )}
-    </div>
+    </SettingsPage>
   );
 }

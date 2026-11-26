@@ -32,7 +32,7 @@ export const SkillSourceNotice: React.FC<{ source: SkillSource }> = ({ source })
   return (
     <p
       data-testid="skill-source-notice"
-      className="flex items-start gap-1.5 text-[11px] text-amber-700 dark:text-amber-400"
+      className="flex items-start gap-1.5 text-[12px] text-amber-700 dark:text-amber-400"
     >
       <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" aria-hidden="true" />
       <span>

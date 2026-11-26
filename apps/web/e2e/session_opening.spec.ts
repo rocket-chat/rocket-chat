@@ -1,14 +1,13 @@
 import { test, expect, type Page, type WebSocketRoute } from "@playwright/test";
-
-const BACKEND = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 async function seededSession(page: Page, title: string, prompt: string): Promise<{ id: string; record: object }> {
-  const created = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title } });
+  const created = await page.request.post(`${API_URL}/v1/sessions`, { data: { title } });
   const id = (await created.json()).session_id as string;
-  await page.request.post(`${BACKEND}/v1/dev/sessions/${id}/transcript`, {
+  await page.request.post(`${API_URL}/v1/dev/sessions/${id}/transcript`, {
     data: { messages: [{ role: "user", content: prompt }] },
   });
-  const record = await (await page.request.get(`${BACKEND}/v1/sessions/${id}`)).json();
+  const record = await (await page.request.get(`${API_URL}/v1/sessions/${id}`)).json();
   return { id, record };
 }
 
@@ -159,13 +158,13 @@ test("a running group stays open between one thought and the next", async ({ pag
 });
 
 async function longSession(page: Page, title: string, marker: string): Promise<string> {
-  const created = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title } });
+  const created = await page.request.post(`${API_URL}/v1/sessions`, { data: { title } });
   const id = (await created.json()).session_id as string;
   const messages = Array.from({ length: 130 }, (_, i) => [
     { role: "user", content: `${marker} question ${i}` },
     { role: "assistant", content: `${marker} answer ${i}\n\n\`\`\`\nline one\nline two\nline three\n\`\`\`` },
   ]).flat();
-  await page.request.post(`${BACKEND}/v1/dev/sessions/${id}/transcript`, { data: { messages } });
+  await page.request.post(`${API_URL}/v1/dev/sessions/${id}/transcript`, { data: { messages } });
   return id;
 }
 

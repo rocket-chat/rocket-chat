@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /**
  * Artifacts are shown the way their type calls for, and an artifact the agent updates offers its
@@ -47,7 +48,7 @@ async function stubArtifacts(page: Page, sessionId: string): Promise<void> {
 }
 
 test("each artifact type is shown the way it should be", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Artifacts Mission" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Artifacts Mission" } });
   expect(created.ok()).toBeTruthy();
   const sessionId: string = (await created.json()).session_id;
   await stubArtifacts(page, sessionId);
@@ -77,7 +78,7 @@ test("each artifact type is shown the way it should be", async ({ page, request 
 });
 
 test("an updated artifact offers its earlier versions", async ({ page, request }) => {
-  const created = await request.post("http://localhost:8000/v1/sessions", { data: { title: "Versions Mission" } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title: "Versions Mission" } });
   const sessionId: string = (await created.json()).session_id;
   await stubArtifacts(page, sessionId);
 

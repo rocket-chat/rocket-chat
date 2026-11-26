@@ -11,6 +11,7 @@ export default function Page() {
     <SettingsPage
       section="Governance"
       title="Automation"
+      icon={<Workflow className="h-5 w-5" aria-hidden="true" />}
       description="Where the organization's outcomes are reported, whatever started them."
     >
       <p

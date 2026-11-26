@@ -1,4 +1,5 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 /**
  * Session listing ergonomics and forking.
@@ -8,13 +9,11 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
  * Sessions are created over REST so a test never depends on turn latency.
  */
 
-const BACKEND = "http://localhost:8000";
-
 async function createSession(
   request: APIRequestContext,
   data: Record<string, unknown>
 ): Promise<string> {
-  const res = await request.post(`${BACKEND}/v1/sessions`, { data });
+  const res = await request.post(`${API_URL}/v1/sessions`, { data });
   expect(res.ok()).toBeTruthy();
   return (await res.json()).session_id as string;
 }
@@ -61,7 +60,7 @@ test.describe("Session fork, pin and archive", () => {
 
     // Other specs keep creating sessions, so the row can sit beyond the first page; ask the
     // API for it by title instead of paging the sidebar.
-    const listing = await request.get(`${BACKEND}/v1/sessions`, { params: { archived: "true", q: title } });
+    const listing = await request.get(`${API_URL}/v1/sessions`, { params: { archived: "true", q: title } });
     expect(listing.ok()).toBeTruthy();
     const found = (await listing.json()) as Array<{ session_id: string; is_archived: boolean }>;
     expect(found.find((item) => item.session_id === sessionId)?.is_archived).toBe(true);
@@ -69,7 +68,7 @@ test.describe("Session fork, pin and archive", () => {
 
   test("a fork appears with its own URL and fork relationship", async ({ page, request }) => {
     const parentId = await createSession(request, { title: `Fork Parent ${Date.now()}` });
-    const patch = await request.post(`${BACKEND}/v1/dev/sessions/${parentId}/transcript`, {
+    const patch = await request.post(`${API_URL}/v1/dev/sessions/${parentId}/transcript`, {
       data: {
         messages: [
           { role: "user", content: "Branch this conversation" },

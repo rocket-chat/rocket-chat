@@ -1,6 +1,5 @@
 import { test, expect, type WebSocketRoute } from "@playwright/test";
-
-const BACKEND = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 /** The live view keeps reconnecting after an outage, says so meanwhile, and resumes the stream. */
 test("a dropped live connection shows a banner and resumes when the network is back", async ({ page }) => {
@@ -23,7 +22,7 @@ test("a dropped live connection shows a banner and resumes when the network is b
     live.push(ws);
   });
 
-  const created = await page.request.post(`${BACKEND}/v1/sessions`, { data: { title: "Reconnect" } });
+  const created = await page.request.post(`${API_URL}/v1/sessions`, { data: { title: "Reconnect" } });
   const sessionId = (await created.json()).session_id as string;
   await page.goto(`/chat/${sessionId}`);
   // A routed socket is not yet an open one, and the banner only follows a connection the page

@@ -1,5 +1,6 @@
 import { test, expect, type APIRequestContext, type Page } from "@playwright/test";
 import path from "node:path";
+import { API_URL } from "../support/env";
 
 /**
  * The README's and the launch posts' images, in doc/assets/showcase, from a deterministic stack
@@ -9,7 +10,6 @@ import path from "node:path";
  */
 test.skip(!process.env.DOCS_SCREENSHOTS, "Only runs when regenerating the documentation images");
 
-const BACKEND = "http://localhost:8000";
 const OUT = path.resolve(__dirname, "../../../../doc/assets/showcase");
 const PERMALINK = "https://acme.slack.com/archives/C123/p1700000000000100";
 
@@ -27,7 +27,7 @@ test.beforeEach(async ({ page }) => {
 
 const seeded: string[] = [];
 test.afterEach(async ({ request }) => {
-  for (const id of seeded.splice(0)) await request.delete(`${BACKEND}/v1/sessions/${id}`);
+  for (const id of seeded.splice(0)) await request.delete(`${API_URL}/v1/sessions/${id}`);
 });
 
 const FIX = {
@@ -54,10 +54,10 @@ const FIX = {
 };
 
 async function seed(request: APIRequestContext, title: string, messages: unknown[]): Promise<string> {
-  const created = await request.post(`${BACKEND}/v1/sessions`, { data: { title } });
+  const created = await request.post(`${API_URL}/v1/sessions`, { data: { title } });
   const { session_id: sessionId } = await created.json();
   seeded.push(sessionId);
-  await request.post(`${BACKEND}/v1/dev/sessions/${sessionId}/transcript`, { data: { messages } });
+  await request.post(`${API_URL}/v1/dev/sessions/${sessionId}/transcript`, { data: { messages } });
   return sessionId as string;
 }
 

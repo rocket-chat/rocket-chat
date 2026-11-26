@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { AlertCircle, Copy, Plus, Trash2 } from "lucide-react";
 import { Field, Input } from "../ui/Field";
+import { CHECKBOX_CLASS } from "../ui/checkbox";
 
 interface Webhook {
   id: string;
@@ -110,7 +111,7 @@ export const OutboundWebhooksPanel: React.FC = () => {
           <legend className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Events</legend>
           {EVENTS.map((option) => (
             <label key={option.value} className="flex items-center gap-2 text-xs text-foreground">
-              <input type="checkbox" checked={events.includes(option.value)} onChange={() => toggleEvent(option.value)} />
+              <input type="checkbox" checked={events.includes(option.value)} onChange={() => toggleEvent(option.value)} className={CHECKBOX_CLASS} />
               {option.label} <code className="text-muted-foreground">{option.value}</code>
             </label>
           ))}

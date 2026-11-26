@@ -80,7 +80,7 @@ export const TranscriptSearchResults: React.FC<{ sessionId: string | null; query
       <ul className="space-y-1">
         {shown.map((match) => (
           <li key={match.index} className="rounded bg-surface-base px-2 py-1 text-foreground">
-            <span className="mr-1 text-[10px] uppercase text-neutral-600 dark:text-neutral-400">{match.role}</span>
+            <span className="mr-1 text-[11px] uppercase text-neutral-600 dark:text-neutral-400">{match.role}</span>
             {match.excerpt.slice(0, match.match_start)}
             <mark className="rounded bg-amber-300/70 px-0.5 text-foreground dark:bg-amber-500/40">
               {match.excerpt.slice(match.match_start, match.match_start + match.match_length)}

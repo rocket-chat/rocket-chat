@@ -3,6 +3,7 @@
 import React from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "../../ui/Button";
+import { CHECKBOX_CLASS } from "../../ui/checkbox";
 
 export interface EnvRow {
   name: string;
@@ -30,7 +31,7 @@ export const EnvEditor: React.FC<EnvEditorProps> = ({ rows, onChange }) => {
   return (
     <div data-testid="env-editor" className="space-y-2 rounded-lg border border-border bg-surface-card p-3">
       <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Environment variables</div>
-      <p className="text-[11px] text-neutral-500">
+      <p className="text-[12px] text-neutral-500">
         Tick <em>Members can set their own</em> for a credential each person should provide themselves (for example
         their own API key). Leave its value empty to require it; fill it in to give members a default.
       </p>
@@ -58,15 +59,21 @@ export const EnvEditor: React.FC<EnvEditorProps> = ({ rows, onChange }) => {
             value={row.value}
             onChange={(e) => update(index, { value: e.target.value })}
           />
-          <label className="flex cursor-pointer items-center gap-1 text-[11px] text-neutral-600 dark:text-neutral-300">
-            <input type="checkbox" checked={row.is_secret} onChange={(e) => update(index, { is_secret: e.target.checked })} />
+          <label className="flex cursor-pointer items-center gap-1 text-[12px] text-neutral-600 dark:text-neutral-300">
+            <input
+              type="checkbox"
+              checked={row.is_secret}
+              onChange={(e) => update(index, { is_secret: e.target.checked })}
+              className={CHECKBOX_CLASS}
+            />
             Secret
           </label>
-          <label className="flex cursor-pointer items-center gap-1 text-[11px] text-neutral-600 dark:text-neutral-300">
+          <label className="flex cursor-pointer items-center gap-1 text-[12px] text-neutral-600 dark:text-neutral-300">
             <input
               type="checkbox"
               checked={row.member_override}
               onChange={(e) => update(index, { member_override: e.target.checked })}
+              className={CHECKBOX_CLASS}
             />
             Members can set their own
           </label>
@@ -75,7 +82,7 @@ export const EnvEditor: React.FC<EnvEditorProps> = ({ rows, onChange }) => {
               type="button"
               aria-label={`Clear the stored value of variable ${index + 1}`}
               onClick={() => update(index, { stored: false, value: "" })}
-              className="text-[11px] text-neutral-500 hover:text-rose-400"
+              className="text-[12px] text-neutral-500 hover:text-rose-400"
             >
               Clear
             </button>

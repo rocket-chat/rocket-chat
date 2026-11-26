@@ -1,6 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-
-const API = "http://localhost:8000";
+import { API_URL } from "./support/env";
 
 interface StoredServer {
   id: string;
@@ -13,21 +12,21 @@ interface StoredServer {
 }
 
 async function storedServer(page: Page, name: string): Promise<StoredServer> {
-  const servers: StoredServer[] = await (await page.request.get(`${API}/v1/mcp/servers`)).json();
+  const servers: StoredServer[] = await (await page.request.get(`${API_URL}/v1/mcp/servers`)).json();
   return servers.find((s) => s.name === name)!;
 }
 
 async function remove(page: Page, name: string): Promise<void> {
-  const servers: StoredServer[] = await (await page.request.get(`${API}/v1/mcp/servers`)).json();
+  const servers: StoredServer[] = await (await page.request.get(`${API_URL}/v1/mcp/servers`)).json();
   for (const server of servers.filter((s) => s.name === name)) {
-    await page.request.delete(`${API}/v1/mcp/servers/${server.id}`);
+    await page.request.delete(`${API_URL}/v1/mcp/servers/${server.id}`);
   }
 }
 
 test.describe("Editing remote MCP servers", () => {
   test("an organization server with an API key is edited without retyping the key", async ({ page }) => {
     const name = `E2E Remote ${Date.now()}`;
-    const created = await page.request.post(`${API}/v1/mcp/servers`, {
+    const created = await page.request.post(`${API_URL}/v1/mcp/servers`, {
       data: {
         name,
         transport: "http",
@@ -63,7 +62,7 @@ test.describe("Editing remote MCP servers", () => {
 
   test("a personal OAuth server keeps its client when its scopes change", async ({ page }) => {
     const name = `E2E Personal ${Date.now()}`;
-    const created = await page.request.post(`${API}/v1/mcp/servers`, {
+    const created = await page.request.post(`${API_URL}/v1/mcp/servers`, {
       data: {
         name,
         transport: "http",

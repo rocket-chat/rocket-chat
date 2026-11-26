@@ -8,6 +8,8 @@ import { useMissionStore } from "../../lib/store";
 import { hasCapability, useAccess } from "../../lib/access";
 import { useTeams } from "../../lib/teams";
 import { useOwnerFilter } from "../../lib/useOwnerFilter";
+import { Badge } from "../ui/Badge";
+import { Button } from "../ui/Button";
 import {
   canManageOwner,
   creatableOwners,
@@ -159,15 +161,16 @@ export const AgentsManager: React.FC = () => {
             ))}
           </div>
         )}
-        <button
-          type="button"
+        <Button
+          variant="dashed"
+          size="sm"
+          fullWidth
           onClick={create}
           disabled={kind === "subagent" ? !access.isAdmin : !startOwner}
           data-testid="agent-new"
-          className="flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-border py-2 text-xs text-foreground hover:bg-surface-elevated disabled:opacity-50"
         >
           <Plus className="h-3.5 w-3.5" aria-hidden="true" /> {kind === "subagent" ? "New role" : "New agent"}
-        </button>
+        </Button>
         <div
           id="agents-tabpanel"
           role={showRoles ? "tabpanel" : undefined}
@@ -178,7 +181,7 @@ export const AgentsManager: React.FC = () => {
           {groups.map((group) => (
             <li key={group.key} data-testid={`agent-group-${group.key}`}>
               {kind === "agent" && (
-                <p id={`agent-group-${group.key}`} className="mb-1 px-0.5 text-[11px] font-semibold text-neutral-600 dark:text-neutral-300">
+                <p id={`agent-group-${group.key}`} className="mb-1 px-0.5 text-[12px] font-semibold text-neutral-600 dark:text-neutral-300">
                   {group.label}
                 </p>
               )}
@@ -195,11 +198,11 @@ export const AgentsManager: React.FC = () => {
                 <span className="flex items-center justify-between gap-1">
                   <span className={`truncate font-semibold text-foreground ${item.enabled ? "" : "line-through"}`}>{item.name}</span>
                   <span className="flex shrink-0 items-center gap-1">
-                    {item.built_in && <span className="rounded border border-border px-1 text-[9px]">Built-in</span>}
+                    {item.built_in && <Badge tone="neutral" shape="tag">Built-in</Badge>}
                     {item.kind === "agent" && <OwnerBadge owned={item} />}
                   </span>
                 </span>
-                <span className="mt-0.5 block truncate text-[10px] text-neutral-500">{item.description || item.role_title}</span>
+                <span className="mt-0.5 block truncate text-[11px] text-neutral-500">{item.description || item.role_title}</span>
               </button>
             </li>
           ))}

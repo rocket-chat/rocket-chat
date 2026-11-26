@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { API_URL } from "./support/env";
 
 test("an administrator adds a browser-capable sandbox and a member starts a session in it", async ({
   page,
@@ -36,29 +37,29 @@ test("an administrator adds a browser-capable sandbox and a member starts a sess
     await expect(page).toHaveURL(/\/chat\/(session_.+)/, { timeout: 15000 });
     const sessionId = page.url().split("/chat/")[1];
 
-    const session = await (await request.get(`http://localhost:8000/v1/sessions/${sessionId}`)).json();
+    const session = await (await request.get(`${API_URL}/v1/sessions/${sessionId}`)).json();
     expect(session.container_image).toBe("registry.example.com/team/browser-box:1");
     createdId = session.metadata.sandbox_id;
     expect(createdId).toMatch(/^sbx_/);
   } finally {
-    const listed = await (await request.get("http://localhost:8000/v1/sandboxes")).json();
+    const listed = await (await request.get(`${API_URL}/v1/sandboxes`)).json();
     for (const box of listed.sandboxes) {
-      if (box.name === name) await request.delete(`http://localhost:8000/v1/admin/sandboxes/${box.id}`);
+      if (box.name === name) await request.delete(`${API_URL}/v1/admin/sandboxes/${box.id}`);
     }
   }
 });
 
 test("the default sandbox cannot be removed", async ({ page, request }) => {
-  const listed = await (await request.get("http://localhost:8000/v1/sandboxes")).json();
+  const listed = await (await request.get(`${API_URL}/v1/sandboxes`)).json();
   const fallback = listed.sandboxes.find((box: { is_default: boolean }) => box.is_default);
-  const res = await request.delete(`http://localhost:8000/v1/admin/sandboxes/${fallback.id}`);
+  const res = await request.delete(`${API_URL}/v1/admin/sandboxes/${fallback.id}`);
   expect(res.status()).toBe(409);
   await page.goto("/settings/org/sandboxes");
   await expect(page.getByTestId("sandbox-row").first().getByTestId("sandbox-remove")).toHaveCount(0);
 });
 
 test("the default sandbox's image can be edited from the settings page", async ({ page, request }) => {
-  const listed = await (await request.get("http://localhost:8000/v1/sandboxes")).json();
+  const listed = await (await request.get(`${API_URL}/v1/sandboxes`)).json();
   const original = listed.sandboxes.find((box: { is_default: boolean }) => box.is_default);
   const description = `Edited ${Date.now()}`;
   const replacement = "registry.example.com/team/devbox:2";
@@ -76,7 +77,7 @@ test("the default sandbox's image can be edited from the settings page", async (
   await expect(row).toContainText("Default");
 
   // Leave the shared default as it was found.
-  const restored = await request.patch(`http://localhost:8000/v1/admin/sandboxes/${original.id}`, {
+  const restored = await request.patch(`${API_URL}/v1/admin/sandboxes/${original.id}`, {
     data: { image: original.image, description: original.description },
   });
   expect(restored.ok()).toBeTruthy();
@@ -111,9 +112,9 @@ test("an administrator sizes a sandbox type and sets how long idle workspaces ar
     await expect(row).toContainText("16Gi");
     await expect(row).toContainText("released after 2d");
   } finally {
-    const listed = await (await request.get("http://localhost:8000/v1/sandboxes")).json();
+    const listed = await (await request.get(`${API_URL}/v1/sandboxes`)).json();
     for (const box of listed.sandboxes) {
-      if (box.name === name) await request.delete(`http://localhost:8000/v1/admin/sandboxes/${box.id}`);
+      if (box.name === name) await request.delete(`${API_URL}/v1/admin/sandboxes/${box.id}`);
     }
   }
 });
@@ -146,16 +147,16 @@ test("a sandbox type's secret variable is write-only and kept when left blank", 
     await page.getByTestId("sandbox-save").click();
     await expect(row.getByTestId("sandbox-env-count")).toHaveText("2 variables");
 
-    const listed = await (await request.get("http://localhost:8000/v1/sandboxes")).json();
+    const listed = await (await request.get(`${API_URL}/v1/sandboxes`)).json();
     const box = listed.sandboxes.find((b: { name: string }) => b.name === name);
     expect(box.env).toEqual([
       { name: "GOPRIVATE", value: "github.com/acme/*", secret: false },
       { name: "NPM_TOKEN", value: null, secret: true },
     ]);
   } finally {
-    const listed = await (await request.get("http://localhost:8000/v1/sandboxes")).json();
+    const listed = await (await request.get(`${API_URL}/v1/sandboxes`)).json();
     for (const box of listed.sandboxes) {
-      if (box.name === name) await request.delete(`http://localhost:8000/v1/admin/sandboxes/${box.id}`);
+      if (box.name === name) await request.delete(`${API_URL}/v1/admin/sandboxes/${box.id}`);
     }
   }
 });

@@ -38,7 +38,7 @@ export const SessionLoadingScreen: React.FC<SessionLoadingScreenProps> = ({
       {/* Telemetry Status HUD */}
       <div className="flex flex-col items-center text-center max-w-sm space-y-3">
         {/* Pill Badge */}
-        <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 font-mono text-[11px] font-semibold text-primary uppercase tracking-wider shadow-sm">
+        <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 font-mono text-[12px] font-semibold text-primary uppercase tracking-wider shadow-sm">
           <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping" />
           <span>Connecting</span>
         </div>

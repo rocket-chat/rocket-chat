@@ -75,7 +75,7 @@ export const ToolExecutionCard: React.FC<ToolExecutionCardProps> = ({ toolCall, 
   return (
     <div className="space-y-2.5 text-sm">
       <div className="flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
-        <code className="rounded bg-surface-elevated px-1.5 py-0.5 font-mono text-[11px]">{toolCall.name}</code>
+        <code className="rounded bg-surface-elevated px-1.5 py-0.5 font-mono text-[12px]">{toolCall.name}</code>
         {toolCall.duration_ms !== undefined && <span>{toolCall.duration_ms} ms</span>}
         {toolCall.exit_code !== undefined && toolCall.exit_code !== 0 && <span>exit {toolCall.exit_code}</span>}
       </div>
