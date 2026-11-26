@@ -19,6 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `helm`:
 
 ### Changed
+
+### Fixed
+
+### Security
+
+## [0.11.2] - 2026-11-26
+
+### Added
+
+### Changed
 - `web`: every skill and every MCP server in **Settings** starts closed; you open the ones you want. In **Import from source**, a repository with several plugins shows every group closed (ticking a group still takes all its skills); one with a single group shows its skills at once.
 
 ### Fixed
