@@ -404,10 +404,11 @@ class _SlackCallbacks:
     async def hold_message(
         self, *, session_id: str, prompt: str, author_user_id: str, message_id: str
     ) -> bool:
-        """Keep a Slack message sent while a turn of its session runs, as the web app does.
+        """Hand a Slack message sent while a turn of its session runs to that turn (steering).
 
-        It is queued for after that turn (durably, so no restart or replica loses it), and the
-        turn that takes it reaches the thread through the bot's delivery.
+        It is stored durably first, so no restart or replica loses it; the running turn takes
+        it at its next step and answers once, in the thread it already shows. One that arrives
+        as the turn ends is started as the next turn, which the bot's delivery shows.
         """
         core = self._core
         record = await core.session_store.get_session(session_id, include_history=False)
@@ -421,7 +422,7 @@ class _SlackCallbacks:
             org_id=record.tenant_org_id,
             session_id=session_id,
             prompt=prompt,
-            delivery="queue",
+            delivery="steer",
             message_id=message_id,
             author_user_id=author_user_id,
         )

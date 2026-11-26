@@ -308,6 +308,35 @@ class TurnTraceStore:
                 for row in result.all()
             ]
 
+    async def awaiting_resume(
+        self,
+        session_id: str,
+        tenant_org_id: str,
+        *,
+        max_attempts: int,
+        interrupted_after: int,
+        error: str,
+    ) -> bool:
+        """Whether the session's latest turn was cut off by a dead process and may still be
+        resumed: the same conditions as ``claim_resumable``, read for one session. A turn
+        already claimed counts, until the resumed turn exists and takes its place."""
+        async with self.manager.session(tenant_org_id=tenant_org_id) as session:
+            result = await session.execute(
+                select(TurnTraceModel)
+                .where(TurnTraceModel.session_id == session_id)
+                .order_by(TurnTraceModel.started_at.desc())
+                .limit(1)
+            )
+            latest = result.scalars().first()
+        return (
+            latest is not None
+            and latest.status == TURN_STATUS_INTERRUPTED
+            and latest.error == error
+            and latest.resume_attempt < max_attempts
+            and (latest.ended_at or 0) >= interrupted_after
+            and latest.pending_decision is None
+        )
+
     async def active_running_sessions(self) -> set[str]:
         """Return the set of session IDs that currently have a turn in RUNNING status."""
         async with self.manager.session() as session:

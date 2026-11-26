@@ -23,7 +23,8 @@ from api.turns.shared import _background_tasks
 from specifications.interfaces.agent import (
     TurnOverlay,
 )
-from specifications.interfaces.events import EventBusProtocol
+from specifications.interfaces.events import EventBusProtocol, EventType, SessionEvent
+from specifications.interfaces.llm import ChatMessage
 from specifications.interfaces.sandbox import (
     SandboxDriverProtocol,
 )
@@ -199,10 +200,11 @@ async def start_queued_turns(app: FastAPI, org_id: str, session_id: str) -> int:
     store = QueuedMessageStore(getattr(app.state, "db_manager", None))
     token = current_tenant_org_id.set(org_id)
     try:
-        claimed = await store.claim_for_next_turn(org_id, session_id)
+        claimed = await store.claim_merged_turns(org_id, session_id, app.state.event_bus)
     finally:
         current_tenant_org_id.reset(token)
-    for message in claimed:
+    for group in claimed:
+        message = group.message
         await start_turn_on_session(
             app,
             org_id,
@@ -231,13 +233,62 @@ async def _resume_instruction(app: FastAPI, turn: ResumableTurn) -> str:
         return RESUME_NOTICE
 
 
+SENT_DURING_INTERRUPTION_NOTICE = (
+    "While the work was interrupted the person sent the message(s) that end the conversation. "
+    "Take them into account together with the original task."
+)
+
+
+async def _take_messages_sent_during_interruption(app: FastAPI, turn: ResumableTurn) -> bool:
+    """Put what the person sent while the turn waited to be resumed into the conversation.
+
+    They follow the interrupted work in the history, in the order the model will read them, and
+    cockpits show them as sent; the resumed turn then answers them with the task.
+    """
+    state = app.state
+    token = current_tenant_org_id.set(turn.org_id)
+    try:
+        claimed = await QueuedMessageStore(getattr(state, "db_manager", None)).claim_merged_turns(
+            turn.org_id, turn.session_id, state.event_bus
+        )
+        for group in claimed:
+            message = ChatMessage(
+                role="user",
+                content=group.message.content,
+                author_user_id=group.message.author_user_id,
+            )
+            await state.session_store.mutate_session(
+                turn.session_id,
+                turn.org_id,
+                lambda record, message=message: record.conversation_history.append(message),
+            )
+            await state.event_bus.publish(
+                SessionEvent(
+                    session_id=turn.session_id,
+                    event_type=EventType.USER_MESSAGE,
+                    payload={
+                        "message_id": group.message.id,
+                        "role": "user",
+                        "content": group.message.content,
+                        "author_user_id": group.message.author_user_id,
+                    },
+                )
+            )
+    finally:
+        current_tenant_org_id.reset(token)
+    return bool(claimed)
+
+
 async def resume_claimed_turn(app: FastAPI, turn: ResumableTurn) -> None:
     """Start the follow-up turn for an interrupted turn this replica has claimed."""
+    instruction = await _resume_instruction(app, turn)
+    if await _take_messages_sent_during_interruption(app, turn):
+        instruction = f"{instruction}\n\n{SENT_DURING_INTERRUPTION_NOTICE}"
     await start_turn_on_session(
         app,
         turn.org_id,
         turn.session_id,
-        await _resume_instruction(app, turn),
+        instruction,
         resume_attempt=turn.resume_attempt + 1,
         synthetic_prompt=True,
     )

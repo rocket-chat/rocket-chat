@@ -14,7 +14,7 @@ This package implements the Slack Assistant integration for the Rocket Chat plat
 3. **Interactive Block Kit:**
    - Syntax-highlighted code diff formatting with size limit guardrails.
    - Decision gates with interactive `[Approve & Push]` and `[Reject]` action buttons.
-4. **Every turn reaches its thread (`delivery.py`):** one watcher per Slack session renders each turn of that session in its thread, including turns no Slack message started (CI and review wakes, goal continuations, GitHub-started turns, restart resumes, messages sent from the web app). A message sent while a turn runs is queued durably and answered "Queued — I'll take this next.".
+4. **Every turn reaches its thread (`delivery.py`):** one watcher per Slack session renders each turn of that session in its thread, including turns no Slack message started (CI and review wakes, goal continuations, GitHub-started turns, restart resumes, messages sent from the web app). A message sent while a turn runs (or is about to be resumed after a restart) steers it: stored durably, taken by the turn at its next step, with no reply posted; an edit of the request being worked on steers it too (`revisits.edit_notice`).
 5. **Thread-to-Session 1:1 Mapping:**
    - Mapped 1:1 to Docker sandbox volumes (`sandbox_vol_slack_<channel>_<ts>`).
    - Automatic container hibernation for inactive threads while preserving volume state.

@@ -19,6 +19,7 @@ from agent_core.tools.registry import ToolRegistry
 from api.db.session import DatabaseSessionManager, current_tenant_org_id
 from api.db.store import PostgresSessionStore, ResumableTurn, TurnTraceStore
 from api.events import AsyncIOEventBus
+from api.services.queued_messages import QueuedMessageStore, hold_for_running_turn
 from api.services.settings import save_org_config
 from api.services.turn_resume import RESUME_NOTICE, resume_interrupted_turns
 from api.services.turn_trace import (
@@ -28,6 +29,7 @@ from api.services.turn_trace import (
     recover_interrupted_turns,
 )
 from api.turns.runner import execute_turn_background
+from api.turns.tasks import resume_claimed_turn
 from sandbox_driver.fake_driver import FakeSandboxDriver
 from sqlalchemy import text
 
@@ -290,3 +292,98 @@ async def test_the_saved_work_of_interrupted_turns_reaches_the_session_and_frees
     assert record.is_processing is False
     assert [m.role for m in record.conversation_history] == ["assistant", "system"]
     assert (record.conversation_history[0].tool_calls or [])[0]["id"] == "c1"
+
+
+class _IdleOrchestrator:
+    """No turn runs in this process: what a replica sees right after a restart."""
+
+    def is_running(self, session_id: str) -> bool:
+        return False
+
+    def steer(self, session_id: str, message: Any) -> bool:
+        return False
+
+
+async def _send_follow_up(
+    tenant: _Tenant, app_db: DatabaseSessionManager, text_: str = "you can continue"
+) -> bool:
+    """A follow-up as Slack and the web app send it: held when a turn runs or will resume."""
+    return await hold_for_running_turn(
+        session_store=tenant.store,
+        orchestrator=_IdleOrchestrator(),
+        event_bus=AsyncIOEventBus(),
+        db_mgr=app_db,
+        org_id=tenant.org_id,
+        session_id=tenant.session_id,
+        prompt=text_,
+        delivery="steer",
+        message_id=f"m-{uuid.uuid4().hex[:8]}",
+        author_user_id=tenant.user_id,
+    )
+
+
+async def test_a_follow_up_to_a_turn_awaiting_resume_is_held_for_the_resumed_turn(
+    tenant: _Tenant, app_db: DatabaseSessionManager, admin_db: DatabaseSessionManager
+) -> None:
+    await tenant.interrupted_turn(admin_db)
+
+    assert await _send_follow_up(tenant, app_db), "held: the resume will take it"
+    pending = await QueuedMessageStore(app_db).pending(tenant.org_id, tenant.session_id)
+    assert [m.content for m in pending] == ["you can continue"]
+
+
+async def test_a_follow_up_to_a_finished_turn_starts_a_new_turn(
+    tenant: _Tenant, app_db: DatabaseSessionManager
+) -> None:
+    done = TurnTraceAccumulator(session_id=tenant.session_id, org_id=tenant.org_id, turn_index=1)
+    await begin_turn_trace(app_db, done)
+    await TurnTraceStore(app_db).complete(done.finish(status="completed"))
+
+    assert not await _send_follow_up(tenant, app_db), "not held: the caller starts a turn"
+    assert await QueuedMessageStore(app_db).pending(tenant.org_id, tenant.session_id) == []
+
+
+async def test_a_turn_that_will_not_be_resumed_does_not_hold_the_follow_up(
+    tenant: _Tenant, app_db: DatabaseSessionManager, admin_db: DatabaseSessionManager
+) -> None:
+    await tenant.interrupted_turn(admin_db, resume_attempt=2)  # attempts used up
+
+    assert not await _send_follow_up(tenant, app_db)
+
+
+async def test_the_resumed_turn_takes_what_was_sent_while_it_waited(
+    tenant: _Tenant, app_db: DatabaseSessionManager, admin_db: DatabaseSessionManager
+) -> None:
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    token = current_tenant_org_id.set(tenant.org_id)
+    try:
+        await tenant.interrupted_turn(admin_db)
+        await _send_follow_up(tenant, app_db, "you can continue")
+        await _send_follow_up(tenant, app_db, "run it again please")
+        app = SimpleNamespace(
+            state=SimpleNamespace(
+                db_manager=app_db, session_store=tenant.store, event_bus=AsyncIOEventBus()
+            )
+        )
+        started: list[str] = []
+
+        async def start(_app: Any, _org: str, _session: str, prompt: str, **_: Any) -> bool:
+            started.append(prompt)
+            return True
+
+        turn = ResumableTurn(
+            trace_id="t", session_id=tenant.session_id, org_id=tenant.org_id, resume_attempt=0
+        )
+        with patch("api.turns.tasks.start_turn_on_session", start):
+            await resume_claimed_turn(app, turn)  # type: ignore[arg-type]
+        history = (await tenant.store.get_session(tenant.session_id)).conversation_history  # type: ignore[union-attr]
+    finally:
+        current_tenant_org_id.reset(token)
+
+    assert [m.content for m in history if m.role == "user"] == [
+        "you can continue\n\nrun it again please"
+    ]
+    assert len(started) == 1 and "sent the message" in started[0]
+    assert await QueuedMessageStore(app_db).pending(tenant.org_id, tenant.session_id) == []

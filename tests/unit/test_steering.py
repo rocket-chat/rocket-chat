@@ -136,3 +136,40 @@ async def test_a_message_queued_during_a_turn_runs_after_it_not_inside_it(
             break
         await asyncio.sleep(0.01)
     assert users == ["Fix the bug", "Then update the changelog"], "the next turn ran it"
+
+
+async def test_several_messages_queued_during_a_turn_run_as_one_turn_with_one_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from api.services.queued_messages import QueuedMessageStore
+
+    org = "org_queued_merged"
+    session_id = f"session_{org}"
+    original_stream = ScriptedModel.chat_stream
+
+    async def stream(self: ScriptedModel, request: Any) -> AsyncIterator[StreamChunk]:
+        if request.tools and sum(1 for r in self.requests if r.tools) == 1:
+            store = QueuedMessageStore(None)
+            for message_id, text in (("m1", "you can continue"), ("m2", "run it again please")):
+                await store.add(org, session_id, message_id, text, "queue", "u1")
+        async for chunk in original_stream(self, request):
+            yield chunk
+
+    monkeypatch.setattr(ScriptedModel, "chat_stream", stream)
+
+    outcome = await run_turn(org, prompt="Fix the bug", script=[("list_dir", {"path": "."})])
+
+    expected = ["Fix the bug", "you can continue\n\nrun it again please"]
+
+    def roles() -> list[str]:
+        return [m.role for m in outcome.session.conversation_history]
+
+    for _ in range(300):
+        if roles() == ["user", "assistant", "user", "assistant"]:
+            break
+        await asyncio.sleep(0.01)
+    await asyncio.sleep(0.2)  # a separate turn for the second message would have run by now
+    users = [m.content for m in outcome.session.conversation_history if m.role == "user"]
+    assert users == expected, "one next turn for both messages"
+    assert roles() == ["user", "assistant", "user", "assistant"], "one answer to the merged message"
+    assert len([r for r in outcome.model.requests if r.tools]) == 3, "2 steps, then 1 step"

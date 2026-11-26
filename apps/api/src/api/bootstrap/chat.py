@@ -113,7 +113,7 @@ class _Callbacks:
             org_id=self.org_id,
             session_id=session_id,
             prompt=prompt,
-            delivery="queue",
+            delivery="steer",
             message_id=message_id,
             author_user_id=author_user_id,
         )

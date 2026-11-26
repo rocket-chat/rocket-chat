@@ -34,6 +34,8 @@ IDLE_CLOSE_SECONDS = 600.0
 # The runner returns right after publishing a turn's closing event; its watcher may still be
 # rendering it.
 FINAL_GRACE_SECONDS = 5.0
+# The loader's text while the running turn has the message and has not reached it yet.
+STEERED_STATUS = "Got your message, taking it into account..."
 
 
 @dataclass
@@ -84,10 +86,12 @@ class SlackDeliveryMixin(SlackTurnStreamMixin):
     # -- a turn a Slack request starts -------------------------------------------------------
 
     async def _hold_if_busy(self, view: TurnView, prompt: str, author_user_id: str) -> bool:
-        """Queue a message sent while its session works; whether it was (and the person told).
+        """Hand a message sent while its session works to the running turn; whether it was.
 
-        It runs as the session's next turn, which the session's watcher shows like any other:
-        no second request waits on the session, and a restart loses nothing.
+        The turn takes it at its next step, so the thread gets one answer that already accounts
+        for it. It is stored first (a restart or another replica loses nothing); a turn that
+        ends before taking it starts it as the next one. Nothing is posted: the loader says the
+        message arrived, and the running turn's own progress carries on from there.
         """
         if self._hold_message_fn is None:
             return False
@@ -99,13 +103,11 @@ class SlackDeliveryMixin(SlackTurnStreamMixin):
                 message_id=view.message_id,
             )
         except Exception as err:
-            logger.warning("Could not queue a Slack message for %s: %s", view.session_id, err)
+            logger.warning("Could not hand a Slack message to %s: %s", view.session_id, err)
             return False
-        if not held:
-            return False
-        await self._safely_update_status(view.status_fn, "")
-        await view.say_fn(text="Queued — I'll take this next.", thread_ts=view.thread_ts)
-        return True
+        if held:
+            await self._safely_update_status(view.status_fn, STEERED_STATUS)
+        return held
 
     async def _run_shared_turn(
         self,

@@ -596,7 +596,7 @@ def _running_request(text: str) -> tuple[Any, _Orchestrator, str]:
     return assistant, orchestrator, session_id
 
 
-async def test_editing_the_request_of_a_running_turn_runs_it_again() -> None:
+async def test_editing_a_request_hands_the_old_text_on_and_stops_nothing() -> None:
     assistant, orchestrator, session_id = _running_request("do it")
     await assistant._on_message_changed(
         {
@@ -605,10 +605,19 @@ async def test_editing_the_request_of_a_running_turn_runs_it_again() -> None:
             "previous_message": {"ts": "1.0", "user": "U1", "text": "do it"},
         }
     )
-    assert orchestrator.cancelled == [session_id]
-    assert "edited" in assistant._stop_notices[session_id]
+    assert orchestrator.cancelled == []
+    assert session_id not in assistant._stop_notices
     assistant.process_incoming_request.assert_awaited_once()
-    assert assistant.process_incoming_request.await_args.kwargs["raw_text"] == "do it now"
+    kwargs = assistant.process_incoming_request.await_args.kwargs
+    assert kwargs["raw_text"] == "do it now" and kwargs["edited_from"] == "do it"
+
+
+def test_the_edit_notice_bounds_the_old_text() -> None:
+    from slack_assistant.revisits import EDIT_NOTICE_PREVIOUS_CHARS, edit_notice
+
+    notice = edit_notice("new", "x" * 50_000)
+    assert "New text: new" in notice
+    assert len(notice) < EDIT_NOTICE_PREVIOUS_CHARS + 400
 
 
 @pytest.mark.parametrize(

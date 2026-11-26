@@ -149,7 +149,7 @@ class Stack:
 
 
 def _queue_in(stack: Stack) -> Any:
-    """The platform's hold for messages sent while a turn runs, on the stack's stores."""
+    """The platform's hold for messages sent while a turn runs (steering), on the stack's stores."""
     from api.services.queued_messages import hold_for_running_turn
 
     async def hold(*, session_id: str, prompt: str, author_user_id: str, message_id: str) -> bool:
@@ -163,7 +163,7 @@ def _queue_in(stack: Stack) -> Any:
             org_id=record.tenant_org_id,
             session_id=session_id,
             prompt=prompt,
-            delivery="queue",
+            delivery="steer",
             message_id=message_id,
             author_user_id=author_user_id,
         )
@@ -441,21 +441,61 @@ async def test_an_agent_allowlist_does_not_take_back_a_linked_members_tools() ->
 
 
 @pytest.mark.asyncio
-async def test_a_message_sent_while_a_turn_runs_is_queued_and_runs_next() -> None:
-    model = ScriptedModel()
+async def test_a_message_sent_while_a_turn_runs_steers_it_and_gets_no_notice() -> None:
+    """The running turn takes the message at its next step: one answer, no second turn, and
+    nothing posted that the person would have to make sense of."""
+    model = ScriptedModel(script=[("no_such_tool", {})])
     model.gate = asyncio.Event()
     stack = Stack(model)
 
     stack.assistant._hold_message_fn = _queue_in(stack)
     first = stack.send("<@UBOT> first")
     await asyncio.wait_for(model.started.wait(), 5)
-    await asyncio.wait_for(stack.send("<@UBOT> second"), 5)  # answered at once: queued
+    await asyncio.wait_for(stack.send("<@UBOT> second"), 5)
 
-    assert "Queued" in stack.posted()
+    assert "Queued" not in stack.posted()
     assert len(model.agent_requests()) == 1
     model.gate.set()
     await asyncio.wait_for(first, 10)
-    await _wait_for(lambda: len(model.agent_requests()) == 2, 10)
+
+    steps = model.agent_requests()
+    assert len(steps) == 2, "one turn, two steps: no turn of its own for the second message"
+    assert "second" in json.dumps([m.content for m in steps[1].messages])
+
+
+@pytest.mark.asyncio
+async def test_an_edit_of_the_request_being_worked_on_steers_the_turn_instead_of_stopping_it() -> (
+    None
+):
+    model = ScriptedModel(script=[("no_such_tool", {})])
+    model.gate = asyncio.Event()
+    stack = Stack(model)
+
+    stack.assistant._hold_message_fn = _queue_in(stack)
+    first = stack.send("<@UBOT> look at the login bug")
+    await asyncio.wait_for(model.started.wait(), 5)
+    await asyncio.wait_for(
+        stack.assistant.process_incoming_request(
+            channel_id=THREAD[0],
+            thread_ts=THREAD[1],
+            raw_text="<@UBOT> look at the login bug #SR-1",
+            say_fn=stack.say,
+            user_id="U1",
+            channel_type="channel",
+            team_id="T1",
+            message_ts=THREAD[1],
+            edited_from="<@UBOT> look at the login bug",
+        ),
+        5,
+    )
+    model.gate.set()
+    await asyncio.wait_for(first, 10)
+
+    steps = model.agent_requests()
+    assert len(steps) == 2, "the turn kept going: nothing was cancelled or started again"
+    notice = json.dumps([m.content for m in steps[1].messages])
+    assert "edited the request" in notice and "#SR-1" in notice
+    assert "Stopped" not in stack.posted() and "Queued" not in stack.posted()
 
 
 @pytest.mark.asyncio

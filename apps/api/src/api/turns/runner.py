@@ -842,7 +842,7 @@ class TurnRunner:
             await self._start_queued_turns()
 
     async def _start_queued_turns(self) -> None:
-        """Run what was sent during this turn and not taken by it: one turn each, in order.
+        """Run what was sent during this turn and not taken by it, as one turn per author run.
 
         Read from the store, not the orchestrator's memory, so a message that reached another
         replica, or was sent just as the turn ended, is not lost.
@@ -851,13 +851,16 @@ class TurnRunner:
         if org is None:
             return
         try:
-            claimed = await QueuedMessageStore(req.db_mgr).claim_for_next_turn(org, req.session_id)
+            claimed = await QueuedMessageStore(req.db_mgr).claim_merged_turns(
+                org, req.session_id, req.event_bus
+            )
         except Exception:
             logger.exception("Could not read the messages queued on %s", req.session_id)
             return
         from api.turns.tasks import _spawn_background_turn
 
-        for message in claimed:
+        for group in claimed:
+            message = group.message
             _spawn_background_turn(
                 session_id=req.session_id,
                 prompt=message.content,

@@ -49,6 +49,32 @@ async def _org_allows_resume(db_manager: DatabaseSessionManager, org_id: str) ->
     return bool(settings.get("auto_resume_turns", True))
 
 
+async def awaiting_resume(
+    db_manager: DatabaseSessionManager | None, org_id: str, session_id: str
+) -> bool:
+    """Whether the session's last turn is waiting to be resumed after a restart.
+
+    A message sent now belongs to that work: the resumed turn takes it (``resume_claimed_turn``),
+    so it is held instead of starting a turn that would take the resume's place.
+    """
+    attempts = auto_resume_attempts()
+    if db_manager is None or attempts < 1:
+        return False
+    try:
+        return await _org_allows_resume(db_manager, org_id) and await TurnTraceStore(
+            db_manager
+        ).awaiting_resume(
+            session_id,
+            org_id,
+            max_attempts=attempts,
+            interrupted_after=int(time.time()) - RESUME_WINDOW_SECONDS,
+            error=INTERRUPTED_TURN_ERROR,
+        )
+    except Exception:
+        logger.exception("Could not tell whether %s awaits a resume", session_id)
+        return False
+
+
 async def resume_interrupted_turns(
     admin_manager: DatabaseSessionManager | None,
     app_manager: DatabaseSessionManager | None,

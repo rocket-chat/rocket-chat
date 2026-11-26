@@ -134,3 +134,41 @@ def test_a_read_only_member_cannot_withdraw_a_message() -> None:
         reader = {**_headers(), "X-User-Role": "readonly"}
         reply = client.delete(f"/v1/sessions/{session_id}/queued-messages/x", headers=reader)
         assert reply.status_code in (403, 404)
+
+
+class _Bus:
+    def __init__(self) -> None:
+        self.events: list[Any] = []
+
+    async def publish(self, event: Any) -> None:
+        self.events.append(event)
+
+
+async def test_messages_of_one_person_become_one_turn_and_their_pending_entries_are_withdrawn() -> (
+    None
+):
+    store, bus = QueuedMessageStore(None), _Bus()
+    for message_id in ("m1", "m2", "m3"):
+        await _send(store, message_id)
+
+    merged = await store.claim_merged_turns(ORG, SESSION, bus)
+
+    assert len(merged) == 1
+    assert merged[0].message.id == "m1"
+    assert merged[0].message.content == "text m1\n\ntext m2\n\ntext m3"
+    assert [e.payload["message_id"] for e in bus.events] == ["m2", "m3"]
+    assert {e.event_type.value for e in bus.events} == {"message_cancelled"}
+
+
+async def test_a_different_author_keeps_a_turn_of_their_own_so_nobody_is_misattributed() -> None:
+    store, bus = QueuedMessageStore(None), _Bus()
+    await store.add(ORG, SESSION, "m1", "a1", "queue", "alice")
+    await store.add(ORG, SESSION, "m2", "b1", "queue", "bob")
+    await store.add(ORG, SESSION, "m3", "b2", "queue", "bob")
+
+    merged = await store.claim_merged_turns(ORG, SESSION, bus)
+
+    assert [(g.message.author_user_id, g.message.content) for g in merged] == [
+        ("alice", "a1"),
+        ("bob", "b1\n\nb2"),
+    ]

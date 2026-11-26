@@ -73,7 +73,12 @@ from slack_assistant.private_threads import (
 from slack_assistant.pull_requests import SlackPullRequestMixin
 from slack_assistant.ratelimit import BoundedRateLimiter
 from slack_assistant.refusals import failure_notice
-from slack_assistant.revisits import LAST_REQUEST_KEY, SlackRevisitsMixin, remember_request
+from slack_assistant.revisits import (
+    LAST_REQUEST_KEY,
+    SlackRevisitsMixin,
+    edit_notice,
+    remember_request,
+)
 from slack_assistant.routing import ROUTE_KEY, Routing, SlackRoutingMixin
 from slack_assistant.shortcuts import Shortcuts, clean_mention_text, parse_shortcuts
 from slack_assistant.state import (
@@ -130,6 +135,8 @@ class _Admitted:
     # What the message asked for with shortcuts (``!deep``, ``!repo``...).
     shortcuts: Shortcuts | None = None
     message_ts: str = ""
+    # The text before an edit; set only when this request is an edit of an earlier one.
+    edited_from: str | None = None
 
     @property
     def runs_as_member(self) -> bool:
@@ -758,12 +765,14 @@ class SlackAssistant(
         message_ts: str | None = None,
         session_thread_ts: str | None = None,
         private_thread: PrivateThread | None = None,
+        edited_from: str | None = None,
     ) -> None:
         """Admit one Slack message, route it, run it through the shared turn pipeline, render
         the result. ``session_thread_ts`` names the session's thread when the reply goes to
         another one (a direct message continuing the last conversation). ``private_thread``
         is the requester's DM thread a message was written in: it continues the private
-        session of ``channel_id``'s thread, and is shown there.
+        session of ``channel_id``'s thread, and is shown there. ``edited_from`` is the previous text when the message is an edit of an
+        earlier request: a turn already working on it is told what changed instead of stopped.
 
         Admission (channel policy, quota, rate limits), routing and rendering (spinners, Block
         Kit, chunked replies) are Slack's. The turn itself - persona, model routing, tools,
@@ -784,7 +793,7 @@ class SlackAssistant(
         )
         if admitted is None:
             return
-        admitted = replace(admitted, message_ts=message_ts or "")
+        admitted = replace(admitted, message_ts=message_ts or "", edited_from=edited_from)
         await self._safely_update_status(status_fn, "Analyzing request...")
         routing = await self._route_request(
             org_id=admitted.workspace_org,
@@ -1048,8 +1057,13 @@ class SlackAssistant(
         """Run the turn, its steps streamed into its reply, then post the result."""
         session_id = view.session_id
         view.org_id = admitted.session_org_id
+        held_prompt = (
+            admitted.prompt
+            if admitted.edited_from is None
+            else edit_notice(admitted.prompt, admitted.edited_from)
+        )
         if not overlay.attachments and await self._hold_if_busy(
-            view, admitted.prompt, admitted.rocket_user_id
+            view, held_prompt, admitted.rocket_user_id
         ):
             return
         if self.handler is not None:
