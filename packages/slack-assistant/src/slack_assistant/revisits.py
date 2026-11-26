@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 # deletions of it.
 LAST_REQUEST_KEY = "slack_last_request"
 LAST_REQUEST_CHARS = 4000
+# The old text in an edit notice is only there to show what changed.
+EDIT_NOTICE_PREVIOUS_CHARS = 1000
 # Direct-message conversations remembered for continuation (channel and person -> thread).
 MAX_DM_THREADS = 5000
 
@@ -72,7 +74,11 @@ class SlackRevisitsMixin(SlackAssistantState):
     # -- edited and deleted requests --------------------------------------------------------
 
     async def _on_message_changed(self, event: dict[str, Any]) -> None:
-        """An edited request runs again with its new text (a running turn is stopped first).
+        """An edited request reaches the turn working on it as steering, else runs again.
+
+        A running turn keeps the work it did and is told what changed (``edit_notice``);
+        stopping it would discard work that an added ticket number or a fixed typo leaves valid.
+        Without a running turn, the new text runs as a new request.
 
         Slack also sends ``message_changed`` when the text did not change: a link unfurled,
         a reply updating a thread root's reply count, file metadata. Only a new text is an
@@ -88,11 +94,8 @@ class SlackRevisitsMixin(SlackAssistantState):
         found = await self._session_of_request(event, message, ts)
         if found is None:
             return
-        session_id, channel_id, thread_ts = found
+        _, channel_id, thread_ts = found
         user_id = str(message["user"])
-        if session_id in self._active_turns:
-            self._stop_notices[session_id] = "⏹️ Stopped: the request was edited; running it again."
-            await self.orchestrator.cancel_turn(session_id)
         await self.process_incoming_request(
             channel_id=channel_id,
             thread_ts=thread_ts,
@@ -102,6 +105,7 @@ class SlackRevisitsMixin(SlackAssistantState):
             channel_type=event.get("channel_type"),
             team_id=str(event.get("team") or message.get("team") or "") or None,
             message_ts=ts,
+            edited_from=str(previous.get("text") or ""),
         )
 
     async def _on_message_deleted(self, event: dict[str, Any]) -> None:
@@ -177,6 +181,17 @@ class SlackRevisitsMixin(SlackAssistantState):
             return await client.chat_postMessage(channel=channel_id, **kwargs)
 
         return say
+
+
+def edit_notice(new_prompt: str, previous_text: str) -> str:
+    """What a running turn is told when the request it works on is edited."""
+    before = previous_text[:EDIT_NOTICE_PREVIOUS_CHARS]
+    return (
+        "[The person edited the request you are working on. Keep the work that is still valid "
+        "and follow the new text.]\n"
+        f"Previous text: {before}\n"
+        f"New text: {new_prompt}"
+    )
 
 
 def remember_request(text: str, ts: str) -> dict[str, str]:

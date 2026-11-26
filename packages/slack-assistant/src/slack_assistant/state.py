@@ -161,6 +161,7 @@ class SlackAssistantState:
         message_ts: str | None = None,
         session_thread_ts: str | None = None,
         private_thread: PrivateThread | None = None,
+        edited_from: str | None = None,
     ) -> None:
         raise NotImplementedError
 

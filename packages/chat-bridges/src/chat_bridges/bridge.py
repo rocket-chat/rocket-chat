@@ -135,9 +135,6 @@ class ChatBridge:
             author_user_id=owner,
             message_id=f"chat-{message.message_id}",
         ):
-            await self.platform.reply(
-                message.conversation_id, message.thread_id, "Queued: I'll take this next."
-            )
             return
         await self._run(message, session_id, prompt, owner)
 
